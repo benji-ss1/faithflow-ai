@@ -6,8 +6,9 @@
  *     meter path the Mic Board uses. Never calls startCapture, so it can't touch
  *     the live Deepgram pipeline.
  *   • Browser: a throwaway getUserMedia analyser with all voice processing OFF.
- * If the native probe is refused (e.g. AI listening already holds the input) the
- * error is surfaced so Sarah can ask the operator to stop listening first.
+ *
+ * Every start bumps a generation counter: a late-resolving probe from a device the
+ * operator has already moved on from is torn down instead of feeding stale levels.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { classifyInput, type InputClassification } from "@/lib/audio/deviceClassifier";
@@ -36,6 +37,15 @@ function nativeApi(): NativeApi | null {
   const w = globalThis as unknown as { electronAPI?: { audio?: { native?: NativeApi } } };
   const n = w.electronAPI?.audio?.native;
   return n && typeof n.startChannelProbe === "function" ? n : null;
+}
+
+/** Turn a raw probe/permission error into something a volunteer can act on. */
+export function friendlyProbeError(raw?: string): string {
+  const e = (raw ?? "").toLowerCase();
+  if (/busy|in use|already|unavailable|-10851|exclusive/.test(e)) return "Something else is already using this input. If AI listening is on in the operator screen, stop it and try again.";
+  if (/permission|denied|notallowed/.test(e)) return "PresentFlow isn't allowed to use the microphone yet. On a Mac: System Settings → Privacy & Security → Microphone, switch PresentFlow on, then try again.";
+  if (/not ?found|no such|missing|notfound/.test(e)) return "That input has disappeared — check the cable, then tap “Look again”.";
+  return "I couldn't open that input. Check it's plugged in and not in use by another app, then try again.";
 }
 
 export async function listSetupDevices(): Promise<SetupDevice[]> {
@@ -71,6 +81,7 @@ export function useLevelFeed() {
   const framesRef = useRef<{ db: number; peak: number }[]>([]);
   const stopRef = useRef<(() => void) | null>(null);
   const channelsRef = useRef<number[] | null>(null);
+  const genRef = useRef(0);
 
   const push = useCallback((ls: ChannelLevel[]) => {
     for (const l of ls) {
@@ -89,38 +100,47 @@ export function useLevelFeed() {
   }, []);
 
   const stop = useCallback(async () => {
+    genRef.current += 1;
     const fn = stopRef.current; stopRef.current = null;
     if (fn) { try { fn(); } catch { /* noop */ } }
     setRunning(false);
+    setLevels([]);
   }, []);
 
-  const start = useCallback(async (device: SetupDevice) => {
+  const start = useCallback(async (device: SetupDevice): Promise<{ ok: boolean; error?: string }> => {
     await stop();
+    const gen = genRef.current;
     setError(null);
     historyRef.current = new Map(); framesRef.current = [];
     if (device.source === "native") {
       const n = nativeApi();
-      if (!n || device.index == null) { setError("This input isn't available in this window."); return false; }
-      const off = n.onChannelLevels(push);
-      const res = await n.startChannelProbe({ deviceIndex: device.index, channelCount: Math.min(64, device.channelCount) });
+      if (!n || device.index == null) { const m = "This input isn't available in this window."; setError(m); return { ok: false, error: m }; }
+      const off = n.onChannelLevels((ls) => { if (genRef.current === gen) push(ls); });
+      let res: { ok: boolean; error?: string };
+      try { res = await n.startChannelProbe({ deviceIndex: device.index, channelCount: Math.min(64, device.channelCount) }); }
+      catch (e) { res = { ok: false, error: (e as Error)?.message }; }
+      if (genRef.current !== gen) { off(); void n.stopChannelProbe(); return { ok: false, error: "superseded" }; }
       if (!res.ok) {
         off();
-        setError(res.error || "PresentFlow couldn't open this input. If AI listening is on, stop it first, then try again.");
-        return false;
+        const m = friendlyProbeError(res.error);
+        setError(m);
+        return { ok: false, error: m };
       }
       stopRef.current = () => { off(); void n.stopChannelProbe(); };
       setRunning(true);
-      return true;
+      return { ok: true };
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: device.deviceId ? { exact: device.deviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
+      if (genRef.current !== gen) { stream.getTracks().forEach((t) => t.stop()); return { ok: false, error: "superseded" }; }
       const ctx = new AudioContext();
       const src = ctx.createMediaStreamSource(stream);
       const an = ctx.createAnalyser(); an.fftSize = 2048; src.connect(an);
       const buf = new Float32Array(an.fftSize);
       const iv = setInterval(() => {
+        if (genRef.current !== gen) return;
         an.getFloatTimeDomainData(buf);
         let sum = 0, peak = 0;
         for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i]); sum += v * v; if (v > peak) peak = v; }
@@ -129,10 +149,11 @@ export function useLevelFeed() {
       }, 100);
       stopRef.current = () => { clearInterval(iv); stream.getTracks().forEach((t) => t.stop()); void ctx.close(); };
       setRunning(true);
-      return true;
-    } catch {
-      setError("Microphone access was blocked. Allow microphone access for PresentFlow, then try again.");
-      return false;
+      return { ok: true };
+    } catch (e) {
+      const m = friendlyProbeError((e as Error)?.name === "NotAllowedError" ? "permission" : (e as Error)?.message);
+      setError(m);
+      return { ok: false, error: m };
     }
   }, [push, stop]);
 

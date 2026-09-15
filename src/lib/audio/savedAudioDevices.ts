@@ -1,12 +1,13 @@
 /**
- * savedAudioDevices — Audio Lock-In (2026-09-15)
+ * savedAudioDevices — Audio Lock-In (2026-09-15, hardened after review)
  * -------------------------------------------------------------------------
  * Remembers input configurations that WORKED on this machine (device + channel
  * routing + gain), so a known device is restored automatically whenever it's
  * present. Per-machine by construction (localStorage).
  *
  * Matching never uses the volatile avfoundation index or Web Audio deviceId:
- *   1. CoreAudio uid (stable across replug/reboot)
+ *   1. CoreAudio uid (stable across replug/reboot) — when several present devices
+ *      share a uid (identical models), the exact name must also match
  *   2. exact device name
  *   3. normalized name (strips "(22f0:0019)"-style VID:PID + spacing) AND same channel count
  *
@@ -42,7 +43,7 @@ export interface AvailableDevice {
 }
 
 function hasStorage(): boolean {
-  return typeof localStorage !== "undefined";
+  try { return typeof localStorage !== "undefined" && localStorage !== null; } catch { return false; }
 }
 
 export function normalizeDeviceName(name: string): string {
@@ -64,14 +65,14 @@ function sanitize(v: unknown): SavedAudioDevice | null {
   const gain = typeof o.gainDb === "number" && Number.isFinite(o.gainDb) ? Math.max(-24, Math.min(24, o.gainDb)) : 0;
   return {
     uid: typeof o.uid === "string" && o.uid ? o.uid : undefined,
-    name: o.name,
-    transport: typeof o.transport === "string" ? o.transport : undefined,
+    name: o.name.slice(0, 200),
+    transport: typeof o.transport === "string" ? o.transport.slice(0, 40) : undefined,
     channelCount: typeof o.channelCount === "number" && Number.isFinite(o.channelCount) ? o.channelCount : undefined,
     mode,
     selectedChannels: chs,
     gainDb: gain,
     role: o.role === "backup" ? "backup" : "primary",
-    savedAt: typeof o.savedAt === "number" ? o.savedAt : 0,
+    savedAt: typeof o.savedAt === "number" && Number.isFinite(o.savedAt) ? o.savedAt : 0,
   };
 }
 
@@ -86,36 +87,37 @@ export function listSavedDevices(): SavedAudioDevice[] {
   } catch { return []; }
 }
 
-function writeAll(list: SavedAudioDevice[]): void {
-  if (!hasStorage()) return;
-  try { localStorage.setItem(SAVED_AUDIO_DEVICES_KEY, JSON.stringify(list.slice(0, MAX_SAVED_DEVICES))); } catch { /* ignore */ }
+/** Returns false when storage is unavailable or full. */
+function writeAll(list: SavedAudioDevice[]): boolean {
+  if (!hasStorage()) return false;
+  try { localStorage.setItem(SAVED_AUDIO_DEVICES_KEY, JSON.stringify(list.slice(0, MAX_SAVED_DEVICES))); return true; } catch { return false; }
 }
 
 function sameDevice(a: { uid?: string; name: string }, b: { uid?: string; name: string }): boolean {
-  if (a.uid && b.uid) return a.uid === b.uid;
+  if (a.uid && b.uid) return a.uid === b.uid && normalizeDeviceName(a.name) === normalizeDeviceName(b.name);
   return normalizeDeviceName(a.name) === normalizeDeviceName(b.name);
 }
 
-/** Save (or update) a working configuration. Only one device may hold each role;
- *  saving a new primary/backup demotes nothing else but replaces the same device's entry. */
+/** Save (or update) a working configuration. Returns null when it could NOT be persisted.
+ *  Only one device may hold the backup role; a replaced backup keeps its config but drops to
+ *  an old primary (savedAt 0) so it never outranks the real primary. */
 export function saveWorkingDevice(entry: Omit<SavedAudioDevice, "savedAt"> & { savedAt?: number }): SavedAudioDevice | null {
   const clean = sanitize({ ...entry, savedAt: entry.savedAt ?? Date.now() });
   if (!clean) return null;
   let list = listSavedDevices().filter((d) => !sameDevice(d, clean));
-  if (clean.role === "backup") list = list.map((d) => (d.role === "backup" ? { ...d, role: "primary" as const } : d));
-  writeAll([clean, ...list]);
-  return clean;
+  if (clean.role === "backup") list = list.map((d) => (d.role === "backup" ? { ...d, role: "primary" as const, savedAt: 0 } : d));
+  return writeAll([clean, ...list]) ? clean : null;
 }
 
 export function forgetSavedDevice(target: { uid?: string; name: string }): void {
-  writeAll(listSavedDevices().filter((d) => !sameDevice(d, target)));
+  writeAll(listSavedDevices().filter((d) => !(target.uid && d.uid ? d.uid === target.uid : normalizeDeviceName(d.name) === normalizeDeviceName(target.name))));
 }
 
 export function getBackupDevice(): SavedAudioDevice | null {
   return listSavedDevices().find((d) => d.role === "backup") ?? null;
 }
 
-/** Find the best saved config present in `available`. Primary role wins, then most recent. */
+/** Find the best saved config present in `available`. Given role only, most recent first. */
 export function matchSavedDevice(
   available: AvailableDevice[],
   saved: SavedAudioDevice[] = listSavedDevices(),
@@ -123,8 +125,11 @@ export function matchSavedDevice(
 ): { saved: SavedAudioDevice; device: AvailableDevice } | null {
   const candidates = saved.filter((s) => s.role === role).sort((a, b) => b.savedAt - a.savedAt);
   for (const s of candidates) {
-    const byUid = s.uid ? available.find((d) => d.uid && d.uid === s.uid) : undefined;
-    if (byUid) return { saved: s, device: byUid };
+    if (s.uid) {
+      const byUid = available.filter((d) => d.uid && d.uid === s.uid);
+      const pick = byUid.length > 1 ? byUid.find((d) => d.name === s.name) : byUid[0];
+      if (pick) return { saved: s, device: pick };
+    }
     const byName = available.find((d) => d.name === s.name);
     if (byName) return { saved: s, device: byName };
     const norm = normalizeDeviceName(s.name);

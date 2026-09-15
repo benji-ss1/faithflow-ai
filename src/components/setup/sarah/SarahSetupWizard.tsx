@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * Sarah — AI audio setup wizard (Audio Lock-In, 2026-09-15).
+ * Sarah — AI audio setup wizard (Audio Lock-In, 2026-09-15; hardened after the 7-agent gate).
  *
  * Flow: context (beta application / start fresh) → computer → desk → ways to
  * connect → do the steps → pick input (+ auto-spot channel) → quiet check →
  * voice check → save → success. Back works everywhere; Sarah's chat is always open.
  *
  * Pass/fail comes ONLY from audioDiagnostics. Sarah (Groq, /api/ai/audio-guide)
- * explains and converses; without a key she falls back to scripted guidance.
- * Never starts live capture — meters come from the read-only level probe.
+ * explains and converses, grounded on server-side knowledge; without a key/entitlement
+ * she falls back to scripted guidance. Never starts live capture — meters come from
+ * the read-only level probe. All timers are cancelled on Back/unmount and every
+ * long-running step is guarded by a run id so a stale timer can't score the wrong device.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -20,7 +22,7 @@ import { SarahSuccess } from "./SarahSuccess";
 import { listSetupDevices, useLevelFeed, type SetupDevice } from "./useLevelFeed";
 import type { ApplicationMatch } from "@/lib/audio/applicationMatch";
 import { rankConnections, type Connection, type ConnectionOption, type Os } from "@/lib/audio/connectionPlans";
-import { checkNoiseFloor, checkSpeech, detectActiveChannels, overallStatus, type DiagnosticCheck } from "@/lib/audio/audioDiagnostics";
+import { checkNoiseFloor, checkSpeech, detectActiveChannels, levelBand, overallStatus, type DiagnosticCheck } from "@/lib/audio/audioDiagnostics";
 import { saveWorkingDevice } from "@/lib/audio/savedAudioDevices";
 import { writeNativeDevicePref, type NativeDeviceMode } from "@/lib/audio/nativeDeviceStore";
 
@@ -34,8 +36,9 @@ type Profile = {
   corrections?: { field: string; from?: string; to: string; at: number }[];
   completedAt?: number;
 };
-type Opt = { label: string; sub?: string; onPick: () => void; selected?: boolean; warn?: boolean };
+type Opt = { label: string; sub?: string; onPick: () => void; selected?: boolean; warn?: boolean; disabled?: boolean };
 
+const DESK_BRANDS = ["Behringer / Midas", "Yamaha", "Allen & Heath", "Soundcraft", "PreSonus"];
 const DESKS = [
   { label: "Behringer / Midas", sub: "X32, M32, Wing" },
   { label: "Yamaha", sub: "TF, DM3, QL/CL" },
@@ -49,20 +52,17 @@ const DESKS = [
 const FIX: Record<string, string> = {
   signal: "Nothing is reaching this input yet. Check the right input and channel are picked, the desk's USB or aux send is turned up and not muted, the cable is in, and (on a Mac) microphone access is allowed for PresentFlow.",
   "noise-floor": "I'm hearing hum or background noise in a quiet room. Make sure no music is playing, use balanced cables, plug this computer into the same power as the desk, or add a DI box with ground lift on the audio cable. Never remove a power earth.",
-  "speech-level-low": "The voice is too quiet. Turn up the aux or USB send on the desk (or the interface gain) until talking fills the green part of the bar.",
+  "speech-level-low": "The voice is too quiet. Turn up the aux or USB send on the desk (or the interface gain) until talking reaches the green “Good” part of the bar.",
   "speech-level-hot": "The voice is too hot. Lower the send, or switch on the pad on your interface.",
   clipping: "It's distorting. Lower the send or interface gain, or turn on the pad. If it's a mic input fed by a line output, use a line input instead.",
 };
-const KNOWLEDGE: Partial<Record<Phase, string>> = {
-  connection: "Golden rule: send a post-fader FULL mix (pulpit mics AND band). X32: Routing → Out 1-16 put Main LR on 15/16, Card Out block 9-16. Wing: Routing → Outputs → USB. TF: Stereo → USB 33/34 default. SQ: USB out 1/2 = Main LR default. Qu: Setup → I/O Patch → USB Audio. StudioLive III: Universal Control USB Send 1/2 = Main L/R. Dante VSC: route in Dante Controller, 48 kHz, 4-10 ms latency, wired. Blackmagic: Desktop Video Setup → audio input Embedded, needs live video. Other desks: send Main to a USB pair, check the manual.",
-  steps: "Same as connection knowledge. Stuck? Ask: do the desk's USB/Card output meters move when someone talks? Is the computer plugged straight in (no hub)? Is it 48 kHz on both?",
-  input: "Pick the device that matches the connection. Multichannel desks: the moving channel pair is the send. Built-in mic is a last resort (room echo).",
-  quiet: "Quiet-room noise above -50 dBFS = hum/buzz/open mic. Fixes: balanced cables, same power as desk, DI ground lift (audio path only), no music playing.",
-  speak: "Target speech peaks -18 to -12 dBFS; below -24 hurts detection; clipping at -1 dBFS. Too quiet: raise send/gain. Too hot: lower send or pad. Line output into mic input: use a line input or pad. 48V off for line sources.",
-};
-
+const OS_LABEL: Record<Os, string> = { mac: "macOS", windows: "Windows" };
 const deviceToOs = (d?: string): Os | undefined => (/mac/i.test(d ?? "") ? "mac" : /windows|pc/i.test(d ?? "") ? "windows" : undefined);
 const nextId = (() => { let i = 0; return () => ++i; })();
+const QUIET_MS = 8000;
+const SPEAK_MS = 10000;
+const SPOT_MS = 6500;
+const AI_TIMEOUT_MS = 12000;
 
 export function SarahSetupWizard() {
   const router = useRouter();
@@ -77,17 +77,41 @@ export function SarahSetupWizard() {
   const [match, setMatch] = useState<ApplicationMatch | null>(null);
   const [useApp, setUseApp] = useState(true);
   const [profile, setProfile] = useState<Profile>({});
+  const [editingFromApp, setEditingFromApp] = useState(false);
   const [chosen, setChosen] = useState<ConnectionOption | null>(null);
   const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set());
   const [devices, setDevices] = useState<SetupDevice[]>([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
   const [device, setDevice] = useState<SetupDevice | null>(null);
   const [channels, setChannels] = useState<number[]>([]);
   const [checks, setChecks] = useState<DiagnosticCheck[]>([]);
   const [measuring, setMeasuring] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [aiOffline, setAiOffline] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const feed = useLevelFeed();
   const logRef = useRef<HTMLDivElement | null>(null);
-  const aiDisabled = useRef(false);
+
+  // refs that keep callbacks/timers honest
+  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const runId = useRef(0);
+  const phaseRef = useRef<Phase>("loading");
+  const profileRef = useRef<Profile>({});
+  const msgsRef = useRef<Msg[]>([]);
+  const checksRef = useRef<DiagnosticCheck[]>([]);
+  const deviceRef = useRef<SetupDevice | null>(null);
+  const channelsRef = useRef<number[]>([]);
+  const finishedRef = useRef(false);
+  phaseRef.current = phase; profileRef.current = profile; msgsRef.current = msgs;
+  checksRef.current = checks; deviceRef.current = device; channelsRef.current = channels;
+
+  const later = useCallback((fn: () => void, ms: number) => {
+    const id = setTimeout(() => { timers.current.delete(id); fn(); }, ms);
+    timers.current.add(id);
+    return id;
+  }, []);
+  const clearTimers = useCallback(() => { for (const id of timers.current) clearTimeout(id); timers.current.clear(); }, []);
+  useEffect(() => () => { clearTimers(); }, [clearTimers]);
 
   const say = useCallback((text: string, m?: SarahMood, st?: string) => {
     setMsgs((x) => [...x, { id: nextId(), role: "sarah", text }]);
@@ -96,9 +120,9 @@ export function SarahSetupWizard() {
   }, []);
   const saySoon = useCallback((text: string, m: SarahMood, st: string, ms = 650) => {
     setTyping(true); setMood("think"); setStatus("Sarah is thinking");
-    setTimeout(() => { setTyping(false); say(text, m, st); }, ms);
-  }, [say]);
-  const userSays = (text: string) => setMsgs((x) => [...x, { id: nextId(), role: "user", text }]);
+    later(() => { setTyping(false); say(text, m, st); }, ms);
+  }, [say, later]);
+  const userSays = useCallback((text: string) => setMsgs((x) => [...x, { id: nextId(), role: "user", text }]), []);
 
   useEffect(() => { logRef.current?.scrollTo({ top: 1e6 }); }, [msgs, typing]);
 
@@ -106,21 +130,53 @@ export function SarahSetupWizard() {
     try {
       await fetch("/api/audio-setup/context", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile: p, confirmedApplicationId: useApp && match?.confidence !== "none" ? match?.applicationId ?? null : null }),
+        body: JSON.stringify({ profile: p, confirmedApplicationId: useApp ? match?.applicationId ?? null : null }),
       });
     } catch { /* non-blocking */ }
   }, [match, useApp]);
 
-  const go = useCallback((next: Phase) => { setTrail((t) => [...t, phase]); setPhase(next); setExtraChips([]); }, [phase]);
-  const back = () => {
+  /** Any phase change cancels in-flight timers and invalidates their run id. */
+  const go = useCallback((next: Phase) => {
+    clearTimers(); runId.current += 1; setMeasuring(false); setBusy(false);
+    setTrail((t) => [...t, phaseRef.current]);
+    setPhase(next); setExtraChips([]);
+  }, [clearTimers]);
+
+  const back = useCallback(() => {
+    clearTimers(); runId.current += 1; setMeasuring(false); setBusy(false);
+    const from = phaseRef.current;
+    if (from === "input" || from === "quiet" || from === "speak") void feed.stop();
     setTrail((t) => {
       if (!t.length) return t;
-      const prev = t[t.length - 1];
-      if (phase === "input" || phase === "quiet" || phase === "speak") void feed.stop();
-      setPhase(prev); setExtraChips([]); setMood("nod"); setStatus("Going back");
+      setPhase(t[t.length - 1]);
       return t.slice(0, -1);
     });
-  };
+    setExtraChips([]); setChecks([]); setMood("nod"); setStatus("Going back");
+  }, [clearTimers, feed]);
+
+  const setField = useCallback(<K extends keyof Profile>(field: K, value: Profile[K]) => {
+    setProfile((p) => {
+      const prevVal = p[field] as string | undefined;
+      const corr = prevVal && value && prevVal !== value
+        ? [...(p.corrections ?? []), { field: String(field), from: prevVal, to: String(value), at: Date.now() }]
+        : p.corrections;
+      return { ...p, [field]: value, corrections: corr };
+    });
+  }, []);
+
+  const enter = useCallback((p: Phase, prof: Profile) => {
+    if (p === "os") saySoon("First — is PresentFlow running on a Mac or a Windows computer?", "listen", "Sarah is listening");
+    if (p === "desk") saySoon("What sound desk (mixer) does your church use? Tap one, or type the model below.", "listen", "Sarah is listening");
+    if (p === "connection") {
+      const n = rankConnections({ desk: prof.desk, os: prof.os, failedRoutes: prof.failedRoutes }).filter((o) => o.connection !== "builtin").length;
+      saySoon(`For ${prof.desk || "your setup"}${prof.os ? ` on ${OS_LABEL[prof.os]}` : ""}, churches usually connect one of these ${n} ways. Pick the one you have — you can always come back and try another.`, "think", "Sarah is thinking");
+    }
+    if (p === "input") saySoon("Now pick the input below. I've put the most likely one first.", "focus", "Sarah is checking your inputs");
+    if (p === "quiet") saySoon("Quick quiet check: please make sure no one is talking and no music is playing. I'll listen for 8 seconds for hum or noise.", "listen", "Sarah is listening");
+    if (p === "speak") saySoon("Now have someone speak into the pastor's mic, like they're preaching. Try: “For God so loved the world, that he gave his only begotten Son.” I'm watching the bar.", "listen", "Sarah is listening");
+  }, [saySoon]);
+
+  const goTo = useCallback((p: Phase, prof?: Profile) => { go(p); enter(p, prof ?? profileRef.current); }, [go, enter]);
 
   // ── load context ──
   useEffect(() => {
@@ -139,8 +195,8 @@ export function SarahSetupWizard() {
         say(`Hi, I'm Sarah — I'll get your sound connected. I found your church's application for ${st?.churchName ?? "your church"}.`, "ooh", "Sarah found your application");
         say(`It says you use ${st?.desk ?? "an unknown desk"}${st?.device ? ` on ${st.device}` : ""}. Is that still right?`, "listen", "Sarah is listening");
       } else if (m?.confidence === "possible") {
-        say(`Hi, I'm Sarah — I'll get your sound connected. I think I found your application, but I want to be sure.`, "think", "Sarah is checking");
-        say(`Is this your church: ${st?.churchName ?? "unknown"}${st?.applicantName ? `, applied by ${st.applicantName}` : ""}${st?.city ? ` in ${st.city}` : ""}?`, "listen", "Sarah is listening");
+        say("Hi, I'm Sarah — I'll get your sound connected. I may have found your church's application, but I'm not certain it's yours.", "think", "Sarah is checking");
+        say(`Is your church “${st?.churchName ?? "unknown"}”? If yes I'll still ask you the setup questions fresh, just to be safe.`, "listen", "Sarah is listening");
       } else if (saved.desk || saved.connection) {
         say(`Welcome back — I'm Sarah. Last time you set up ${saved.desk ?? "your audio"}${saved.connection ? ` using ${saved.connection}` : ""}. Want to use that again?`, "nod", "Sarah remembers you");
       } else {
@@ -150,58 +206,45 @@ export function SarahSetupWizard() {
     return () => { cancelled = true; };
   }, [say]);
 
-  const setField = useCallback(<K extends keyof Profile>(field: K, value: Profile[K], from?: string) => {
-    setProfile((p) => {
-      const prevVal = p[field] as string | undefined;
-      const corr = prevVal && value && prevVal !== value
-        ? [...(p.corrections ?? []), { field: String(field), from: prevVal ?? from, to: String(value), at: Date.now() }]
-        : p.corrections;
-      return { ...p, [field]: value, corrections: corr };
-    });
-  }, []);
-
-  // ── phase entry scripts ──
-  const enter = useCallback((p: Phase, prof: Profile) => {
-    if (p === "os") saySoon("First — is PresentFlow running on a Mac or a Windows computer?", "listen", "Sarah is listening");
-    if (p === "desk") saySoon("What sound desk (mixer) does your church use? Tap one, or type the model below.", "listen", "Sarah is listening");
-    if (p === "connection") {
-      const n = rankConnections({ desk: prof.desk, os: prof.os, failedRoutes: prof.failedRoutes }).filter((o) => o.connection !== "builtin").length;
-      saySoon(`For ${prof.desk || "your setup"}${prof.os ? ` on ${prof.os === "mac" ? "a Mac" : "Windows"}` : ""}, churches usually connect one of these ${n} ways. Pick the one you have — you can always come back and try another.`, "think", "Sarah is thinking");
-    }
-    if (p === "input") saySoon("Now pick the input below. I've put the most likely one first.", "focus", "Sarah is checking your inputs");
-    if (p === "quiet") saySoon("Quick quiet check: please make sure no one is talking and no music is playing. I'll listen for 8 seconds for hum or noise.", "listen", "Sarah is listening");
-    if (p === "speak") saySoon("Now have someone speak into the pastor's mic, like they're preaching. Try: “For God so loved the world, that he gave his only begotten Son.” I'm watching the green bar.", "listen", "Sarah is listening");
-  }, [saySoon]);
-
-  const goTo = useCallback((p: Phase, prof = profile) => { go(p); enter(p, prof); }, [go, enter, profile]);
-
   // ── device list when entering input ──
-  useEffect(() => {
-    if (phase !== "input") return;
-    let cancelled = false;
-    (async () => {
-      const list = await listSetupDevices();
-      if (cancelled) return;
-      const want: Record<string, string[]> = {
-        "usb-desk": ["desk", "interface"], interface: ["interface", "desk"], ndi: ["ndi"], dante: ["dante"], "sdi-capture": ["sdi-capture", "usb-switcher", "hdmi-capture"], builtin: ["builtin"],
-      };
-      const pref = want[profile.connection ?? ""] ?? [];
-      const rank = (d: SetupDevice) => { const i = pref.indexOf(d.kind.kind); return i === -1 ? (d.kind.recommended ? 10 : 20) : i; };
-      setDevices([...list].sort((a, b) => rank(a) - rank(b)));
-      if (list.length === 0) say("I can't see any audio inputs. Check the cable or interface is plugged in, then tap “Look again”.", "focus", "Sarah can't find inputs");
-    })();
-    return () => { cancelled = true; };
-  }, [phase, profile.connection, say]);
+  const loadDevices = useCallback(async () => {
+    setLoadingDevices(true);
+    const list = await listSetupDevices();
+    const want: Record<string, string[]> = {
+      "usb-desk": ["desk", "interface"], interface: ["interface", "desk"], ndi: ["ndi"], dante: ["dante"],
+      "sdi-capture": ["sdi-capture", "usb-switcher", "hdmi-capture"], builtin: ["builtin"],
+    };
+    const pref = want[profileRef.current.connection ?? ""] ?? [];
+    const rank = (d: SetupDevice) => { const i = pref.indexOf(d.kind.kind); return i === -1 ? (d.kind.recommended ? 10 : 20) : i; };
+    setDevices([...list].sort((a, b) => rank(a) - rank(b)));
+    setLoadingDevices(false);
+    if (list.length === 0) {
+      say("I can't see any audio inputs. Check the cable or interface is plugged in, then tap “Look again”.", "focus", "Sarah can't find inputs");
+      setExtraChips(["Look again", "Try another way"]);
+    }
+  }, [say]);
+  useEffect(() => { if (phase === "input") void loadDevices(); }, [phase, loadDevices]);
 
-  const pickDevice = async (d: SetupDevice) => {
+  const pickDevice = useCallback(async (d: SetupDevice) => {
+    if (busy) return;
+    setBusy(true);
+    const my = ++runId.current;
     userSays(d.name);
-    setDevice(d); setChannels([]);
-    const ok = await feed.start(d);
-    if (!ok) { saySoon(feed.error ?? "I couldn't open that input. If AI listening is on in the operator screen, stop it first, then try again.", "focus", "Sarah hit a snag"); return; }
+    setDevice(d); setChannels([]); feed.setChannels(null);
+    const res = await feed.start(d);
+    if (runId.current !== my) return;
+    setBusy(false);
+    if (!res.ok) {
+      if (res.error === "superseded") return;
+      saySoon(res.error ?? "I couldn't open that input.", "focus", "Sarah hit a snag");
+      setExtraChips(["Try again", "Look again", "Try another way"]);
+      return;
+    }
     if (d.channelCount > 2) {
       saySoon(`That's a ${d.kind.label.toLowerCase()} with ${d.channelCount} channels. Talk into the pastor's mic — I'll spot which channel is moving.`, "listen", "Sarah is watching the channels");
       setMeasuring(true);
-      setTimeout(() => {
+      later(() => {
+        if (runId.current !== my) return;
         const found = detectActiveChannels(feed.snapshotHistory());
         setMeasuring(false);
         if (found.length) {
@@ -209,19 +252,23 @@ export function SarahSetupWizard() {
           say(`Ooh — I can see it on channel${found.length > 1 ? "s" : ""} ${found.map((c) => c + 1).join(" & ")}!`, "ooh", "Sarah found your channel");
           setExtraChips(["Continue"]);
         } else {
-          say("I didn't see any channel move. Is someone talking into the mic, and is the desk sending to USB? Tap “Try again” when ready.", "focus", "Sarah is checking");
-          setExtraChips(["Try again"]);
+          say("I didn't see any channel move. Is someone talking into the mic, and is the desk sending to USB? Tap “Try again” when you're ready, or tap the channel yourself below.", "focus", "Sarah is checking");
+          setExtraChips(["Try again", "Try another way"]);
         }
-      }, 6500);
+      }, SPOT_MS);
     } else {
       saySoon(`${d.kind.label} selected. ${d.kind.hint}`, "nod", "Sarah is ready for the check");
       setExtraChips(["Continue"]);
     }
-  };
+  }, [busy, feed, later, say, saySoon, userSays]);
 
-  const measure = (kind: "quiet" | "speak") => {
-    feed.resetFrames(); setMeasuring(true); setChecks([]);
-    setTimeout(() => {
+  const measure = useCallback((kind: "quiet" | "speak") => {
+    if (measuring) return;
+    const my = ++runId.current;
+    feed.resetFrames(); setMeasuring(true); setChecks([]); setExtraChips([]);
+    setMood("listen"); setStatus(kind === "quiet" ? "Sarah is listening to the room" : "Sarah is listening");
+    later(() => {
+      if (runId.current !== my) return;
       setMeasuring(false);
       const frames = feed.snapshotFrames();
       const result = kind === "quiet" ? [checkNoiseFloor(frames)] : checkSpeech(frames);
@@ -229,54 +276,66 @@ export function SarahSetupWizard() {
       const overall = overallStatus(result);
       if (overall === "pass") {
         if (kind === "quiet") { say("Lovely and quiet — no hum. 👌", "nod", "Quiet check passed"); setExtraChips(["Continue"]); }
-        else { say("Ooh, I can hear you clearly! Level is healthy and there's no distortion.", "ooh", "Voice check passed"); setExtraChips(["Save my setup"]); }
+        else { say("Ooh, I can hear you clearly! The level is healthy and there's no distortion.", "ooh", "Voice check passed"); setExtraChips(["Save my setup"]); }
         return;
       }
       const worst = result.find((c) => c.status === "fail") ?? result.find((c) => c.status === "warn")!;
-      const key = worst.id === "speech-level" ? ((worst.value ?? 0) > -6 ? "speech-level-hot" : "speech-level-low") : worst.id;
+      const key = worst.id === "speech-level" ? ((worst.value ?? -99) > -6 ? "speech-level-hot" : "speech-level-low") : worst.id;
       say(`${worst.detail} ${FIX[key] ?? ""}`.trim(), "focus", overall === "fail" ? "Sarah found a problem" : "Sarah has a tip");
       setExtraChips(overall === "fail" ? ["Test again", "Try another way", "Ask Sarah"] : ["Test again", "Continue anyway"]);
-    }, kind === "quiet" ? 8000 : 10000);
-  };
+    }, kind === "quiet" ? QUIET_MS : SPEAK_MS);
+  }, [feed, later, measuring, say]);
 
-  const recordFailure = (reason: string) => {
-    if (!profile.connection) return profile;
-    const next: Profile = { ...profile, failedRoutes: [...(profile.failedRoutes ?? []), { connection: profile.connection, reason: reason.slice(0, 180), at: Date.now() }] };
+  const recordFailure = useCallback((reason: string) => {
+    const p = profileRef.current;
+    if (!p.connection) return p;
+    const next: Profile = { ...p, failedRoutes: [...(p.failedRoutes ?? []), { connection: p.connection, reason: reason.slice(0, 180), at: Date.now() }] };
     setProfile(next); void saveProfile(next);
     return next;
-  };
+  }, [saveProfile]);
 
-  const finish = async () => {
-    if (device) {
-      const mode: NativeDeviceMode = channels.length === 1 ? "mono" : channels.length === 2 ? "stereo" : "sum-all";
-      saveWorkingDevice({ uid: device.uid, name: device.name, transport: device.transport, channelCount: device.channelCount, mode, selectedChannels: channels, gainDb: 0, role: "primary" });
-      if (device.source === "native" && device.index != null) {
-        writeNativeDevicePref({ index: device.index, name: device.name, mode, selectedChannels: channels, gainDb: 0 });
+  const finish = useCallback(async () => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    setBusy(true);
+    const d = deviceRef.current; const chs = channelsRef.current;
+    let savedOk = true;
+    if (d) {
+      const mode: NativeDeviceMode = chs.length === 1 ? "mono" : chs.length === 2 ? "stereo" : "sum-all";
+      savedOk = !!saveWorkingDevice({ uid: d.uid, name: d.name, transport: d.transport, channelCount: d.channelCount, mode, selectedChannels: chs, gainDb: 0, role: "primary" });
+      if (d.source === "native" && d.index != null) {
+        writeNativeDevicePref({ index: d.index, name: d.name, mode, selectedChannels: chs, gainDb: 0 });
       }
     }
     await feed.stop();
-    const done: Profile = { ...profile, completedAt: Date.now() };
+    const done: Profile = { ...profileRef.current, completedAt: Date.now() };
     setProfile(done); await saveProfile(done);
+    if (!savedOk) say("Heads up: this browser wouldn't let me remember the device on this computer (storage is full or blocked). Your church setup is saved, but you may need to pick the input again next time.", "focus", "Saved with a warning");
     setMood("celebrate"); setStatus("All set!");
     setShowSuccess(true);
-  };
+  }, [feed, saveProfile, say]);
 
   // ── chat ──
-  const ask = async (text: string) => {
+  const ask = useCallback(async (text: string) => {
     const t = text.trim(); if (!t) return;
     userSays(t); setDraft(""); setTyping(true); setMood("think"); setStatus("Sarah is thinking");
-    const history = msgs.slice(-8).map((m) => ({ role: m.role === "sarah" ? "assistant" : "user", content: m.text }));
+    const history = msgsRef.current.slice(-8).map((m) => ({ role: m.role === "sarah" ? "assistant" : "user", content: m.text }));
     let answered = false;
-    if (!aiDisabled.current) {
+    if (!aiOffline) {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
       try {
         const res = await fetch("/api/ai/audio-guide", {
-          method: "POST", headers: { "Content-Type": "application/json" },
+          method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
           body: JSON.stringify({
             message: t, history,
             context: {
-              step: phase,
-              setup: { desk: profile.desk, os: profile.os, connection: profile.connection, mixType: profile.mixType, deviceName: device?.name, deviceKind: device?.kind.kind, channel: channels.map((c) => c + 1).join("/") },
-              diagnostics: checks, knowledge: KNOWLEDGE[phase] ?? KNOWLEDGE.connection,
+              step: phaseRef.current,
+              setup: {
+                desk: profileRef.current.desk, os: profileRef.current.os, connection: profileRef.current.connection, mixType: profileRef.current.mixType,
+                deviceName: deviceRef.current?.name, deviceKind: deviceRef.current?.kind.kind, channel: channelsRef.current.map((c) => c + 1).join("/"),
+              },
+              diagnostics: checksRef.current.map((c) => ({ id: c.id, status: c.status, value: c.value })),
             },
           }),
         });
@@ -284,52 +343,55 @@ export function SarahSetupWizard() {
         if (j?.ok) {
           answered = true;
           const d = j.data as { reply: string; mood: SarahMood; suggestions: string[]; correction?: { field: string; to: string } };
-          setTyping(false); say(d.reply, d.mood === "celebrate" ? "nod" : d.mood, "Sarah replied");
-          if (d.suggestions?.length) setExtraChips(d.suggestions);
+          setTyping(false);
+          say(d.reply, d.mood === "celebrate" ? "nod" : d.mood, "Sarah replied");
+          if (d.suggestions?.length) setExtraChips(d.suggestions.slice(0, 3));
           if (d.correction) {
             const f = d.correction.field as keyof Profile;
             if (f === "desk" || f === "mixType" || f === "os" || f === "connection") {
               setField(f, d.correction.to as never);
+              const next = { ...profileRef.current, [f]: d.correction.to } as Profile;
+              void saveProfile(next);
               say(`I've updated your ${d.correction.field} to “${d.correction.to}” and saved it.`, "nod", "Profile updated");
             }
           }
-        } else if (j?.code === "MISSING_API_KEY") aiDisabled.current = true;
-      } catch { /* fall back */ }
+        } else if (j?.code === "MISSING_API_KEY" || j?.code === "NOT_ENTITLED") setAiOffline(true);
+      } catch { /* aborted, offline or bad JSON → fall back */ }
+      clearTimeout(to);
     }
     if (!answered) {
       setTyping(false);
-      const worst = checks.find((c) => c.status !== "pass");
-      say(worst ? (FIX[worst.id] ?? worst.detail) : "I can't chat right now, but follow the steps on screen — and remember the feed needs pulpit mics AND band. Tap “Try another way” if this route isn't working.", "focus", "Sarah's tip");
+      const worst = checksRef.current.find((c) => c.status !== "pass");
+      say(worst ? (FIX[worst.id] ?? worst.detail) : "I can't chat right now, but follow the steps on screen — and remember the feed should be a post-fader aux or matrix with the pulpit mics and band in it. Tap “Try another way” if this route isn't working.", "focus", "Sarah's tip");
     }
-  };
+  }, [aiOffline, say, setField, userSays, saveProfile]);
 
   // ── options per phase ──
   const opts: Opt[] = useMemo(() => {
     const st = match?.setup;
-    const withRipple = (fn: () => void) => fn;
     switch (phase) {
       case "context": {
         if (match && match.confidence !== "none" && useApp) {
-          const apply = () => {
+          const applyApp = (): Profile => {
             const next: Profile = { ...profile, desk: profile.desk ?? st?.desk, os: profile.os ?? deviceToOs(st?.device) };
             setProfile(next);
             return next;
           };
           return match.confidence === "high"
             ? [
-                { label: "Yes, that's right", sub: "Use my application", onPick: () => { userSays("Yes, that's right"); const n = apply(); goTo(n.os ? "connection" : "os", n); } },
-                { label: "Something's changed", sub: "I'll correct it", onPick: () => { userSays("Something's changed"); const n = apply(); goTo("os", n); } },
-                { label: "Start fresh", sub: "Ignore the application", onPick: () => { userSays("Start fresh"); setUseApp(false); goTo("os", {}); } },
+                { label: "Yes, that's right", sub: "Use my application", onPick: () => { userSays("Yes, that's right"); const n = applyApp(); setEditingFromApp(false); goTo(n.os ? "connection" : "os", n); } },
+                { label: "Something's changed", sub: "I'll correct it", onPick: () => { userSays("Something's changed"); const n = applyApp(); setEditingFromApp(true); goTo("os", n); } },
+                { label: "Start fresh", sub: "Ignore the application", onPick: () => { userSays("Start fresh"); setUseApp(false); setProfile({ failedRoutes: profile.failedRoutes }); setEditingFromApp(true); goTo("os", { failedRoutes: profile.failedRoutes }); } },
               ]
             : [
-                { label: "Yes, that's us", sub: "Use it", onPick: () => { userSays("Yes, that's us"); const n = apply(); goTo("os", n); } },
-                { label: "No, start fresh", onPick: () => { userSays("No, start fresh"); setUseApp(false); goTo("os", {}); } },
+                { label: "Yes, that's us", onPick: () => { userSays("Yes, that's us"); setEditingFromApp(true); goTo("os"); } },
+                { label: "No, start fresh", onPick: () => { userSays("No, start fresh"); setUseApp(false); setEditingFromApp(true); goTo("os"); } },
               ];
         }
         if (profile.desk || profile.connection) {
           return [
             { label: "Use that again", onPick: () => { userSays("Use that again"); goTo(profile.connection ? "input" : "connection"); } },
-            { label: "Start fresh", onPick: () => { userSays("Start fresh"); setProfile({ failedRoutes: profile.failedRoutes }); goTo("os", {}); } },
+            { label: "Start fresh", onPick: () => { userSays("Start fresh"); setProfile({ failedRoutes: profile.failedRoutes }); setEditingFromApp(true); goTo("os", { failedRoutes: profile.failedRoutes }); } },
           ];
         }
         return [{ label: "Let's go", sub: "About 3 minutes", onPick: () => { userSays("Let's go"); goTo("os"); } }];
@@ -337,20 +399,26 @@ export function SarahSetupWizard() {
       case "os":
         return (["mac", "windows"] as Os[]).map((o) => ({
           label: o === "mac" ? "Mac" : "Windows", sub: o === "mac" ? "MacBook, iMac, Mac mini" : "PC or laptop", selected: profile.os === o,
-          onPick: withRipple(() => { userSays(o === "mac" ? "Mac" : "Windows"); setField("os", o); goTo(profile.desk ? "connection" : "desk", { ...profile, os: o }); }),
+          onPick: () => {
+            userSays(o === "mac" ? "Mac" : "Windows"); setField("os", o);
+            const next = { ...profile, os: o };
+            // Editing (or nothing known yet) always visits the desk step.
+            goTo(!editingFromApp && profile.desk ? "connection" : "desk", next);
+          },
         }));
       case "desk":
         return DESKS.map((d) => ({
-          label: d.label, sub: d.sub, selected: !!profile.desk && profile.desk.toLowerCase().includes(d.label.split(" ")[0].toLowerCase()),
+          label: d.label, sub: d.sub, selected: profile.desk === d.label || (!!profile.desk && d.label.startsWith(profile.desk.split(" ")[0])),
           onPick: () => {
             userSays(d.label);
-            if (d.label.startsWith("Behringer") || d.label === "Yamaha" || d.label === "Allen & Heath") {
-              say(`Which ${d.label} model? Type it below (e.g. ${d.sub}) — it helps me give exact steps. Or tap Next to keep it general.`, "listen", "Sarah is listening");
-              setField("desk", d.label); setExtraChips(["Next"]);
+            if (DESK_BRANDS.includes(d.label)) {
+              setField("desk", d.label);
+              say(`Which ${d.label} model? Type it below (e.g. ${d.sub}) — it helps me give exact steps. Or tap “Skip the model” to keep it general.`, "listen", "Sarah is listening");
+              setExtraChips(["Skip the model"]);
               return;
             }
-            const desk = d.label.startsWith("No desk") ? "" : d.label;
-            setField("desk", desk || undefined); goTo("connection", { ...profile, desk });
+            const desk = d.label.startsWith("No desk") ? undefined : d.label;
+            setField("desk", desk); goTo("connection", { ...profile, desk });
           },
         }));
       case "connection":
@@ -358,7 +426,10 @@ export function SarahSetupWizard() {
           label: `${o.connection === "builtin" ? "Last resort · " : `${i + 1}. `}${o.title}`,
           sub: o.previouslyFailed ? `Didn't work last time: ${o.previouslyFailed}` : o.subtitle,
           warn: !!o.previouslyFailed, selected: profile.connection === o.connection,
-          onPick: () => { userSays(o.title); setField("connection", o.connection); setChosen(o); setDoneSteps(new Set()); go("steps"); saySoon(o.verified ? "Here's exactly what to do. Tick each step as you go, then tap Done." : "Here's the general way to do it — your desk's manual will have the exact menu names. Tick each step, then tap Done.", "focus", "Sarah is walking you through it"); },
+          onPick: () => {
+            userSays(o.title); setField("connection", o.connection); setChosen(o); setDoneSteps(new Set()); go("steps");
+            saySoon(o.verified ? "Here's exactly what to do. Tick each step as you go, then tap Done." : "Here's the general way to do it — your desk's manual will have the exact menu names. Tick each step, then tap Done.", "focus", "Sarah is walking you through it");
+          },
         }));
       case "steps":
         return [
@@ -367,35 +438,41 @@ export function SarahSetupWizard() {
           { label: "Try another way", onPick: () => { userSays("Try another way"); goTo("connection"); } },
         ];
       case "input":
-        return devices.map((d): Opt => ({
-          label: d.name, sub: `${d.kind.label}${d.channelCount > 2 ? ` · ${d.channelCount} ch` : ""}`, selected: device?.key === d.key, warn: !d.kind.recommended,
-          onPick: () => { void pickDevice(d); },
-        })).concat([{ label: "Look again", sub: "Refresh the list", onPick: () => { setPhase("loading"); setTimeout(() => setPhase("input"), 50); } }]);
+        return [
+          ...devices.map((d): Opt => ({
+            label: d.name, sub: `${d.kind.label}${d.channelCount > 2 ? ` · ${d.channelCount} ch` : ""}`,
+            selected: device?.key === d.key, warn: !d.kind.recommended, disabled: busy,
+            onPick: () => { void pickDevice(d); },
+          })),
+          { label: loadingDevices ? "Looking…" : "Look again", sub: "Refresh the list", disabled: loadingDevices, onPick: () => { void loadDevices(); } },
+        ];
       case "quiet":
         return measuring ? [] : [{ label: "Start quiet check", sub: "8 seconds of silence", onPick: () => { userSays("Start quiet check"); measure("quiet"); } }];
       case "speak":
         return measuring ? [] : [{ label: "Start voice check", sub: "Speak for 10 seconds", onPick: () => { userSays("Start voice check"); measure("speak"); } }];
       case "save":
-        return [{ label: "Save and finish", sub: device?.name, onPick: () => { userSays("Save and finish"); void finish(); } }];
+        return [{ label: "Save and finish", sub: device?.name, disabled: busy, onPick: () => { userSays("Save and finish"); void finish(); } }];
       default:
         return [];
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, match, useApp, profile, devices, device, measuring]);
+  }, [phase, match, useApp, profile, devices, device, measuring, busy, loadingDevices, editingFromApp, ask, finish, go, goTo, loadDevices, measure, pickDevice, say, saySoon, setField, userSays]);
 
   const onExtraChip = (label: string) => {
+    if (measuring && label !== "Ask Sarah") return;
     if (label === "Continue" || label === "Continue anyway") {
       userSays(label);
       if (phase === "input") goTo("quiet");
       else if (phase === "quiet") goTo("speak");
       return;
     }
-    if (label === "Next" && phase === "desk") { userSays("Next"); goTo("connection"); return; }
+    if (label === "Skip the model" && phase === "desk") { userSays(label); goTo("connection"); return; }
     if (label === "Save my setup") { userSays(label); go("save"); saySoon("Perfect. I'll remember this setup on this computer so it's picked automatically next time.", "celebrate", "Ready to save"); return; }
     if (label === "Test again") { userSays(label); measure(phase === "quiet" ? "quiet" : "speak"); return; }
     if (label === "Try again" && device) { userSays(label); void pickDevice(device); return; }
+    if (label === "Look again") { userSays(label); void loadDevices(); return; }
     if (label === "Try another way") {
-      userSays(label); const worst = checks.find((c) => c.status === "fail");
+      userSays(label);
+      const worst = checksRef.current.find((c) => c.status === "fail");
       const next = recordFailure(worst?.detail ?? "didn't pass the checks");
       void feed.stop(); goTo("connection", next);
       return;
@@ -407,9 +484,15 @@ export function SarahSetupWizard() {
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const t = draft.trim(); if (!t) return;
-    if (phase === "desk" && !profile.desk?.match(/\d|wing|studio/i)) {
-      userSays(t); setDraft(""); setField("desk", t);
-      goTo("connection", { ...profile, desk: t });
+    // On the desk step a SHORT model-looking answer names the desk; anything
+    // sentence-like (or a question) goes to Sarah as a question.
+    const looksLikeModel = t.length <= 28 && !/[?]/.test(t) && t.split(/\s+/).length <= 4;
+    if (phase === "desk" && looksLikeModel) {
+      userSays(t); setDraft("");
+      const brand = profile.desk && DESK_BRANDS.includes(profile.desk) ? profile.desk.split(" /")[0] : "";
+      const full = brand && !new RegExp(brand, "i").test(t) ? `${brand} ${t}` : t;
+      setField("desk", full);
+      goTo("connection", { ...profile, desk: full });
       return;
     }
     void ask(t);
@@ -417,24 +500,32 @@ export function SarahSetupWizard() {
 
   const ripple = (e: React.MouseEvent<HTMLButtonElement>) => {
     const b = e.currentTarget; const r = b.getBoundingClientRect(); const size = Math.max(r.width, r.height);
+    const x = e.clientX || r.left + r.width / 2; const y = e.clientY || r.top + r.height / 2;
     const span = document.createElement("span");
     span.className = s.ripple;
-    Object.assign(span.style, { width: `${size}px`, height: `${size}px`, left: `${e.clientX - r.left - size / 2}px`, top: `${e.clientY - r.top - size / 2}px` });
+    Object.assign(span.style, { width: `${size}px`, height: `${size}px`, left: `${x - r.left - size / 2}px`, top: `${y - r.top - size / 2}px` });
     b.appendChild(span); setTimeout(() => span.remove(), 650);
   };
 
   // live level for halo + meter
   const shown = channels.length ? feed.levels.filter((l) => channels.includes(l.channel)) : feed.levels;
-  const topPeak = shown.reduce((m, l) => Math.max(m, l.peak || 0), 0);
+  const topPeak = shown.reduce((m, l) => Math.max(m, Math.abs(l.peak) || 0), 0);
   const topDb = topPeak > 0 ? 20 * Math.log10(topPeak) : -120;
   const pct = Math.max(0, Math.min(100, ((topDb + 60) / 60) * 100));
   const liveLevel = feed.running ? pct / 100 : 0;
+  const band = levelBand(topDb);
+  const bandLabel = { silent: "No sound", quiet: "Too quiet", good: "Good", loud: "Too loud" }[band];
+  const bandClass = band === "good" ? s.bandGood : band === "silent" ? s.bandBad : s.bandWarn;
   const lastPct = useRef(0);
   useEffect(() => {
-    if (!feed.running || phase === "quiet") return;
-    if (pct > 55 && lastPct.current <= 55 && mood === "listen") { setMood("ooh"); setStatus("Sarah can hear you"); setTimeout(() => setMood("listen"), 1400); }
+    if (!feed.running || phaseRef.current === "quiet") return;
+    if (pct > 55 && lastPct.current <= 55 && mood === "listen") {
+      setMood("ooh"); setStatus("Sarah can hear you");
+      const t = setTimeout(() => setMood("listen"), 1400);
+      timers.current.add(t);
+    }
     lastPct.current = pct;
-  }, [pct, feed.running, phase, mood]);
+  }, [pct, feed.running, mood]);
 
   const idx = PROGRESS.indexOf(phase);
   const title: Record<Phase, string> = {
@@ -444,18 +535,21 @@ export function SarahSetupWizard() {
 
   return (
     <div className={s.root}>
-      <SarahShader energy={liveLevel} />
+      <SarahShader energy={liveLevel} paused={showSuccess} />
       <div className={s.bar}>
         <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
-          <strong style={{ fontSize: 20, fontWeight: 800 }}>Sarah</strong>
-          <span style={{ fontSize: 13, color: "var(--color-muted-foreground)" }}>Audio setup assistant</span>
+          <strong className={s.barName}>Sarah</strong>
+          <span className={s.barRole}>Audio setup assistant</span>
         </div>
         {profile.desk && <span key={profile.desk} className={s.pill}>{profile.desk}</span>}
-        {profile.os && <span key={profile.os} className={`${s.pill} ${s.pillDim}`}>{profile.os === "mac" ? "macOS" : "Windows"}</span>}
+        {profile.os && <span key={profile.os} className={`${s.pill} ${s.pillDim}`}>{OS_LABEL[profile.os]}</span>}
         {device && <span key={device.key} className={`${s.pill} ${s.pillDim}`}>{device.kind.label}{channels.length ? ` · ch ${channels.map((c) => c + 1).join("/")}` : ""}</span>}
         <div style={{ flex: 1 }} />
-        <div className={s.progress} aria-label={`Step ${Math.max(1, idx + 1)} of ${PROGRESS.length}`}>
-          {PROGRESS.map((p, i) => <i key={p} data-on={i <= idx} data-current={i === idx} />)}
+        <div className={s.progressWrap}>
+          <span className={s.progressText}>Step {Math.max(1, idx + 1)} of {PROGRESS.length}</span>
+          <div className={s.progress} aria-hidden>
+            {PROGRESS.map((p, i) => <i key={p} data-on={i <= idx} data-current={i === idx} />)}
+          </div>
         </div>
       </div>
 
@@ -467,20 +561,31 @@ export function SarahSetupWizard() {
           </div>
           {feed.running && (
             <div className={s.meter}>
-              <div className={s.track}><div className={s.fill} style={{ width: `${pct}%` }} /><div className={s.target} title="Target speech level" /></div>
-              <div className={s.meterRow}><span>{device?.name}{channels.length ? ` · ch ${channels.map((c) => c + 1).join("/")}` : ""}</span><span>{topDb <= -119 ? "−∞" : topDb.toFixed(1)} dBFS</span></div>
+              <div className={s.track} role="meter" aria-label="Input level" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-valuetext={bandLabel}>
+                <div className={s.fill} style={{ transform: `scaleX(${pct / 100})` }} />
+                <div className={s.target} />
+              </div>
+              <div className={s.meterRow}>
+                <span className={bandClass}>{bandLabel}</span>
+                <span>{device?.name}{channels.length ? ` · ch ${channels.map((c) => c + 1).join("/")}` : ""}</span>
+              </div>
             </div>
           )}
           {feed.running && device && device.channelCount > 2 && phase === "input" && (
             <div className={s.channels}>
-              {Array.from({ length: Math.min(device.channelCount, 32) }, (_, c) => {
+              {Array.from({ length: Math.min(device.channelCount, 64) }, (_, c) => {
                 const l = feed.levels.find((x) => x.channel === c);
-                const h = l && l.peak > 0 ? Math.max(0, Math.min(100, ((20 * Math.log10(l.peak) + 60) / 60) * 100)) : 0;
+                const p = l ? Math.abs(l.peak) : 0;
+                const h = p > 0 ? Math.max(0, Math.min(100, ((20 * Math.log10(p) + 60) / 60) * 100)) : 0;
                 return (
-                  <button key={c} type="button" className={`${s.ch} ${channels.includes(c) ? s.chHit : ""}`} style={{ background: "none", border: 0, color: "inherit", cursor: "pointer" }}
-                    onClick={() => { const next = channels.includes(c) ? channels.filter((x) => x !== c) : [...channels, c].slice(-2).sort((a, b) => a - b); setChannels(next); feed.setChannels(next.length ? next : null); if (next.length) setExtraChips(["Continue"]); }}
+                  <button key={c} type="button" className={`${s.ch} ${channels.includes(c) ? s.chHit : ""}`}
+                    onClick={() => {
+                      const next = channels.includes(c) ? channels.filter((x) => x !== c) : [...channels, c].slice(-2).sort((a, b) => a - b);
+                      setChannels(next); feed.setChannels(next.length ? next : null);
+                      if (next.length) setExtraChips(["Continue"]);
+                    }}
                     aria-label={`Channel ${c + 1}`} aria-pressed={channels.includes(c)}>
-                    <div className={s.chBar}><div className={s.chFill} style={{ height: `${h}%` }} /></div>{c + 1}
+                    <span className={s.chBar}><span className={s.chFill} style={{ height: `${h}%` }} /></span>{c + 1}
                   </button>
                 );
               })}
@@ -490,21 +595,33 @@ export function SarahSetupWizard() {
 
         <section className={s.chat} aria-label="Conversation with Sarah">
           <div className={s.chatHead}>
-            <strong style={{ fontSize: 16 }}>{title[phase]}</strong>
-            {match && match.confidence !== "none" && phase !== "loading" && (
-              <button type="button" className={s.link} onClick={() => { setUseApp((u) => !u); userSays(useApp ? "Start fresh" : "Use my application"); setTrail([]); setPhase("context"); if (useApp) { setProfile({ failedRoutes: profile.failedRoutes }); goTo("os", {}); } }}>
-                {useApp ? "Start fresh instead" : "Use my application"}
-              </button>
-            )}
+            <strong className={s.chatTitle}>{title[phase]}</strong>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {aiOffline && <span className={s.offlinePill} title="Sarah's chat needs a Groq key / active subscription">Offline guide</span>}
+              {match && match.confidence !== "none" && phase !== "loading" && (
+                <button type="button" className={s.link} onClick={() => {
+                  const useIt = !useApp;
+                  setUseApp(useIt);
+                  userSays(useIt ? "Use my application" : "Start fresh");
+                  void feed.stop(); clearTimers(); runId.current += 1; setMeasuring(false);
+                  setChecks([]); setDevice(null); setChannels([]); setEditingFromApp(true);
+                  if (!useIt) setProfile((p) => ({ failedRoutes: p.failedRoutes }));
+                  setTrail(["context"]); setPhase("os"); setExtraChips([]);
+                  enter("os", useIt ? profileRef.current : { failedRoutes: profileRef.current.failedRoutes });
+                }}>
+                  {useApp ? "Start fresh instead" : "Use my application"}
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className={s.log} ref={logRef}>
+          <div className={s.log} ref={logRef} role="log" aria-live="polite">
             {msgs.map((m) => (
               <div key={m.id} className={`${s.msg} ${m.role === "sarah" ? s.msgSarah : s.msgUser}`}>{m.text}</div>
             ))}
             {phase === "context" && match && match.confidence !== "none" && useApp && (
               <div className={s.card}>
-                <span className={s.cardK}>From your beta application</span>
+                <span className={s.cardK}>{match.identityMatched ? "From your beta application" : "Possible application — not confirmed"}</span>
                 <div>{[match.setup.churchName, match.setup.desk, match.setup.device, match.setup.currentSoftware].filter(Boolean).join(" · ")}</div>
                 <div className={s.sigs}>
                   {match.signals.filter((x) => x.matched).map((x) => <span key={x.key} className={s.sig}>✓ {x.label}</span>)}
@@ -513,14 +630,17 @@ export function SarahSetupWizard() {
               </div>
             )}
             {phase === "steps" && chosen && (
-              <div className={s.stepsList} style={{ padding: 0 }}>
+              <div className={s.stepsList}>
                 {chosen.steps.map((step, i) => (
-                  <div key={i} className={s.stepItem} data-done={doneSteps.has(i)} role="checkbox" aria-checked={doneSteps.has(i)} tabIndex={0}
+                  <button key={i} type="button" className={s.stepItem} role="checkbox" aria-checked={doneSteps.has(i)}
                     style={{ animationDelay: `${i * 70}ms` }}
-                    onClick={() => setDoneSteps((d) => { const n = new Set(d); if (n.has(i)) n.delete(i); else n.add(i); if (n.size === chosen.steps.length) { setMood("nod"); setStatus("All steps ticked"); } return n; })}
-                    onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}>
-                    <span className={s.tick}>{doneSteps.has(i) ? "✓" : ""}</span><span>{step}</span>
-                  </div>
+                    onClick={() => setDoneSteps((d) => {
+                      const n = new Set(d); if (n.has(i)) n.delete(i); else n.add(i);
+                      if (n.size === chosen.steps.length) { setMood("nod"); setStatus("All steps ticked"); }
+                      return n;
+                    })}>
+                    <span className={s.tick} aria-hidden>{doneSteps.has(i) ? "✓" : ""}</span><span>{step}</span>
+                  </button>
                 ))}
               </div>
             )}
@@ -528,8 +648,9 @@ export function SarahSetupWizard() {
           </div>
 
           <div className={s.opts}>
-            {[...opts.map((o) => ({ ...o, extra: false })), ...extraChips.map((c) => ({ label: c, onPick: () => onExtraChip(c), extra: true } as Opt & { extra: boolean }))].map((o, i) => (
+            {[...opts, ...extraChips.map((c): Opt => ({ label: c, onPick: () => onExtraChip(c) }))].map((o, i) => (
               <button key={`${phase}-${o.label}-${i}`} type="button" style={{ animationDelay: `${i * 55}ms` }}
+                disabled={o.disabled}
                 className={`${s.opt} ${o.selected ? s.optSel : ""} ${o.warn ? s.optWarn : ""}`}
                 onClick={(e) => { ripple(e); o.onPick(); }}>
                 <span>{o.label}</span>{o.sub && <small>{o.sub}</small>}
@@ -538,14 +659,14 @@ export function SarahSetupWizard() {
           </div>
 
           <form className={s.compose} onSubmit={onSubmit}>
-            <label htmlFor="sarah-say" className="sr-only">Message Sarah</label>
+            <label htmlFor="sarah-say" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Message Sarah</label>
             <input id="sarah-say" className={s.input} value={draft} onChange={(e) => setDraft(e.target.value)} autoComplete="off"
-              placeholder={phase === "desk" ? "Type your desk model, e.g. Behringer X32" : "Type to Sarah — e.g. “we actually have a Yamaha now”"} />
+              placeholder={phase === "desk" ? "Type your desk model, e.g. X32" : "Type to Sarah — e.g. “we actually have a Yamaha now”"} />
             <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={!draft.trim() || typing}>Send</button>
           </form>
           <div className={s.nav}>
             <button type="button" className={s.btn} onClick={back} disabled={trail.length === 0}>Back</button>
-            <button type="button" className={s.btn} onClick={() => router.push("/dashboard")}>Exit setup</button>
+            <button type="button" className={s.btn} onClick={() => { clearTimers(); void feed.stop(); router.push("/dashboard"); }}>Exit setup</button>
           </div>
         </section>
       </div>

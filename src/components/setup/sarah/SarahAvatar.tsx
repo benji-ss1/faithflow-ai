@@ -19,29 +19,32 @@ const LABEL: Record<SarahMood, string> = {
   neutral: "🙂 Ready", think: "🤔 Thinking", nod: "👍 Got it", listen: "👂 Listening",
   ooh: "😮 Ooh!", focus: "🧐 Checking", celebrate: "🎉 Yay!",
 };
-const ALL: SarahMood[] = ["neutral", "think", "nod", "listen", "ooh", "celebrate"];
 
 /**
- * Sarah's portrait. All mood images are stacked and cross-faded (opacity + blur
- * + scale morph) so a mood change reads as one continuous motion, plus a pop
- * (happy moods) or tilt (focus) on the frame. `level` (0..1) drives a live halo.
+ * Sarah's portrait. Only the current and previous images are mounted, cross-faded
+ * (opacity + slight scale/blur morph) so a mood change reads as one motion, plus a
+ * pop (happy moods) or tilt (thinking/checking) on the frame. `level` (0..1) drives
+ * a live halo via opacity/transform only (no per-frame box-shadow repaint).
  */
 export function SarahAvatar({ mood, level = 0 }: { mood: SarahMood; level?: number }) {
   const [broken, setBroken] = useState<Record<string, boolean>>({});
   const [anim, setAnim] = useState("");
+  const [prevMood, setPrevMood] = useState<SarahMood | null>(null);
   const prev = useRef(mood);
 
   useEffect(() => {
     if (prev.current === mood) return;
+    setPrevMood(prev.current);
     prev.current = mood;
     setAnim(mood === "focus" || mood === "think" ? s.shake : s.pop);
     const t = setTimeout(() => setAnim(""), 700);
-    return () => clearTimeout(t);
+    const t2 = setTimeout(() => setPrevMood(null), 800);
+    return () => { clearTimeout(t); clearTimeout(t2); };
   }, [mood]);
 
   const src = IMAGE[mood];
-  const allBroken = ALL.every((m) => broken[IMAGE[m]]);
   const glow = Math.max(0, Math.min(1, level));
+  const mounted = [...new Set([src, prevMood ? IMAGE[prevMood] : null].filter(Boolean) as string[])];
   const boxClass = [s.avatarBox, mood === "listen" || mood === "ooh" ? s.listening : "", mood === "celebrate" ? s.celebrate : ""].join(" ");
 
   return (
@@ -49,9 +52,9 @@ export function SarahAvatar({ mood, level = 0 }: { mood: SarahMood; level?: numb
       <div className={s.ring} />
       <div className={`${s.ring} ${s.ring2}`} />
       <div className={`${s.ring} ${s.ring3}`} />
-      <div className={s.levelHalo} style={{ boxShadow: `0 0 ${20 + glow * 60}px ${glow * 18}px rgba(95, 208, 138, ${0.08 + glow * 0.35})` }} />
+      <div className={s.levelHalo} style={{ opacity: 0.15 + glow * 0.85, transform: `scale(${1 + glow * 0.06})` }} aria-hidden />
       <div className={`${s.portrait} ${anim}`}>
-        {[...new Set(Object.values(IMAGE))].map((url) => (
+        {mounted.map((url) => (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             key={url}
@@ -63,9 +66,14 @@ export function SarahAvatar({ mood, level = 0 }: { mood: SarahMood; level?: numb
             draggable={false}
           />
         ))}
-        {(allBroken || broken[src]) && <div className={s.fallbackFace} aria-hidden>S</div>}
+        {broken[src] && (
+          <svg className={s.fallbackFace} viewBox="0 0 100 100" aria-hidden focusable="false">
+            <circle cx="50" cy="36" r="18" fill="currentColor" opacity="0.85" />
+            <path d="M12 100c0-22 17-34 38-34s38 12 38 34z" fill="currentColor" opacity="0.85" />
+          </svg>
+        )}
       </div>
-      <div key={mood} className={s.moodChip}>{LABEL[mood]}</div>
+      <div key={mood} className={s.moodChip} aria-hidden>{LABEL[mood]}</div>
     </div>
   );
 }

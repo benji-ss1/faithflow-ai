@@ -1,12 +1,14 @@
 /**
- * connectionPlans — Sarah audio setup (2026-09-15)
+ * connectionPlans — Sarah audio setup (2026-09-15, hardened after review)
  * -------------------------------------------------------------------------
  * Deterministic "your best ways to connect" ranking + step-by-step instructions,
  * grounded in docs/audio/AUDIO_SETUP_KNOWLEDGE_BASE.md. Exact desk menu paths
- * are only given where the KB marks them verified [V]; everything else gets the
- * general method + "check your desk's manual". Previously FAILED routes for this
- * church are ranked last and flagged.
+ * are only given (verified: true) where the KB marks them verified; everything
+ * else gets the general method + "check your desk's manual". Previously FAILED
+ * routes for this church are ranked last and flagged.
  */
+
+import { GOLDEN_RULE } from "./sarahKnowledge";
 
 export type Os = "mac" | "windows";
 export type Connection = "usb-desk" | "interface" | "ndi" | "dante" | "sdi-capture" | "builtin";
@@ -28,62 +30,59 @@ export function deskFamilyOf(desk: string | undefined | null): DeskFamily {
   // Analog models first — "Behringer Xenyx" / "Yamaha MG" / "A&H ZED" share a digital brand name.
   if (/xenyx|profx|\bmg\s?\d|zed-?\d|\bzed\b|analog/.test(d)) return "analog";
   if (/behringer|midas|x32|m32|wing|x-?air|xr1[268]/.test(d)) return "behringer";
-  if (/yamaha|\btf\b|tf[135]|dm3|dm7|\bql|\bcl[135]?\b|rivage|\bmg\d/.test(d)) return /\bmg\d/.test(d) ? "analog" : "yamaha";
-  if (/allen|heath|\bsq\b|sq-?\d|\bqu\b|qu-?\d|dlive|avantis|\bcq\b|zed/.test(d)) return /zed/.test(d) ? "analog" : "allen-heath";
+  if (/yamaha|\btf\b|tf[135]|dm3|dm7|\bql|\bcl[135]?\b|rivage/.test(d)) return "yamaha";
+  if (/allen|heath|\bsq\b|sq-?\d|\bqu\b|qu-?\d|dlive|avantis|\bcq\b/.test(d)) return "allen-heath";
   if (/soundcraft|ui24|ui1[26]|\bsi\b|signature|\bvi\d/.test(d)) return "soundcraft";
   if (/presonus|studiolive/.test(d)) return "presonus";
-  if (/xenyx|profx|analog|mackie/.test(d)) return "analog";
+  if (/mackie/.test(d)) return "analog";
   if (/none|no desk|not sure|don.?t know/.test(d)) return "none";
   return "other";
 }
 
-const FULL_MIX = "Send a post-fader FULL mix — pulpit mics AND the band — so PresentFlow can follow both preaching and songs.";
+const CHECK_MANUAL = "Menu names vary by model and firmware — check your desk's manual for its USB or output patch page.";
 
 function usbDeskSteps(fam: DeskFamily, desk: string): { steps: string[]; verified: boolean } {
   switch (fam) {
     case "behringer":
-      if (/wing/i.test(desk)) return { verified: true, steps: [
+      if (/wing/i.test(desk)) return { verified: false, steps: [
         "Plug the Wing's USB-B port straight into this computer (no hub).",
-        "On the Wing: Routing → Outputs → USB, and assign your Main mix to a USB pair (e.g. USB 1/2).",
-        FULL_MIX, "Tell Sarah which USB pair you used." ] };
+        "In the Wing's Routing, open the USB output page and assign your aux/matrix (or Main) to a USB pair.",
+        GOLDEN_RULE, CHECK_MANUAL, "Tell Sarah which USB pair you used." ] };
       return { verified: true, steps: [
         "Plug the X-USB card on the back of the desk into this computer (no hub).",
-        "On the desk: Routing → Out 1–16, put Main LR on Out 15/16.",
-        "Routing → Card Out → choose the block “Out 9–16”. The computer now hears it on USB 15/16.",
-        FULL_MIX ] };
+        "On the desk: Routing → Out 1-16, put a spare aux or matrix (or Main LR if none is spare) on Out 15/16.",
+        "Routing → Card Out → choose the block “Out 9-16”. The computer now hears it on USB 15/16.",
+        GOLDEN_RULE ] };
     case "yamaha":
       if (/\btf/i.test(desk)) return { verified: true, steps: [
         "Plug the TF's USB port into this computer.",
-        "The Stereo mix already goes to USB 33/34 by default — no routing needed on a Mac.",
-        FULL_MIX ] };
+        "The Stereo mix is always on USB 33/34 — no routing needed on a Mac.",
+        "That pair only carries the Stereo mix. If you want a dedicated aux instead, patch it to a USB output in the desk's patch page.",
+        GOLDEN_RULE ] };
       return { verified: false, steps: [
         "Connect the desk to this computer by USB (or Dante, on QL/CL/Rivage).",
-        "In the desk's Output Patch, send the Stereo mix or a Matrix to a USB/Dante output pair.",
-        FULL_MIX, "Exact menus vary by model — check your desk's manual for “Output Patch”." ] };
+        "In the desk's output patch, send a spare aux or matrix (or the Stereo mix) to a USB/Dante output pair.",
+        GOLDEN_RULE, CHECK_MANUAL ] };
     case "allen-heath":
-      if (/\bqu/i.test(desk)) return { verified: true, steps: [
-        "Plug the Qu's USB-B port into this computer.",
-        "On the Qu: Setup → I/O Patch → USB Audio, assign Main LR to a USB pair.",
-        FULL_MIX ] };
-      return { verified: /\bsq/i.test(desk), steps: [
+      return { verified: false, steps: [
         "Plug the desk's USB-B port into this computer.",
-        /\bsq/i.test(desk) ? "On SQ, USB outputs 1/2 carry Main LR by default. To change it, open the I/O screen → USB." : "In the desk's I/O patch, send Main LR to a USB output pair.",
-        FULL_MIX ] };
+        "In the desk's I/O / USB patch page, send a spare aux or matrix (or Main LR) to a USB output pair.",
+        GOLDEN_RULE, CHECK_MANUAL ] };
     case "presonus":
-      return { verified: true, steps: [
+      return { verified: false, steps: [
         "Plug the StudioLive's USB into this computer and open Universal Control.",
-        "Set USB Send 1/2 to Main L / Main R.",
-        FULL_MIX ] };
+        "In its USB send / digital patching, send a spare aux (or Main L/R) to USB sends 1/2.",
+        GOLDEN_RULE, CHECK_MANUAL ] };
     case "soundcraft":
       return { verified: false, steps: [
-        "Connect the desk's USB to this computer (Ui24R is a 32-channel USB interface).",
-        "Route the LR mix to a USB channel pair in the desk's routing page.",
-        FULL_MIX, "The exact USB channel for LR varies — check your desk's manual." ] };
+        "Connect the desk's USB to this computer (the Ui24R is a 32-channel USB interface).",
+        "Route a spare aux (or the LR mix) to a USB channel pair in the desk's routing page.",
+        GOLDEN_RULE, CHECK_MANUAL ] };
     default:
       return { verified: false, steps: [
         "If your desk has a USB audio port, plug it straight into this computer.",
-        "In the desk's routing/patch page, send the Main mix to a USB output pair.",
-        FULL_MIX, "Check your desk's manual for “USB routing”." ] };
+        "In the desk's routing/patch page, send a spare aux or matrix (or the Main mix) to a USB output pair.",
+        GOLDEN_RULE, CHECK_MANUAL ] };
   }
 }
 
@@ -95,23 +94,24 @@ function build(connection: Connection, fam: DeskFamily, desk: string, os: Os | u
     }
     case "interface":
       return { connection, title: "Audio interface", subtitle: "Focusrite, Behringer UMC…", verified: false, recommended: true, steps: [
-        "Take an aux or matrix output from the desk (post-fader, full mix).",
+        "Take a spare post-fader aux (or matrix) output from the desk.",
         "Cable it into a LINE input on the interface. Turn 48V phantom power OFF on that input.",
         "Plug the interface into this computer by USB.",
-        "Set the interface gain so talking peaks around the middle of Sarah's meter. If it distorts, use the pad.",
+        "Set the interface gain so talking lands in the green “Good” part of Sarah's meter. If it distorts, use the pad.",
         fam === "analog" ? "Small desks: a post-fader aux is safer than the record/tape out (often quieter and pre-fader)." : "If you hear hum, use a DI box with ground lift on the audio cable — never remove a power earth.",
+        GOLDEN_RULE,
       ] };
     case "ndi":
       return { connection, title: "NDI over the network", subtitle: "Another computer sends the audio", verified: false, recommended: true, steps: [
         "On the computer that has the desk audio, send it as an NDI source (e.g. OBS with NDI, or NDI Tools).",
         "Put both computers on the same WIRED network — never Wi-Fi.",
-        "The NDI source will appear in Sarah's device list — pick it.",
+        "The NDI source will appear in Sarah's input list — pick it.",
       ] };
     case "dante":
       return { connection, title: "Dante network audio", subtitle: "Dante Virtual Soundcard", verified: true, recommended: true, steps: [
         `Install and license Dante Virtual Soundcard on this ${os === "windows" ? "PC" : "Mac"}.`,
-        "In Dante Controller, route the desk's Main mix channels to this computer.",
-        "Match the sample rate (48 kHz) on both. Use latency 4 ms, or 10 ms if you hear dropouts.",
+        "In Dante Controller, route the desk's aux/matrix channels to this computer.",
+        "Use the same sample rate as your Dante network (usually 48 kHz), and latency 4, 6 or 10 ms (use 10 if you hear dropouts).",
         "Use wired Ethernet, then pick “Dante Virtual Soundcard” in Sarah's list.",
       ] };
     case "sdi-capture":
@@ -138,7 +138,6 @@ export function rankConnections(input: {
   const desk = (input.desk ?? "").trim();
   let order: Connection[];
   if (fam === "analog" || fam === "none") order = ["interface", "ndi", "builtin"];
-  else if (fam === "other") order = ["usb-desk", "interface", "ndi", "builtin"];
   else order = ["usb-desk", "interface", "ndi", "builtin"];
   if (input.hasDante) order = ["dante", ...order.filter((c) => c !== "dante")];
   if (input.hasCapture) order.splice(1, 0, "sdi-capture");

@@ -65,6 +65,44 @@ guarded by listening check. 🔴 wizard probe vs single native capture slot — 
 🟡 ffmpeg/Windows no uid → name fallback. 🟡 device-name variance → "other" bucket.
 🟡 LLM advice → grounded on diagnostics + KB only. 🟢 additive-only storage.
 
+## 7-agent gate (2026-09-15) — findings fixed before merge
+- 🔴 **Cross-church application leak** (security + stress agents): a guessable church name
+  ("Grace") matched another church's application and exposed desk/device/applicant/city.
+  FIX: `scoreApplication` now releases `setup` ONLY when an identity signal matches (same
+  email, VERIFIED team member email, or the church's own non-free-mail domain); a name-only
+  match returns `{churchName}` and can never be `high`. Similarity is measured against the
+  LARGER token set, location tokens are ignored, accents are stripped (NFKD + combining marks),
+  and a "conflict" needs distinctive tokens on both sides. Adversarial test:
+  `test/adversarial/audio-setup-context.test.ts` (12 checks, needs a localhost DB).
+- 🔴 **Client-supplied knowledge went into a system prompt** (AI agent): moved server-side to
+  `src/lib/audio/sarahKnowledge.ts`, keyed by `step`; diagnostics whitelisted to {id,status,value};
+  CONTEXT now travels as delimited user content; temperature 0.2; `stripUngroundedPaths` replaces
+  any "A → B" menu path Sarah wasn't given with "check your desk's manual".
+- 🔴 **Timers kept running after Back/exit** (reviewer + stress): all timeouts live in a ref,
+  are cleared on Back/phase change/unmount, and each long step carries a run id.
+- 🟡 Also fixed: POST profile needs `operate_services`; `/api/ai/audio-guide` requires AI
+  entitlement + evicts its rate-limit map; `confirmedApplicationId` is re-verified server-side;
+  missing-table detection also reads `err.cause.code === "42P01"`; AI corrections validated
+  against the enums AND saved; desk brand + typed model combine; probe generation guard and
+  friendly probe errors; double-click guards on device pick / save; AI chat aborts after 12s;
+  64-channel grid; `saveWorkingDevice` reports quota failure; identical-uid devices disambiguate
+  by name; demoted backups can't outrank the primary.
+- 🟡 Audio guidance corrected (AI agent): the golden rule is now a **dedicated post-fader aux or
+  matrix, dry, vocals forward** (Main L/R only as fallback); A&H SQ / PreSonus / Soundcraft /
+  Wing steps are marked UNVERIFIED (general method + manual); X32, TF, Dante and Blackmagic stay verified.
+- 🟡 Diagnostics: noise floor warn moved -50 → -45 (real desks idle there), clipping needs 3
+  consecutive frames ≥ -0.25 dBFS or ≥2%, |peak| is used, digital silence is detected, and
+  meters show plain bands (No sound / Too quiet / Good / Too loud).
+- 🟡 Design: visible focus on steps + channels, success dialog takes focus / Escape / 10s with
+  cancel-on-interaction, wizard pins its own dark tokens (app light theme can't wash it out),
+  ≥11px type, role="log"/"meter", pre-blurred halo + scaleX meter, 30fps shader paused when
+  hidden, compact <900px layout.
+- 🟢 No-regression agent: `git diff origin/main` over useAudioStream / electron / native /
+  audioGuardian / deviceCategorization / deviceChannelPrefs / nativeDeviceStore / ai-detection /
+  bible-parser / scripts is EMPTY. Legacy wizard unchanged when the flag is off.
+- **Still open:** merge `origin/main` into this branch before shipping; Sarah's 6 portraits must
+  be saved to `public/sarah/`; the migration must be applied before deploy; real mic/desk field test.
+
 ## Blackmagic on macOS (research verdict)
 Desktop Video exposes DeckLink/UltraStudio as CoreAudio inputs (2/8/16 ch embedded, 48 kHz);
 embedded audio only exists while video is locked → treat all-zero as "no video signal".

@@ -22,12 +22,20 @@ void main(){
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-/** Slow flowing ember shader. `energy` (0..1) brightens it with live audio. Static gradient under reduced motion / no WebGL. */
-export function SarahShader({ energy = 0 }: { energy?: number }) {
+const FPS = 30;
+
+/**
+ * Slow flowing ember backdrop. `energy` (0..1) brightens it with live audio.
+ * Capped at 30fps, paused when the tab is hidden or `paused` is set, and replaced
+ * by a static gradient under reduced motion or without WebGL.
+ */
+export function SarahShader({ energy = 0, paused = false }: { energy?: number; paused?: boolean }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const energyRef = useRef(energy);
+  const pausedRef = useRef(paused);
   const [ok, setOk] = useState(true);
   energyRef.current = energy;
+  pausedRef.current = paused;
 
   useEffect(() => {
     const c = ref.current;
@@ -49,14 +57,17 @@ export function SarahShader({ energy = 0 }: { energy?: number }) {
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     const ut = gl.getUniformLocation(prog, "t"), ur = gl.getUniformLocation(prog, "r"), ue = gl.getUniformLocation(prog, "energy");
-    let raf = 0; let smooth = 0;
+    let raf = 0; let smooth = 0; let last = 0;
     const frame = (ms: number) => {
+      raf = requestAnimationFrame(frame);
+      if (pausedRef.current || document.hidden) return;
+      if (ms - last < 1000 / FPS) return;
+      last = ms;
       const w = Math.max(1, Math.floor(c.clientWidth * 0.5)), h = Math.max(1, Math.floor(c.clientHeight * 0.5));
       if (c.width !== w || c.height !== h) { c.width = w; c.height = h; gl.viewport(0, 0, w, h); }
-      smooth += (energyRef.current - smooth) * 0.08;
+      smooth += (energyRef.current - smooth) * 0.12;
       gl.uniform1f(ut, ms / 1000); gl.uniform2f(ur, w, h); gl.uniform1f(ue, smooth);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); gl.getExtension("WEBGL_lose_context")?.loseContext(); };

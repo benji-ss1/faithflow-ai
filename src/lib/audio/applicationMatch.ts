@@ -1,14 +1,20 @@
 /**
- * applicationMatch — Sarah audio setup (2026-09-15)
+ * applicationMatch — Sarah audio setup (2026-09-15, hardened after review)
  * -------------------------------------------------------------------------
  * Decides whether a public beta application belongs to the signed-in church,
  * using MULTIPLE signals (the applicant is often not the Sunday operator, so
- * email alone is unreliable). Pure + deterministic — the server loader feeds it
- * candidate rows; nothing here touches the DB.
+ * email alone is unreliable). Pure + deterministic.
+ *
+ * PRIVACY: beta_applications is NOT church-scoped. A church-name similarity is
+ * guessable (a church can simply call itself "Grace"), so the application's
+ * details (desk, device, applicant, city …) are only released when an IDENTITY
+ * signal ties it to this church's own team: same email, a verified team
+ * member's email, or the church's own (non-free-mail) email domain. A name-only
+ * match returns the church name alone, as a "possible" to confirm.
  *
  * Output confidence:
- *   high     — "I found your application"
- *   possible — "Is this your church?" (must be confirmed before use)
+ *   high     — identity signal + no church-name conflict ("I found your application")
+ *   possible — something matched but not enough ("Is this your church?")
  *   none     — start fresh
  */
 
@@ -25,6 +31,7 @@ export interface ApplicationRow {
 export interface ChurchContext {
   userEmail: string;
   userName?: string;
+  /** Emails of VERIFIED members of this church (the caller filters). */
   memberEmails: string[];
   churchName: string;
   city?: string | null;
@@ -47,7 +54,10 @@ export interface ApplicationMatch {
   applicationId: string;
   confidence: "high" | "possible" | "none";
   score: number;
+  /** True only when an identity signal (email / team email / church domain) matched. */
+  identityMatched: boolean;
   signals: MatchSignal[];
+  /** Redacted to { churchName } unless identityMatched. */
   setup: ExtractedSetup;
 }
 
@@ -56,28 +66,43 @@ const FREE_MAIL = new Set([
   "outlook.com", "live.com", "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com", "ymail.com",
 ]);
 const CHURCH_STOPWORDS = new Set([
-  "the", "of", "and", "church", "chapel", "ministries", "ministry", "international", "intl", "assembly",
-  "parish", "centre", "center", "cathedral", "fellowship", "rccg", "redeemed", "christian", "house",
+  "the", "of", "and", "a", "church", "chapel", "ministries", "ministry", "international", "intl", "assembly",
+  "parish", "centre", "center", "cathedral", "fellowship", "rccg", "redeemed", "christian", "house", "god",
+  "global", "worldwide", "mission", "gospel", "evangelical", "baptist", "pentecostal", "family", "de", "la", "le",
 ]);
 
-const norm = (s: string | null | undefined) => (s ?? "").toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}@.\s-]/gu, " ").replace(/\s+/g, " ").trim();
+/** Lowercase, strip accents (NFKD + remove combining marks), keep letters/digits/@/./space. */
+export const norm = (s: string | null | undefined) =>
+  (s ?? "").toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}@.\s-]/gu, " ").replace(/\s+/g, " ").trim();
 const domainOf = (email: string | null | undefined) => { const m = /@([^@\s]+)$/.exec(norm(email)); return m ? m[1] : ""; };
 
-function tokens(name: string | null | undefined): string[] {
-  return norm(name).split(/[\s-]+/).filter((t) => t.length > 1 && !CHURCH_STOPWORDS.has(t));
+function tokens(name: string | null | undefined, drop: Set<string> = new Set()): string[] {
+  return [...new Set(norm(name).split(/[\s-]+/).filter((t) => t.length > 1 && !CHURCH_STOPWORDS.has(t) && !drop.has(t)))];
 }
 
-/** Jaccard-ish overlap on distinctive tokens (0..1). "RCCG Grace Chapel" vs "Grace Chapel Lagos" → high. */
-export function churchNameSimilarity(a: string | null | undefined, b: string | null | undefined): number {
-  const ta = new Set(tokens(a)); const tb = new Set(tokens(b));
-  if (ta.size === 0 || tb.size === 0) return 0;
-  let inter = 0; for (const t of ta) if (tb.has(t)) inter++;
-  return inter / Math.min(ta.size, tb.size);
+/**
+ * Overlap of DISTINCTIVE tokens, measured against the LARGER set (0..1). When either
+ * name has a single distinctive token the sets must be identical — one shared common
+ * word ("Grace", "Life") is not a match on its own. Location tokens are ignored.
+ */
+export function churchNameSimilarity(a: string | null | undefined, b: string | null | undefined, ignore: string[] = []): number {
+  const drop = new Set(ignore.flatMap((x) => norm(x).split(/[\s-]+/)).filter(Boolean));
+  const ta = tokens(a, drop); const tb = tokens(b, drop);
+  if (ta.length === 0 || tb.length === 0) return 0;
+  const setB = new Set(tb);
+  const inter = ta.filter((t) => setB.has(t)).length;
+  if (Math.min(ta.length, tb.length) === 1) return ta.length === tb.length && inter === 1 ? 1 : inter > 0 ? 0.4 : 0;
+  return inter / Math.max(ta.length, tb.length);
+}
+
+function hasDistinctiveTokens(name: string | null | undefined, ignore: string[] = []): boolean {
+  const drop = new Set(ignore.flatMap((x) => norm(x).split(/[\s-]+/)).filter(Boolean));
+  return tokens(name, drop).length > 0;
 }
 
 function answerFor(answers: ApplicationAnswer[], re: RegExp): string | undefined {
   const hit = answers.find((a) => re.test(a.question ?? ""));
-  const v = hit?.answer?.trim();
+  const v = typeof hit?.answer === "string" ? hit.answer.trim() : "";
   return v ? v.slice(0, 200) : undefined;
 }
 
@@ -88,12 +113,13 @@ function field(composite: string | undefined, key: string): string | undefined {
 }
 
 export function extractSetup(app: ApplicationRow): ExtractedSetup {
-  const a = Array.isArray(app.answers) ? app.answers : [];
+  const a = (Array.isArray(app?.answers) ? app.answers : [])
+    .filter((x): x is ApplicationAnswer => !!x && typeof x === "object" && typeof (x as ApplicationAnswer).question === "string");
   const basics = answerFor(a, /church called|church name/i);
   const nameAns = answerFor(a, /your name/i);
   const first = field(nameAns, "first name"); const last = field(nameAns, "last name");
   return {
-    churchName: app.churchName ?? field(basics, "church name") ?? undefined,
+    churchName: (typeof app?.churchName === "string" && app.churchName) || field(basics, "church name") || undefined,
     city: field(basics, "city"),
     country: field(basics, "country"),
     applicantName: [first, last].filter(Boolean).join(" ") || undefined,
@@ -104,45 +130,50 @@ export function extractSetup(app: ApplicationRow): ExtractedSetup {
 }
 
 export function scoreApplication(app: ApplicationRow, ctx: ChurchContext): ApplicationMatch {
-  const setup = extractSetup(app);
+  const full = extractSetup(app);
   const appEmail = norm(app.contactEmail);
   const members = new Set([ctx.userEmail, ...ctx.memberEmails].map(norm).filter(Boolean));
   const appDomain = domainOf(app.contactEmail);
   const churchDomains = new Set([...members].map(domainOf).filter((d) => d && !FREE_MAIL.has(d)));
-  const nameSim = churchNameSimilarity(setup.churchName, ctx.churchName);
+  const locations = [ctx.city ?? "", ctx.country ?? "", full.city ?? "", full.country ?? ""];
+  const nameSim = churchNameSimilarity(full.churchName, ctx.churchName, locations);
 
   const signals: MatchSignal[] = [
     { key: "email-user", label: "Same email as you", strength: "strong", matched: !!appEmail && appEmail === norm(ctx.userEmail) },
     { key: "email-member", label: "Applicant is on your church team", strength: "strong", matched: !!appEmail && appEmail !== norm(ctx.userEmail) && members.has(appEmail) },
-    { key: "church-name", label: "Church name matches", strength: "strong", matched: nameSim >= 0.6 },
     { key: "domain", label: "Same church email domain", strength: "strong", matched: !!appDomain && !FREE_MAIL.has(appDomain) && churchDomains.has(appDomain) },
-    { key: "city", label: "Same city", strength: "support", matched: !!setup.city && !!ctx.city && churchNameSimilarity(setup.city, ctx.city) >= 0.5 },
-    { key: "country", label: "Same country", strength: "support", matched: !!setup.country && !!ctx.country && norm(setup.country) === norm(ctx.country) },
-    { key: "applicant-name", label: "Applicant name matches you", strength: "support", matched: !!setup.applicantName && !!ctx.userName && churchNameSimilarity(setup.applicantName, ctx.userName) >= 0.5 },
+    { key: "church-name", label: "Church name matches", strength: "strong", matched: nameSim >= 0.6 },
+    { key: "city", label: "Same city", strength: "support", matched: !!full.city && !!ctx.city && norm(full.city).split(/[\s,]+/)[0] === norm(ctx.city).split(/[\s,]+/)[0] },
+    { key: "country", label: "Same country", strength: "support", matched: !!full.country && !!ctx.country && norm(full.country) === norm(ctx.country) },
+    { key: "applicant-name", label: "Applicant name matches you", strength: "support", matched: !!full.applicantName && !!ctx.userName && tokens(full.applicantName).some((t) => tokens(ctx.userName).includes(t)) },
   ];
 
-  const w: Record<string, number> = { "email-user": 60, "email-member": 50, "church-name": 40, domain: 35, city: 12, country: 6, "applicant-name": 10 };
+  const w: Record<string, number> = { "email-user": 60, "email-member": 50, domain: 35, "church-name": 40, city: 12, country: 6, "applicant-name": 10 };
+  const on = (k: string) => signals.find((x) => x.key === k)!.matched;
   const score = signals.reduce((s, x) => s + (x.matched ? w[x.key] : 0), 0);
-  const strong = signals.filter((s) => s.strength === "strong" && s.matched).length;
-  // Contradiction: a confidently DIFFERENT church name vetoes email-only matches (a volunteer
-  // who applied for another church, or re-used a personal address).
-  const nameConflict = !!setup.churchName && !!ctx.churchName && nameSim === 0;
+  const identityMatched = on("email-user") || on("email-member") || on("domain");
+  // Conflict only when BOTH names carry distinctive words and none are shared.
+  const nameConflict = hasDistinctiveTokens(full.churchName, locations) && hasDistinctiveTokens(ctx.churchName, locations) && nameSim === 0;
 
   let confidence: ApplicationMatch["confidence"] = "none";
-  if (!nameConflict && (strong >= 2 || (strong === 1 && score >= 60))) confidence = "high";
-  else if (strong >= 1 || score >= 40) confidence = "possible";
+  if (identityMatched && !nameConflict) confidence = "high";
+  else if (identityMatched || on("church-name")) confidence = "possible";
 
-  return { applicationId: app.id, confidence, score: nameConflict ? Math.min(score, 45) : score, signals, setup };
+  const setup: ExtractedSetup = identityMatched ? full : { churchName: full.churchName };
+  return { applicationId: app.id, confidence, score: nameConflict ? Math.min(score, 45) : score, identityMatched, signals, setup };
 }
 
-/** Best candidate; ties broken by newest application. */
+/** Best candidate; ties broken by newest application. Malformed rows are skipped. */
 export function bestApplicationMatch(apps: ApplicationRow[], ctx: ChurchContext): ApplicationMatch | null {
   let best: { m: ApplicationMatch; t: number } | null = null;
-  for (const app of apps) {
+  for (const app of Array.isArray(apps) ? apps : []) {
+    if (!app || typeof app !== "object" || typeof app.id !== "string") continue;
     const m = scoreApplication(app, ctx);
     if (m.confidence === "none") continue;
-    const t = app.createdAt ? new Date(app.createdAt).getTime() : 0;
-    if (!best || m.score > best.m.score || (m.score === best.m.score && t > best.t)) best = { m, t };
+    const rank = (x: ApplicationMatch) => (x.confidence === "high" ? 1000 : 0) + x.score;
+    const tRaw = app.createdAt ? new Date(app.createdAt).getTime() : 0;
+    const t = Number.isFinite(tRaw) ? tRaw : 0;
+    if (!best || rank(m) > rank(best.m) || (rank(m) === rank(best.m) && t > best.t)) best = { m, t };
   }
   return best?.m ?? null;
 }
