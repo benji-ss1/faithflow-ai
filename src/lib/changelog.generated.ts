@@ -4,6 +4,15 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.409",
+    "date": "2026-09-15",
+    "headline": "Beta applications now reach the PresentFlow team inbox",
+    "highlights": [
+      "New beta applications from presentflow.org now appear in the PresentFlow Ops review queue.",
+      "Your application confirmation is not delayed if the internal team inbox is temporarily unavailable."
+    ]
+  },
+  {
     "version": "0.1.408",
     "date": "2026-09-15",
     "headline": "Fewer, more accurate Bible suggestions from preaching",
@@ -12,7 +21,6 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "They stay quiet while a song is on screen or when you're in Worship mode.",
       "When a passage is announced or on screen and read aloud, suggestions can follow along verse by verse.",
       "Suggestions never go on screen by themselves — click to load, Shift+click to send live."
-    ]
     ]
   },
   {
