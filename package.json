@@ -35,6 +35,7 @@
     "db:reset": "tsx scripts/reset.ts",
     "typecheck": "tsc --noEmit",
     "changelog:build": "node scripts/build-changelog.mjs",
+    "allusion:index": "tsx scripts/build-allusion-index.mjs",
     "changes:new": "node scripts/new-change.mjs",
     "check:changes": "node scripts/check-changes.mjs && node scripts/build-changelog.mjs --check",
     "test:pair-code": "tsx --env-file=.env.local test/adversarial/pair-code.test.ts",
