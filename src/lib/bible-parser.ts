@@ -776,6 +776,35 @@ const KNOWN_MISHEAR_ALT = Object.keys(KNOWN_BOOK_MISHEARS)
   .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
   .join("|");
 
+// 2026-09-16 SOUND-CHECK false positive ("check mic two" → Micah 2).
+// Field data: of 107,593 real transcript segments, 151 contain mic/mike/mics and
+// every sampled one means a MICROPHONE; a genuine Micah reference is never spoken
+// as "mic" (preachers say "Micah 1 verse 2"). The bare aliases "mic"/"mi" were
+// therefore firing book_ch ("mic two" → Micah 2:1 @72, a suggest toast) and —
+// worse — book_ch_space_verse ("testing mic 1 2" / "mic 7 5" → @85), which is
+// ABOVE the 75 auto-fire bar, so a sound check could PROJECT a verse in AUTO mode.
+//
+// Rather than drop the aliases (typed "Mic 6:8" in the BibleMode reference box
+// resolves through parseTypedReference → parseReferences and must keep working),
+// we gate ONLY these two ambiguous aliases, and ONLY in the two number-only
+// shapes, on the utterance carrying an explicit scripture shape: a colon form,
+// the words "chapter"/"verse", or a scripture cue ("book of", "turn to",
+// "the bible says"). Every other book alias — including the full "micah" and the
+// Micah↔Mark accent remap — is untouched (CLAUDE.md rule 9).
+const AMBIGUOUS_SHORT_ALIASES = new Set(["mic", "mi"]);
+const SCRIPTURE_SHAPE = /\d\s*:\s*\d|\bchapters?\b|\bverses?\b|\bbook\s+of\b|\bturn\s+to\b|\bbible\s+says\b/;
+
+/**
+ * True when a number-only match must be REJECTED because its book token is one
+ * of the ambiguous short aliases ("mic"/"mi") and the utterance shows no
+ * explicit scripture shape. `bookKey` is already lowercased/whitespace-collapsed;
+ * `text` is the full normalized utterance (already lowercased by normalize()).
+ */
+function ambiguousAliasWithoutScriptureShape(bookKey: string, text: string): boolean {
+  if (!AMBIGUOUS_SHORT_ALIASES.has(bookKey)) return false;
+  return !SCRIPTURE_SHAPE.test(text);
+}
+
 const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => ParsedReference | null }[] = [
   // Known multi-word ASR mishears in a STRICT two-number chapter:verse shape.
   // Two numbers required (chapter AND verse, via colon / "verse" / comma / bare
@@ -991,6 +1020,10 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const chapter = chunkToNum(m[2]);
       const verse = chunkToNum(m[3]);
       if (!book || !isFinite(chapter) || !isFinite(verse)) return null;
+      // "testing mic 1 2" / "mic 7 5" is a sound check, not Micah — see
+      // ambiguousAliasWithoutScriptureShape above. This shape scores 85, above
+      // the 75 auto-fire bar, so the guard matters most here.
+      if (ambiguousAliasWithoutScriptureShape(bookKey, m.input)) return null;
       if (SINGLE_CHAPTER_BOOKS.has(book)) {
         return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 85, matchedText: m[0], needsSemanticFallback: false };
       }
@@ -1007,6 +1040,10 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const book = VARIANT_TO_BOOK.get(bookKey);
       const chapter = chunkToNum(m[2]);
       if (!book || !isFinite(chapter)) return null;
+      // "mic two" / "check mic two please" is a sound check, not Micah 2 —
+      // see ambiguousAliasWithoutScriptureShape above. "mic chapter 2" still
+      // resolves (the utterance carries "chapter").
+      if (ambiguousAliasWithoutScriptureShape(bookKey, m.input)) return null;
       if (SINGLE_CHAPTER_BOOKS.has(book)) {
         return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 78, matchedText: m[0], needsSemanticFallback: false };
       }
