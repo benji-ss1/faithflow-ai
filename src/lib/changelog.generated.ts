@@ -4,6 +4,15 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.409",
+    "date": "2026-09-15",
+    "headline": "Beta applications now reach the PresentFlow team inbox",
+    "highlights": [
+      "New beta applications from presentflow.org now appear in the PresentFlow Ops review queue.",
+      "Your application confirmation is not delayed if the internal team inbox is temporarily unavailable."
+    ]
+  },
+  {
     "version": "0.1.408",
     "date": "2026-09-15",
     "headline": "Fewer, more accurate Bible suggestions from preaching",
