@@ -37,8 +37,9 @@ import { LayersPanel } from "./LayersPanel";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { TimerApi, MessagesApi, TimersApi, MessagesBoardApi } from "../hooks";
-import type { UnifiedSuggestion } from "../../useAudioStream";
-import { AIDetectionsPanel, songRowFromSuggestion } from "./AIDetectionsPanel";
+import { AIDetectionsPanel } from "./AIDetectionsPanel";
+import { useRightRailDetections } from "./useRightRailDetections";
+import { countCrossRefCandidates } from "@/lib/right-rail-visible";
 import { TimersPanel } from "./TimersPanel";
 import { MessagesPanel } from "./MessagesPanel";
 import dynamic from "next/dynamic";
@@ -147,18 +148,18 @@ export function RightIconBar({
     };
   }, [setOpenKey]);
 
-  // Badge counts derived directly from live suggestion state — updates
-  // reactively as detections land, no separate subscription needed.
-  const bibleCount = ctx.audio.suggestions.filter((s: UnifiedSuggestion) => s.type === "scripture").length;
-  // Count ONLY suggestions that actually resolve to a real song row (a matched
-  // songId) — the exact same filter the Song Detections panel uses to render.
-  // Previously this counted every "song"/"lyric" suggestion regardless of
-  // whether it matched a real library song, so spoken scripture that fuzzy-grazed
-  // a lyric phrase (with no songId) inflated the badge to e.g. "6" while the
-  // panel correctly showed "No song matches yet". Reusing songRowFromSuggestion
-  // guarantees the badge can never disagree with the list.
-  const songCount = ctx.audio.suggestions.filter((s: UnifiedSuggestion) => songRowFromSuggestion(s) !== null).length;
-  const xrefCount = ctx.audio.phraseMatches.length;
+  // Badge counts = EXACTLY the rows the Bible / Songs / Cross-refs popovers
+  // render (same threshold, 10-min expiry, dedupe, dismissed + failed-lookup
+  // sets, 5-min/max-3 phrase groups). The rows + sets live here (always
+  // mounted) so dismissals survive popover close and counts expire on a 15s
+  // tick even while the popover is closed. See src/lib/right-rail-visible.ts.
+  const detections = useRightRailDetections(ctx.audio, ctx.confidenceThreshold ?? 50, {
+    planId: ctx.planId, translationCode: ctx.defaultTranslationCode,
+  });
+  const bibleCount = detections.bibleRows.length;
+  const songCount = detections.songRows.length;
+  // Cross-refs panel renders one row per candidate verse, so count candidates.
+  const xrefCount = countCrossRefCandidates(detections.phraseGroups);
 
   return (
     <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)]">
@@ -216,17 +217,17 @@ export function RightIconBar({
       {/* Popovers ------------------------------------------------------- */}
       {openKey === "bible" && (
         <PopoverShell title="Bible detections" onClose={() => setOpenKey(null)}>
-          <AIDetectionsPanel ctx={ctx} sections={["bible"]} />
+          <AIDetectionsPanel ctx={ctx} sections={["bible"]} detections={detections} />
         </PopoverShell>
       )}
       {openKey === "songs" && (
         <PopoverShell title="Song detections" onClose={() => setOpenKey(null)}>
-          <AIDetectionsPanel ctx={ctx} sections={["songs"]} />
+          <AIDetectionsPanel ctx={ctx} sections={["songs"]} detections={detections} />
         </PopoverShell>
       )}
       {openKey === "xrefs" && (
         <PopoverShell title="Cross-references" onClose={() => setOpenKey(null)}>
-          <AIDetectionsPanel ctx={ctx} sections={["xrefs"]} />
+          <AIDetectionsPanel ctx={ctx} sections={["xrefs"]} detections={detections} />
         </PopoverShell>
       )}
       {/* Logs popover render also disabled — see IconTrigger comment above.
