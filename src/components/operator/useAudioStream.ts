@@ -265,7 +265,7 @@ export type CanonicalCorrection = {
   dismissed?: boolean;
 };
 
-import { allusionV1Enabled, runAllusionOnFinal, type AllusionRuntime } from "@/lib/ai-detection/allusion-runtime";
+import { allusionV1Enabled, runAllusionOnFinal, sharedAllusionRuntime, warmAllusionIndex } from "@/lib/ai-detection/allusion-runtime";
 
 /**
  * Client-side mic capture → WebSocket bridge to Deepgram.
@@ -280,6 +280,7 @@ export type DetectContextProvider = () => {
   hasSlideContext: boolean;
   hasSongContext: boolean;
   liveText?: string; // allusion v1 context (live slide text + reference footer)
+  translationCode?: string; // allusion v1 rail verse text
 };
 
 // 2026-07-25 distant-mic improvements — capture-pipeline pre-processing knobs,
@@ -320,7 +321,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const slidePrefetchRef = useRef<Map<string, unknown>>(new Map());
   const inFlightSlideFetchRef = useRef<Set<string>>(new Set());
   const getCtxRef = useRef<DetectContextProvider | undefined>(opts?.getDetectContext);
-  const allusionRef = useRef<AllusionRuntime | null>(null); // allusion v1 (flag-gated)
+  const allusionRef = useRef(sharedAllusionRuntime()).current; // allusion v1 (flag-gated)
+  useEffect(() => { if (allusionV1Enabled()) warmAllusionIndex(allusionRef.current!); }, [allusionRef]);
   // Last book/chapter actually detected — resolves bare "verse 11" / "what
   // does verse 7 say" mentions (no book/chapter spoken) against whatever
   // passage is currently active in the service.
@@ -1781,7 +1783,6 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           // Phase 5A: run unified detection client-side. Fire-and-forget.
           // R11: skip if we already ran detection on this text within 800ms
           // (e.g. from a preceding interim_final_candidate).
-          if (allusionV1Enabled() && typeof msg.text === "string") runAllusionOnFinal(allusionRef, msg.segmentId, msg.text, getCtxRef.current?.() as { mode?: "auto" | "worship" | "preacher"; liveText?: string } | undefined, songIndexRef.current, setState);
           if (!shouldSkipRedetect(msg.text)) {
             runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence });
           } else {
@@ -1816,6 +1817,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
               return changed ? { ...prev, suggestions: updated } : prev;
             });
           }
+          // Allusion v1: AFTER explicit detection, deferred so it never delays the reference path.
+          if (allusionV1Enabled() && typeof msg.text === "string") { const segId = msg.segmentId, txt = msg.text; setTimeout(() => runAllusionOnFinal(allusionRef, segId, txt, getCtxRef.current?.() as { mode?: "auto" | "worship" | "preacher"; liveText?: string; translationCode?: string } | undefined, songIndexRef.current, setState), 0); }
           // Runtime hook — check user-added custom voice commands and, on
           // match, dispatch a `presentflow:voice-command` event. Shell owns
           // the actual side-effect (calls ctx callback + toast).

@@ -22,6 +22,8 @@ export type AllusionIndexJson = {
   postings: number;
   hashes: string; keys: string; pos: string; df: string; wr: string; counts: string; canon: string;
   refs: string;
+  names?: string;
+  common?: string;
 };
 
 export type AllusionIndex = {
@@ -30,9 +32,15 @@ export type AllusionIndex = {
   hashes: Uint32Array; keys: Uint16Array; pos: Uint8Array; df: Uint8Array; wr: Uint8Array;
   counts: Uint8Array; canon: Uint16Array;
   refs: { book: string; chapter: number; verse: number }[];
+  /** Stemmed proper-name/place words: topic, never quotation evidence. */
+  names: Set<string>;
+  /** Stemmed high-frequency Bible words; don't count as distinctive short-tier evidence. */
+  common: Set<string>;
 };
 
 function decodeB64(s: string): Uint8Array {
+  const fromB64 = (Uint8Array as unknown as { fromBase64?: (x: string) => Uint8Array }).fromBase64;
+  if (typeof fromB64 === "function") return fromB64(s);
   if (typeof Buffer !== "undefined") {
     const b = Buffer.from(s, "base64");
     return new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
@@ -59,11 +67,26 @@ export function decodeAllusionIndex(j: AllusionIndexJson): AllusionIndex {
     wr: decodeB64(j.wr),
     counts: decodeB64(j.counts),
     canon: aligned(decodeB64(j.canon), Uint16Array),
+    names: new Set((j.names ?? "").split(" ").filter(Boolean)),
+    common: new Set((j.common ?? "").split(" ").filter(Boolean)),
     refs: j.refs.split(";").map((r) => {
       const [book, c, v] = r.split("|");
       return { book, chapter: Number(c), verse: Number(v) };
     }),
   };
+}
+
+/** Same result as decodeAllusionIndex, but yields between arrays so no single
+ *  task decodes more than one packed array (keeps each slice well under ~50ms). */
+export async function decodeAllusionIndexChunked(j: AllusionIndexJson, yieldFn: () => Promise<void>): Promise<AllusionIndex> {
+  const hashes = aligned(decodeB64(j.hashes), Uint32Array); await yieldFn();
+  const keys = aligned(decodeB64(j.keys), Uint16Array); await yieldFn();
+  const pos = decodeB64(j.pos); const df = decodeB64(j.df); await yieldFn();
+  const wr = decodeB64(j.wr); const counts = decodeB64(j.counts); const canon = aligned(decodeB64(j.canon), Uint16Array); await yieldFn();
+  const names = new Set((j.names ?? "").split(" ").filter(Boolean));
+  const common = new Set((j.common ?? "").split(" ").filter(Boolean));
+  const refs = j.refs.split(";").map((r) => { const [book, c, v] = r.split("|"); return { book, chapter: Number(c), verse: Number(v) }; });
+  return { version: j.version, verses: j.verses, hashes, keys, pos, df, wr, counts, canon, names, common, refs };
 }
 
 let indexPromise: Promise<AllusionIndex> | null = null;
@@ -92,9 +115,15 @@ export const ALLUSION_CONFIG = {
   TOP_RATIO: 1.5,            // top1 score ≥ ratio × best different verse
   // Short-quote tier: one RARE 3-gram line ("train up a child in the way he should go")
   SHORT_ENABLED: true,
-  SHORT_MIN_WORDS: 3,
+  SHORT_MIN_WORDS: 4,
   SHORT_MIN_COVERAGE: 0.4,   // 95% operating point (eval: 40/42 precise, 12/61 gold recall)
-  SHORT_MIN_WR: 120,         // max gram word-rarity (8 x sum word idf); kills "give God praise"
+  SHORT_MIN_WR: 120,
+  SHORT_MIN_DISTINCT: 4,     // short tier: >=4 distinct non-name words, OR …
+  SHORT_RARE_WR: 150,        // … one gram in the top rarity band ("listen pay attention" can't pass)
+  MIN_NONNAME_WORDS: 3,      // every tier: matched evidence must include >=3 non-name content words
+  PRECEDENCE_MS: 5 * 60_000, // an active passage outranks out-of-passage candidates for this long
+  PRAYER_BLOCKS_SHORT: true, // prayer markers ("we pray", "in Jesus name", "we worship you") in the last …
+  PRAYER_RECENT_MS: 30_000,  // … 30s → short tier blocked (strict evidence still allowed)         // max gram word-rarity (8 x sum word idf); kills "give God praise"
   DEDUPE_MS: 60_000,
   // Continuous reading of an announced/live passage (same book+chapter, near verse)
   CTX_MAX_AGE_MS: 10 * 60_000,
@@ -136,9 +165,10 @@ export type AllusionContext = {
 export type AllusionState = {
   segs: { text: string; atMs: number }[];
   emitted: Map<string, number>;
+  lastPrayerAt: number;
 };
 export function createAllusionState(): AllusionState {
-  return { segs: [], emitted: new Map() };
+  return { segs: [], emitted: new Map(), lastPrayerAt: -Infinity };
 }
 
 const refKey = (r: AllusionRef) => `${r.book} ${r.chapter}:${r.verse}`;
@@ -150,6 +180,8 @@ function lowerBound(a: Uint32Array, x: number): number {
 }
 
 type Hit = { j: number; p: number; df: number; wr: number };
+
+const PRAYER_RE = /\b(we pray|let us pray|in jesus'?s? (?:mighty |precious |holy )?name|in the (?:mighty )?name of jesus|father,? (?:lord,? )?we (?:thank|worship|praise|bless) you|we (?:worship|exalt|adore|bless) you|we give you (?:all )?(?:the )?(?:praise|glory)|amen)\b/i;
 
 /**
  * Feed one FINAL transcript segment; returns at most one allusion suggestion.
@@ -169,6 +201,7 @@ export function matchAllusion(
   if (state.segs.length > 12) state.segs.splice(0, state.segs.length - 12);
   for (const [k, t] of state.emitted) if (now - t > cfg.DEDUPE_MS) state.emitted.delete(k);
 
+  if (PRAYER_RE.test(segmentText)) state.lastPrayerAt = now;
   // Hard abstains (cheap, before any lookup).
   if (ctx.mode === "worship" || ctx.songLive || ctx.lyricMatch || ctx.explicitRefInWindow) return null;
 
@@ -180,9 +213,12 @@ export function matchAllusion(
   if (w.length < 3) return null;
   // grams must touch the newest segment (don't re-fire on stale words)
   const newestStart = Math.max(0, w.length - newWords);
+  const isName = w.map((x) => index.names.has(x));
+  const prayerWindow = cfg.PRAYER_BLOCKS_SHORT && now - state.lastPrayerAt <= cfg.PRAYER_RECENT_MS;
 
   const byKey = new Map<number, Hit[]>();
   for (let j = 0; j + 2 < w.length; j++) {
+    if (isName[j] && isName[j + 1] && isName[j + 2]) continue; // names-only gram = topic, not quote
     const h = allusionGramHash(w[j], w[j + 1], w[j + 2]);
     let i = lowerBound(index.hashes, h);
     for (; i < index.hashes.length && index.hashes[i] === h; i++) {
@@ -195,12 +231,18 @@ export function matchAllusion(
   if (byKey.size === 0) return null;
 
   const N = index.verses;
-  type Cand = { vIdx: number; t: number; score: number; words: number; coverage: number; maxWr: number; ctxOk: boolean; strictOk: boolean; shortOk: boolean };
+  type Cand = { vIdx: number; t: number; score: number; words: number; coverage: number; maxWr: number; ctxOk: boolean; strictOk: boolean; shortOk: boolean; inPassage: boolean };
   const best = new Map<number, Cand>(); // canonical verseIdx → best translation
 
   const passage = ctx.passage && now - ctx.passage.atMs <= cfg.CTX_MAX_AGE_MS ? ctx.passage : null;
+  const precedence = ctx.passage && now - ctx.passage.atMs <= cfg.PRECEDENCE_MS ? ctx.passage : null;
 
+  let inPassageShared = false; // an in-passage verse shares grams (even if its chain is older)
   for (const [key, hits] of byKey) {
+    if (precedence && !inPassageShared) {
+      const r0 = index.refs[key >> 1];
+      if (r0.book === precedence.book && r0.chapter === precedence.chapter) inPassageShared = true;
+    }
     // Longest chain increasing in both window position j and verse position p.
     hits.sort((a, b) => a.j - b.j || a.p - b.p);
     const n = hits.length;
@@ -228,6 +270,11 @@ export function matchAllusion(
       if (c > 0 && g.j === chain[c - 1].j + 1 && g.p === chain[c - 1].p + 1) { run++; maxRun = Math.max(maxRun, run); } else run = 1;
     }
     const words = covered.size;
+    const nonName = new Set<string>();
+    for (const j of covered) if (!isName[j]) nonName.add(w[j]);
+    let distinctive = 0;
+    for (const x of nonName) if (!index.common.has(x)) distinctive++;
+    const nonNameOk = nonName.size >= cfg.MIN_NONNAME_WORDS;
     const vCount = index.counts[key] || 1;
     const coverage = Math.min(1, words / vCount);
     const wSpan = chain[chain.length - 1].j + 3 - chain[0].j;
@@ -236,38 +283,55 @@ export function matchAllusion(
 
     const fiveGram = maxRun >= 3;
     const strictOk =
-      compact &&
+      nonNameOk && compact &&
       (grams >= cfg.MIN_GRAMS || (fiveGram && words >= cfg.FIVE_GRAM_MIN_WORDS)) &&
       words >= cfg.MIN_WORDS &&
       (coverage >= cfg.MIN_COVERAGE || words >= cfg.LONG_VERSE_WORDS) &&
       score >= cfg.MIN_IDF;
     const shortOk =
-      cfg.SHORT_ENABLED && compact &&
-      words >= cfg.SHORT_MIN_WORDS && coverage >= cfg.SHORT_MIN_COVERAGE && maxWr >= cfg.SHORT_MIN_WR;
+      cfg.SHORT_ENABLED && nonNameOk && compact && !prayerWindow &&
+      words >= cfg.SHORT_MIN_WORDS && coverage >= cfg.SHORT_MIN_COVERAGE && maxWr >= cfg.SHORT_MIN_WR &&
+      (distinctive >= cfg.SHORT_MIN_DISTINCT || (maxWr >= cfg.SHORT_RARE_WR && distinctive >= 3));
 
     const vIdx = key >> 1;
     const ref = index.refs[vIdx];
     const ctxOk =
-      !!passage && compact &&
+      !!passage && nonNameOk && compact &&
       ref.book === passage.book && ref.chapter === passage.chapter &&
       ref.verse >= passage.verse - cfg.CTX_VERSE_BEFORE && ref.verse <= passage.verse + cfg.CTX_VERSE_AFTER &&
       words >= cfg.CTX_MIN_WORDS && coverage >= cfg.CTX_MIN_COVERAGE;
 
     const cIdx = index.canon[vIdx];
+    const inPassage = !!precedence && ref.book === precedence.book && ref.chapter === precedence.chapter;
     const prevBest = best.get(cIdx);
     const t = key & 1;
     if (!prevBest || score > prevBest.score || (score === prevBest.score && t < prevBest.t)) {
-      best.set(cIdx, { vIdx: cIdx, t, score, words, coverage, maxWr, ctxOk: ctxOk || !!prevBest?.ctxOk, strictOk: strictOk || !!prevBest?.strictOk, shortOk: shortOk || !!prevBest?.shortOk });
+      best.set(cIdx, { vIdx: cIdx, t, score, words, coverage, maxWr, ctxOk: ctxOk || !!prevBest?.ctxOk, strictOk: strictOk || !!prevBest?.strictOk, shortOk: shortOk || !!prevBest?.shortOk, inPassage: inPassage || !!prevBest?.inPassage });
     } else {
-      prevBest.ctxOk ||= ctxOk; prevBest.strictOk ||= strictOk; prevBest.shortOk ||= shortOk;
+      prevBest.ctxOk ||= ctxOk; prevBest.strictOk ||= strictOk; prevBest.shortOk ||= shortOk; prevBest.inPassage ||= inPassage;
     }
   }
 
   const ranked = [...best.values()].sort((a, b) => b.score - a.score);
-  const top = ranked[0];
-  if (!top || !(top.strictOk || top.shortOk || top.ctxOk)) return null;
-  const second = ranked[1];
-  if (second && top.score < cfg.TOP_RATIO * second.score) return null;
+  let top = ranked[0];
+  if (!top) return null;
+  let viaPrecedence = false;
+  if (precedence && !top.inPassage) {
+    // Passage context precedence: an in-passage verse sharing the grams (e.g. Rom 8:36
+    // quoting Ps 44:22 while Romans 8 is being read) wins unless clearly out-evidenced;
+    // an out-of-passage verse otherwise needs full strict evidence.
+    // Any in-passage verse that shares the matched grams wins (or we abstain if it
+    // lacks evidence); an out-of-passage verse is only allowed with strict evidence
+    // AND no in-passage verse sharing grams.
+    const inP = ranked.find((c) => c.inPassage);
+    if (inP) { top = inP; viaPrecedence = true; }
+    else if (inPassageShared || !top.strictOk) return null;
+  }
+  if (!(top.strictOk || top.shortOk || top.ctxOk)) return null;
+  if (!viaPrecedence) {
+    const second = ranked.find((c) => c !== top);
+    if (second && top.score < cfg.TOP_RATIO * second.score) return null;
+  }
 
   const r = index.refs[top.vIdx];
   const key = refKey(r);

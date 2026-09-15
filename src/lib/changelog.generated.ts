@@ -6,12 +6,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
     "version": "0.1.408",
     "date": "2026-09-15",
-    "headline": "Bible suggestions from preaching are fewer and much more accurate",
+    "headline": "Fewer, more accurate Bible suggestions from preaching",
     "highlights": [
-      "When the preacher quotes a verse without saying the reference, PresentFlow now suggests it only when the words clearly match that verse — no more loosely related verses popping up.",
-      "Suggestions stay quiet during worship, so song lyrics that borrow Bible words don't bring up verses.",
+      "Bible suggestions from preaching now only appear when the preacher clearly quotes a verse (traditional wording works best), so you'll see fewer of them and they'll be right more often.",
+      "They stay quiet while a song is on screen or when you're in Worship mode.",
       "When a passage is announced or on screen and read aloud, suggestions can follow along verse by verse.",
-      "As before, suggestions never go on screen by themselves — click to load, Shift+click to send live."
+      "Suggestions never go on screen by themselves — click to load, Shift+click to send live."
     ]
   },
   {

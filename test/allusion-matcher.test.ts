@@ -51,8 +51,10 @@ check("quote split across two final segments: Daniel 4:35", () => {
   const got = feed(["And all the inhabitants of the earth are reputed as nothing.", "And he doeth according to his will in the army of heaven."]);
   assert.deepStrictEqual(got, ["Daniel 4:35"]);
 });
-check("short rare line tier: Proverbs 22:6", () => {
-  assert.deepStrictEqual(feed(["they say train up a child in the way he should go."]), ["Proverbs 22:6"]);
+// Proverbs 22:6 ("train up a child in the way…") deliberately no longer emits: child/way are
+// high-frequency Bible words, so it lacks distinctive evidence (accepted recall loss, 2026-09-15).
+check("near-verbatim quote with no reference: Daniel 4:29", () => {
+  assert.deepStrictEqual(feed(["At the end of twelve months he walked in the palace of the kingdom of Babylon."]), ["Daniel 4:29"]);
 });
 check("confidence is display-only and never reaches the 75 auto-fire bar", () => {
   const st = createAllusionState();

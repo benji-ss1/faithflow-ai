@@ -73,6 +73,33 @@ const canon = new Uint16Array(N);
   }
 }
 
+// Proper names / places (topic, not quotation): words capitalised mid-sentence
+// in >=90% of their KJV+WEB occurrences (>=3 occurrences), plus book-name words.
+// Versioned via NAMES_VERSION; stored stemmed, exactly as the matcher sees them.
+const NAMES_VERSION = "p1";
+const NAME_EXCLUDE = new Set(["god", "lord", "jesus", "christ", "spirit", "holy", "ghost", "father", "son", "king", "almighty", "lamb", "most", "high"]);
+const nameStats = new Map();
+for (const tr of translations) for (const r of tr) {
+  const toks = r.t.replace(/[’']/g, "").split(/\s+/);
+  for (let k = 0; k < toks.length; k++) {
+    const raw = toks[k].replace(/[^A-Za-z]/g, "");
+    if (!raw) continue;
+    const prev = k > 0 ? toks[k - 1] : "";
+    const sentenceStart = k === 0 || /[.;:?!]["”’)]*$/.test(prev);
+    if (sentenceStart) continue;
+    const lw = raw.toLowerCase();
+    const e = nameStats.get(lw) || { cap: 0, all: 0 };
+    e.all++;
+    if (/^[A-Z][a-z]/.test(raw)) e.cap++;
+    nameStats.set(lw, e);
+  }
+}
+const nameWords = new Set();
+for (const [lw, e] of nameStats) {
+  if (e.all >= 3 && e.cap / e.all >= 0.9 && !NAME_EXCLUDE.has(lw)) for (const cw of allusionContentWords(lw)) nameWords.add(cw);
+}
+for (const r of kjv) for (const cw of allusionContentWords(r.b)) if (!NAME_EXCLUDE.has(cw)) nameWords.add(cw);
+
 // word document frequency over canonical verses (any translation) → per-gram rarity
 const wordDf = new Map();
 for (let i = 0; i < N; i++) {
@@ -80,6 +107,9 @@ for (let i = 0; i < N; i++) {
   for (const w of seen) wordDf.set(w, (wordDf.get(w) || 0) + 1);
 }
 const wordIdf = (w) => Math.log(N / (wordDf.get(w) || 1));
+// Generic high-frequency Bible words (own, day, man, good…): not distinctive evidence for the short tier.
+const COMMON_DF = 250;
+const commonWords = [...wordDf].filter(([, n]) => n >= COMMON_DF).map(([w]) => w).sort();
 
 function denyHashes() {
   const s = new Set();
@@ -96,6 +126,8 @@ function buildPostings(exclude) {
     const w = words[key];
     if (!w) continue;
     for (let j = 0; j + 2 < w.length && j < 255; j++) {
+      // names-only grams can never count as evidence at runtime → not worth shipping
+      if (nameWords.has(w[j]) && nameWords.has(w[j + 1]) && nameWords.has(w[j + 2])) continue;
       const h = allusionGramHash(w[j], w[j + 1], w[j + 2]);
       if (exclude.has(h)) continue;
       let e = byHash.get(h);
@@ -175,7 +207,10 @@ for (let k = 0; k < N * 2; k++) counts[k] = Math.min(255, words[k]?.length ?? 0)
 
 const b64 = (ta) => Buffer.from(ta.buffer, ta.byteOffset, ta.byteLength).toString("base64");
 const out = {
-  version: `ai1-${ALLUSION_NORMALIZER_VERSION}-df${MAX_DF}-${DENY.version}-${stopVersion}`,
+  version: `ai1-${ALLUSION_NORMALIZER_VERSION}-df${MAX_DF}-${DENY.version}-${stopVersion}-${NAMES_VERSION}`,
+  names: [...nameWords].sort().join(" "),
+  common: commonWords.join(" "),
+  commonDf: COMMON_DF,
   translations: translations.length === 2 ? ["KJV", "WEB"] : ["KJV"],
   verses: N,
   postings: rows.length,

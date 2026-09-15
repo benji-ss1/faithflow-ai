@@ -20,7 +20,7 @@ import { parseLiveScriptureRef } from "@/lib/bible-antireplay";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { matchLyricFragment, type SongIndex } from "./lyric-fragment";
 import {
-  loadAllusionIndex, matchAllusion, createAllusionState,
+  matchAllusion, createAllusionState, decodeAllusionIndexChunked,
   type AllusionIndex, type AllusionMatch, type AllusionState,
 } from "./allusion-matcher";
 
@@ -42,7 +42,14 @@ export type AllusionEnv = {
   mode?: "auto" | "worship" | "preacher";
   /** Flattened text (+ reference footer) of the slide currently live. */
   liveText?: string;
+  /** Church/session Bible translation for the rail verse text (KJV fallback). */
+  translationCode?: string;
 };
+
+/** Max suggestions kept in audio state (mirrors useAudioStream's cap). */
+export const ALLUSION_SUGGESTIONS_CAP = 40;
+/** At most one failed index-load retry per this window. */
+export const ALLUSION_LOAD_RETRY_MS = 60_000;
 
 export type AllusionRuntime = {
   state: AllusionState;
@@ -51,22 +58,57 @@ export type AllusionRuntime = {
   passage: { book: string; chapter: number; verse: number; atMs: number } | null;
   bookByLower: Map<string, string> | null;
   songLiveCache: { text: string; songLive: boolean } | null;
+  lastFailAt: number;
 };
 
 export function createAllusionRuntime(index: AllusionIndex | null = null): AllusionRuntime {
-  return { state: createAllusionState(), index, loading: false, passage: null, bookByLower: null, songLiveCache: null };
+  return { state: createAllusionState(), index, loading: false, passage: null, bookByLower: null, songLiveCache: null, lastFailAt: 0 };
 }
 
-/** Kick off the lazy index load at idle time; never blocks the caller. */
-export function warmAllusionIndex(rt: AllusionRuntime, load: () => Promise<AllusionIndex> = loadAllusionIndex): void {
+type IdleWindow = Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+function onIdle(cb: () => void): void {
+  const w = typeof window !== "undefined" ? (window as IdleWindow) : null;
+  if (w?.requestIdleCallback) w.requestIdleCallback(cb, { timeout: 3000 });
+  else setTimeout(cb, 0);
+}
+const idleYield = () => new Promise<void>((r) => onIdle(r));
+
+/** Default loader: lazy chunk import, then decode one array per idle slice. */
+export async function loadAllusionIndexIdle(): Promise<AllusionIndex> {
+  const m = await import("@/data/allusion-index.generated.json");
+  const json = ((m as { default?: unknown }).default ?? m) as Parameters<typeof decodeAllusionIndexChunked>[0];
+  return decodeAllusionIndexChunked(json, idleYield);
+}
+
+/** Shared runtime so the console can warm it before the first final transcript. */
+const shared: { current: AllusionRuntime | null } = { current: null };
+export function sharedAllusionRuntime(): { current: AllusionRuntime | null } {
+  if (!shared.current) shared.current = createAllusionRuntime();
+  return shared;
+}
+
+/** Kick off the lazy index load at idle time; never blocks the caller.
+ *  Failed loads retry at most once per ALLUSION_LOAD_RETRY_MS. After load, one
+ *  warm-up match runs inside an idle callback (JIT + lazy tables). */
+export function warmAllusionIndex(
+  rt: AllusionRuntime,
+  load: () => Promise<AllusionIndex> = loadAllusionIndexIdle,
+  nowMs: number = Date.now(),
+): void {
   if (rt.index || rt.loading) return;
+  if (rt.lastFailAt && nowMs - rt.lastFailAt < ALLUSION_LOAD_RETRY_MS) return;
   rt.loading = true;
-  const go = () => {
-    load().then((ix) => { rt.index = ix; }).catch(() => { /* retry on a later final */ }).finally(() => { rt.loading = false; });
-  };
-  const w = typeof window !== "undefined" ? (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }) : null;
-  if (w?.requestIdleCallback) w.requestIdleCallback(go, { timeout: 3000 });
-  else setTimeout(go, 0);
+  onIdle(() => {
+    load()
+      .then((ix) => {
+        rt.index = ix;
+        onIdle(() => {
+          try { matchAllusion(ix, createAllusionState(), "surely goodness and mercy shall follow me", { nowMs: 0 }); } catch { /* warm-up only */ }
+        });
+      })
+      .catch(() => { rt.lastFailAt = Date.now(); })
+      .finally(() => { rt.loading = false; });
+  });
 }
 
 function canonicalBook(rt: AllusionRuntime, book: string): string {
@@ -144,16 +186,33 @@ export function allusionToPhraseGroup(segmentId: string, hit: AllusionMatch, ts:
   };
 }
 
-/** State reducer: add one allusion to both the chips list and the cross-ref rail. */
+/** State reducer: add one allusion to both the chips list and the cross-ref rail.
+ *  - never replaces an explicit (non-phrase) suggestion for the same verse;
+ *  - one rail group per verse (a repeat quote refreshes it, keeping its text);
+ *  - suggestions trimmed to ALLUSION_SUGGESTIONS_CAP. */
 export function applyAllusionToState<S extends AudioLike>(prev: S, segmentId: string, hit: AllusionMatch, ts: number): S {
   const sug = allusionToSuggestion(segmentId, hit, ts);
   const key = (x: UnifiedSuggestion) => (x.type === "scripture" ? `${x.ref.book} ${x.ref.chapter}:${x.ref.verseStart}-${x.ref.verseEnd}` : "");
   const k = key(sug);
+  const hasExplicit = prev.suggestions.some((s) => s.type === "scripture" && !s.isPhraseMatch && key(s) === k);
+  const suggestions = hasExplicit
+    ? prev.suggestions
+    : [sug, ...prev.suggestions.filter((s) => !(s.type === "scripture" && s.isPhraseMatch && key(s) === k))].slice(0, ALLUSION_SUGGESTIONS_CAP);
+  const sameVerse = (g: PhraseMatch) =>
+    g.segmentId.startsWith("al-") && g.candidates.length === 1 &&
+    g.candidates[0].book === hit.book && g.candidates[0].chapter === hit.chapter && g.candidates[0].verse === hit.verse;
+  const old = prev.phraseMatches.find(sameVerse);
+  const group = allusionToPhraseGroup(segmentId, hit, ts, old?.candidates[0]?.text ?? "");
   return {
     ...prev,
-    suggestions: [sug, ...prev.suggestions.filter((s) => s.type !== "scripture" || key(s) !== k)],
-    phraseMatches: [allusionToPhraseGroup(segmentId, hit, ts), ...prev.phraseMatches].slice(0, 10),
+    suggestions,
+    phraseMatches: [group, ...prev.phraseMatches.filter((g) => !sameVerse(g))].slice(0, 10),
   };
+}
+
+async function lookupVerseText(hit: AllusionMatch, code: string): Promise<string> {
+  const res = await cachedLookup({ book: hit.book, chapter: hit.chapter, verseStart: hit.verse, verseEnd: hit.verse, translationCode: code, source: "ai" });
+  return (res.verses ?? []).map((v) => v.text).join(" ").replace(/\s+/g, " ").trim();
 }
 
 /** The ONE call useAudioStream makes per final transcript when the flag is ON. */
@@ -168,15 +227,16 @@ export function runAllusionOnFinal<S extends AudioLike>(
   try {
     if (!rtRef.current) rtRef.current = createAllusionRuntime();
     const rt = rtRef.current;
-    if (!rt.index) { warmAllusionIndex(rt); return; } // not loaded yet → emit nothing
+    if (!rt.index) { warmAllusionIndex(rt); return; } // not loaded yet → emit nothing (load is idle, retry-limited)
     const ts = Date.now();
     const hit = decideAllusion(rt, text, env ?? {}, songIndex, ts);
     if (!hit) return;
     setState((prev) => applyAllusionToState(prev, segmentId, hit, ts));
     // Fill the rail row's verse text (same cached lookup the hover preview uses).
-    void cachedLookup({ book: hit.book, chapter: hit.chapter, verseStart: hit.verse, verseEnd: hit.verse, translationCode: "KJV", source: "ai" })
-      .then((res) => {
-        const vt = (res.verses ?? []).map((v) => v.text).join(" ").replace(/\s+/g, " ").trim();
+    const code = env?.translationCode || "KJV";
+    void lookupVerseText(hit, code)
+      .catch(() => (code !== "KJV" ? lookupVerseText(hit, "KJV") : ""))
+      .then((vt) => {
         if (!vt) return;
         const gid = `al-${segmentId}`;
         setState((prev) => ({

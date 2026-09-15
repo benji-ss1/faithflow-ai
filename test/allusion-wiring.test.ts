@@ -116,7 +116,9 @@ async function main() {
     assert.ok(src.includes("...(allusionV1Enabled() ? { skipPhraseFallback: true } : {})"), "detectAll ctx must be unchanged when OFF");
     const calls = src.split("runAllusionOnFinal(").length - 1;
     assert.strictEqual(calls, 1, "exactly one matcher call site");
-    assert.ok(/if \(allusionV1Enabled\(\) && typeof msg\.text === "string"\) runAllusionOnFinal\(/.test(src), "matcher call must be flag-gated");
+    assert.ok(/if \(allusionV1Enabled\(\) && typeof msg\.text === "string"\) \{[^\n]*setTimeout\(\(\) => runAllusionOnFinal\(/.test(src), "matcher call must be flag-gated and deferred");
+    const finalAt = src.indexOf('else if (msg.type === "final")');
+    assert.ok(finalAt > 0 && src.indexOf("runDetectAll(msg.segmentId, msg.text", finalAt) < src.indexOf("runAllusionOnFinal(", finalAt), "explicit detection must run before the allusion matcher");
     assert.ok(!/scripts\/audio-server/.test(src));
   });
   await check("audio-server untouched: still emits phrase_matches", () => {
