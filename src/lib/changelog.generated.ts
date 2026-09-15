@@ -15,6 +15,16 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
+    "version": "0.1.407",
+    "date": "2026-09-15",
+    "headline": "Transitions now live only in the left sidebar",
+    "highlights": [
+      "The transition picker and speed slider at the bottom of the screen have been removed.",
+      "Choose your transition and its speed in the Transitions section of the left sidebar.",
+      "Your saved transition still applies to the projector, stage and livestream screens, just as before."
+    ]
+  },
+  {
     "version": "0.1.406",
     "date": "2026-09-15",
     "headline": "Find a song by any line of its lyrics",

@@ -13,7 +13,7 @@
  *                                     OperatorConsole) — `aiWasOn` here is a
  *                                     mirror for observability only, never acted on
  *   - Audio device/channel/capture .. nativeDeviceStore / deviceChannelPrefs (v0.1.78-84)
- *   - Transition type/speed ......... presentflow.pro.transition (BottomBar)
+ *   - Transition type/speed ......... presentflow.pro.transition (TransitionsPanel UI; applied by BottomBar)
  *   - Screen assignments ............ presentflow.screenAssignments.v1 (ScreensPanel)
  *   - Timers / Messages ............. pro/hooks.ts TIMER_KEY / MSG_KEY
  *

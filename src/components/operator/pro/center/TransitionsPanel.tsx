@@ -10,7 +10,7 @@ const FAV_KEY = "presentflow.pro.transitions.favorites.v1";
 /**
  * F1 (2026-09-10): the full-screen Transitions picker in the CENTER panel, opened
  * from the left-rail "Transitions" section (was "Media"). It is the big sibling of
- * the bottom-bar TransitionChooser and shares the SAME persisted state
+ * the (now-removed, 2026-09-15) bottom-bar TransitionChooser and shares the SAME persisted state
  * (TRANSITION_KEY): selecting here writes the key and fires
  * `presentflow:transition-updated`, which the BottomBar listens for and applies to
  * the live output (so the two controls never disagree, and the projector updates).
@@ -45,7 +45,7 @@ export function TransitionsPanel() {
     } catch { /* noop */ }
   }, []);
 
-  // Keep in sync if the bottom-bar picker changes the selection while this is open.
+  // Keep in sync if the selection changes elsewhere (e.g. BottomBar restoring saved state) while this is open.
   useEffect(() => {
     const onUpdate = () => setState(readState());
     window.addEventListener(TRANSITION_UPDATED_EVENT, onUpdate);
@@ -78,7 +78,7 @@ export function TransitionsPanel() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      {/* Same animated-preview keyframes the bottom-bar chooser uses. */}
+      {/* Same animated-preview keyframes as TransitionChooser.tsx. */}
       <TransitionPreviewStyle />
       <div className="max-w-[900px] mx-auto">
         <div className="flex items-center gap-3 mb-4">
@@ -116,7 +116,7 @@ export function TransitionsPanel() {
           ))}
         </div>
 
-        {/* Transition grid (dimmed + inert while OFF, mirroring the bottom chooser) */}
+        {/* Transition grid (dimmed + inert while OFF) */}
         <div className={cn("grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 transition-opacity", state.off && "opacity-40 pointer-events-none")}>
           {list.length === 0 && (
             <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-8 text-center">No favourites yet — tap the star on a transition.</div>
@@ -135,7 +135,7 @@ export function TransitionsPanel() {
                     : "border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)]",
                 )}
               >
-                {/* The SAME animated orange preview the bottom-bar chooser shows. */}
+                {/* The animated orange preview from TransitionChooser.tsx. */}
                 <TransitionPreviewBox name={name} className="h-[84px]" />
                 {active && <Check className="absolute top-2.5 left-2.5 w-4 h-4 text-[var(--color-brand)]" />}
                 <div className="flex items-center justify-between mt-1.5 pl-1">
@@ -155,13 +155,12 @@ export function TransitionsPanel() {
           })}
         </div>
 
-        {/* Duration (dimmed + inert while OFF, mirroring the bottom chooser) */}
+        {/* Duration (dimmed + inert while OFF) */}
         <div className={cn("mt-6 flex items-center gap-3 max-w-[420px] transition-opacity", state.off && "opacity-40 pointer-events-none")}>
           <span className="text-[11px] uppercase tracking-wide text-[var(--color-muted-foreground)] w-20">Duration</span>
           <input
-            // Match the bottom-bar chooser's grid EXACTLY (0–5s on a 100ms step)
-            // so a value picked here is always representable there — otherwise the
-            // two controls show different rounded durations (e.g. 0.65s vs 0.7s).
+            // 0–5s on a 100ms step — the same range BottomBar clamps to
+            // (0–5000ms) when it publishes the persisted duration.
             type="range" min={0} max={5000} step={100} value={state.durationMs}
             onChange={(e) => publish({ ...state, durationMs: Number(e.target.value) })}
             className="flex-1 accent-[var(--color-brand)]"
