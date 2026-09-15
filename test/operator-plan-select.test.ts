@@ -10,6 +10,8 @@ import {
   adHocCleanupTargets,
   nextItemOrder,
   isUuid,
+  shouldPinPlanUrl,
+  recentChurchDayKeys,
 } from "../src/lib/operator-plan-select";
 
 const A = "00000000-0000-4000-8000-000000000001"; // smallest UUID
@@ -67,6 +69,39 @@ test("adding a header to a plan with N items leaves N+1 with order intact", () =
   assert.equal(after[9].id, "h");
   assert.equal(nextItemOrder([]), 0);
   assert.equal(nextItemOrder([{ order: 0 }, { order: 7 }]), 8); // survives gaps from deletes
+});
+
+test("pinnedPlanMissing: a deleted pinned plan is not held forever", () => {
+  // server fell back from pinned A (deleted) to B on the landing → adopt B
+  assert.equal(decidePlanPropChange(A, B, true, true), "adopt");
+  // without the signal a different id is still held
+  assert.equal(decidePlanPropChange(A, B, true, false), "hold");
+});
+
+test("shouldPinPlanUrl never pins offline or on a restored snapshot", () => {
+  const base = { onLandingRoute: true, online: true, restoredFromSnapshot: false, planId: A, urlPlanId: null };
+  assert.equal(shouldPinPlanUrl(base), true);
+  assert.equal(shouldPinPlanUrl({ ...base, online: false }), false);
+  assert.equal(shouldPinPlanUrl({ ...base, restoredFromSnapshot: true }), false);
+  assert.equal(shouldPinPlanUrl({ ...base, urlPlanId: A }), false);
+  assert.equal(shouldPinPlanUrl({ ...base, urlPlanId: B }), true); // missing-pin fallback repins
+  assert.equal(shouldPinPlanUrl({ ...base, onLandingRoute: false }), false);
+  assert.equal(shouldPinPlanUrl({ ...base, planId: undefined }), false);
+});
+
+test("clean-up skips ad-hoc plans scheduled today/yesterday in the church tz", () => {
+  const now = new Date("2026-09-14T23:30:00Z"); // 00:30 Irish time on 15 Sep
+  const days = recentChurchDayKeys("Europe/Dublin", now);
+  assert.deepEqual(days, ["2026-09-15", "2026-09-14"]);
+  const rows = [
+    { id: A, createdAt: 5, itemCount: 0, scheduledFor: "2026-09-15" }, // newest (kept anyway)
+    { id: B, createdAt: 4, itemCount: 0, scheduledFor: "2026-09-15" }, // today dup → protected
+    { id: Z, createdAt: 3, itemCount: 0, scheduledFor: "2026-09-14" }, // yesterday → protected
+    { id: "old-empty", createdAt: 2, itemCount: 0, scheduledFor: "2026-09-01" }, // deletable
+    { id: "old-items", createdAt: 1, itemCount: 4, scheduledFor: "2026-09-01" }, // has items
+  ];
+  assert.deepEqual(adHocCleanupTargets(rows, days), ["old-empty"]);
+  assert.deepEqual(adHocCleanupTargets(rows), [B, Z, "old-empty"]);
 });
 
 test("isUuid rejects non-uuid ?plan values", () => {

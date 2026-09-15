@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { decidePlanPropChange } from "@/lib/operator-plan-select";
+import { decidePlanPropChange, shouldPinPlanUrl } from "@/lib/operator-plan-select";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
@@ -106,8 +106,10 @@ const SERVICE_MODE_KEY = "presentflow.pro.serviceMode.v1";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, initialShell }: {
+export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, initialShell }: {
   plan: ExpandedPlan;
+  /** /operator only: the `?plan=` id no longer exists, so `plan` is a fallback to adopt. */
+  pinnedPlanMissing?: boolean;
   churchId: string;
   defaultTranslationCode: string;
   confidenceThreshold: number;
@@ -144,11 +146,52 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // a post-midnight refresh resolved a new empty "today" plan). Same id → adopt;
   // different id on the /operator landing → keep the current plan + offer a switch.
   const planIdRef = useRef<string>(planProp.id);
+  // True while the console shows an offline-restored IndexedDB snapshot; the
+  // URL pin (a Next navigation) is skipped until fresh server data arrives online.
+  const restoredFromSnapshotRef = useRef(false);
+  // Set when WE issued the pin navigation, so its same-data echo can't clobber
+  // optimistic local edits (it carries nothing new from the server).
+  const pinNavPendingRef = useRef(false);
+  const prevPlanPropRef = useRef<ExpandedPlan>(planProp);
+  const missingToastShownRef = useRef(false);
+  const pinPlanUrl = useCallback((planId: string | undefined) => {
+    if (typeof window === "undefined") return;
+    try {
+      const u = new URL(window.location.href);
+      if (!shouldPinPlanUrl({
+        onLandingRoute: u.pathname === "/operator",
+        online: typeof navigator === "undefined" ? true : navigator.onLine,
+        restoredFromSnapshot: restoredFromSnapshotRef.current,
+        planId,
+        urlPlanId: u.searchParams.get("plan"),
+      })) return;
+      u.searchParams.set("plan", planId!);
+      pinNavPendingRef.current = true;
+      setTimeout(() => { pinNavPendingRef.current = false; }, 5000);
+      // Via the Next router: a raw history.replaceState is overwritten by the
+      // router's canonical URL on the next refresh (caught by the local E2E).
+      router.replace(u.pathname + u.search, { scroll: false });
+    } catch { /* ignore */ }
+  }, [router]);
   useEffect(() => {
+    const prevProp = prevPlanPropRef.current;
+    prevPlanPropRef.current = planProp;
     const onLanding = typeof window !== "undefined" && window.location.pathname === "/operator";
-    if (decidePlanPropChange(planIdRef.current, planProp.id, onLanding) === "adopt") {
+    if (decidePlanPropChange(planIdRef.current, planProp.id, onLanding, pinnedPlanMissing) === "adopt") {
+      const sameId = planIdRef.current === planProp.id;
+      const pinEcho = pinNavPendingRef.current && sameId && prevProp !== planProp
+        && JSON.stringify(prevProp.items) === JSON.stringify(planProp.items);
+      if (prevProp !== planProp) pinNavPendingRef.current = false;
       planIdRef.current = planProp.id;
-      setPlan(planProp);
+      // Fresh server data confirmed while online → snapshot mode is over.
+      if (prevProp !== planProp && typeof navigator !== "undefined" && navigator.onLine) restoredFromSnapshotRef.current = false;
+      if (!pinEcho) setPlan(planProp);
+      if (pinnedPlanMissing && !missingToastShownRef.current) {
+        missingToastShownRef.current = true;
+        // Deferred: on a fresh open this runs at mount, before the Toaster has
+        // subscribed, and an immediate toast is dropped (caught by the local E2E).
+        setTimeout(() => { toast.info("That service no longer exists — showing today's service", { id: "operator-plan-missing" }); }, 800);
+      }
       return;
     }
     toast("A different service was loaded", {
@@ -160,28 +203,18 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         onClick: () => {
           planIdRef.current = planProp.id;
           setPlan(planProp);
-          try {
-            const u = new URL(window.location.href);
-            u.searchParams.set("plan", planProp.id);
-            router.replace(u.pathname + u.search, { scroll: false });
-          } catch { /* ignore */ }
+          pinPlanUrl(planProp.id);
         },
       },
     });
-  }, [planProp]);
-  // Pin the landing URL to the plan on screen so router.refresh() reloads it.
-  useEffect(() => {
-    if (typeof window === "undefined" || window.location.pathname !== "/operator" || !plan?.id) return;
-    try {
-      const u = new URL(window.location.href);
-      if (u.searchParams.get("plan") === plan.id) return;
-      u.searchParams.set("plan", plan.id);
-      // Via the Next router: a raw history.replaceState is overwritten by the
-      // router's canonical URL on the next refresh (caught by the local E2E).
-      router.replace(u.pathname + u.search, { scroll: false });
-    } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan?.id]);
+  }, [planProp, pinnedPlanMissing]);
+  // Pin the landing URL to the plan on screen so router.refresh() reloads it.
+  // Skipped offline / while showing a restored snapshot (see shouldPinPlanUrl);
+  // re-attempted whenever fresh server data arrives (planProp dep).
+  useEffect(() => {
+    pinPlanUrl(plan?.id);
+  }, [plan?.id, planProp, pinPlanUrl]);
   // Hybrid Phase 1 — durably snapshot the current service (church-scoped) for
   // offline fallback. Best-effort + dynamically imported so it can never affect
   // the online path. Snapshots the LIVE `plan` (including the operator's
@@ -212,6 +245,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     void import("@/lib/offline/serviceCache").then(async ({ loadServiceSnapshot }) => {
       const snap = await loadServiceSnapshot<ExpandedPlan>(churchId, planProp.id);
       if (snap?.plan && snap.plan.id === planProp.id && Array.isArray(snap.plan.items) && snap.plan.items.length > 0) {
+        restoredFromSnapshotRef.current = true;
         setPlan(snap.plan);
       }
     }).catch(() => { /* best-effort — fall back to planProp */ });

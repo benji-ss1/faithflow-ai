@@ -94,6 +94,9 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
     // Church-scoped inside getExpandedServicePlan; a foreign/deleted id → null → fall through.
     plan = await getExpandedServicePlan(pinnedPlanId, user.churchId);
   }
+  // The pinned plan was deleted / not visible → tell the console so it adopts
+  // the fallback instead of holding a plan that no longer exists.
+  const pinnedPlanMissing = Boolean(pinnedPlanId && !plan);
   if (!plan && todaysPlan) {
     plan = await getExpandedServicePlan(todaysPlan.id, user.churchId);
   }
@@ -136,6 +139,7 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
   return (
     <OperatorConsole
       plan={plan}
+      pinnedPlanMissing={pinnedPlanMissing}
       churchId={user.churchId}
       defaultTranslationCode={translationCode}
       confidenceThreshold={confidenceThreshold}
