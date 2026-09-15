@@ -10,6 +10,37 @@ import { CopyConfirm } from "../CopyConfirm";
 import { getEffect, ensureEffectKeyframes, type EffectId } from "@/lib/effects";
 import { TRANSITION_NAME_TO_EFFECT_ID, TRANSITION_PREVIEW_EVENT } from "../BottomBar";
 import type { SlidePayload } from "@/lib/broadcast";
+import { LayoutGrid } from "lucide-react";
+import { MultiViewOverlay, OutputTile, useLocalOutputState, useObsEditorStore } from "./MultiView";
+import { MULTIVIEW_SCREENS, MULTIVIEW_LABELS, PREVIEW_SCREEN_KEY, isMultiViewScreen, multiviewEnabled, type MultiViewScreen } from "@/lib/multiview";
+
+/** Preview-box screen switcher + "All screens" entry. Main keeps the original
+ *  preview render untouched; other screens render read-only OutputTiles. */
+function useMultiViewControls() {
+  const [enabled, setEnabled] = useState(false);
+  const [screen, setScreenInner] = useState<MultiViewScreen>("main");
+  const [allOpen, setAllOpen] = useState(false);
+  useEffect(() => {
+    const on = multiviewEnabled();
+    setEnabled(on);
+    if (!on) return;
+    try {
+      const saved = window.localStorage.getItem(PREVIEW_SCREEN_KEY);
+      if (isMultiViewScreen(saved)) setScreenInner(saved);
+    } catch { /* ignore */ }
+  }, []);
+  const setScreen = (s: MultiViewScreen) => {
+    setScreenInner(s);
+    try { window.localStorage.setItem(PREVIEW_SCREEN_KEY, s); } catch { /* ignore */ }
+  };
+  return { enabled, screen: enabled ? screen : "main" as MultiViewScreen, setScreen, allOpen, setAllOpen };
+}
+
+function PreviewOtherScreen({ ctx, screen }: { ctx: OperatorShellCtx; screen: MultiViewScreen }) {
+  const state = useLocalOutputState();
+  const obsStore = useObsEditorStore();
+  return <OutputTile screen={screen} state={state} ctx={ctx} obsStore={obsStore} />;
+}
 
 // The live slide's text carries its reference/translation as a trailing
 // line after a blank line ("...verse body...\n\nBook Ch:Verse (KJV)") — see
@@ -31,6 +62,7 @@ function splitBodyAndReference(text: string): { body: string; reference: string 
 
 export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; onVideoRef?: (el: HTMLVideoElement | null) => void }) {
   const isLive = ctx.liveSlide.kind !== "empty";
+  const mv = useMultiViewControls();
   // 2026-09-01 fix ("copy text on slide doesn't work"): the reference now lives
   // in the slide's dedicated `.reference` field, NOT appended into `text` after a
   // blank line. Reading it only via splitBodyAndReference(text) returned null for
@@ -103,6 +135,37 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           floor (24px min) fits most single verses without any clipping.
           Kept aspect-agnostic (no aspect-video) so the box is a stable
           size regardless of content length. */}
+      {/* MultiView 2026-09-15: pick which screen this box monitors + open all
+          screens. Kill-switch localStorage presentflow.pro.multiview.v1="0". */}
+      {mv.enabled && (
+        <div className="flex items-center gap-1">
+          <div className="flex flex-1 min-w-0 rounded-md border border-[var(--color-border)] p-0.5" role="radiogroup" aria-label="Screen to preview">
+            {MULTIVIEW_SCREENS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="radio"
+                aria-checked={mv.screen === s}
+                onClick={() => mv.setScreen(s)}
+                className={`flex-1 min-w-0 truncate px-1 py-1 rounded text-[10px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand)] ${mv.screen === s ? "bg-[var(--color-brand)] text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
+              >
+                {MULTIVIEW_LABELS[s]}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => mv.setAllOpen(true)}
+            className="shrink-0 h-7 px-2 inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] text-[10px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand)]"
+            title="See all screens at once"
+            aria-label="See all screens at once"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" aria-hidden /> All
+          </button>
+        </div>
+      )}
+      {mv.allOpen && <MultiViewOverlay ctx={ctx} onClose={() => mv.setAllOpen(false)} />}
+      {mv.screen !== "main" && <PreviewOtherScreen ctx={ctx} screen={mv.screen} />}
       {/* 2026-08-13 — restored true 16:9 (aspect-video) + projectorFit sizing so
           this preview is proportionally WYSIWYG with the projector. The earlier
           aspect-agnostic h-[280px] + non-projector fit was the cause of the
@@ -110,6 +173,9 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           long verses at the sanctuary floor instead of clipping/growing, so the
           16:9 box stays stable. Panel width is fixed, so aspect-video height is
           stable (no oscillation). */}
+      {/* Main stays MOUNTED when another screen is picked (hidden only) so the
+          preview video ref that drives VideoControlBar is never dropped. */}
+      <div hidden={mv.screen !== "main"}>
       <div
         className={
           isLive
@@ -192,6 +258,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             </div>
           </div>
         )}
+      </div>
       </div>
       {/* Always-legible reference strip — book, chapter:verse, translation —
           pulled out of the slide text so it's never cramped inside the tiny
