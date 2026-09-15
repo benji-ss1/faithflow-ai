@@ -1,6 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
+import { adHocCleanupTargets, recentChurchDayKeys } from "./operator-plan-select";
 import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
 import { bakeThemeIntoObjectsJson } from "./theme-bake";
@@ -67,25 +68,47 @@ export async function deleteServicePlan(id: string): Promise<Result> {
 
 // Bulk cleanup of leftover "Ad-hoc service" plans that pile up from repeated
 // operator opens without a scheduled plan. Keeps the single most recent
-// ad-hoc (by id desc) and deletes the rest. Church-scoped via the WHERE.
+// ad-hoc (by created_at) and deletes the EMPTY rest. Church-scoped via the WHERE.
 export async function cleanupAdHocServicePlans(): Promise<Result<{ deleted: number }>> {
   const user = await requireCap("operate_services");
   const db = getDb();
   const adHocs = await db
-    .select({ id: servicePlans.id })
+    .select({
+      id: servicePlans.id,
+      createdAt: servicePlans.createdAt,
+      scheduledFor: servicePlans.scheduledFor,
+      itemCount: sql<number>`(SELECT count(*)::int FROM service_items si WHERE si.service_plan_id = ${servicePlans.id})`,
+    })
     .from(servicePlans)
     .where(and(eq(servicePlans.churchId, user.churchId), eq(servicePlans.title, "Ad-hoc service")));
-  if (adHocs.length <= 1) return { ok: true, data: { deleted: 0 } };
-  // Keep the last (largest id — most recent insert); delete the rest one-by-one
-  // via the existing single-delete path so we get the same church-scoped WHERE
-  // discipline and cascade behavior.
-  const sorted = [...adHocs].sort((a, b) => a.id.localeCompare(b.id));
-  const toDelete = sorted.slice(0, -1);
-  for (const row of toDelete) {
-    await db.delete(servicePlans).where(and(eq(servicePlans.id, row.id), eq(servicePlans.churchId, user.churchId)));
+  const [church] = await db.select({ timezone: churches.timezone }).from(churches).where(eq(churches.id, user.churchId)).limit(1);
+  // Keep the most recently CREATED ad-hoc; skip today/yesterday (may be open);
+  // never delete one that has items (service_items cascade).
+  const candidates = adHocCleanupTargets(adHocs, recentChurchDayKeys(church?.timezone));
+  let deleted = 0;
+  for (const id of candidates) {
+    // Row-lock the plan, re-check emptiness, delete — all in ONE transaction.
+    // addServiceItem(s) take the same FOR UPDATE lock before inserting, so an
+    // in-flight add and this delete serialize (race proven 12/30 without it).
+    const removed = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ id: servicePlans.id })
+        .from(servicePlans)
+        .where(and(eq(servicePlans.id, id), eq(servicePlans.churchId, user.churchId)))
+        .for("update");
+      if (!locked) return 0;
+      const [hasItem] = await tx.select({ id: serviceItems.id }).from(serviceItems).where(eq(serviceItems.servicePlanId, id)).limit(1);
+      if (hasItem) return 0;
+      const res = await tx
+        .delete(servicePlans)
+        .where(and(eq(servicePlans.id, id), eq(servicePlans.churchId, user.churchId)))
+        .returning({ id: servicePlans.id });
+      return res.length;
+    });
+    deleted += removed;
   }
   revalidatePath("/services");
-  return { ok: true, data: { deleted: toDelete.length } };
+  return { ok: true, data: { deleted } };
 }
 
 // Discriminated union guard for addServiceItem payload. Validates that the
@@ -189,13 +212,19 @@ export async function addServiceItem(planId: string, type: ServiceItemType, titl
   if (!plan) return { ok: false, error: "Not found" };
   const guard = await validateAddServiceItemPayload(db, user.churchId, type, payload || {});
   if (!guard.ok) return guard;
+  // Lock the plan row (FOR UPDATE) for the read-existing + insert, so this add
+  // serializes with cleanupAdHocServicePlans' locked delete (and with a
+  // concurrent add on the same plan). If the plan was deleted meanwhile → Not found.
+  const txResult = await db.transaction(async (tx): Promise<Result<{ id: string }>> => {
+  const [lockedPlan] = await tx.select({ id: servicePlans.id }).from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).for("update");
+  if (!lockedPlan) return { ok: false, error: "Not found" };
   // Order = max(existing) + 1. `existing.length` was wrong when items were
   // deleted (gaps) or when two operators added concurrently (both read
   // length=N, both insert order=N, collision + broken sort). Reading max
   // gives a monotonic order that survives deletes; concurrent inserts still
   // race but the failure mode becomes duplicate `order` (visual reorder needed)
   // rather than silent overwrite of an existing row's order.
-  const existing = await db.select({ order: serviceItems.order, type: serviceItems.type, payload: serviceItems.payload }).from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
+  const existing = await tx.select({ order: serviceItems.order, type: serviceItems.type, payload: serviceItems.payload }).from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
   // Idempotency guard: a rapid double-click (or any repeat call) on the same
   // library item can fire addServiceItem twice before the first insert lands.
   // If an item of the same type + identifying key already exists in this
@@ -215,9 +244,11 @@ export async function addServiceItem(planId: string, type: ServiceItemType, titl
   const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.order)) + 1 : 0;
   // payload.slideActions is written ONLY by setServiceItemSlideActions (validated
   // + sanitized) — never trust a client-supplied copy on insert.
-  const [row] = await db.insert(serviceItems).values({ servicePlanId: planId, order: nextOrder, type, title, payload: stripClientSlideActions(payload) }).returning({ id: serviceItems.id });
-  revalidatePath(`/services/${planId}`);
+  const [row] = await tx.insert(serviceItems).values({ servicePlanId: planId, order: nextOrder, type, title, payload: stripClientSlideActions(payload) }).returning({ id: serviceItems.id });
   return { ok: true, data: { id: row.id } };
+  });
+  if (txResult.ok && txResult.data) revalidatePath(`/services/${planId}`);
+  return txResult;
 }
 
 /**
@@ -247,8 +278,12 @@ export async function addServiceItems(
     if (!guard.ok) return guard;
   }
 
+  // Same plan-row lock as addServiceItem: serializes with the ad-hoc clean-up.
+  const bulk = await db.transaction(async (tx): Promise<Result<{ inserted: number; skipped: number }>> => {
+  const [lockedPlan] = await tx.select({ id: servicePlans.id }).from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).for("update");
+  if (!lockedPlan) return { ok: false, error: "Not found" };
   // Fetch existing items ONCE (not once per item).
-  const existing = await db.select({ order: serviceItems.order, type: serviceItems.type, payload: serviceItems.payload }).from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
+  const existing = await tx.select({ order: serviceItems.order, type: serviceItems.type, payload: serviceItems.payload }).from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
 
   type DedupPayload = { songId?: string; reference?: string };
   const existingSongIds = new Set(
@@ -277,10 +312,12 @@ export async function addServiceItems(
   }
 
   if (toInsert.length > 0) {
-    await db.insert(serviceItems).values(toInsert);
+    await tx.insert(serviceItems).values(toInsert);
   }
-  revalidatePath(`/services/${planId}`);
   return { ok: true, data: { inserted: toInsert.length, skipped } };
+  });
+  if (bulk.ok) revalidatePath(`/services/${planId}`);
+  return bulk;
 }
 
 export async function removeServiceItem(id: string): Promise<Result> {

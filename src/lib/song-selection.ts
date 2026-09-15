@@ -11,7 +11,13 @@
  * listens for this event, stores the pick in shell state, and passes it down to
  * SongsBrowser as a prop. No module singleton, no consume-once race, no leak.
  */
-export type SongSelection = { id: string; title: string; artist: string | null };
+export type SongSelection = {
+  id: string;
+  title: string;
+  artist: string | null;
+  /** Optional: slide `order` to scroll to / highlight (lyric search hit). */
+  slideOrder?: number;
+};
 
 export const SONG_OPEN_EVENT = "presentflow:song-open";
 

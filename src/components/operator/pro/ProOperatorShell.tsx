@@ -80,7 +80,7 @@ import { parseContextCommand, navCommandWordCount } from "@/lib/context-parser";
 // useAudioStream's native branch.
 import { GUARDIAN_STATE_EVENT, type GuardianStatus } from "@/lib/audio/audioGuardian";
 import { shouldHoldSongAutoSwitch, liveOriginKey, resolveLyricIndex } from "@/lib/song-switch-guard";
-import { songSlidesChangedPlan, refreshTrackedSong, type SongSlidesChangedDetail } from "@/lib/song-slides-changed";
+import { songSlidesChangedPlan, refreshTrackedSong, relocateLyricIndex, type SongSlidesChangedDetail } from "@/lib/song-slides-changed";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.
@@ -653,6 +653,12 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const [stagedSong, setStagedSong] = useState<StagedSongSlides | null>(null);
   const [autoAdvanceFlash, setAutoAdvanceFlash] = useState(false);
   const liveSongRef = useRef<LiveSongTrack | null>(null);
+  // One-shot hint saved when a structural edit clears tracking, so the rebuild
+  // relocates the SAME chorus copy (not the first) once the re-fetch lands.
+  const structuralEditHintRef = useRef<{ songId: string; slides: string[]; currentIdx: number; liveText: string; at: number } | null>(null);
+  const STRUCTURAL_HINT_TTL_MS = 5000;
+  const liveSlideForHintRef = useRef(ctx.liveSlide);
+  liveSlideForHintRef.current = ctx.liveSlide;
   const [, forceRender] = useState(0); // liveSongRef mutations need a render nudge for the indicator
   // Cache of each plan song's ordered slide texts, so we can recognise which
   // song+slide is currently live (by matching ctx.liveSlide's text) no matter
@@ -1289,7 +1295,16 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // Quick edit save passes keepLiveTracking: keep following the live song so a
       // same-song detection can't re-project slide 1 before the re-fetch; the
       // reconcile effect (deps include cacheVersion) re-syncs the index after it.
-      if (plan.clearLiveTracking) liveSongRef.current = null;
+      if (plan.clearLiveTracking) {
+        const cur = liveSongRef.current;
+        // Read via the ref: this listener is registered once ([] deps), so ctx.liveSlide would be stale.
+        const ls = liveSlideForHintRef.current;
+        const lt = ls?.kind === "text" ? ls.text : null;
+        structuralEditHintRef.current = cur && lt != null
+          ? { songId: cur.songId, slides: cur.slides, currentIdx: cur.currentIdx, liveText: lt, at: Date.now() }
+          : null;
+        liveSongRef.current = null;
+      }
       setSlideJumpSuggestion(null);
       setCacheVersion((v) => v + 1); // trigger a re-fetch + re-reconcile
     };
@@ -1307,7 +1322,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   // operator started by hand wasn't recognised and repeats re-fired slide 1.
   useEffect(() => {
     const liveText = ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : null;
-    if (liveText == null) { liveSongRef.current = null; return; }
+    if (liveText == null) { liveSongRef.current = null; structuralEditHintRef.current = null; return; }
     const norm = normalizeLyric(liveText);
     let live = liveSongRef.current;
     // A kept track (Quick edit save → keepLiveTracking) must follow the RE-LOADED
@@ -1320,6 +1335,21 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       const refreshed = refreshTrackedSong(live, songSlidesCacheRef.current.get(live.songId)?.slides, norm, normalizeLyric);
       if (refreshed !== live) { liveSongRef.current = refreshed; live = refreshed; }
     }
+    // Structural-edit hint: consumed (cleared) as soon as its song's fresh slides
+    // are cached, whether or not a branch below uses it — never goes stale.
+    // Only valid while the SAME text is still live and within ~5s of the edit;
+    // dropped if the live slide changed, it expired, or another song is tracked.
+    let hint = structuralEditHintRef.current;
+    if (hint && (hint.liveText !== liveText || Date.now() - hint.at >= STRUCTURAL_HINT_TTL_MS || (live && live.songId !== hint.songId))) {
+      structuralEditHintRef.current = null;
+      hint = null;
+    }
+    const usableHint = hint;
+    const hintFor = (songId: string, freshSlides: string[]): number | null => {
+      if (!usableHint || usableHint.songId !== songId) return null;
+      return relocateLyricIndex(usableHint.slides, usableHint.currentIdx, freshSlides, norm, normalizeLyric);
+    };
+    if (usableHint && songSlidesCacheRef.current.has(usableHint.songId)) structuralEditHintRef.current = null;
     const declared = ctx.getLiveOrigin?.();
     // A DECLARED (or plan-resolved — not merely inferred) NON-song origin → the operator
     // sent this as non-song content: stop following a song even if the line is
@@ -1333,7 +1363,8 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       const entry = songSlidesCacheRef.current.get(declared.songId);
       if (entry) {
         const prevIdx = live?.songId === declared.songId ? live.currentIdx : null;
-        const idx = resolveLyricIndex(entry.slides.map(normalizeLyric), norm, prevIdx);
+        const hinted = prevIdx == null ? hintFor(declared.songId, entry.slides) : null;
+        const idx = hinted != null && hinted >= 0 ? hinted : resolveLyricIndex(entry.slides.map(normalizeLyric), norm, prevIdx);
         if (idx >= 0) {
           if (live?.songId !== declared.songId || live.currentIdx !== idx) {
             const title = (ctx.plan.items.find((it) => (it as unknown as { songId?: string }).songId === declared.songId) as { title?: string } | undefined)?.title ?? "";
@@ -1364,8 +1395,10 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       if (matches.length > 1) break;
     }
     if (matches.length === 1 && wordCount >= 3) {
-      const { songId, idx } = matches[0];
+      const { songId } = matches[0];
       const entry = songSlidesCacheRef.current.get(songId)!;
+      const hinted = hintFor(songId, entry.slides);
+      const idx = hinted != null && hinted >= 0 ? hinted : matches[0].idx;
       const title = (ctx.plan.items.find((it) => (it as unknown as { songId?: string }).songId === songId) as { title?: string } | undefined)?.title ?? "";
       liveSongRef.current = { songId, title, slides: entry.slides, currentIdx: idx, confirmedAt: Date.now() };
       setSlideJumpSuggestion(null); // reconciled — clear any stale jump chip
@@ -3945,7 +3978,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const handler = (e: Event) => {
       const d = (e as CustomEvent<SongSelection>).detail;
       if (!d || !d.id) return;
-      setOpenSong({ id: d.id, title: d.title, artist: d.artist ?? null });
+      setOpenSong({
+        id: d.id, title: d.title, artist: d.artist ?? null,
+        ...(typeof d.slideOrder === "number" ? { slideOrder: d.slideOrder } : {}),
+      });
       setCenterMode("songs");
     };
     window.addEventListener(SONG_OPEN_EVENT, handler);

@@ -21,6 +21,7 @@ import { phraseSearch } from "@/services/bible/phraseSearch";
 import { dispatchInternal } from "@/lib/internal-events";
 import { parseTypedReference } from "@/lib/bible-parser";
 import { requestSongOpen } from "@/lib/song-selection";
+import { useSongLyricSearch } from "@/lib/song-lyric-search-store";
 
 type SongLite = { id: string; title: string; artist?: string | null };
 type MediaLite = { id: string; fileName?: string; name?: string };
@@ -51,6 +52,18 @@ export function SearchPalette({
     if (REF_SHAPE.test(q)) return [];
     return phraseSearch(q).slice(0, 5);
   }, [query]);
+
+  // Lyric search over the shared song library (built lazily on first keystroke).
+  // Needs ≥2 words so a single typed word stays a quick title/playlist lookup.
+  // Only a REAL Bible reference (known book + chapter, via the parser) hides
+  // lyrics — "bless the lord 10000 reasons" is a lyric, not a reference.
+  const looksLikeBibleRef = useMemo(() => {
+    const q = query.trim();
+    if (!REF_SHAPE.test(q)) return false;
+    try { return parseTypedReference(q).length > 0; } catch { return false; }
+  }, [query]);
+  const lyricEnabled = open && query.trim().split(/\s+/).filter(Boolean).length >= 2 && !looksLikeBibleRef;
+  const { hits: lyricHits, indexing: lyricIndexing } = useSongLyricSearch(query, lyricEnabled, 8);
 
   useEffect(() => {
     if (!open) return;
@@ -196,6 +209,43 @@ export function SearchPalette({
                       <Music className="w-4 h-4 shrink-0 text-[var(--color-muted-foreground)]" />
                       <span className="truncate">{s.title}</span>
                       {s.artist && <span className="ml-auto text-[11px] text-[var(--color-muted-foreground)] truncate shrink-0 max-w-[40%]">{s.artist}</span>}
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+
+              {lyricIndexing && lyricHits.length === 0 && (
+                <div className="px-4 py-2 text-[11px] italic text-[var(--color-muted-foreground)]">Indexing lyrics…</div>
+              )}
+              {lyricHits.length > 0 && (
+                <Command.Group heading={<span className="eyebrow">Lyrics</span>} className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5">
+                  {lyricHits.map((h) => (
+                    <Command.Item
+                      key={`lyric-${h.songId}`}
+                      // Include the typed query so cmdk's own filter never hides a
+                      // lyric hit whose line doesn't literally contain the words (typos).
+                      value={`lyrics ${query} ${h.songId}`}
+                      onSelect={() => {
+                        onCenterMode("songs");
+                        requestSongOpen({ id: h.songId, title: h.title, artist: h.artist, slideOrder: h.slideOrder >= 0 ? h.slideOrder : undefined });
+                        onOpenChange(false);
+                      }}
+                      className="px-3 py-2.5 rounded-lg flex items-center gap-3 cursor-pointer text-[var(--color-foreground)] border-l-[3px] border-transparent transition-all duration-150 [transition-timing-function:var(--ease-house)] data-[selected=true]:bg-[var(--color-elevated)] data-[selected=true]:border-[var(--color-brand)] data-[selected=true]:shadow-[var(--edge-top),var(--shadow-sm)]"
+                    >
+                      <Quote className="w-4 h-4 shrink-0 text-[var(--color-muted-foreground)]" />
+                      <span className="min-w-0 flex flex-col">
+                        <span className="truncate">{h.title}</span>
+                        {h.matchedLine && (
+                          <span className="truncate text-[11px] italic text-[var(--color-muted-foreground)]">
+                            “{h.matchedLine.length > 80 ? `${h.matchedLine.slice(0, 80)}…` : h.matchedLine}”
+                          </span>
+                        )}
+                      </span>
+                      {h.slideOrder >= 0 && (
+                        <span className="ml-auto text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-muted-foreground)] shrink-0">
+                          slide {h.slideOrder + 1}
+                        </span>
+                      )}
                     </Command.Item>
                   ))}
                 </Command.Group>

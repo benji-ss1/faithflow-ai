@@ -4,6 +4,21 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.406",
+    "date": "2026-09-15",
+    "headline": "Find a song by any line of its lyrics",
+    "highlights": [
+      "In the Songs search, type a line you remember from a chorus, verse or bridge (even from slide 10) and the whole song comes up, with the matching line shown.",
+      "Click a lyric match to open that song at the matching slide. It does not send anything to the screen.",
+      "Press Cmd+K and the new Lyrics group finds songs the same way. Bible references like John 3:16 still go to the Bible.",
+      "Small typos and half-finished words still find the song. Searching by title works exactly as before.",
+      "Fixed: adding a Section header (or anything else) just after midnight could suddenly show an empty playlist. Nothing was deleted; the app was switching to a new day's service. It now keeps you on the service you are working on.",
+      "If a newer service for today exists, you get a Switch to today's service button instead of being moved automatically.",
+      "Clean up ad-hocs no longer deletes a service that still has items in it, or one that may be open right now.",
+      "Fixed: when a song repeats its chorus and you add, delete or edit a slide while it is live, the next slide is now the one after the chorus on screen, not an earlier verse."
+    ]
+  },
+  {
     "version": "0.1.405",
     "date": "2026-09-15",
     "headline": "Detection badges now show real numbers only",
