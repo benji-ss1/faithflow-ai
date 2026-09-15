@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import {
   sendBetaApplicationNotification,
@@ -9,6 +10,7 @@ import {
 import { createLimiter } from "@/lib/rate-limit";
 import { getDb } from "@/lib/db/client";
 import { betaApplications } from "@/lib/db/schema";
+import { deliverBetaApplicationToOps } from "@/lib/ops-beta-webhook";
 
 // 5 applications per 10 minutes per client IP — generous for a real applicant,
 // tight enough to blunt spam / abusive resubmits on this public endpoint.
@@ -118,6 +120,15 @@ export async function submitApplication(raw: unknown): Promise<ApplyResult> {
     console.error("[apply] DB insert failed:", e instanceof Error ? e.message : e);
     return { ok: false, error: "Something went wrong saving your application. Please try again." };
   }
+
+  // Never make the applicant wait on another service. The source row is
+  // durable already, and its UUID keeps retries/backfills idempotent.
+  after(() => deliverBetaApplicationToOps({
+    id: applicationId,
+    churchName: churchName ?? null,
+    contactEmail: contact ?? null,
+    answers: answered,
+  }));
 
   // Notify the team. The application is already saved, so an email failure no
   // longer loses the lead — record the outcome on the row and keep going.
