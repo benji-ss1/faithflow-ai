@@ -11,7 +11,7 @@
  * Selecting a Songs/Bible/Media result switches the center mode so the
  * user can locate the item. Selecting a Playlist entry jumps preview to it.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import { Music, BookOpen, Image as ImageIcon, ListOrdered, Quote, Search } from "lucide-react";
@@ -22,6 +22,13 @@ import { dispatchInternal } from "@/lib/internal-events";
 import { parseTypedReference } from "@/lib/bible-parser";
 import { requestSongOpen } from "@/lib/song-selection";
 import { useSongLyricSearch } from "@/lib/song-lyric-search-store";
+import {
+  createBiblePaletteSearcher,
+  dedupeAgainstShown,
+  isConfirmedBibleReference,
+  refKey,
+  type BiblePaletteHit,
+} from "@/lib/bible-palette-search";
 
 type SongLite = { id: string; title: string; artist?: string | null };
 type MediaLite = { id: string; fileName?: string; name?: string };
@@ -43,25 +50,62 @@ export function SearchPalette({
   const [media, setMedia] = useState<MediaLite[]>([]);
   const [query, setQuery] = useState("");
 
-  // Reference-shaped queries win over phrase results (mirrors COMMON_REFS
-  // matching path). Skip phrase section for those to avoid noise.
-  const REF_SHAPE = /\b(?:[1-3]\s*)?[a-z]{3,}\s*\d+(?::\d+(?:\s*-\s*\d+)?)?\b/i;
+  const [bibleHits, setBibleHits] = useState<BiblePaletteHit[]>([]);
+  const [bibleSearching, setBibleSearching] = useState(false);
+
+  // ONE predicate gates BOTH the Bible/phrase group and the lyric group
+  // (2026-09-16 symmetry fix). It used to be asymmetric: the loose REF_SHAPE
+  // regex suppressed Bible/phrase results while lyrics were only suppressed on
+  // a PARSER-CONFIRMED reference — so "bless the lord 10000 reasons" lost its
+  // Bible group for no reason. Now a real reference ("John 3:16") suppresses
+  // lyrics exactly as before, and a digit-bearing lyric keeps both groups.
+  const looksLikeBibleRef = useMemo(() => isConfirmedBibleReference(query), [query]);
+
   const phraseHits = useMemo(() => {
     const q = query.trim();
     if (q.length < 2) return [];
-    if (REF_SHAPE.test(q)) return [];
+    if (looksLikeBibleRef) return [];
     return phraseSearch(q).slice(0, 5);
-  }, [query]);
+  }, [query, looksLikeBibleRef]);
+
+  // Real Bible verse search (hybrid FTS ⊕ pgvector) — debounced, min 3 chars,
+  // aborted when superseded, cached per session. See bible-palette-search.ts
+  // for the rate-limit contract (shared 20/min bucket with BibleMode).
+  const searcherRef = useRef<ReturnType<typeof createBiblePaletteSearcher> | null>(null);
+  if (!searcherRef.current) {
+    searcherRef.current = createBiblePaletteSearcher({
+      onResults: (_q, hits) => setBibleHits(hits),
+      onPending: setBibleSearching,
+    });
+  }
+  useEffect(() => {
+    // Only runs while the palette is OPEN — nothing is added to the operator's
+    // audio/detection loop.
+    if (!open) { searcherRef.current?.cancel(); setBibleHits([]); return; }
+    searcherRef.current?.search(query);
+  }, [open, query]);
+  useEffect(() => () => { searcherRef.current?.cancel(); }, []);
+
+  // Never show the same reference twice: the fast path (COMMON_REFS + curated
+  // phrase corpus) wins, the server group fills in what it didn't have.
+  const shownRefKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const r of COMMON_REFS) {
+      const p = (() => { try { return parseTypedReference(r)[0]; } catch { return undefined; } })();
+      if (p) keys.add(refKey({ book: p.book, chapter: p.chapter, verse: p.verseStart }));
+    }
+    for (const h of phraseHits) {
+      keys.add(refKey({ book: h.entry.book, chapter: h.entry.chapter, verse: h.entry.verse }));
+    }
+    return keys;
+  }, [phraseHits]);
+  const bibleVerseHits = useMemo(
+    () => dedupeAgainstShown(bibleHits, shownRefKeys),
+    [bibleHits, shownRefKeys],
+  );
 
   // Lyric search over the shared song library (built lazily on first keystroke).
   // Needs ≥2 words so a single typed word stays a quick title/playlist lookup.
-  // Only a REAL Bible reference (known book + chapter, via the parser) hides
-  // lyrics — "bless the lord 10000 reasons" is a lyric, not a reference.
-  const looksLikeBibleRef = useMemo(() => {
-    const q = query.trim();
-    if (!REF_SHAPE.test(q)) return false;
-    try { return parseTypedReference(q).length > 0; } catch { return false; }
-  }, [query]);
   const lyricEnabled = open && query.trim().split(/\s+/).filter(Boolean).length >= 2 && !looksLikeBibleRef;
   const { hits: lyricHits, indexing: lyricIndexing } = useSongLyricSearch(query, lyricEnabled, 8);
 
@@ -184,6 +228,44 @@ export function SearchPalette({
                         {h.entry.reference}
                       </span>
                       <span className="truncate">{h.entry.phrase}</span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+
+              {bibleSearching && bibleVerseHits.length === 0 && (
+                <div className="px-4 py-2 text-[11px] italic text-[var(--color-muted-foreground)]">Searching the Bible…</div>
+              )}
+              {bibleVerseHits.length > 0 && (
+                <Command.Group heading={<span className="eyebrow">Bible Verses</span>} className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5">
+                  {bibleVerseHits.map((h) => (
+                    <Command.Item
+                      key={`verse-${h.book}-${h.chapter}-${h.verse}`}
+                      // Include the typed query so cmdk's own filter never hides a
+                      // semantic hit whose text doesn't literally contain the words.
+                      value={`verse ${query} ${h.book} ${h.chapter}:${h.verse}`}
+                      onSelect={() => {
+                        onCenterMode("bible");
+                        // Same as the existing Bible entries: LOAD into preview,
+                        // never project.
+                        dispatchInternal("presentflow:bible-goto", {
+                          book: h.book,
+                          chapter: h.chapter,
+                          verseStart: h.verse,
+                          verseEnd: h.verse,
+                          live: false,
+                        });
+                        onOpenChange(false);
+                      }}
+                      className="px-3 py-2.5 rounded-lg flex items-center gap-3 cursor-pointer text-[var(--color-foreground)] border-l-[3px] border-transparent transition-all duration-150 [transition-timing-function:var(--ease-house)] data-[selected=true]:bg-[var(--color-elevated)] data-[selected=true]:border-[var(--color-brand)] data-[selected=true]:shadow-[var(--edge-top),var(--shadow-sm)]"
+                    >
+                      <BookOpen className="w-4 h-4 shrink-0 text-[var(--color-muted-foreground)]" />
+                      <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-muted-foreground)] shrink-0">
+                        {h.book} {h.chapter}:{h.verse}
+                      </span>
+                      <span className="truncate text-[var(--color-muted-foreground)]">
+                        {h.text.length > 90 ? `${h.text.slice(0, 90)}…` : h.text}
+                      </span>
                     </Command.Item>
                   ))}
                 </Command.Group>

@@ -4,6 +4,7 @@ import { apiUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { songs, servicePlans } from "@/lib/db/schema";
 import { parseReferences } from "@/lib/bible-parser";
+import { hybridSearch, publicDomainFallbackTranslationId } from "@/lib/server/bible";
 
 export const runtime = "nodejs";
 
@@ -82,18 +83,21 @@ export async function GET(req: Request) {
       href: `/library/bible?book=${encodeURIComponent(ref.book)}&chapter=${ref.chapter}&verse=${ref.verseStart}`,
     });
   }
-  if (bibleHits.length < 4) {
+  // Words → verse. Was a KJV-only ILIKE (limit 4), which returned NOTHING for
+  // a remembered phrase whose wording differs from the KJV ("love is patient"
+  // — KJV reads "charity suffereth long") while songs still matched, so the
+  // whole surface looked song-only. Now the same hybrid engine BibleMode uses:
+  // FTS (KJV + WEB, classic + modern wording) ⊕ pgvector paraphrase recall,
+  // RRF-fused. Public-domain translation only — no licensed text is searched
+  // or returned; ≥3 chars, matching /api/bible/search's floor and pgvector cost.
+  // Only when the query ISN'T a structured reference: "John 3:16" already has
+  // its exact answer, and padding it with semantic near-misses (John 1:6,
+  // Mark 8:34…) would be noise the old ILIKE never produced.
+  if (bibleHits.length === 0 && q.length >= 3) {
     try {
       const remaining = 4 - bibleHits.length;
-      const verseRows = (
-        await db.execute(sql`
-          SELECT bv.book, bv.chapter, bv.verse, bv.text
-          FROM bible_verses bv
-          JOIN bible_translations t ON t.id = bv.translation_id
-          WHERE t.code = 'KJV' AND bv.text ILIKE ${pattern}
-          LIMIT ${remaining}
-        `)
-      ).rows as { book: string; chapter: number; verse: number; text: string }[];
+      const pdId = await publicDomainFallbackTranslationId();
+      const verseRows = pdId ? await hybridSearch(pdId, q, remaining) : [];
       for (const r of verseRows) {
         bibleHits.push({
           id: `v-${r.book}-${r.chapter}-${r.verse}`,
