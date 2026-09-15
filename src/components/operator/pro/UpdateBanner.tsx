@@ -57,6 +57,45 @@ function platformArtifact(): { test: RegExp; label: string } {
   return { test: /\.dmg$/i, label: "DMG" };
 }
 
+// Best-effort Apple-Silicon vs Intel detection so the one-click auto-download
+// grabs the RIGHT .dmg. macOS Chromium masks the CPU in the UA (always reports
+// "Intel Mac OS X"), so we sniff the GPU renderer via WebGL: Apple Silicon
+// reports an "Apple Mx" GPU, Intel Macs report Intel/AMD/Radeon. Unknown →
+// arm64 (the overwhelming majority of church machines, and what shipped before
+// this refinement). Only affects which .dmg the banner auto-downloads; the full
+// download page still offers both.
+function isAppleSilicon(): boolean {
+  try {
+    const canvas = document.createElement("canvas");
+    const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+    if (!gl) return true; // no WebGL → default arm64
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = (dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "") : "").toLowerCase();
+    if (/intel|amd|radeon/.test(renderer)) return false;
+    return true; // "apple mx" or unknown → arm64
+  } catch {
+    return true;
+  }
+}
+
+// From a release's asset list, pick the exact file this machine should download.
+// For macOS, disambiguate arm64 vs x64 so the auto-download is runnable; for any
+// other case fall back to the first asset matching the platform regex.
+function pickAsset(
+  assets: { name?: string; browser_download_url?: string }[],
+  plat: { test: RegExp },
+): { name?: string; browser_download_url?: string } | undefined {
+  const matches = assets.filter((a) => plat.test.test(a.name || ""));
+  if (matches.length <= 1) return matches[0];
+  if (plat.test.source.includes("dmg")) {
+    const wantArm = isAppleSilicon();
+    const arm = matches.find((a) => /arm64/i.test(a.name || ""));
+    const intel = matches.find((a) => /x64|intel/i.test(a.name || ""));
+    return (wantArm ? arm : intel) || arm || matches[0];
+  }
+  return matches[0];
+}
+
 type State =
   | { kind: "idle" }
   | { kind: "manual-available"; version: string; url: string; label: string }
@@ -137,7 +176,7 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
         // built for both carries both, and each OS resolves to its own file.
         const plat = platformArtifact();
         const assets = Array.isArray(data.assets) ? data.assets : [];
-        const myAsset = assets.find((a) => plat.test.test(a.name || ""));
+        const myAsset = pickAsset(assets, plat);
         const isNewer = compareSemver(latest, current) > 0;
         if (isNewer && myAsset) {
           // Respect a prior dismissal for this exact tag — user X'd it out,
