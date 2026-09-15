@@ -3,13 +3,12 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { Pause, Play, SkipForward, SkipBack, HelpCircle, ArrowLeft, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import type { OperatorShellCtx } from "../shell/types";
-import { TransitionChooser } from "./BottomBar/TransitionChooser";
 import { cn } from "@/lib/utils";
 import { dispatchInternal } from "@/lib/internal-events";
 import { openLiveChannel, safePost, type LiveChannelLike, type LiveMessage } from "@/lib/broadcast";
 
 export const TRANSITION_KEY = "presentflow.pro.transition.v1";
-// Centralized so the bottom-bar chooser, the centre Transitions panel, and the
+// Centralized so BottomBar (the publisher), the Transitions panel, and the
 // live-monitor preview can't silently desync on a mistyped event name.
 export const TRANSITION_UPDATED_EVENT = "presentflow:transition-updated";
 export const TRANSITION_PREVIEW_EVENT = "presentflow:transition-preview";
@@ -40,6 +39,21 @@ export const TRANSITION_NAME_TO_EFFECT_ID: Record<string, string | null> = {
   "Push": "slide_right",
 };
 
+/** Same parsing as the load effect below (name, durationMs or legacy seconds, off). */
+function readSavedTransition(): { name?: string; duration?: number; off?: boolean } {
+  try {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem(TRANSITION_KEY);
+    if (!raw) return {};
+    const p = JSON.parse(raw);
+    return {
+      name: p.name ? p.name : undefined,
+      duration: typeof p.durationMs === "number" ? p.durationMs / 1000 : typeof p.duration === "number" ? p.duration : undefined,
+      off: typeof p.off === "boolean" ? p.off : undefined,
+    };
+  } catch { return {}; }
+}
+
 export function BottomBar({
   ctx, onOpenShortcutsHelp, centerMode, videoRef,
 }: {
@@ -50,8 +64,14 @@ export function BottomBar({
    *  pause/resume through THIS element so the projector heartbeat can't override it. */
   videoRef?: RefObject<HTMLVideoElement | null>;
 }) {
-  const [transitionName, setTransitionName] = useState("Amoeba");
-  const [transitionDuration, setTransitionDuration] = useState(0.6);
+  // 2026-09-15: seed state from the saved transition (lazy init). Previously the
+  // apply effect's FIRST run published + re-persisted the hard-coded defaults
+  // (Amoeba/0.6s) and synchronously dispatched TRANSITION_UPDATED_EVENT, which the
+  // listener applied AFTER the load effect's setState — clobbering the saved
+  // transition on every console open. No rendered output depends on this state,
+  // so the server/client initial values differing cannot cause a hydration mismatch.
+  const [transitionName, setTransitionName] = useState(() => readSavedTransition().name ?? "Amoeba");
+  const [transitionDuration, setTransitionDuration] = useState(() => readSavedTransition().duration ?? 0.6);
 
   // ── Video transport (K1) ────────────────────────────────────────────────────
   // When a VIDEO is live, the leftmost transport button must PAUSE/RESUME the
@@ -101,7 +121,7 @@ export function BottomBar({
   };
   // Master OFF switch — when on, NO transition is ever published (hard cut on
   // every send) regardless of the selected effect. Persisted with the rest.
-  const [transitionsOff, setTransitionsOff] = useState(false);
+  const [transitionsOff, setTransitionsOff] = useState(() => readSavedTransition().off ?? false);
 
   useEffect(() => {
     try {
@@ -118,7 +138,7 @@ export function BottomBar({
   }, []);
 
   // F1: the full-screen Transitions panel (centre) shares this selection. When it
-  // changes the transition, mirror it here so the bottom-bar picker matches AND
+  // changes the transition, mirror it here so
   // the persist/apply effect below re-fires (pushing it to the live output).
   useEffect(() => {
     const onUpdate = (e: Event) => {
@@ -275,33 +295,11 @@ export function BottomBar({
             </button>
           </div>
         )}
-        <TransitionChooser
-          transitionName={transitionName}
-          transitionDuration={transitionDuration}
-          transitionsOff={transitionsOff}
-          onToggleOff={setTransitionsOff}
-          onSelect={(name) => {
-            setTransitionName(name);
-            setTransitionsOff(false);
-            // Demo it in the live monitor too, so picking from the bottom bar behaves
-            // exactly like picking from the centre Transitions panel (coherence).
-            try { window.dispatchEvent(new CustomEvent(TRANSITION_PREVIEW_EVENT, { detail: { name, durationMs: Math.round(transitionDuration * 1000) } })); } catch { /* noop */ }
-          }}
-          onDurationChange={(d) => setTransitionDuration(d)}
-        />
-        <input
-          type="range"
-          min={0}
-          max={5}
-          step={0.1}
-          value={transitionDuration}
-          onChange={(e) => setTransitionDuration(parseFloat(e.target.value))}
-          className="pf-fade-slider w-28"
-          style={{ accentColor: "var(--color-brand)" }}
-          title={`Transition Speed: ${transitionDuration.toFixed(1)}s`}
-          aria-label="Transition Speed"
-        />
-        <span className="text-[10px] uppercase tracking-[0.1em] font-mono font-bold text-[var(--color-muted-foreground)] tabular-nums">Speed: {transitionDuration.toFixed(1)}s</span>
+        {/* 2026-09-15: the bottom-bar transition chooser + speed slider were
+            REMOVED (user request). Transitions are chosen in the left-sidebar
+            Transitions panel. The load/listen/apply effects above are KEPT —
+            this component is still the only publisher of the transition spec
+            to /live, /stage and /livestream. */}
       </div>
 
       {/* Right — 2026-08-16: the grid/list/text view toggles were REMOVED here;
