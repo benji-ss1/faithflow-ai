@@ -45,6 +45,7 @@ import type { ProjectionZone } from "@/lib/projection-zone";
 import { overlayBandSlide, type ObsBandConfig, type ObsThemeColors, type ObsBandExtras } from "@/lib/obs-lowerthird";
 import { planOutput, type CompositorMode, type OutputLayerPlan, type PlanInput } from "@/lib/output-plan";
 import { resolveLayeredInput, layerOpacities } from "@/lib/output-layers-render";
+import { maskFor, type SceneWire, type SceneScreen } from "@/lib/scenes";
 import type { LayerWire } from "@/lib/broadcast";
 
 export { planOutput, type CompositorMode } from "@/lib/output-plan";
@@ -103,6 +104,15 @@ export interface OutputCompositorProps {
    * ⇒ byte-identical live output.
    */
   previewFrozen?: boolean;
+  /**
+   * SCENES (2026-09-16): the active per-screen routing snapshot from
+   * OutputState.scene, and WHICH screen this surface is. Both must be present
+   * for a scene to affect anything — a route that passes neither renders exactly
+   * as it did pre-Scenes. Deliberately independent of `layersEnabled`, because
+   * NEXT_PUBLIC_LAYERS_V2 is off in production.
+   */
+  scene?: SceneWire | null;
+  screen?: SceneScreen;
 }
 
 /**
@@ -112,18 +122,37 @@ export interface OutputCompositorProps {
  */
 export function OutputCompositor(props: OutputCompositorProps) {
   const {
-    appearance, transition, fontScale, referenceScale,
+    appearance: appearanceProp, transition, fontScale, referenceScale,
     referenceColor, zone, obsBand, obsThemeColors, videoMuted = false, onVideoRef,
     layersEnabled, layerOverrides, previewFrozen = false,
-    obsBandExtras, obsOverlay, backgroundDim,
+    obsBandExtras, obsOverlay, backgroundDim, scene, screen,
   } = props;
+
+  // SCENES (2026-09-16): this screen's routing mask, if a scene is active.
+  // Gated on DATA PRESENCE, never on NEXT_PUBLIC_LAYERS_V2 (off in production —
+  // an env-gated scene would be dead code). No scene / unrouted screen ⇒ mask
+  // undefined ⇒ every code path below behaves exactly as it did pre-Scenes
+  // (parity locked by test/output-scenes.test.ts across the same ≥96 fixtures).
+  const mask = screen ? maskFor(scene, screen) : undefined;
+  // Per-screen theme override. Resolved operator-side into a wire appearance, so
+  // here it is a straight substitution — and because the local name shadows the
+  // prop, every downstream renderer picks it up with no further plumbing.
+  const appearance = mask?.appearance ?? appearanceProp;
+  const sceneActive = !!mask;
 
   // Phase 3: when layers mode is on, resolve the render input from the operator's
   // id-keyed overrides (parity: empty overrides ⇒ input === props ⇒ same plan).
-  const resolvedInput: PlanInput = layersEnabled ? resolveLayeredInput(props, layerOverrides) : props;
+  // A scene mask joins the SAME resolver so it reuses planOutput's precedence and
+  // always loses to an explicit operator override.
+  const baseInput: PlanInput = appearance === appearanceProp ? props : { ...props, appearance };
+  const resolvedInput: PlanInput = layersEnabled || sceneActive
+    ? resolveLayeredInput(baseInput, layersEnabled ? layerOverrides : undefined, mask)
+    : baseInput;
   const plan = planOutput(resolvedInput);
   const slide = resolvedInput.slide;
-  const opacities = layersEnabled ? layerOpacities(layerOverrides) : {};
+  const opacities = layersEnabled || sceneActive
+    ? layerOpacities(layersEnabled ? layerOverrides : undefined, mask)
+    : {};
 
   // OBS lower-third band transform (livestream lower_third capture mode).
   const effectiveSlide: SlidePayload = obsBand ? overlayBandSlide(slide, obsBand, obsThemeColors, obsBandExtras) : slide;
@@ -140,7 +169,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
     // change — a future opacity slider can never remount the camera/slide (which
     // would drop the video element / restart a transition). The flag-OFF legacy
     // path stays byte-identical (no wrapper at all), preserving 96-fixture parity.
-    if (layersEnabled) {
+    if (layersEnabled || sceneActive) {
       const op = opacities[layer.id] ?? 1;
       return (
         <div key={`op-${layer.id}`} className="absolute inset-0" style={{ opacity: op }}>
