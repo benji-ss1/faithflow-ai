@@ -1,0 +1,13 @@
+{
+  "version": "s-2026-09-15-n2",
+  "generatedAt": "2026-09-15T01:02:15.883Z",
+  "rule": "content 3-gram present in the index AND heard in >=4 transcript segments across >=2 services",
+  "sourceServices": 3,
+  "grams": [
+    {
+      "gram": "many year ago",
+      "segments": 5,
+      "services": 2
+    }
+  ]
+}
