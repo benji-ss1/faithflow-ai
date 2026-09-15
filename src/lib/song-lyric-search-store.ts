@@ -8,7 +8,7 @@
  * published, the first search fetches /api/songs/library once.
  *
  * PERF: the index is NEVER built inside render. After a library is published it
- * is built during idle time in ~2k-slide chunks (requestIdleCallback, setTimeout
+ * is built during idle time in 500-slide chunks (requestIdleCallback, setTimeout
  * fallback), yielding between chunks so no single task blocks audio detection,
  * auto-advance or projection. Until ready, lyric search returns [] with
  * `indexing: true` (title search is unaffected). Read-only: never feeds the detector.
@@ -73,16 +73,56 @@ export function publishSongLibrary(next: LyricLibrarySong[]): void {
   scheduleBuild();
 }
 
-function ensureLibrary(): void {
-  if (library || fetching || typeof window === "undefined") return;
+// A failed fallback fetch must not leave "Indexing lyrics…" up forever: it is
+// recorded, excluded from `indexing`, and retried at most once per window.
+const FETCH_RETRY_MS = 30_000;
+let fetchFailedAt: number | null = null;
+
+type LibraryFetcher = (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
+
+/** Fallback fetch of /api/songs/library (only when nothing was published). Exported for tests. */
+export function requestSongLibrary(
+  fetcher: LibraryFetcher = (u) => fetch(u),
+  now: number = Date.now(),
+): Promise<void> {
+  if (library || fetching) return Promise.resolve();
+  if (fetchFailedAt !== null && now - fetchFailedAt < FETCH_RETRY_MS) return Promise.resolve();
   fetching = true;
-  fetch("/api/songs/library")
+  notify();
+  return fetcher("/api/songs/library")
     .then((r) => (r.ok ? r.json() : null))
     .then((res) => {
-      if (!library && res && Array.isArray(res.songs)) publishSongLibrary(res.songs as LyricLibrarySong[]);
+      const songs = (res as { songs?: unknown } | null)?.songs;
+      if (Array.isArray(songs)) {
+        fetchFailedAt = null;
+        if (!library) publishSongLibrary(songs as LyricLibrarySong[]);
+      } else {
+        fetchFailedAt = now; // non-OK or malformed
+      }
     })
-    .catch(() => { /* non-fatal: lyric search just stays empty */ })
-    .finally(() => { fetching = false; });
+    .catch(() => { fetchFailedAt = now; /* non-fatal: lyric search just stays empty */ })
+    .finally(() => { fetching = false; notify(); });
+}
+
+function ensureLibrary(): void {
+  if (typeof window === "undefined") return;
+  void requestSongLibrary();
+}
+
+/** Indexing hint: only while a library is actually loading/building — never after a failed fetch. */
+function isIndexing(): boolean {
+  if (index) return false;
+  if (building || fetching) return true;
+  return !library && fetchFailedAt === null;
+}
+
+/** Test-only view of the store. */
+export function __lyricStoreStatus(): { indexing: boolean; ready: boolean; fetchFailed: boolean } {
+  return { indexing: isIndexing(), ready: !!index, fetchFailed: fetchFailedAt !== null };
+}
+/** Test-only: lyric hits against the current index (no debounce). */
+export function __lyricStoreSearch(query: string, limit = 20): SongLyricHit[] {
+  return index ? searchSongLyrics(index, query, limit) : [];
 }
 
 export type LyricSearchState = { hits: SongLyricHit[]; indexing: boolean };
@@ -113,5 +153,5 @@ export function useSongLyricSearch(query: string, enabled: boolean, limit = 20):
     if (!active || !debounced || !idx) return [];
     try { return searchSongLyrics(idx, debounced, limit); } catch { return []; }
   }, [active, debounced, limit, idx]);
-  return { hits, indexing: active && !idx && (building || fetching || !library) };
+  return { hits, indexing: active && isIndexing() };
 }

@@ -190,4 +190,34 @@ t("performance: ~20k slides build < 1s, query < 20ms", () => {
   assert.ok(worst < 20, `query ${worst}ms`);
 });
 
-console.log(`\nsong-lyric-search: ${passed} passed`);
+// Store: a failed fallback fetch must not leave "Indexing lyrics…" stuck; a later
+// successful fetch (after the 30s backoff) builds the index.
+async function storeFetchFailureRecovers() {
+  const store = await import("../src/lib/song-lyric-search-store");
+  const t0 = 1_000_000;
+  await store.requestSongLibrary(async () => ({ ok: false, json: async () => ({}) }), t0);
+  let st = store.__lyricStoreStatus();
+  assert.equal(st.fetchFailed, true);
+  assert.equal(st.indexing, false, "failed fetch must not show indexing");
+  assert.deepEqual(store.__lyricStoreSearch("amazing grace"), []);
+
+  // Within the backoff window: no retry.
+  let calls = 0;
+  await store.requestSongLibrary(async () => { calls++; return { ok: true, json: async () => ({ songs: lib }) }; }, t0 + 5_000);
+  assert.equal(calls, 0, "no retry inside 30s backoff");
+
+  // After the window: retry succeeds and the idle build completes.
+  await store.requestSongLibrary(async () => { calls++; return { ok: true, json: async () => ({ songs: lib }) }; }, t0 + 31_000);
+  assert.equal(calls, 1);
+  const deadline = Date.now() + 5000;
+  while (!store.__lyricStoreStatus().ready && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+  st = store.__lyricStoreStatus();
+  assert.equal(st.ready, true, "index built after successful retry");
+  assert.equal(st.indexing, false);
+  assert.equal(st.fetchFailed, false);
+  assert.equal(store.__lyricStoreSearch("amazing grace")[0]?.songId, "amazing");
+}
+
+storeFetchFailureRecovers()
+  .then(() => { passed++; console.log("  ok  store: failed fetch → no indexing hint; retry after backoff builds index"); console.log(`\nsong-lyric-search: ${passed} passed`); })
+  .catch((e) => { console.error("  FAIL store: failed fetch recovery"); console.error(e); process.exit(1); });
