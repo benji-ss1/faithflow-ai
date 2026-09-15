@@ -26,9 +26,10 @@ import { ProPresenterImportDialog } from "@/components/library/ProPresenterImpor
 import { useSelectedLibrary, libraryQueryParam, getSelectedLibrary, setSelectedLibrary, type LibraryFilter } from "../left/libraryFilter";
 import { listLibraries, setSongLibrary, type LibraryRow } from "@/lib/actions";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import { useSongLyricSearch } from "@/lib/song-lyric-search-store";
 
 type SongRow = { id: string; title: string; artist: string | null };
-type SlideRow = { id?: string; lyrics: string };
+type SlideRow = { id?: string; order?: number; lyrics: string };
 
 export function SongsBrowser({
   ctx,
@@ -48,10 +49,15 @@ export function SongsBrowser({
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<SongRow | null>(null);
+  // Slide `order` to scroll to/highlight after opening a song from a lyric hit.
+  const [focusSlideOrder, setFocusSlideOrder] = useState<number | null>(null);
   // Multi-select for bulk add-to-playlist / delete.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [slides, setSlides] = useState<SlideRow[] | null>(null);
+  // Which song `slides` belongs to — the lyric-hit scroll must never run against
+  // the PREVIOUS song's slides while the newly clicked song is still loading.
+  const [slidesForId, setSlidesForId] = useState<string | null>(null);
   const [slidesLoading, setSlidesLoading] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -317,7 +323,7 @@ export function SongsBrowser({
     setSlidesLoading(true);
     fetch(`/api/songs/${selected.id}/slides`)
       .then((r) => r.json())
-      .then((data) => { if (!cancelled) setSlides(data.slides || []); })
+      .then((data) => { if (!cancelled) { setSlides(data.slides || []); setSlidesForId(selected.id); } })
       .catch(() => { if (!cancelled) toast.error("Failed to load slides"); })
       .finally(() => { if (!cancelled) setSlidesLoading(false); });
     return () => { cancelled = true; };
@@ -352,6 +358,7 @@ export function SongsBrowser({
   // onSongOpened so the shell clears it and a later manual selection isn't reverted.
   useEffect(() => {
     if (!openSong) return;
+    setFocusSlideOrder(typeof openSong.slideOrder === "number" ? openSong.slideOrder : null);
     setSelected({ id: openSong.id, title: openSong.title, artist: openSong.artist });
     onSongOpened?.();
   }, [openSong, onSongOpened]);
@@ -362,6 +369,32 @@ export function SongsBrowser({
     return songs.filter((s) =>
       s.title.toLowerCase().includes(q) || (s.artist || "").toLowerCase().includes(q));
   }, [songs, query]);
+
+  // Lyric search (additive): kicks in for ≥3-word queries, or when a ≥3-char
+  // query has no title/artist match. Title results above stay exactly as before;
+  // lyric hits are listed after them, limited to songs in the current library view.
+  const lyricQueryWords = query.trim().split(/\s+/).filter(Boolean).length;
+  const lyricEnabled = lyricQueryWords >= 3 || (query.trim().length >= 3 && filtered.length === 0);
+  const { hits: rawLyricHits, indexing: lyricIndexing } = useSongLyricSearch(query, lyricEnabled, 40);
+  const lyricHits = useMemo(() => {
+    if (rawLyricHits.length === 0) return [];
+    const inView = new Map(songs.map((s) => [s.id, s]));
+    const shown = new Set(filtered.map((s) => s.id));
+    return rawLyricHits
+      .filter((h) => inView.has(h.songId) && !shown.has(h.songId))
+      .slice(0, 25)
+      .map((h) => ({ hit: h, row: inView.get(h.songId)! }));
+  }, [rawLyricHits, songs, filtered]);
+
+  // After a lyric-hit open, scroll to + highlight the matching slide once loaded.
+  useEffect(() => {
+    if (focusSlideOrder == null || !slides || slides.length === 0) return;
+    if (!selected || slidesForId !== selected.id) return; // wait for the new song's slides
+    const idx = slides.findIndex((s) => s.order === focusSlideOrder);
+    if (idx < 0) return;
+    const el = document.querySelector<HTMLElement>(`[data-song-slide-idx="${idx}"]`);
+    try { el?.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { /* ignore */ }
+  }, [focusSlideOrder, slides, slidesForId, selected]);
 
   const refreshSlides = (songId: string) => {
     fetch(`/api/songs/${songId}/slides`)
@@ -533,7 +566,7 @@ export function SongsBrowser({
           )}
         </div>
         <ul className="flex-1 overflow-y-auto">
-          {filtered.length === 0 && !loading && (
+          {filtered.length === 0 && lyricHits.length === 0 && !lyricIndexing && !loading && (
             <li className="p-3 text-[12px] text-[var(--color-muted-foreground)]">No songs found.</li>
           )}
           {filtered.map((s) => {
@@ -566,7 +599,7 @@ export function SongsBrowser({
                 {isChecked ? <CheckSquare className="w-3.5 h-3.5 text-[var(--color-brand)]" /> : <Square className="w-3.5 h-3.5" />}
               </button>
               <button
-                onClick={() => setSelected(s)}
+                onClick={() => { setFocusSlideOrder(null); setSelected(s); }}
                 onDoubleClick={() => void addToPlaylist(s)}
                 className="flex-1 min-w-0 text-left pr-3 py-2 hover:bg-[var(--color-elevated)] cursor-grab active:cursor-grabbing"
               >
@@ -594,6 +627,35 @@ export function SongsBrowser({
             </ContextMenu.Root>
             );
           })}
+          {lyricIndexing && (
+            <li className="px-3 py-2 text-[11px] italic text-[var(--color-muted-foreground)] border-b border-[var(--color-border)]">
+              Indexing lyrics…
+            </li>
+          )}
+          {lyricHits.length > 0 && (
+            <li className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)] border-b border-[var(--color-border)]">
+              Lyric matches
+            </li>
+          )}
+          {lyricHits.map(({ hit, row }) => (
+            <li
+              key={`lyric-${hit.songId}`}
+              className={cn("flex items-stretch border-b border-[var(--color-border)]", selected?.id === hit.songId && "bg-[var(--color-elevated)]")}
+            >
+              <button
+                type="button"
+                onClick={() => { setFocusSlideOrder(hit.slideOrder >= 0 ? hit.slideOrder : null); setSelected({ ...row }); }}
+                onDoubleClick={() => void addToPlaylist(row)}
+                title={hit.matchedLine ? `"${hit.matchedLine}" — slide ${hit.slideOrder + 1}` : row.title}
+                className="flex-1 min-w-0 text-left pl-8 pr-3 py-2 hover:bg-[var(--color-elevated)] cursor-pointer"
+              >
+                <div className="text-[13px] text-[var(--color-foreground)] truncate">{row.title}</div>
+                {hit.matchedLine
+                  ? <div className="text-[11px] italic text-[var(--color-muted-foreground)] truncate">“{hit.matchedLine.length > 80 ? `${hit.matchedLine.slice(0, 80)}…` : hit.matchedLine}”</div>
+                  : row.artist && <div className="text-[11px] text-[var(--color-muted-foreground)] truncate">{row.artist}</div>}
+              </button>
+            </li>
+          ))}
         </ul>
       </div>
 
@@ -751,7 +813,11 @@ export function SongsBrowser({
                 return (
                   <div
                     key={idx}
-                    className="group relative aspect-video rounded overflow-hidden border-2 border-[var(--color-border)] hover:border-[var(--color-brand)] transition-colors"
+                    data-song-slide-idx={idx}
+                    className={cn(
+                      "group relative aspect-video rounded overflow-hidden border-2 border-[var(--color-border)] hover:border-[var(--color-brand)] transition-colors",
+                      focusSlideOrder != null && sl.order === focusSlideOrder && "border-[var(--color-brand)] ring-2 ring-[var(--color-brand)]/50",
+                    )}
                   >
                     <button
                       // Operator-directive: single-click sends to live. This is
