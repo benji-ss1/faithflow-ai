@@ -768,14 +768,20 @@ app.whenReady().then(async () => {
     if (process.platform !== "darwin") return true; // gate is mac-specific
     if (!app.isPackaged) return false;
     try {
-      // codesign returns 0 with a signing identity when the bundle is signed
-      // by a Developer ID cert, non-zero (or "not signed at all") otherwise.
-      // Using execFileSync (100ms typical) once at startup — not in a hot path.
-      const { execFileSync } = require("node:child_process");
+      // codesign exits 0 with a signing identity when the bundle is signed by a
+      // Developer ID cert, non-zero (or "not signed at all") otherwise.
+      // CRITICAL: `codesign -dv` prints every detail line (Identifier,
+      // Authority, TeamIdentifier, ...) to STDERR, not stdout — reading stdout
+      // alone always yielded an empty string, so this gate never opened and
+      // signed builds never auto-updated. Read BOTH streams.
+      // Using spawnSync (100ms typical) once at startup — not in a hot path.
+      const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+      const { isDeveloperIdSigned } = require("./codesign") as typeof import("./codesign");
       const bundlePath = app.getAppPath().replace(/\/Contents\/Resources\/app(?:\.asar)?$/, "");
-      const out = execFileSync("codesign", ["-dv", bundlePath], { stdio: ["ignore", "pipe", "pipe"] }).toString()
-        + execFileSync("codesign", ["-dv", bundlePath], { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
-      return /Authority=Developer ID/i.test(out);
+      const res = spawnSync("codesign", ["-dv", "--verbose=2", bundlePath], { encoding: "utf8" });
+      // Fail closed: spawn failure, codesign missing, or non-zero exit.
+      if (res.error || res.status !== 0) return false;
+      return isDeveloperIdSigned(`${res.stdout || ""}\n${res.stderr || ""}`);
     } catch {
       return false;
     }
