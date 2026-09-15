@@ -1,7 +1,7 @@
 ---
 headline: The desktop app can reach everything it needs again
 audience: operator
-version: 0.1.410
+version: 0.1.411
 date: 2026-09-16
 highlights:
   - Fixed: the offline copy of the Bible now downloads in the desktop app, so verses keep working when the internet drops.
