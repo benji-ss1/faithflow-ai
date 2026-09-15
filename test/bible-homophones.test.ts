@@ -7,7 +7,7 @@
  * merely contains those same words is left completely alone (no false positives).
  */
 import assert from "node:assert/strict";
-import { parseReference, parseReferences } from "../src/lib/bible-parser";
+import { parseReference, parseReferences, parseTypedReference } from "../src/lib/bible-parser";
 
 let passed = 0;
 let failed = 0;
@@ -134,12 +134,60 @@ for (const s of [
   test(`sound check: ${JSON.stringify(s)} → no reference`, () => expectNoRefAtAll(s));
 }
 
-// The auto-fire guard: the 🔴 case must not survive at or above the 75 bar
+// The scripture evidence must be ADJACENT to the book token, not merely present
+// somewhere in the utterance. These are ordinary pre-service sentences that a
+// whole-utterance test let through — an unrelated clock time, or a stray
+// "verse"/"chapter"/"book of" elsewhere in the sentence, re-opened the hole
+// (the 6:30 + "mic 1 2" case leaked at 85, ABOVE the auto-fire bar).
+for (const s of [
+  "meeting at 6:30, check mic two",
+  "we start at 6:30 can you check mic 1 2",
+  "next verse, check mic one two",
+  "verse check mic two",
+  "the book of life, check mic two",
+  "we'll read chapter three later, check mic two",
+]) {
+  test(`distant keyword must not re-open it: ${JSON.stringify(s)} → no reference`, () => expectNoRefAtAll(s));
+}
+
+// The auto-fire guard: the 🔴 cases must not survive at or above the 75 bar
 // (src/lib/audio-thresholds.ts) at which AUTO mode projects without a click.
-test('"testing mic 1 2" yields nothing at or above the 75 auto-fire bar', () => {
-  const hot = parseReferences("testing mic 1 2").filter((r) => r.confidence >= 75);
-  assert.deepStrictEqual(hot, [], "a sound check must never reach the auto-fire bar");
-});
+for (const s of ["testing mic 1 2", "we start at 6:30 can you check mic 1 2", "next verse, check mic one two"]) {
+  test(`${JSON.stringify(s)} yields nothing at or above the 75 auto-fire bar`, () => {
+    const hot = parseReferences(s).filter((r) => r.confidence >= 75);
+    assert.deepStrictEqual(hot, [], "a sound check must never reach the auto-fire bar");
+  });
+}
+
+// ── adjacent scripture evidence still resolves the short alias ──
+test('"turn to mic 6 8" → Micah 6:8 (cue immediately before)', () => expectRef("turn to mic 6 8", "Micah", 6, 8));
+test('"the bible says in mic 6 8" → Micah 6:8', () => expectRef("the bible says in mic 6 8", "Micah", 6, 8));
+test('"in the book of mic 6" → Micah 6 (whole chapter)', () => expectRef("in the book of mic 6", "Micah", 6, 1));
+test('"mic chapter 6 verse 8" → Micah 6:8', () => expectRef("mic chapter 6 verse 8", "Micah", 6, 8));
+test('"mic 6 verse 8" → Micah 6:8', () => expectRef("mic 6 verse 8", "Micah", 6, 8));
+test('"mic 6:8" → Micah 6:8', () => expectRef("mic 6:8", "Micah", 6, 8));
+
+// ── TYPED input bypasses the guard entirely (deliberate operator intent) ──
+// Nobody types "mic 6 8" to adjust a microphone; the BibleMode reference box and
+// the ⌘K palette both resolve through parseTypedReference.
+function expectTypedRef(input: string, book: string, chapter: number, verseStart: number) {
+  const r = parseTypedReference(input);
+  assert.ok(r.length > 0, `expected a typed reference for "${input}", got none`);
+  assert.equal(r[0].book, book, `book for typed "${input}"`);
+  assert.equal(r[0].chapter, chapter, `chapter for typed "${input}"`);
+  assert.equal(r[0].verseStart, verseStart, `verseStart for typed "${input}"`);
+}
+test('typed "Mic 6" → Micah 6', () => expectTypedRef("Mic 6", "Micah", 6, 1));
+test('typed "Mic 6 8" → Micah 6:8', () => expectTypedRef("Mic 6 8", "Micah", 6, 8));
+test('typed "Mi 6" → Micah 6', () => expectTypedRef("Mi 6", "Micah", 6, 1));
+test('typed "Mic 6:8" → Micah 6:8', () => expectTypedRef("Mic 6:8", "Micah", 6, 8));
+// ...but the SPOKEN path for those same strings stays blocked.
+test('spoken "mic 6" (no cue) → still no reference', () => expectNoRefAtAll("mic 6"));
+test('spoken "mic 6 8" (no cue) → still no reference', () => expectNoRefAtAll("mic 6 8"));
+
+// The accent/ASR repairs must be untouched (CLAUDE.md rule 9).
+test('"micah tree" → Micah 3 (TH-fronting repair survives)', () => expectRef("micah tree", "Micah", 3, 1));
+test('"mica 6 8" → Mark 6:8 (Mark remap survives)', () => expectRef("mica 6 8", "Mark", 6, 8));
 
 // ── genuine Micah must still detect (incl. the typed "Mic 6:8" shape) ──
 test('"Micah 6:8" → Micah 6:8', () => expectRef("Micah 6:8", "Micah", 6, 8));

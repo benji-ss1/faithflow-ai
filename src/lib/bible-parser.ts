@@ -792,17 +792,53 @@ const KNOWN_MISHEAR_ALT = Object.keys(KNOWN_BOOK_MISHEARS)
 // "the bible says"). Every other book alias — including the full "micah" and the
 // Micah↔Mark accent remap — is untouched (CLAUDE.md rule 9).
 const AMBIGUOUS_SHORT_ALIASES = new Set(["mic", "mi"]);
-const SCRIPTURE_SHAPE = /\d\s*:\s*\d|\bchapters?\b|\bverses?\b|\bbook\s+of\b|\bturn\s+to\b|\bbible\s+says\b/;
+
+// The scripture shape is tested DIRECTIONALLY and ADJACENT to the match, never
+// against the whole utterance. A whole-utterance test is trivially re-opened by
+// any unrelated colon or stray keyword elsewhere in a normal pre-service
+// sentence — "meeting at 6:30, check mic two", "next verse, check mic one two",
+// "the book of life, check mic two" all leaked Micah that way (the middle one at
+// 85, above the auto-fire bar). In a REAL spoken reference the evidence sits
+// tight against the book token: "chapter"/"verse" inside the match itself
+// ("mic chapter 2"), or a cue immediately before it ("turn to mic 6 8",
+// "in the book of mic 6", "the bible says in mic 6 8").
+//
+// Note there is deliberately NO colon clause: neither book_ch nor
+// book_ch_space_verse can match a colon form (book_ch's negative lookahead
+// rejects a following ":", and book_ch_space_verse is two bare numbers), so
+// "mic 6:8" is handled by book_ch_colon_verse and never reaches this guard.
+// Dropping the clause is what makes clock times ("6:30") harmless.
+const SCRIPTURE_CUE_BEFORE = /(?:\bbook\s+of\s+|\bturn\s+to\s+|\bbible\s+says\s+(?:that\s+)?(?:in\s+)?)$/;
+const CHAPTER_OR_VERSE_WORD = /\b(?:chapters?|verses?)\b/;
+// Longest cue above is ~18 chars; 40 is a safe bounded lookbehind.
+const CUE_LOOKBEHIND_CHARS = 40;
+
+// SPOKEN-ONLY scope. The guard above exists because ASR hands us a microphone
+// sound check; it must NOT apply when a human deliberately TYPED the shorthand
+// in the reference box ("Mic 6", "Mic 6 8"). Typing is unambiguous operator
+// intent — nobody types "mic 6 8" to adjust a microphone. parseTypedReference()
+// (the only entrypoint every typed surface uses — BibleMode's box via
+// resolveManualReference, and the ⌘K palette) sets this for the duration of one
+// synchronous parse; parseReferences() defaults it to false, so every live/ASR
+// caller keeps the guard. Saved/restored around the call so nesting is safe.
+let typedInputMode = false;
 
 /**
  * True when a number-only match must be REJECTED because its book token is one
- * of the ambiguous short aliases ("mic"/"mi") and the utterance shows no
- * explicit scripture shape. `bookKey` is already lowercased/whitespace-collapsed;
- * `text` is the full normalized utterance (already lowercased by normalize()).
+ * of the ambiguous short aliases ("mic"/"mi") with no scripture evidence
+ * ADJACENT to it. `bookKey` is already lowercased/whitespace-collapsed; `m` is
+ * the match against the full normalized (lowercased) utterance.
+ * Always false for typed input — see typedInputMode above.
  */
-function ambiguousAliasWithoutScriptureShape(bookKey: string, text: string): boolean {
+function ambiguousAliasWithoutScriptureShape(bookKey: string, m: RegExpExecArray): boolean {
+  if (typedInputMode) return false;
   if (!AMBIGUOUS_SHORT_ALIASES.has(bookKey)) return false;
-  return !SCRIPTURE_SHAPE.test(text);
+  // "mic chapter 2" — the word is inside the match, bound to the book token.
+  if (CHAPTER_OR_VERSE_WORD.test(m[0])) return false;
+  // "turn to mic 6 8" / "in the book of mic 6" — cue immediately precedes it.
+  const before = m.input.slice(Math.max(0, m.index - CUE_LOOKBEHIND_CHARS), m.index);
+  if (SCRIPTURE_CUE_BEFORE.test(before)) return false;
+  return true;
 }
 
 const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => ParsedReference | null }[] = [
@@ -1023,7 +1059,7 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       // "testing mic 1 2" / "mic 7 5" is a sound check, not Micah — see
       // ambiguousAliasWithoutScriptureShape above. This shape scores 85, above
       // the 75 auto-fire bar, so the guard matters most here.
-      if (ambiguousAliasWithoutScriptureShape(bookKey, m.input)) return null;
+      if (ambiguousAliasWithoutScriptureShape(bookKey, m)) return null;
       if (SINGLE_CHAPTER_BOOKS.has(book)) {
         return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 85, matchedText: m[0], needsSemanticFallback: false };
       }
@@ -1043,7 +1079,7 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       // "mic two" / "check mic two please" is a sound check, not Micah 2 —
       // see ambiguousAliasWithoutScriptureShape above. "mic chapter 2" still
       // resolves (the utterance carries "chapter").
-      if (ambiguousAliasWithoutScriptureShape(bookKey, m.input)) return null;
+      if (ambiguousAliasWithoutScriptureShape(bookKey, m)) return null;
       if (SINGLE_CHAPTER_BOOKS.has(book)) {
         return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 78, matchedText: m[0], needsSemanticFallback: false };
       }
@@ -1139,7 +1175,20 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
 // user-typed reference; beyond that we truncate.
 const MAX_PARSE_INPUT_BYTES = 4096;
 
-export function parseReferences(rawText: string): ParsedReference[] {
+export function parseReferences(
+  rawText: string,
+  opts?: { typedInput?: boolean },
+): ParsedReference[] {
+  const prevTypedInputMode = typedInputMode;
+  typedInputMode = opts?.typedInput === true;
+  try {
+    return parseReferencesInner(rawText);
+  } finally {
+    typedInputMode = prevTypedInputMode;
+  }
+}
+
+function parseReferencesInner(rawText: string): ParsedReference[] {
   if (typeof rawText !== "string" || rawText.length === 0) return [];
   let capped = rawText.length > MAX_PARSE_INPUT_BYTES
     ? rawText.slice(0, MAX_PARSE_INPUT_BYTES)
@@ -1465,7 +1514,9 @@ export function parseTypedReference(rawText: string): ParsedReference[] {
     /^\s*(ex|ru|is|am|ac|re|ph|jd)\b/i,
     (_m, abbr: string) => TYPED_ONLY_ALIASES[abbr.toLowerCase()] || abbr,
   );
-  return parseReferences(expanded);
+  // typedInput: a human typed this, so the spoken-only "mic"/"mi" sound-check
+  // guard is bypassed — "Mic 6" and "Mic 6 8" must resolve here.
+  return parseReferences(expanded, { typedInput: true });
 }
 
 export function isProbablyReference(s: string): boolean {
