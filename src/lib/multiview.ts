@@ -22,6 +22,7 @@ import { sanitizeOutputState } from "./broadcast";
 import type { OutputCompositorProps } from "@/components/live/OutputCompositor";
 import { DEFAULT_OBS_BAND, livestreamRenderPlan } from "./obs-lowerthird";
 import { applyObsLiveFields, resolveObsRender, obsThemeColorsOf, type ObsEditorStore } from "./obs-look";
+import { sceneHidesLayer } from "./scenes";
 
 export type MultiViewScreen = "main" | "stage" | "livestream" | "ndi";
 export const MULTIVIEW_SCREENS: MultiViewScreen[] = ["main", "stage", "livestream", "ndi"];
@@ -127,13 +128,22 @@ export function resolveScreenView(
   const themeVideo = !!rawAppearance?.bgVideoUrl;
   const appearance: ThemeAppearance | null = themeVideo && rawAppearance ? { ...rawAppearance, bgVideoUrl: undefined } : rawAppearance;
   const background = s?.background ?? null;
+  // Scenes (2026-09-16): tiles render through the SAME scene mask as the real
+  // screens, so the monitor wall shows the scene's actual effect (spec: "verify
+  // every screen in MultiView"). `screen` is 1:1 with SceneScreen.
+  const scene = s?.scene ?? null;
   const layers = {
     layersEnabled: opts.layersEnabled,
     layerOverrides: opts.layersEnabled ? previewSafeOverrides(opts.layerOverrides) : undefined,
+    scene,
+    screen,
   };
+  const sceneHidesAnnouncement = sceneHidesLayer(scene, screen, "announcement");
   const common = { transition: null, videoInput: null, videoMuted: true, previewFrozen: true } as const;
   const hasCamera = !!s?.videoInput;
-  const announcement = s?.announcement ?? null;
+  // Scene routing for the route-drawn announcement layer (the compositor never
+  // sees it, so each surface applies it itself — same as /live and /stage do).
+  const announcement = sceneHidesAnnouncement ? null : (s?.announcement ?? null);
   const empty = rawSlide.kind === "empty";
 
   switch (screen) {

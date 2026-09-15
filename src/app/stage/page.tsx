@@ -6,6 +6,7 @@ import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type LayerWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
+import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -41,6 +42,8 @@ export default function StagePage() {
   const [referenceColor, setReferenceColor] = useState<string | undefined>(undefined);
   const [background, setBackground] = useState<import("@/lib/broadcast").BackgroundSpec | null>(null);
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
+  // Scenes (2026-09-16): active per-screen routing snapshot (see /live).
+  const [scene, setScene] = useState<SceneWire | null>(null);
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [nextItem, setNextItem] = useState<{ title: string; type: string } | null>(null);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
@@ -126,7 +129,7 @@ export default function StagePage() {
           // Apply the non-slide fields only when they actually changed (dedup).
           let restSig: string;
           try {
-            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition, LAYERS_V2 ? (msg.state.layers ?? null) : null, LAYERS_V2 ? (msg.state.layersEpoch ?? null) : null]);
+            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition, LAYERS_V2 ? (msg.state.layers ?? null) : null, LAYERS_V2 ? (msg.state.layersEpoch ?? null) : null, msg.state.scene ?? null]);
           } catch { restSig = String(Date.now()); }
           if (restSig !== appliedRestSig) {
             appliedRestSig = restSig;
@@ -145,6 +148,7 @@ export default function StagePage() {
             setCountdownEndsAt(msg.state.countdownEndsAt);
             setAnnouncement(msg.state.announcement ?? null);
             setTransition(msg.state.transition ?? null);
+            setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
           }
         } else if (msg.type === "message") {
           if ("clear" in msg.overlay && msg.overlay.clear) {
@@ -395,8 +399,11 @@ export default function StagePage() {
           videoMuted
           layersEnabled={LAYERS_V2}
           layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
+          scene={scene}
+          screen="stage"
         />
-        <AnnouncementLayer ann={announcement} />
+        {/* Scenes: route-drawn layer, so routed here (see /live). */}
+        <AnnouncementLayer ann={sceneHidesLayer(scene, "stage", "announcement") ? null : announcement} />
         {/* Operator message — a slim bar over the bottom of the current area, only
             when the operator actually sends one (no dead placeholder). */}
         {operatorMessage && (

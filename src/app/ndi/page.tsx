@@ -32,6 +32,7 @@ import {
   type LayerWire,
 } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
+import { type SceneWire } from "@/lib/scenes";
 
 // Prevent noisy non-Error unhandledrejections from an offscreen renderer.
 if (typeof window !== "undefined" && !(window as unknown as { __ffNdiGuarded?: boolean }).__ffNdiGuarded) {
@@ -49,6 +50,8 @@ export default function NdiOutputPage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
   const [fontScale, setFontScale] = useState(1);
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null);
+  // Scenes (2026-09-16): active per-screen routing snapshot (see /live).
+  const [scene, setScene] = useState<SceneWire | null>(null);
   const [background, setBackground] = useState<BackgroundSpec | null>(null);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
@@ -117,6 +120,7 @@ export default function NdiOutputPage() {
           setBackground(msg.state.background ?? null);
           setVideoInput(msg.state.videoInput ?? null);
           setTransition(msg.state.transition ?? null);
+          setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
           if (LAYERS_V2) {
             setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers, { snapEpoch: msg.state.layersEpoch, epochRef: layerEpochRef }));
           }
@@ -162,6 +166,8 @@ export default function NdiOutputPage() {
         videoMuted
         layersEnabled={LAYERS_V2}
         layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
+        scene={scene}
+        screen="ndi"
       />
     </div>
   );
