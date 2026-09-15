@@ -183,9 +183,39 @@ async function run() {
   for (const [role, expected] of roleCases) {
     const got = hasCap(role, "edit_library");
     if (got === expected) {
-      console.log(`PASS role ${role} edit_library=${got} (imports/parse ${expected ? "allowed" : "403"})`);
+      console.log(`PASS role ${role} edit_library=${got} (import entry points ${expected ? "allowed" : "rejected"})`);
     } else {
       console.error(`FAIL role ${role} edit_library expected ${expected} got ${got}`);
+      failed++;
+    }
+  }
+
+  // ...and assert every IMPORT WRITE entry point actually carries that gate.
+  // These all land songs / media / S3 objects in the church library, so a
+  // volunteer / pastor / viewer must be rejected at each one — gating only the
+  // parse route would leave the commit half open (2026-09-16 review).
+  // previewImportDrop is deliberately NOT here: it is read-only (parse in
+  // memory + duplicate lookup, no insert, no upload).
+  const fs = require("fs") as typeof import("fs");
+  const path = require("path") as typeof import("path");
+  const entryPoints: Array<{ file: string; fn: string; gate: RegExp }> = [
+    { file: "src/lib/import-actions.ts", fn: "export async function importDrop", gate: /requireCap\("edit_library"\)/ },
+    { file: "src/lib/import-actions.ts", fn: "export async function finalizeImport", gate: /requireCap\("edit_library"\)/ },
+    { file: "src/lib/import-actions.ts", fn: "export async function extractThemeBackgrounds", gate: /requireCap\("edit_library"\)/ },
+    { file: "src/lib/actions.ts", fn: "export async function importPro6Files", gate: /requireCap\("edit_library"\)/ },
+    { file: "src/lib/actions.ts", fn: "export async function importSongsCsv", gate: /requireCap\("edit_library"\)/ },
+    { file: "src/lib/actions.ts", fn: "export async function importParsedSongs", gate: /requireCap\("edit_library"\)/ },
+    { file: "src/app/api/imports/parse/route.ts", fn: "export async function POST", gate: /hasCap\(user\.role, "edit_library"\)/ },
+  ];
+  for (const ep of entryPoints) {
+    const src = fs.readFileSync(path.join(__dirname, "../..", ep.file), "utf8");
+    const at = src.indexOf(ep.fn);
+    // Gate must appear in the function's opening lines, before any DB/S3 work.
+    const head = at === -1 ? "" : src.slice(at, at + 1400);
+    if (at !== -1 && ep.gate.test(head)) {
+      console.log(`PASS gate ${ep.file} :: ${ep.fn.replace("export async function ", "")}`);
+    } else {
+      console.error(`FAIL gate MISSING on ${ep.file} :: ${ep.fn} — import writes must require edit_library`);
       failed++;
     }
   }
@@ -194,7 +224,7 @@ async function run() {
     console.error(`\n${failed} case(s) failed`);
     process.exit(1);
   }
-  console.log(`\nAll ${cases.length + roleCases.length} desktop-api-gate cases passed`);
+  console.log(`\nAll ${cases.length + roleCases.length + entryPoints.length} desktop-api-gate cases passed`);
 }
 
 run().catch((e) => {
