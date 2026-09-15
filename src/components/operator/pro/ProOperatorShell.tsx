@@ -550,6 +550,9 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
           onClick={() => {
             const ids = [...scriptureCards, ...songCards].map((s) => s.id);
             setDismissedIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.add(id)); return n; });
+            // Also reset the right-rail detection rows (badges -> 0). Rail-only:
+            // audio suggestions / auto-fire untouched; new detections reappear.
+            dispatchInternal("presentflow:right-rail-clear");
           }}
           title="Clear the AI chips (new detections still appear)"
           aria-label="Clear AI chips"

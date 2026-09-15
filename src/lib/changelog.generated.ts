@@ -4,6 +4,23 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.405",
+    "date": "2026-09-15",
+    "headline": "Detection badges now show real numbers only",
+    "highlights": [
+      "Fixed: the red numbers on Bible detections, Songs and Cross-references now match exactly what you see when you open that panel.",
+      "Fixed: when there is nothing detected, the number disappears instead of showing an old count.",
+      "Pressing Clear on the AI chips bar now also clears those numbers back to zero. New detections still show up straight after.",
+      "A Bible reference that does not exist (like John 99:99) no longer adds to the count.",
+      "Fixed: after \"John 3:16\" then \"next verse\", the screen stays on verse 17 and no longer jumps back to 16.",
+      "Fixed: polite commands like \"Amen church, can we go to next verse please\" now move to the next verse.",
+      "Normal preaching such as \"we will see this in the next verse\" still does not move the screen.",
+      "After Add slide, right-click the blank slide and choose Quick edit to type on it in the song's own font and colour, whatever theme or background is on.",
+      "Cmd+Enter (Ctrl+Enter on Windows) saves. Send this slide live saves your text first, then puts it on screen.",
+      "Pressing Esc or closing with unsaved typing now asks before throwing it away, and never clears what is on the projector."
+    ]
+  },
+  {
     "version": "0.1.404",
     "date": "2026-09-14",
     "headline": "Signing in is more reliable — no more whole-church lockouts",
