@@ -1,7 +1,7 @@
 /**
  * MultiView (2026-09-15) — per-screen preview resolution must mirror each output
- * route's OutputCompositor inputs, stay read-only (no camera, no transition, frozen
- * background), and fail safe on junk state.
+ * route's OutputCompositor inputs, stay read-only + cheap (no camera, no video
+ * decode, no transition, frozen background), and fail safe on junk state.
  *
  * Run: npx tsx test/multiview.test.ts
  */
@@ -24,22 +24,25 @@ async function main() {
   const mv = await import("../src/lib/multiview");
   const { OutputCompositor } = await import("../src/components/live/OutputCompositor");
 
-  const state = {
+  const base = {
     live: { kind: "text", text: "For God so loved the world", reference: "John 3:16 (KJV)" },
     next: { kind: "text", text: "that he gave his only begotten Son" },
     itemTitle: "Sermon", slideNumber: "1 / 3",
     aspectRatio: "16:9", fitMode: "contain", safeArea: false,
     fontScale: 1.2, referenceScale: 0.9, referenceColor: "#ffcc00",
-    operatorMessage: "Wrap up in 5", lowerThird: { line1: "Pastor Ade", line2: "Lead Pastor" },
+    operatorMessage: null, lowerThird: { line1: "Pastor Ade", line2: "Lead Pastor" },
     countdownEndsAt: null,
     background: { type: "none" },
     appearance: null,
     videoInput: { deviceId: "cam-1" },
-  } as unknown as OutputState;
+    nextItem: { title: "Offering", type: "song" },
+    announcement: { line1: "Welcome", line2: "", position: "bottom" },
+  };
+  const state = base as unknown as OutputState;
   const store = (look: ObsEditorStore["look"]): ObsEditorStore => ({ v: 2, look, lookLive: true, band: DEFAULT_OBS_BAND, settings: DEFAULT_OBS_LOOK_SETTINGS });
   const opts = { layersEnabled: false };
 
-  check("every screen is read-only: no camera stream, no transition, frozen, muted", () => {
+  check("every screen is read-only: no camera stream, no transition, frozen, muted, no video ref", () => {
     for (const s of mv.MULTIVIEW_SCREENS) {
       const v = mv.resolveScreenView(s, state, { ...opts, obsStore: store("full") });
       assert.equal(v.props.videoInput, null, `${s} must not open a camera`);
@@ -50,31 +53,35 @@ async function main() {
     }
   });
 
-  check("main mirrors /live fields (zone, aspect, scales, colour)", () => {
+  check("main mirrors /live fields and carries the announcement", () => {
     const v = mv.resolveScreenView("main", state, opts);
     assert.equal(v.props.mode, "live");
     assert.equal(v.props.fontScale, 1.2);
     assert.equal(v.props.referenceScale, 0.9);
     assert.equal(v.props.referenceColor, "#ffcc00");
     assert.equal(v.props.aspectRatio, "16:9");
-    assert.equal(v.cameraHidden, true, "camera badge shown when the live output uses a camera");
+    assert.equal(v.cameraHidden, true);
+    assert.ok(v.announcement, "announcement shown on main");
   });
 
-  check("stage carries next slide + operator message, never a camera", () => {
+  check("stage carries next slide + next item title + announcement, never a camera", () => {
     const v = mv.resolveScreenView("stage", state, opts);
     assert.equal(v.props.mode, "stage");
     assert.deepEqual(v.stage?.next, state.next);
-    assert.equal(v.stage?.operatorMessage, "Wrap up in 5");
+    assert.deepEqual(v.stage?.nextItem, { title: "Offering", type: "song" });
+    assert.ok(v.announcement);
     assert.equal(v.cameraHidden, false);
   });
 
-  check("ndi defaults to transparent graphics (route default)", () => {
+  check("ndi defaults to see-through graphics and flags a hidden camera", () => {
     const v = mv.resolveScreenView("ndi", state, opts);
     assert.equal(v.props.mode, "ndi");
     assert.equal(v.props.transparent, true);
+    assert.equal(v.cameraHidden, true);
+    assert.equal(v.announcement, null);
   });
 
-  check("livestream follows the OBS editor look", () => {
+  check("livestream follows the OBS editor look when nothing is published", () => {
     const cam = mv.resolveScreenView("livestream", state, { ...opts, obsStore: store("camera") });
     assert.equal(cam.props.transparent, true);
     assert.equal(cam.detail, "Over camera");
@@ -85,12 +92,33 @@ async function main() {
     assert.equal(lt.detail, "Lower third");
     assert.equal(lt.props.background, null, "lower third drops backdrops (route parity)");
     assert.equal(lt.lowerThird, null, "lower third mode never draws the full-mode overlay");
+    assert.equal(lt.announcement, null, "no full-frame announcement over the band");
   });
 
-  check("layer overrides only pass through when the layers engine is on", () => {
+  check("livestream prefers the PUBLISHED obsLook over the editor store", () => {
+    const published = { ...base, obsLook: { ...DEFAULT_OBS_LOOK_SETTINGS, look: "lowerthird" } } as unknown as OutputState;
+    const v = mv.resolveScreenView("livestream", published, { ...opts, obsStore: store("full") });
+    assert.equal(v.detail, "Lower third");
+    assert.equal(v.props.transparent, true);
+  });
+
+  check("video slides and theme background videos are never decoded in a tile", () => {
+    const vid = { ...base, live: { kind: "video", url: "https://x/clip.mp4" } } as unknown as OutputState;
+    for (const s of mv.MULTIVIEW_SCREENS) {
+      const v = mv.resolveScreenView(s, vid, { ...opts, obsStore: store("full") });
+      assert.equal(v.props.slide.kind, "empty", `${s} tile slide replaced`);
+      assert.equal(v.videoHidden, true, `${s} shows the video placeholder`);
+      assert.equal(v.empty, false, `${s} is still live`);
+    }
+    const themeVid = { ...base, appearance: { bgType: "video", bgVideoUrl: "https://x/bg.mp4" } } as unknown as OutputState;
+    const m = mv.resolveScreenView("main", themeVid, opts);
+    assert.equal(m.props.appearance?.bgVideoUrl, undefined);
+    assert.equal(m.videoHidden, true);
+  });
+
+  check("layer overrides only pass through when layers are enabled", () => {
     const overrides = new Map();
-    const off = mv.resolveScreenView("main", state, { layersEnabled: false, layerOverrides: overrides });
-    assert.equal(off.props.layerOverrides, undefined);
+    assert.equal(mv.resolveScreenView("main", state, { layersEnabled: false, layerOverrides: overrides }).props.layerOverrides, undefined);
     const on = mv.resolveScreenView("main", state, { layersEnabled: true, layerOverrides: overrides });
     assert.equal(on.props.layerOverrides, overrides);
     assert.equal(on.props.layersEnabled, true);
@@ -107,12 +135,14 @@ async function main() {
     assert.equal(mv.resolveScreenView("main", null, opts).empty, true);
   });
 
-  check("every resolved view renders through the real OutputCompositor", () => {
-    for (const s of mv.MULTIVIEW_SCREENS) {
-      const v = mv.resolveScreenView(s, state, { ...opts, obsStore: store("lowerthird") });
-      const html = renderToStaticMarkup(React.createElement(OutputCompositor, v.props));
-      assert.ok(html.length > 0, `${s} rendered`);
-      assert.ok(!html.includes("autoPlay"), `${s} must not autoplay media`);
+  check("every resolved view renders through the real OutputCompositor without autoplay", () => {
+    for (const look of ["camera", "lowerthird", "full"] as const) {
+      for (const s of mv.MULTIVIEW_SCREENS) {
+        const v = mv.resolveScreenView(s, state, { ...opts, obsStore: store(look) });
+        const html = renderToStaticMarkup(React.createElement(OutputCompositor, v.props));
+        assert.ok(html.length > 0, `${s}/${look} rendered`);
+        assert.ok(!html.includes("autoPlay"), `${s}/${look} must not autoplay media`);
+      }
     }
   });
 

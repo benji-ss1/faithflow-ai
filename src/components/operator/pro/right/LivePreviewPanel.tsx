@@ -11,35 +11,19 @@ import { getEffect, ensureEffectKeyframes, type EffectId } from "@/lib/effects";
 import { TRANSITION_NAME_TO_EFFECT_ID, TRANSITION_PREVIEW_EVENT } from "../BottomBar";
 import type { SlidePayload } from "@/lib/broadcast";
 import { LayoutGrid } from "lucide-react";
-import { MultiViewOverlay, OutputTile, useLocalOutputState, useObsEditorStore } from "./MultiView";
-import { MULTIVIEW_SCREENS, MULTIVIEW_LABELS, PREVIEW_SCREEN_KEY, isMultiViewScreen, multiviewEnabled, type MultiViewScreen } from "@/lib/multiview";
+import { MultiViewOverlay, PreviewOtherScreen } from "./MultiView";
+import { MULTIVIEW_SCREENS, MULTIVIEW_LABELS, MULTIVIEW_TITLES, multiviewEnabled, type MultiViewScreen } from "@/lib/multiview";
 
 /** Preview-box screen switcher + "All screens" entry. Main keeps the original
- *  preview render untouched; other screens render read-only OutputTiles. */
+ *  preview render untouched; other screens render read-only OutputTiles.
+ *  The pick is deliberately NOT persisted: every console open starts on Main so
+ *  an operator never walks into a service watching a non-projector screen. */
 function useMultiViewControls() {
   const [enabled, setEnabled] = useState(false);
-  const [screen, setScreenInner] = useState<MultiViewScreen>("main");
+  const [screen, setScreen] = useState<MultiViewScreen>("main");
   const [allOpen, setAllOpen] = useState(false);
-  useEffect(() => {
-    const on = multiviewEnabled();
-    setEnabled(on);
-    if (!on) return;
-    try {
-      const saved = window.localStorage.getItem(PREVIEW_SCREEN_KEY);
-      if (isMultiViewScreen(saved)) setScreenInner(saved);
-    } catch { /* ignore */ }
-  }, []);
-  const setScreen = (s: MultiViewScreen) => {
-    setScreenInner(s);
-    try { window.localStorage.setItem(PREVIEW_SCREEN_KEY, s); } catch { /* ignore */ }
-  };
-  return { enabled, screen: enabled ? screen : "main" as MultiViewScreen, setScreen, allOpen, setAllOpen };
-}
-
-function PreviewOtherScreen({ ctx, screen }: { ctx: OperatorShellCtx; screen: MultiViewScreen }) {
-  const state = useLocalOutputState();
-  const obsStore = useObsEditorStore();
-  return <OutputTile screen={screen} state={state} ctx={ctx} obsStore={obsStore} />;
+  useEffect(() => { setEnabled(multiviewEnabled()); }, []);
+  return { enabled, screen: enabled ? screen : ("main" as MultiViewScreen), setScreen, allOpen, setAllOpen };
 }
 
 // The live slide's text carries its reference/translation as a trailing
@@ -146,8 +130,19 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
                 type="button"
                 role="radio"
                 aria-checked={mv.screen === s}
+                tabIndex={mv.screen === s ? 0 : -1}
+                title={MULTIVIEW_TITLES[s]}
                 onClick={() => mv.setScreen(s)}
-                className={`flex-1 min-w-0 truncate px-1 py-1 rounded text-[10px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand)] ${mv.screen === s ? "bg-[var(--color-brand)] text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
+                onKeyDown={(e) => {
+                  if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+                  e.preventDefault();
+                  const i = MULTIVIEW_SCREENS.indexOf(mv.screen);
+                  const n = MULTIVIEW_SCREENS[(i + (e.key === "ArrowRight" ? 1 : MULTIVIEW_SCREENS.length - 1)) % MULTIVIEW_SCREENS.length];
+                  mv.setScreen(n);
+                  (e.currentTarget.parentElement?.querySelector(`[data-mv-screen="${n}"]`) as HTMLElement | null)?.focus();
+                }}
+                data-mv-screen={s}
+                className={`flex-1 min-w-0 truncate h-7 px-1 rounded text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)] ${mv.screen === s ? "bg-[var(--color-brand)] text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
               >
                 {MULTIVIEW_LABELS[s]}
               </button>
@@ -156,7 +151,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           <button
             type="button"
             onClick={() => mv.setAllOpen(true)}
-            className="shrink-0 h-7 px-2 inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] text-[10px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand)]"
+            className="shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] text-[11px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)]"
             title="See all screens at once"
             aria-label="See all screens at once"
           >
@@ -164,8 +159,25 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           </button>
         </div>
       )}
-      {mv.allOpen && <MultiViewOverlay ctx={ctx} onClose={() => mv.setAllOpen(false)} />}
-      {mv.screen !== "main" && <PreviewOtherScreen ctx={ctx} screen={mv.screen} />}
+      {mv.allOpen && (
+        <MultiViewOverlay layerOverrides={ctx.liveLayers.overrides} onKill={ctx.onKill} onClose={() => mv.setAllOpen(false)} />
+      )}
+      {mv.screen !== "main" && (
+        <>
+          {/* Design review 🔴: make it impossible to mistake this box for the projector. */}
+          <div className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200" role="status">
+            <span className="truncate">Showing {MULTIVIEW_TITLES[mv.screen]}, not the projector</span>
+            <button
+              type="button"
+              onClick={() => mv.setScreen("main")}
+              className="shrink-0 underline font-medium rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+            >
+              Back to Main
+            </button>
+          </div>
+          <PreviewOtherScreen screen={mv.screen} layerOverrides={ctx.liveLayers.overrides} onKill={ctx.onKill} />
+        </>
+      )}
       {/* 2026-08-13 — restored true 16:9 (aspect-video) + projectorFit sizing so
           this preview is proportionally WYSIWYG with the projector. The earlier
           aspect-agnostic h-[280px] + non-projector fit was the cause of the

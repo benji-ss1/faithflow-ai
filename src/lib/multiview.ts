@@ -7,30 +7,37 @@
  * Each resolver mirrors the matching route's OutputCompositor props:
  *   main       → src/app/live/page.tsx
  *   stage      → src/app/stage/page.tsx
- *   livestream → src/app/livestream/page.tsx (+ ObsOverlayCard preview rule:
- *                the OBS editor's selected look decides the look)
+ *   livestream → src/app/livestream/page.tsx (published obsLook/obsLowerThird,
+ *                falling back to the OBS editor's selected look + band)
  *   ndi        → src/app/ndi/page.tsx (default Transparent Graphics mode)
  *
- * READ-ONLY: nothing here posts, persists output state, or opens a camera.
- * Previews never pass videoInput (each would open its own getUserMedia stream);
- * the tile shows a "camera" badge instead.
+ * READ-ONLY + CHEAP: nothing here posts, persists output state, opens a camera,
+ * or decodes video. Video slides and theme background videos are replaced by a
+ * placeholder (each tile would otherwise decode the same 1080p stream again).
+ * Timers / messages travel as separate LiveMessages, not OutputState, so tiles
+ * don't show them.
  */
-import type { OutputState, SlidePayload, ThemeAppearance } from "./broadcast";
+import type { AnnouncementPayload, OutputState, SlidePayload, ThemeAppearance } from "./broadcast";
 import { sanitizeOutputState } from "./broadcast";
 import type { OutputCompositorProps } from "@/components/live/OutputCompositor";
 import { DEFAULT_OBS_BAND, livestreamRenderPlan } from "./obs-lowerthird";
-import { resolveObsRender, obsThemeColorsOf, type ObsEditorStore } from "./obs-look";
+import { applyObsLiveFields, resolveObsRender, obsThemeColorsOf, type ObsEditorStore } from "./obs-look";
 
 export type MultiViewScreen = "main" | "stage" | "livestream" | "ndi";
 export const MULTIVIEW_SCREENS: MultiViewScreen[] = ["main", "stage", "livestream", "ndi"];
 export const MULTIVIEW_LABELS: Record<MultiViewScreen, string> = {
   main: "Main",
   stage: "Stage",
-  livestream: "Livestream",
+  livestream: "Stream",
   ndi: "NDI",
 };
+export const MULTIVIEW_TITLES: Record<MultiViewScreen, string> = {
+  main: "Main projector",
+  stage: "Stage monitor",
+  livestream: "Livestream (OBS)",
+  ndi: "NDI video mixer feed",
+};
 
-export const PREVIEW_SCREEN_KEY = "presentflow.pro.previewScreen.v1";
 export const MULTIVIEW_KILL_KEY = "presentflow.pro.multiview.v1";
 
 /** Default ON; kill-switch = localStorage "0" or NEXT_PUBLIC_MULTIVIEW="0". */
@@ -55,13 +62,17 @@ export function coercePreviewState(raw: unknown): OutputState | null {
 export type ScreenView = {
   props: OutputCompositorProps;
   /** Stage-only chrome worth showing in a preview. */
-  stage?: { next: SlidePayload | null; operatorMessage: string | null };
+  stage?: { next: SlidePayload | null; nextItem: { title: string; type: string } | null };
+  /** Full-frame announcement the route draws over the compositor. */
+  announcement: AnnouncementPayload | null;
   /** Livestream full-mode lower third drawn by the route over the slide. */
   lowerThird?: { line1: string; line2: string } | null;
   /** True when the output keys over something (OBS camera / NDI alpha). */
   transparent: boolean;
   /** The live output uses a camera the preview deliberately doesn't open. */
   cameraHidden: boolean;
+  /** A video is playing on this output; the preview shows a placeholder. */
+  videoHidden: boolean;
   /** Human sub-label, e.g. livestream look. */
   detail?: string;
   empty: boolean;
@@ -75,11 +86,15 @@ export function resolveScreenView(
   opts: { layersEnabled: boolean; layerOverrides?: OutputCompositorProps["layerOverrides"]; obsStore?: ObsEditorStore | null },
 ): ScreenView {
   const s = state;
-  const slide = s?.live ?? EMPTY;
+  const rawSlide = s?.live ?? EMPTY;
+  const slideIsVideo = rawSlide.kind === "video";
+  const slide = slideIsVideo ? EMPTY : rawSlide;
   const fontScale = typeof s?.fontScale === "number" ? s.fontScale : 1;
   const referenceScale = typeof s?.referenceScale === "number" ? s.referenceScale : 1;
   const referenceColor = typeof s?.referenceColor === "string" ? s.referenceColor : undefined;
-  const appearance: ThemeAppearance | null = s?.appearance ?? null;
+  const rawAppearance: ThemeAppearance | null = s?.appearance ?? null;
+  const themeVideo = !!rawAppearance?.bgVideoUrl;
+  const appearance: ThemeAppearance | null = themeVideo && rawAppearance ? { ...rawAppearance, bgVideoUrl: undefined } : rawAppearance;
   const background = s?.background ?? null;
   const layers = {
     layersEnabled: opts.layersEnabled,
@@ -87,7 +102,8 @@ export function resolveScreenView(
   };
   const common = { transition: null, videoInput: null, videoMuted: true, previewFrozen: true } as const;
   const hasCamera = !!s?.videoInput;
-  const empty = slide.kind === "empty";
+  const announcement = s?.announcement ?? null;
+  const empty = rawSlide.kind === "empty";
 
   switch (screen) {
     case "main":
@@ -96,7 +112,7 @@ export function resolveScreenView(
           ...common, ...layers, mode: "live", slide, appearance, background, fontScale,
           referenceScale, referenceColor, zone: s?.zone ?? null, aspectRatio: s?.aspectRatio,
         },
-        transparent: false, cameraHidden: hasCamera, empty,
+        announcement, transparent: false, cameraHidden: hasCamera, videoHidden: slideIsVideo || themeVideo, empty,
       };
     case "stage":
       return {
@@ -104,23 +120,28 @@ export function resolveScreenView(
           ...common, ...layers, mode: "stage", slide, appearance, background, fontScale,
           referenceScale, referenceColor, zone: s?.zone ?? null,
         },
-        stage: { next: s?.next ?? null, operatorMessage: s?.operatorMessage ?? null },
-        transparent: false, cameraHidden: false, empty,
+        stage: { next: s?.next ?? null, nextItem: s?.nextItem ?? null },
+        announcement, transparent: false, cameraHidden: false, videoHidden: slideIsVideo || themeVideo, empty,
       };
     case "ndi":
       return {
         props: { ...common, ...layers, mode: "ndi", slide, appearance, background, fontScale, transparent: true },
-        transparent: true, cameraHidden: false, detail: "Graphics", empty,
+        announcement: null, transparent: true, cameraHidden: hasCamera, videoHidden: slideIsVideo,
+        detail: "See-through", empty,
       };
     case "livestream": {
       const store = opts.obsStore ?? null;
-      const look = store?.look ?? "full";
+      // Prefer what the operator actually PUBLISHED (what a live=1 OBS link
+      // follows); fall back to the editor's selection/band when nothing is live.
+      const published = s ? applyObsLiveFields(s) : { liveBand: null, liveLook: null };
+      const look = published.liveLook?.look ?? store?.look ?? "full";
+      const band = published.liveBand ?? store?.band ?? DEFAULT_OBS_BAND;
       const themeColors = obsThemeColorsOf(appearance);
       const lowerThird = s?.lowerThird ?? null;
       const r = resolveObsRender({
-        url: { transparent: look !== "full", mode: look === "lowerthird" ? "lower_third" : "full", band: store?.band ?? DEFAULT_OBS_BAND, live: true },
-        liveLook: store ? { ...store.settings, look } : null,
-        liveBand: store?.band ?? null,
+        url: { transparent: look !== "full", mode: look === "lowerthird" ? "lower_third" : "full", band, live: true },
+        liveLook: published.liveLook ?? (store ? { ...store.settings, look } : null),
+        liveBand: band,
         fontScale, appearance, themeColors, lowerThird,
         hasTemplateBackground: !!background,
       });
@@ -142,9 +163,11 @@ export function resolveScreenView(
           transparent: r.transparent, obsBand: r.obsBand, obsThemeColors: themeColors,
           obsBandExtras: r.obsBandExtras, obsOverlay: r.obsOverlay, backgroundDim: r.backgroundDim,
         },
+        announcement: showFullOverlays ? announcement : null,
         lowerThird: r.mode === "full" && showFullOverlays ? lowerThird : null,
         transparent: r.transparent,
         cameraHidden: hasCamera && showBackdrop,
+        videoHidden: slideIsVideo || (themeVideo && showBackdrop),
         detail: look === "camera" ? "Over camera" : look === "lowerthird" ? "Lower third" : "Full look",
         empty,
       };

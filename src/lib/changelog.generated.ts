@@ -4,6 +4,17 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.409",
+    "date": "2026-09-15",
+    "headline": "See any screen in your live preview, or all your screens at once",
+    "highlights": [
+      "Above the live preview you can now pick which screen it shows - Main, Stage, Livestream or NDI.",
+      "Press All to see every screen side by side in one big view. Press Esc or X to close it.",
+      "This is preview only. Picking a screen never changes what your projector, stage or stream shows.",
+      "Your choice is remembered next time you open the console."
+    ]
+  },
+  {
     "version": "0.1.408",
     "date": "2026-09-15",
     "headline": "Fewer, more accurate Bible suggestions from preaching",
