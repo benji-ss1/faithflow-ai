@@ -17,7 +17,7 @@
  * Timers / messages travel as separate LiveMessages, not OutputState, so tiles
  * don't show them.
  */
-import type { AnnouncementPayload, OutputState, SlidePayload, ThemeAppearance } from "./broadcast";
+import type { AnnouncementPayload, LayerWire, OutputState, SlidePayload, ThemeAppearance } from "./broadcast";
 import { sanitizeOutputState } from "./broadcast";
 import type { OutputCompositorProps } from "@/components/live/OutputCompositor";
 import { DEFAULT_OBS_BAND, livestreamRenderPlan } from "./obs-lowerthird";
@@ -80,6 +80,36 @@ export type ScreenView = {
 
 const EMPTY: SlidePayload = { kind: "empty" };
 
+/** Preview-safe slide: a video slide becomes empty and video objects on a text
+ *  slide are dropped (SlideObjectsLayer autoplays them). `hadVideo` drives the
+ *  "Video playing (not previewed)" placeholder. Real outputs never call this. */
+export function previewSafeSlide(slide: SlidePayload | null | undefined): { slide: SlidePayload; hadVideo: boolean } {
+  if (!slide) return { slide: EMPTY, hadVideo: false };
+  if (slide.kind === "video") return { slide: EMPTY, hadVideo: true };
+  if (slide.kind === "text" && Array.isArray(slide.objects) && slide.objects.some((o) => o.kind === "video")) {
+    return { slide: { ...slide, objects: slide.objects.filter((o) => o.kind !== "video") }, hadVideo: true };
+  }
+  return { slide, hadVideo: false };
+}
+
+/** Preview-safe layer overrides: camera layers lose their device payload (a tile
+ *  must never call getUserMedia) and slide/media payloads go through
+ *  previewSafeSlide. Enabled/opacity/zone are kept so clears still mirror. */
+export function previewSafeOverrides(
+  overrides: OutputCompositorProps["layerOverrides"],
+): LayerWire[] | undefined {
+  if (!overrides) return undefined;
+  const list = overrides instanceof Map ? Array.from(overrides.values()) : overrides;
+  return list.map((l) => {
+    if (l.kind === "camera" && l.payload) return { ...l, payload: null };
+    if ((l.kind === "slide" || l.kind === "media") && l.payload) {
+      const safe = previewSafeSlide(l.payload);
+      return safe.hadVideo ? { ...l, payload: safe.slide } : l;
+    }
+    return l;
+  });
+}
+
 export function resolveScreenView(
   screen: MultiViewScreen,
   state: OutputState | null,
@@ -87,8 +117,9 @@ export function resolveScreenView(
 ): ScreenView {
   const s = state;
   const rawSlide = s?.live ?? EMPTY;
-  const slideIsVideo = rawSlide.kind === "video";
-  const slide = slideIsVideo ? EMPTY : rawSlide;
+  const safeLive = previewSafeSlide(rawSlide);
+  const slideIsVideo = safeLive.hadVideo;
+  const slide = safeLive.slide;
   const fontScale = typeof s?.fontScale === "number" ? s.fontScale : 1;
   const referenceScale = typeof s?.referenceScale === "number" ? s.referenceScale : 1;
   const referenceColor = typeof s?.referenceColor === "string" ? s.referenceColor : undefined;
@@ -98,7 +129,7 @@ export function resolveScreenView(
   const background = s?.background ?? null;
   const layers = {
     layersEnabled: opts.layersEnabled,
-    layerOverrides: opts.layersEnabled ? (opts.layerOverrides ?? undefined) : undefined,
+    layerOverrides: opts.layersEnabled ? previewSafeOverrides(opts.layerOverrides) : undefined,
   };
   const common = { transition: null, videoInput: null, videoMuted: true, previewFrozen: true } as const;
   const hasCamera = !!s?.videoInput;
@@ -120,7 +151,7 @@ export function resolveScreenView(
           ...common, ...layers, mode: "stage", slide, appearance, background, fontScale,
           referenceScale, referenceColor, zone: s?.zone ?? null,
         },
-        stage: { next: s?.next ?? null, nextItem: s?.nextItem ?? null },
+        stage: { next: s?.next ? previewSafeSlide(s.next).slide : null, nextItem: s?.nextItem ?? null },
         announcement, transparent: false, cameraHidden: false, videoHidden: slideIsVideo || themeVideo, empty,
       };
     case "ndi":

@@ -160,22 +160,22 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
         </div>
       )}
       {mv.allOpen && (
-        <MultiViewOverlay layerOverrides={ctx.liveLayers.overrides} onKill={ctx.onKill} onClose={() => mv.setAllOpen(false)} />
+        <MultiViewOverlay layerOverrides={ctx.liveLayers.overrides} onClose={() => mv.setAllOpen(false)} />
       )}
       {mv.screen !== "main" && (
         <>
           {/* Design review 🔴: make it impossible to mistake this box for the projector. */}
-          <div className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200" role="status">
+          <div className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200 [html.light_&]:bg-amber-100 [html.light_&]:border-amber-400 [html.light_&]:text-amber-900" role="status">
             <span className="truncate">Showing {MULTIVIEW_TITLES[mv.screen]}, not the projector</span>
             <button
               type="button"
               onClick={() => mv.setScreen("main")}
-              className="shrink-0 underline font-medium rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+              className="shrink-0 h-6 px-1.5 underline font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
             >
               Back to Main
             </button>
           </div>
-          <PreviewOtherScreen screen={mv.screen} layerOverrides={ctx.liveLayers.overrides} onKill={ctx.onKill} />
+          <PreviewOtherScreen screen={mv.screen} layerOverrides={ctx.liveLayers.overrides} />
         </>
       )}
       {/* 2026-08-13 — restored true 16:9 (aspect-video) + projectorFit sizing so

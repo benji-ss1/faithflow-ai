@@ -9,7 +9,12 @@
  *
  * Perf (stress review): state updates are coalesced to ≤4/s, tiles are memoised
  * on plain props (never the whole shell ctx, which changes on every audio tick),
- * and video is never decoded in a tile.
+ * and video/camera are never decoded or opened in a tile.
+ *
+ * Tiles deliberately have NO clear-live button (design review): the only clear
+ * action clears every screen, so a per-tile X read as "clear this screen" and put
+ * four destructive targets side by side mid-service. Clear stays on the Main
+ * preview and the bottom bar.
  */
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X, Camera, Film } from "lucide-react";
@@ -80,10 +85,9 @@ type TileProps = {
   received: boolean;
   layerOverrides: LayerWire[] | Map<string, LayerWire> | null | undefined;
   obsStore: ObsEditorStore | null;
-  onKill?: () => void;
 };
 
-export const OutputTile = memo(function OutputTile({ screen, state, received, layerOverrides, obsStore, onKill }: TileProps) {
+export const OutputTile = memo(function OutputTile({ screen, state, received, layerOverrides, obsStore }: TileProps) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0);
   useLayoutEffect(() => {
@@ -126,7 +130,7 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
               </div>
               {stage.next && stage.next.kind !== "empty" ? (
                 <div className="opacity-75 w-full h-full">
-                  <PresentationCanvas><SlideRenderer slide={stage.next} projectorFit appearance={state?.appearance ?? undefined} /></PresentationCanvas>
+                  <PresentationCanvas><SlideRenderer slide={stage.next} projectorFit appearance={view.props.appearance ?? undefined} /></PresentationCanvas>
                 </div>
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-white/20 text-3xl">— end of item —</div>
@@ -150,7 +154,7 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
           </span>
         </div>
       )}
-      {view.videoHidden && (
+      {view.videoHidden && !view.empty && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <span className="inline-flex items-center gap-1 text-[11px] text-white/80 bg-black/60 px-2 py-0.5 rounded">
             <Film className="w-3.5 h-3.5" aria-hidden /> Video playing (not previewed)
@@ -167,17 +171,6 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
           {MULTIVIEW_LABELS[screen]}{view.detail ? ` · ${view.detail}` : ""}
         </span>
       </div>
-      {onKill && isLive && (
-        <button
-          type="button"
-          onClick={onKill}
-          className="absolute top-1 right-1 z-10 w-6 h-6 flex items-center justify-center rounded bg-black/60 text-white hover:bg-[var(--color-destructive)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
-          title="Clear live"
-          aria-label="Clear live"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      )}
       {view.cameraHidden && (
         <span className="absolute bottom-1 right-1 z-10 inline-flex items-center gap-1 text-[10px] text-white/90 bg-black/70 px-1.5 py-0.5 rounded pointer-events-none">
           <Camera className="w-3 h-3" aria-hidden /> Camera not previewed
@@ -188,14 +181,14 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
 });
 
 export function MultiViewOverlay({
-  layerOverrides, onKill, onClose,
+  layerOverrides, onClose,
 }: {
   layerOverrides: TileProps["layerOverrides"];
-  onKill: () => void;
   onClose: () => void;
 }) {
   const { state, received } = useLocalOutputState();
   const obsStore = useObsEditorStore();
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -203,17 +196,24 @@ export function MultiViewOverlay({
     const opener = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.stopImmediatePropagation(); e.preventDefault(); onCloseRef.current(); }
+      if (e.key === "Escape") { e.stopImmediatePropagation(); e.preventDefault(); onCloseRef.current(); return; }
+      // aria-modal focus trap: the only focusable control is Close, so Tab /
+      // Shift+Tab stay on it and never reach console hotkeys/buttons behind.
+      if (e.key === "Tab" && rootRef.current) {
+        e.preventDefault();
+        closeRef.current?.focus();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      try { opener?.focus?.(); } catch { /* ignore */ }
+      try { if (opener && document.contains(opener)) opener.focus(); } catch { /* ignore */ }
     };
   }, []);
   const isLive = !!state && state.live.kind !== "empty";
   return (
     <div
+      ref={rootRef}
       className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-sm flex flex-col px-4 py-4"
       role="dialog"
       aria-modal="true"
@@ -242,18 +242,18 @@ export function MultiViewOverlay({
       <div className="mx-auto w-full max-w-[1600px] flex-1 min-h-0 overflow-y-auto">
         <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
           {MULTIVIEW_SCREENS.map((screen) => (
-            <OutputTile key={screen} screen={screen} state={state} received={received} layerOverrides={layerOverrides} obsStore={obsStore} onKill={onKill} />
+            <OutputTile key={screen} screen={screen} state={state} received={received} layerOverrides={layerOverrides} obsStore={obsStore} />
           ))}
         </div>
-        <p className="mt-3 text-[11px] text-white/50">Timers and pop-up messages aren&apos;t shown in these previews.</p>
+        <p className="mt-3 text-[11px] text-white/60">Timers, pop-up messages and stage countdowns aren&apos;t shown in these previews. Videos and cameras show a label instead of playing.</p>
       </div>
     </div>
   );
 }
 
 /** One non-Main screen inside the small preview box. */
-export function PreviewOtherScreen({ screen, layerOverrides, onKill }: { screen: MultiViewScreen; layerOverrides: TileProps["layerOverrides"]; onKill: () => void }) {
+export function PreviewOtherScreen({ screen, layerOverrides }: { screen: MultiViewScreen; layerOverrides: TileProps["layerOverrides"] }) {
   const { state, received } = useLocalOutputState();
   const obsStore = useObsEditorStore();
-  return <OutputTile screen={screen} state={state} received={received} layerOverrides={layerOverrides} obsStore={obsStore} onKill={onKill} />;
+  return <OutputTile screen={screen} state={state} received={received} layerOverrides={layerOverrides} obsStore={obsStore} />;
 }

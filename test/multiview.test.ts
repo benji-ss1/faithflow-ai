@@ -116,11 +116,51 @@ async function main() {
     assert.equal(m.videoHidden, true);
   });
 
+  check("video objects on a text slide are stripped from every tile (no autoplay)", () => {
+    const withObj = {
+      ...base,
+      live: { kind: "text", text: "Welcome", objects: [
+        { id: "t1", kind: "text", x: 0, y: 0, w: 100, h: 100, text: "Hi" },
+        { id: "v1", kind: "video", x: 0, y: 0, w: 100, h: 100, url: "https://x/clip.mp4" },
+      ] },
+    } as unknown as OutputState;
+    for (const s of mv.MULTIVIEW_SCREENS) {
+      const v = mv.resolveScreenView(s, withObj, { ...opts, obsStore: store("full") });
+      const objs = (v.props.slide as { objects?: { kind: string }[] }).objects ?? [];
+      assert.ok(!objs.some((o) => o.kind === "video"), `${s} tile keeps no video objects`);
+      assert.equal(v.videoHidden, true, `${s} shows the placeholder`);
+      const html = renderToStaticMarkup(React.createElement(OutputCompositor, v.props));
+      assert.ok(!html.includes("<video"), `${s} renders no <video>`);
+    }
+  });
+
+  check("stage next strip never carries a video", () => {
+    const nextVid = { ...base, next: { kind: "video", url: "https://x/next.mp4" } } as unknown as OutputState;
+    const v = mv.resolveScreenView("stage", nextVid, opts);
+    assert.notEqual(v.stage?.next?.kind, "video");
+  });
+
+  check("layer overrides are preview-safe: camera payload dropped, video slide payload stripped", () => {
+    const overrides = [
+      { id: "cam", z: 5, enabled: true, kind: "camera", payload: { deviceId: "cam-1" } },
+      { id: "slide", z: 20, enabled: true, kind: "slide", payload: { kind: "video", url: "https://x/v.mp4" } },
+      { id: "bg", z: 0, enabled: false, kind: "background", payload: { type: "none" } },
+    ] as unknown as import("../src/lib/broadcast").LayerWire[];
+    const on = mv.resolveScreenView("main", state, { layersEnabled: true, layerOverrides: overrides });
+    const list = on.props.layerOverrides as import("../src/lib/broadcast").LayerWire[];
+    const cam = list.find((l) => l.id === "cam")!;
+    assert.equal((cam as { payload?: unknown }).payload, null, "camera device never reaches a tile");
+    const sl = list.find((l) => l.id === "slide")! as { payload?: { kind: string } };
+    assert.equal(sl.payload?.kind, "empty");
+    assert.equal(list.find((l) => l.id === "bg")!.enabled, false, "clears still mirror");
+    assert.equal(overrides[0].kind === "camera" && (overrides[0] as { payload?: unknown }).payload !== null, true, "original overrides not mutated");
+  });
+
   check("layer overrides only pass through when layers are enabled", () => {
     const overrides = new Map();
     assert.equal(mv.resolveScreenView("main", state, { layersEnabled: false, layerOverrides: overrides }).props.layerOverrides, undefined);
     const on = mv.resolveScreenView("main", state, { layersEnabled: true, layerOverrides: overrides });
-    assert.equal(on.props.layerOverrides, overrides);
+    assert.deepEqual(on.props.layerOverrides, []);
     assert.equal(on.props.layersEnabled, true);
   });
 
