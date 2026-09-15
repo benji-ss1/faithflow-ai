@@ -9,7 +9,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard, setTextClipboard, useTextClipboard, getTextClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
-import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme, applyThemeToSongSlide, removeThemeFromSongSlide } from "@/lib/actions";
+import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, setServiceItemSlideActions,clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme, applyThemeToSongSlide, removeThemeFromSongSlide } from "@/lib/actions";
 import { BUILT_IN_BACKGROUNDS } from "@/backgrounds/presets/defaultTemplates";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
@@ -311,15 +311,25 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     if (!Array.isArray(raw)) return null;
     return raw.map((arr) => sanitizeSlideActions(arr));
   }, [item?.slideActions]);
-  const canEditSlideActions = item?.type === "song" && !!sectionSongId;
+  // Non-song items persist to service_items.payload.slideActions[slideIdx] via
+  // setServiceItemSlideActions (fired by the same fireSlideActions path). Scripture
+  // is EXCLUDED: its slides re-expand on translation/split changes, so a slide
+  // index isn't stable and an action could drift onto a different verse. Header
+  // dividers hold no slide content.
+  const nonSongActionItemId = item && (item.type === "media" || item.type === "sermon" || item.type === "blank" || item.type === "logo")
+    ? item.id : undefined;
+  const canEditSlideActions = (item?.type === "song" && !!sectionSongId) || !!nonSongActionItemId;
   // Non-destructive palette offered on a slide — SLIDE_MENU_PALETTE (module const)
   // is the background-focused subset (timer/message filtered out; see A1 above).
   const saveSlideActions = (idx: number, next: ActionSpec[], okMsg: string) => {
     const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
-    if (!sectionSongId || !slideId) return;
+    const songSave = !!sectionSongId && !!slideId;
+    if (!songSave && !nonSongActionItemId) return;
     void (async () => {
       const { toast } = await import("sonner");
-      const res = await setSongSlideActions(slideId, next);
+      const res = songSave
+        ? await setSongSlideActions(slideId!, next)
+        : await setServiceItemSlideActions(nonSongActionItemId!, idx, next);
       if (!res.ok) { toast.error(res.error ?? "Couldn't set slide action"); return; }
       toast.success(okMsg);
       router.refresh();
