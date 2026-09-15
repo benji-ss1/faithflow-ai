@@ -372,6 +372,11 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [live, setLiveRaw] = useState<SlidePayload>({ kind: "empty" });
+  // Allusion v1 context: live slide text (+ reference footer) read by getDetectContext.
+  const liveTextRef = useRef("");
+  const translationCodeRef = useRef(defaultTranslationCode);
+  translationCodeRef.current = defaultTranslationCode; // follows manual/spoken translation switches
+  liveTextRef.current = live.kind === "text" ? `${live.text}${live.reference ? ` ${live.reference}` : ""}` : "";
   // Live-send counter: bumps on every send that changes what's live — a new
   // slide identity OR the same content from a DIFFERENT deck position (repeated
   // chorus / blank). Never bumps on heartbeats or an already-live re-send of the
@@ -1146,6 +1151,8 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     hasVerseContext: false,
     hasSlideContext: true, // always assume some slide context in operator
     hasSongContext: false, // updated below via ref
+    liveText: liveTextRef.current,
+    translationCode: translationCodeRef.current,
   }), [plan.id, planSongIds, plan, churchId]);
 
   const { state: audio, start: startAudio, stop: stopAudio, resume: resumeAudio, restart: restartAudio, warmStart: warmStartAudio, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript, multiChannelCapture, currentDeviceId } = useAudioStream(plan.id, {

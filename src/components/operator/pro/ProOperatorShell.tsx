@@ -330,7 +330,7 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
             const ref = `${s.ref.book} ${s.ref.chapter}:${s.ref.verseStart}${s.ref.verseEnd !== s.ref.verseStart ? `-${s.ref.verseEnd}` : ""}`;
             const isPhrase = !!s.isPhraseMatch;
             const tip = isPhrase
-              ? "Phrase match — quoted text, not a spoken reference. Tap to load."
+              ? "Phrase match — quoted text, not a spoken reference. Click to load, Shift+click to send live."
               : `${ref} (${s.confidence}%) — click to load, Shift+click to send live`;
             return (
               <div
