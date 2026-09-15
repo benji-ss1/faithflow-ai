@@ -76,7 +76,12 @@ export function macArchChoice(renderer: string | null): "arm64" | "x64" | "ask" 
   const r = (renderer || "").trim().toLowerCase();
   if (!r) return "ask";
   if (/intel|amd|radeon|nvidia|geforce/.test(r)) return "x64";
-  if (/apple\s*m\d|apple\s*silicon|apple\s*gpu|\bapple\b/.test(r)) return "arm64";
+  // Apple must be matched by an Apple-SILICON-specific shape, never by the bare
+  // vendor word: "Apple Software Renderer" (the macOS software-GL fallback seen
+  // on Intel Macs with acceleration off) and "Apple Paravirtual device" (VMs)
+  // are both real strings that say nothing about the CPU — they fall through to
+  // "ask", which is exactly what this feature is for.
+  if (/apple\s*(m\d|silicon|gpu)\b/.test(r)) return "arm64";
   return "ask";
 }
 
@@ -113,6 +118,11 @@ function pickAsset(
 ): PickedAsset | undefined {
   const matches = assets.filter((a) => plat.test.test(a.name || ""));
   if (matches.length === 0) return undefined;
+  // KNOWN LIMIT: a release carrying exactly ONE .dmg is handed to every Mac
+  // without an arch check — i.e. an arm64-only release would reach an Intel Mac.
+  // Every release today ships BOTH arches (see docs/DMG_RELEASE_SOP.md), so this
+  // path is not reachable in practice; if single-arch releases ever return,
+  // route this through macArchChoice too.
   if (matches.length === 1) return { url: matches[0].browser_download_url };
   if (plat.test.source.includes("dmg")) {
     const arm = matches.find((a) => /arm64/i.test(a.name || ""));
@@ -121,7 +131,11 @@ function pickAsset(
     if (choice === "arm64") return { url: (arm || matches[0]).browser_download_url };
     if (choice === "x64") return { url: (intel || matches[0]).browser_download_url };
     // Unknown → offer both. Fall back to the published static URLs for a side
-    // that this particular release somehow doesn't carry.
+    // that this particular release somehow doesn't carry. CAVEAT: those
+    // constants are pinned by hand (0.1.380 today), so in that unlikely case the
+    // banner would advertise the new version while one button downloads the
+    // older pinned build — still a RUNNABLE app for that Mac, which is the point
+    // here. Keep the constants bumped with every release (DMG_RELEASE_SOP).
     return {
       url: (arm || matches[0]).browser_download_url,
       choices: {
