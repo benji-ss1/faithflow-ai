@@ -40,7 +40,14 @@ async function sessionCookie(): Promise<string> {
 
 type Shell = "desktop" | "web";
 type Expect = "blocked" | "allowed";
-type Case = { path: string; shell: Shell; expect: Expect; label: string };
+type Case = {
+  path: string;
+  shell: Shell;
+  expect: Expect;
+  label: string;
+  method?: "GET" | "POST";
+  origin?: string;
+};
 
 const UNIVERSAL_APIS = [
   "/api/build-id",
@@ -65,6 +72,38 @@ const cases: Case[] = [
     expect: "allowed",
     label: `web ${path}`,
   })),
+
+  // --- NEGATIVE: the universal set is EXACT, never a prefix ---------------
+  // These siblings would all start passing if someone swapped the Set.has
+  // lookup for a startsWith matcher — the whole point of the exact match.
+  { path: "/api/build-id/x", shell: "desktop", expect: "blocked", label: "desktop /api/build-id/x (sibling)" },
+  { path: "/api/tier/secret", shell: "desktop", expect: "blocked", label: "desktop /api/tier/secret (sibling)" },
+  { path: "/api/bible/full/extra", shell: "desktop", expect: "blocked", label: "desktop /api/bible/full/extra (sibling)" },
+  { path: "/api/imports/list-all", shell: "desktop", expect: "blocked", label: "desktop /api/imports/list-all (prefix graze)" },
+  { path: "/api/imports/parse/all", shell: "desktop", expect: "blocked", label: "desktop /api/imports/parse/all (sibling)" },
+  { path: "/api/media/backfill-thumbnails/all", shell: "desktop", expect: "blocked", label: "desktop backfill-thumbnails/all (sibling)" },
+  // Trailing slash and case variants are NOT the allowlisted path.
+  { path: "/api/tier/", shell: "desktop", expect: "blocked", label: "desktop /api/tier/ (trailing slash)" },
+  { path: "/api/Tier", shell: "desktop", expect: "blocked", label: "desktop /api/Tier (case variant)" },
+
+  // --- CSRF branch still guards the state-changing universal POSTs --------
+  // The CSRF check runs before the shell gate, so a foreign Origin is rejected
+  // even on an allowlisted path; a same-origin POST passes both.
+  {
+    path: "/api/imports/parse", shell: "desktop", method: "POST",
+    origin: "https://evil.example", expect: "blocked",
+    label: "desktop POST imports/parse foreign Origin (CSRF)",
+  },
+  {
+    path: "/api/media/backfill-thumbnails", shell: "desktop", method: "POST",
+    origin: "https://evil.example", expect: "blocked",
+    label: "desktop POST backfill-thumbnails foreign Origin (CSRF)",
+  },
+  {
+    path: "/api/imports/parse", shell: "desktop", method: "POST",
+    origin: "http://localhost", expect: "allowed",
+    label: "desktop POST imports/parse same-origin",
+  },
 
   // --- Admin surfaces stay blocked on desktop ----------------------------
   { path: "/api/archive/abc123/export", shell: "desktop", expect: "blocked", label: "desktop archive export (admin)" },
@@ -109,7 +148,11 @@ async function run() {
   for (const c of cases) {
     const headers: Record<string, string> = { cookie };
     if (c.shell === "desktop") headers["x-pf-shell"] = "desktop";
-    const req = new NextRequest(new URL(`http://localhost${c.path}`), { headers });
+    if (c.origin) headers["origin"] = c.origin;
+    const req = new NextRequest(new URL(`http://localhost${c.path}`), {
+      headers,
+      method: c.method ?? "GET",
+    });
     const res = (await middleware(req)) as Response | undefined;
     const blocked = isBlocked(res, c.path);
     const ok = c.expect === "blocked" ? blocked : !blocked;
@@ -122,11 +165,36 @@ async function run() {
       failed++;
     }
   }
+  // --- Role gate on the import WRITE path ---------------------------------
+  // The middleware knows nothing about roles (the session role is resolved in
+  // the route via apiUser()), so this can't be an HTTP-level case here. Assert
+  // the capability mapping that src/app/api/imports/parse/route.ts now gates
+  // on instead: only admin/operator hold edit_library.
+  const { hasCap } = require("../../src/lib/session") as {
+    hasCap: (role: string, cap: string) => boolean;
+  };
+  const roleCases: Array<[string, boolean]> = [
+    ["admin", true],
+    ["operator", true],
+    ["volunteer", false],
+    ["pastor", false],
+    ["viewer", false],
+  ];
+  for (const [role, expected] of roleCases) {
+    const got = hasCap(role, "edit_library");
+    if (got === expected) {
+      console.log(`PASS role ${role} edit_library=${got} (imports/parse ${expected ? "allowed" : "403"})`);
+    } else {
+      console.error(`FAIL role ${role} edit_library expected ${expected} got ${got}`);
+      failed++;
+    }
+  }
+
   if (failed) {
     console.error(`\n${failed} case(s) failed`);
     process.exit(1);
   }
-  console.log(`\nAll ${cases.length} desktop-api-gate cases passed`);
+  console.log(`\nAll ${cases.length + roleCases.length} desktop-api-gate cases passed`);
 }
 
 run().catch((e) => {
