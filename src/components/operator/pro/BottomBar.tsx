@@ -273,8 +273,8 @@ export function BottomBar({
         <button title="Next slide" onClick={next} disabled={!hasNext} className={tBtn}><SkipForward className="w-4 h-4" strokeWidth={2.2} /></button>
       </div>
 
-      {/* Center — verse-nav is Bible-mode only; other modes just show
-          the transition selector so the space isn't dead. */}
+      {/* Center — verse-nav is Bible-mode only; outside Bible mode this is an
+          empty flex-1 spacer (keeps the transport left / help right layout). */}
       <div className="flex-1 flex items-center justify-center gap-3 text-[11px] text-[var(--color-muted-foreground)]">
         {centerMode === "bible" && (
           // Segmented Prev/Next verse control (joined pill with a shared divider).

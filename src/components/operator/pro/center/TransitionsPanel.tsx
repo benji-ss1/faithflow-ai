@@ -159,9 +159,8 @@ export function TransitionsPanel() {
         <div className={cn("mt-6 flex items-center gap-3 max-w-[420px] transition-opacity", state.off && "opacity-40 pointer-events-none")}>
           <span className="text-[11px] uppercase tracking-wide text-[var(--color-muted-foreground)] w-20">Duration</span>
           <input
-            // Keep the persisted-duration grid (0–5s on a 100ms step)
-            // so a value picked here is always representable there — otherwise the
-            // two controls show different rounded durations (e.g. 0.65s vs 0.7s).
+            // 0–5s on a 100ms step — the same range BottomBar clamps to
+            // (0–5000ms) when it publishes the persisted duration.
             type="range" min={0} max={5000} step={100} value={state.durationMs}
             onChange={(e) => publish({ ...state, durationMs: Number(e.target.value) })}
             className="flex-1 accent-[var(--color-brand)]"
