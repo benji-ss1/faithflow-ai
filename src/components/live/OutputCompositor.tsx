@@ -30,7 +30,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { readPp7LayersFlag, PP7_LAYERS_STORAGE_KEY } from "@/lib/pp7-layers-flag";
 import { SlideRenderer } from "./SlideRenderer";
 import { OutputSlide } from "./OutputSlide";
-import { LiveVideoLayer } from "./LiveVideoLayer";
 import { TransitionWrapper } from "./TransitionWrapper";
 import { ThemeLogoLayer } from "./ThemeLayers";
 import { PresentationCanvas } from "./PresentationCanvas";
@@ -217,9 +216,6 @@ export function OutputCompositor(props: OutputCompositorProps) {
 
   function renderLayerInner(layer: OutputLayerPlan): ReactNode {
     switch (layer.id) {
-      case "camera":
-        // ProPresenter 7 order: live camera under the media layer.
-        return <LiveVideoLayer key="camera" input={layer.props.videoInput} />;
       case "background": {
         if (!layer.props.background) return null;
         const bgNode = <BackgroundLayer key={layer.props.background.shaderPreset ?? layer.props.background.type} background={layer.props.background} frozen={previewFrozen} />;
@@ -233,13 +229,14 @@ export function OutputCompositor(props: OutputCompositorProps) {
         );
       }
       case "slide": {
-        const { renderMode, overVideo, transparentBg, videoInput } = layer.props;
+        const { renderMode, overVideo, transparentBg, videoInput, mediaOverCamera } = layer.props;
         if (renderMode === "over-video") {
           return (
             <OutputSlide
               key="slide"
               slide={effectiveSlide}
               videoInput={videoInput}
+              mediaNode={mediaOverCamera ? <BackgroundLayer key={mediaOverCamera.shaderPreset ?? mediaOverCamera.type} background={mediaOverCamera} frozen={previewFrozen} /> : undefined}
               appearance={appearance}
               fontScale={fontScale}
               referenceScale={referenceScale}

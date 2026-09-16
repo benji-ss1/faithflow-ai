@@ -40,8 +40,8 @@ export type CompositorMode = "live" | "stage" | "livestream" | "ndi";
 export type SlideRenderMode = "over-video" | "transition" | "plain";
 
 /** Stable per-layer identity. Phase 2's LayerWire[] will reuse these ids. */
-export type OutputLayerId = "camera" | "background" | "slide" | "theme-logo";
-export type OutputLayerKind = "camera" | "background" | "slide" | "theme-logo";
+export type OutputLayerId = "background" | "slide" | "theme-logo";
+export type OutputLayerKind = "background" | "slide" | "theme-logo";
 
 interface OutputLayerBase {
   /** Stable id (z-independent) — the seam Phase 2's wire model plugs into. */
@@ -52,14 +52,6 @@ interface OutputLayerBase {
   /** Whether this layer paints. Disabled layers stay in the list (stable
    *  identity for Phase 2) but the compositor skips them → same DOM out. */
   enabled: boolean;
-}
-
-/** ProPresenter 7 order only: the live camera as its own layer UNDER the media
- *  layer (present only when media covers a live camera). */
-export interface CameraLayerPlan extends OutputLayerBase {
-  id: "camera";
-  kind: "camera";
-  props: { videoInput: VideoInputState };
 }
 
 export interface BackgroundLayerPlan extends OutputLayerBase {
@@ -81,6 +73,9 @@ export interface SlideLayerPlan extends OutputLayerBase {
     /** The camera fused into the over-video render (stage-nulled here, once).
      *  null for the transition/plain branches. */
     videoInput: VideoInputState | null;
+    /** ProPresenter 7 layer order: Media draws ABOVE a live camera (below the
+     *  words). Present only when enabled and both are live; absent otherwise. */
+    mediaOverCamera?: BackgroundSpec;
   };
 }
 
@@ -90,7 +85,7 @@ export interface ThemeLogoLayerPlan extends OutputLayerBase {
   props: Record<string, never>;
 }
 
-export type OutputLayerPlan = CameraLayerPlan | BackgroundLayerPlan | SlideLayerPlan | ThemeLogoLayerPlan;
+export type OutputLayerPlan = BackgroundLayerPlan | SlideLayerPlan | ThemeLogoLayerPlan;
 
 export interface CanvasPlan {
   /** Wrap the stack in a PresentationCanvas (livestream renders full-bleed). */
@@ -148,16 +143,11 @@ export function planOutput(input: PlanInput): OutputPlan {
   // A Background Template renders only when set, NOT in transparent keying mode,
   // and NOT when a live camera is active (camera-wins-over-background-template).
   const bgActive = !!background && background.type !== "none";
-  // ProPresenter 7 order (Video Input < Media < Slide): with media and a live
-  // camera, media stays on the normal background layer and the camera renders
-  // as its own layer underneath. Media never moves when the camera toggles, so
-  // a background video never restarts. Off ⇒ legacy "camera wins".
-  const cameraUnderMedia = !!input.mediaOverCamera && bgActive && !transparent && !!videoInput;
-  const showBackground = bgActive && !transparent && (!videoInput || cameraUnderMedia);
+  const showBackground = bgActive && !transparent && !videoInput;
 
   // overVideo: the slide sits over an active (non-transparent) background
   // template with no camera — its own background must go transparent.
-  const overVideo = showBackground;
+  const overVideo = bgActive && !transparent && !videoInput;
 
   // Video behind the slide? When a background template is showing (and no
   // camera), the template wins and we do NOT route through the video composite.
@@ -186,6 +176,8 @@ export function planOutput(input: PlanInput): OutputPlan {
   // The camera is FUSED into the over-video render (OutputSlide owns the video
   // sibling + slide overlay). It only rides the slide layer in that branch.
   const slideVideoInput = renderMode === "over-video" ? videoInput : null;
+  // PP7: with a camera live, media sits between the camera and the words.
+  const mediaOverCamera = !!input.mediaOverCamera && bgActive && !transparent && !!slideVideoInput && background ? background : null;
 
   // Theme logo: on for everything except transparent keying modes. A Phase 3
   // `logo` layer-patch can additionally force it off (undefined ⇒ unchanged, so
@@ -207,11 +199,10 @@ export function planOutput(input: PlanInput): OutputPlan {
   }
 
   const layers: OutputLayerPlan[] = [
-    ...(cameraUnderMedia && videoInput ? [{ id: "camera" as const, kind: "camera" as const, z: -5, enabled: true, props: { videoInput } }] : []),
     { id: "background", kind: "background", z: 0, enabled: showBackground, props: { background } },
     {
       id: "slide", kind: "slide", z: 10, enabled: true,
-      props: { renderMode, overVideo, transparentBg: transparent, videoInput: slideVideoInput },
+      props: { renderMode, overVideo, transparentBg: transparent, videoInput: slideVideoInput, ...(mediaOverCamera ? { mediaOverCamera } : {}) },
     },
     { id: "theme-logo", kind: "theme-logo", z: 20, enabled: showThemeLogo, props: {} },
   ];
