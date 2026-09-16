@@ -14,7 +14,8 @@
  */
 import { useShortcutLabel } from "@/lib/usePlatformLabel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getLayersEngineSetting, setLayersEngineEnabled, getDesktopPreferences } from "@/lib/actions";
+import { getLayersEngineSetting, setLayersEngineEnabled, getDesktopPreferences, getTeamData } from "@/lib/actions";
+import { TeamManager } from "@/components/settings/TeamManager";
 import { SettingsForm } from "@/components/settings/SettingsForm";
 import { SignOutAllDevices } from "@/components/settings/SignOutAllDevices";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -236,6 +237,28 @@ function PreferencesInline() {
   </>);
 }
 
+/** Open an in-app centre browser (Songs — incl. its Import — or Media) and close
+ *  Settings, so the desktop app never sends these to the web app. */
+function openCenter(close: () => void, mode: "songs" | "media") {
+  close();
+  requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("presentflow:set-center-mode", { detail: { mode } })));
+}
+
+/** Team members + invites inside the desktop Settings window — the same
+ *  TeamManager and invitation actions as /settings/team. */
+function TeamInline() {
+  const [data, setData] = useState<Awaited<ReturnType<typeof getTeamData>> | null>(null);
+  const [rev, setRev] = useState(0);
+  useEffect(() => {
+    let live = true;
+    getTeamData().then((r) => { if (live) setData(r); }).catch(() => { if (live) setData({ ok: false, error: "Couldn't load your team." }); });
+    return () => { live = false; };
+  }, [rev]);
+  if (!data) return <p className="text-[13px] text-[var(--color-muted-foreground)]">Loading…</p>;
+  if (!data.ok || !data.data) return <p className="text-[13px] text-[var(--color-muted-foreground)]">{data.ok ? "Couldn't load your team." : data.error}</p>;
+  return <TeamManager currentUserId={data.data.currentUserId} members={data.data.members} pendingInvites={data.data.pendingInvites} onChanged={() => setRev((v) => v + 1)} />;
+}
+
 /* ── sections that aren't just an existing tab ───────────────────────────── */
 
 function GeneralSection() {
@@ -366,26 +389,26 @@ function BibleSection({ onUpgrade }: { onUpgrade: () => void }) {
   );
 }
 
-function SongsSection() {
+function SongsSection({ close }: { close: () => void }) {
   return (
     <>
       <SectionHead title="Songs & Library" description="Your song library, imports and arrangements." />
       <Card>
-        <LinkRow label="Song library" help="Browse, edit and organise every song." href="/library/songs" />
-        <LinkRow label="Import songs & slides" help="Bring in ProPresenter, EasyWorship, PowerPoint or text files." href="/library/imports" cta="Import" />
+        <LinkRow label="Song library" help="Browse, edit and organise every song." href="/library/songs" onOpen={() => openCenter(close, "songs")} />
+        <LinkRow label="Import songs & slides" help="Bring in ProPresenter, VideoPsalm or text song files. Use Import in the Songs browser, or drag files onto it." href="/library/imports" cta="Import" onOpen={() => openCenter(close, "songs")} />
       </Card>
     </>
   );
 }
 
-function OrgSection({ kind }: { kind: "team" | "billing" | "integrations" }) {
+function OrgSection({ kind, close }: { kind: "team" | "billing" | "integrations"; close: () => void }) {
   if (kind === "team") return (
     <>
       <SectionHead title="Team & Church" description="Who can operate services, edit the library and change settings." />
       <Card>
-        <LinkRow label="Team members" help="Invite people and set what each person can do." href="/settings/team" cta="Manage" />
         <LinkRow label="Church details" help="Name, city and timezone." href="/organization" />
       </Card>
+      <div className="mt-6"><TeamInline /></div>
     </>
   );
   if (kind === "billing") return (
@@ -399,7 +422,7 @@ function OrgSection({ kind }: { kind: "team" | "billing" | "integrations" }) {
       <SectionHead title="Integrations" description="Connect PresentFlow to the other tools your church uses." />
       <Card>
         <Row label="Planning Center" help="Coming soon — import your service plan automatically." ><span className="text-[12px] text-[var(--color-muted-foreground)]">Coming soon</span></Row>
-        <LinkRow label="ProPresenter / EasyWorship import" help="Bring your existing library across." href="/library/imports" cta="Import" />
+        <LinkRow label="ProPresenter / EasyWorship import" help="Bring your existing library across from the Songs browser." href="/library/imports" cta="Import" onOpen={() => openCenter(close, "songs")} />
       </Card>
     </>
   );
@@ -472,12 +495,12 @@ function StageSection({ close }: { close: () => void }) {
   );
 }
 
-function MediaSection() {
+function MediaSection({ close }: { close: () => void }) {
   return (
     <>
       <SectionHead title="Media & Backgrounds" description="Videos, images and motion backgrounds for your slides." />
       <Card>
-        <LinkRow label="Media library" help="Upload and organise videos, images and motion backgrounds." href="/library/media" cta="Open" />
+        <LinkRow label="Media library" help="Upload and organise videos, images and motion backgrounds." href="/library/media" cta="Open" onOpen={() => openCenter(close, "media")} />
         <Row label="Backgrounds" help="Set a background for one slide, a whole song, or every screen from the slide menu's Background option in the operator console." />
       </Card>
     </>
@@ -637,18 +660,18 @@ export function SettingsWindow() {
     switch (section) {
       case "general": return <GeneralSection />;
       case "bible": return <BibleSection onUpgrade={() => setShowUpgrade(true)} />;
-      case "songs": return <SongsSection />;
+      case "songs": return <SongsSection close={() => setOpen(false)} />;
       case "screens": return <ScreensSection close={() => setOpen(false)} />;
       case "audio": return <AudioSection close={() => setOpen(false)} />;
       case "ndi": return <><SectionHead title="NDI Output" description="Send your slides to OBS or another computer over the network." /><NdiTab /></>;
       case "livestream": return <LivestreamSection />;
       case "themes": return <ThemesSection close={() => setOpen(false)} />;
       case "stage": return <StageSection close={() => setOpen(false)} />;
-      case "media": return <MediaSection />;
+      case "media": return <MediaSection close={() => setOpen(false)} />;
       case "privacy": return <PrivacySection />;
-      case "team": return <OrgSection kind="team" />;
-      case "billing": return <OrgSection kind="billing" />;
-      case "integrations": return <OrgSection kind="integrations" />;
+      case "team": return <OrgSection kind="team" close={() => setOpen(false)} />;
+      case "billing": return <OrgSection kind="billing" close={() => setOpen(false)} />;
+      case "integrations": return <OrgSection kind="integrations" close={() => setOpen(false)} />;
       case "updates": return <UpdatesSection close={() => setOpen(false)} />;
       case "language": return <><SectionHead title="Language" /><LanguageTab /></>;
       case "usage": return <><SectionHead title="Usage" /><UsageTab onUpgrade={() => setShowUpgrade(true)} /></>;
