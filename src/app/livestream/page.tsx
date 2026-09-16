@@ -39,6 +39,10 @@ export default function LivestreamPage() {
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   // Scenes (2026-09-16): active per-screen routing snapshot (see /live).
   const [scene, setScene] = useState<SceneWire | null>(null);
+  // The operator sends `scene` (even as null) whenever Scenes is enabled for the
+  // church — that tells this surface to pre-wrap its layers, so the first scene
+  // of a service can never remount the stack mid-service.
+  const [scenesPossible, setScenesPossible] = useState(false);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [referenceScale, setReferenceScale] = useState(1); // scripture reference-footer size — match the projector
   const [referenceColor, setReferenceColor] = useState<string | undefined>(undefined);
@@ -351,6 +355,8 @@ export default function LivestreamPage() {
       setVideoInput(state.videoInput ?? null);
       setLowerThird(state.lowerThird);
       setScene(state.scene ?? null); // Scenes: never LAYERS_V2-gated
+      // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
+      if (state.scene !== undefined) setScenesPossible(true);
       setAnnouncement(state.announcement ?? null);
       setTransition(state.transition ?? null);
     };
@@ -528,6 +534,7 @@ export default function LivestreamPage() {
             layersEnabled={LAYERS_V2}
             layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
             scene={scene}
+        scenesPossible={scenesPossible}
             screen="livestream"
           />
           {/* Announcement scrim is a FULL-frame overlay — keep it off the OBS

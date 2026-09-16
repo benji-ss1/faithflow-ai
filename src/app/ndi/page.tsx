@@ -52,6 +52,10 @@ export default function NdiOutputPage() {
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null);
   // Scenes (2026-09-16): active per-screen routing snapshot (see /live).
   const [scene, setScene] = useState<SceneWire | null>(null);
+  // The operator sends `scene` (even as null) whenever Scenes is enabled for the
+  // church — that tells this surface to pre-wrap its layers, so the first scene
+  // of a service can never remount the stack mid-service.
+  const [scenesPossible, setScenesPossible] = useState(false);
   const [background, setBackground] = useState<BackgroundSpec | null>(null);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
@@ -121,6 +125,8 @@ export default function NdiOutputPage() {
           setVideoInput(msg.state.videoInput ?? null);
           setTransition(msg.state.transition ?? null);
           setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
+          // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
+          if (msg.state.scene !== undefined) setScenesPossible(true);
           if (LAYERS_V2) {
             setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers, { snapEpoch: msg.state.layersEpoch, epochRef: layerEpochRef }));
           }
@@ -167,6 +173,7 @@ export default function NdiOutputPage() {
         layersEnabled={LAYERS_V2}
         layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
         scene={scene}
+        scenesPossible={scenesPossible}
         screen="ndi"
       />
     </div>

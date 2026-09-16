@@ -113,6 +113,13 @@ export interface OutputCompositorProps {
    */
   scene?: SceneWire | null;
   screen?: SceneScreen;
+  /**
+   * True once this surface knows Scenes is enabled for the church (the operator
+   * sends the `scene` field — even as null — whenever it is). It pre-arms the
+   * layer wrapper below so the FIRST scene of a service can't flip it mid-service
+   * and remount the stack. A church without Scenes never sets it ⇒ legacy DOM.
+   */
+  scenesPossible?: boolean;
 }
 
 /**
@@ -125,7 +132,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
     appearance: appearanceProp, transition, fontScale, referenceScale,
     referenceColor, zone, obsBand, obsThemeColors, videoMuted = false, onVideoRef,
     layersEnabled, layerOverrides, previewFrozen = false,
-    obsBandExtras, obsOverlay, backgroundDim, scene, screen,
+    obsBandExtras, obsOverlay, backgroundDim, scene, screen, scenesPossible,
   } = props;
 
   // SCENES (2026-09-16): this screen's routing mask, if a scene is active.
@@ -146,7 +153,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // different screens never flips it. A church that never uses a scene keeps the
   // byte-identical legacy DOM (no wrapper at all).
   const sceneSeenRef = useRef(false);
-  if (scene) sceneSeenRef.current = true;
+  if (scene || scenesPossible) sceneSeenRef.current = true;
   const wrapLayers = !!layersEnabled || sceneSeenRef.current;
   // Per-screen theme override. Resolved operator-side into a wire appearance, so
   // here it is a straight substitution — and because the local name shadows the

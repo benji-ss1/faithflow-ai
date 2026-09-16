@@ -102,7 +102,12 @@ export function useSceneLibrary() {
 export function SceneRail({ ctx }: { ctx: OperatorShellCtx }) {
   const { scenes, themesReady, loading, error, resolveAppearance, refresh } = useSceneLibrary();
   const activeId = ctx.activeScene?.id ?? null;
+  const activeIdRef = useRef<string | null>(activeId);
+  activeIdRef.current = activeId;
   const [focusId, setFocusId] = useState<string>("none");
+  // Keep the single tab stop on the LIVE scene, so Tab lands where the operator
+  // expects even when a scene was applied by an automation or the builder.
+  useEffect(() => { setFocusId(activeIdRef.current ?? "none"); }, [ctx.activeScene?.id]);
   // ctx changes identity several times a second (audio state), so listeners read
   // it through a ref instead of re-subscribing at transcript rate.
   const ctxRef = useRef(ctx);
@@ -163,8 +168,21 @@ export function SceneRail({ ctx }: { ctx: OperatorShellCtx }) {
   const options: (SceneRecord | null)[] = useMemo(() => [null, ...scenes], [scenes]);
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
+    // Enter/Space COMMIT the focused scene. Without stopPropagation the operator's
+    // global hotkeys (window keydown: Enter = send preview LIVE, Space = next,
+    // arrows = move the preview cursor) swallow these — pressing Enter on a chip
+    // pushed the PREVIEW to the projector instead of switching scene.
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat) return;
+      const target = focusId === "none" ? null : (options.find((o) => o?.id === focusId) ?? null);
+      pick(target);
+      return;
+    }
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     e.preventDefault();
+    e.stopPropagation(); // arrows must not also walk the operator's preview cursor
     if (e.repeat) return; // holding a key must never fire a burst of switches
     const i = options.findIndex((o) => (o?.id ?? "none") === focusId);
     const n = options[(i + (e.key === "ArrowRight" ? 1 : options.length - 1) + options.length) % options.length];
@@ -174,7 +192,7 @@ export function SceneRail({ ctx }: { ctx: OperatorShellCtx }) {
     // activation) or a click. Arrow-to-commit changed the projector on a stray
     // keypress.
     (document.querySelector(`[data-scene-id="${nid}"]`) as HTMLElement | null)?.focus();
-  }, [options, focusId]);
+  }, [options, focusId, pick]);
 
   const chipClass = (selected: boolean) =>
     `shrink-0 max-w-[120px] truncate h-9 px-2.5 rounded-full text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)] ${selected ? "bg-[var(--color-brand)] text-white font-semibold ring-1 ring-inset ring-white/40" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`;

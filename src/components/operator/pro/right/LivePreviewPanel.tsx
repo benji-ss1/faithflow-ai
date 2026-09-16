@@ -13,6 +13,7 @@ import type { SlidePayload } from "@/lib/broadcast";
 import { LayoutGrid } from "lucide-react";
 import { MultiViewOverlay, PreviewOtherScreen } from "./MultiView";
 import { MULTIVIEW_SCREENS, MULTIVIEW_LABELS, MULTIVIEW_TITLES, multiviewEnabled, type MultiViewScreen } from "@/lib/multiview";
+import { sceneHidesLayer } from "@/lib/scenes";
 
 /** Preview-box screen switcher + "All screens" entry. Main keeps the original
  *  preview render untouched; other screens render read-only OutputTiles.
@@ -231,14 +232,16 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             screen="main"
           />
         ) : (
-          /* Scenes: mirror the projector's routing in the legacy preview too. */
           <PresentationCanvas zone={ctx.zone}>
             {/* WYSIWYG: show the active background behind the slide, exactly like
                 the projector (slide goes transparent via overVideo). */}
             {/* key on the preset forces a fresh WebGL canvas on theme switch —
                 reusing the canvas permanently loses its context (freezes the shader). */}
-            {ctx.background && ctx.background.type !== "none" && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} frozen />}
-            <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
+            {/* Scenes: mirror the PROJECTOR's routing here too. This legacy branch
+                is what production renders (the layers engine is off there), so
+                without this the operator is shown words the projector is hiding. */}
+            {ctx.background && ctx.background.type !== "none" && !sceneHidesLayer(ctx.activeScene, "main", "background") && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} frozen />}
+            <SlideRenderer slide={sceneHidesLayer(ctx.activeScene, "main", "slide") ? { kind: "empty" } : ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
           </PresentationCanvas>
         )}
         {ctx.liveSlide.kind !== "empty" && (

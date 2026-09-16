@@ -66,7 +66,9 @@ export function layerOpacities(
     putMask("background", "background", mask.opacity.background);
     // Camera opacity folds onto the slide layer (planOutput fuses the camera
     // into the slide's over-video render); an explicit slide value wins.
-    putMask("slide", "camera", mask.opacity.camera);
+    // The camera folds onto the SLIDE plan layer, so an operator override on
+    // EITHER id must beat it (cross-id guard, not just same-id).
+    if (!map.has("slide")) putMask("slide", "camera", mask.opacity.camera);
     putMask("slide", "slide", mask.opacity.slide);
     putMask("theme-logo", "logo", mask.opacity.logo);
   }

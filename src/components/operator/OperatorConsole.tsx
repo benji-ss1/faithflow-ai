@@ -894,11 +894,17 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // invariant) without reopening the ghost-clobber. Omitted when the engine is
       // off, so flag-off churches emit exactly the legacy snapshot.
       layersEpoch: layersEngineOn ? liveLayers.epoch : undefined,
-      // SCENES: the active per-screen routing snapshot. Omitted entirely when no
-      // scene is selected, so a church that never picks one emits exactly the
-      // legacy snapshot (byte-identical output, parity test-locked). One field on
-      // the ONE atomic output post ⇒ all four screens switch on the same frame.
-      ...(activeScene ? { scene: activeScene } : {}),
+      // SCENES: the active per-screen routing snapshot. One field on the ONE
+      // atomic output post ⇒ all four screens switch on the same frame.
+      //
+      // Omitted ENTIRELY for a church without Scenes ⇒ byte-identical legacy
+      // snapshot (parity test-locked). For a church WITH Scenes the field is
+      // always present — `null` when no scene is picked — so each output surface
+      // learns scenes are possible from its FIRST message and pre-wraps its layer
+      // stack. Without that, the first scene of a service would flip the wrapper
+      // mid-service and remount the layers: a transition replay on a held verse
+      // (rule 7's fade-pulse), a shader/video restart and a camera re-acquire.
+      ...(scenesUiOn ? { scene: activeScene } : {}),
     };
     // PROJECTOR-RELIABILITY GUARANTEE (2026-09-06 field incident). Fail-open
     // sanitize the state before it goes on ANY wire (BroadcastChannel / Realtime /
@@ -944,7 +950,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;

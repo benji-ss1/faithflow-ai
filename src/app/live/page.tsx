@@ -77,6 +77,10 @@ export default function LivePage() {
   // Scenes (2026-09-16): the active per-screen routing snapshot. NOT gated on
   // LAYERS_V2 (off in prod) — absent ⇒ pre-Scenes render, byte-identical.
   const [scene, setScene] = useState<SceneWire | null>(null);
+  // The operator sends `scene` (even as null) whenever Scenes is enabled for the
+  // church — that tells this surface to pre-wrap its layers, so the first scene
+  // of a service can never remount the stack mid-service.
+  const [scenesPossible, setScenesPossible] = useState(false);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [messageOverlay, setMessageOverlay] = useState<{ text: string; position: OverlayPosition; scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number } | null>(null);
@@ -244,6 +248,8 @@ export default function LivePage() {
             setVideoInput(msg.state.videoInput ?? null);
             setZone(msg.state.zone ?? null);
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
+            // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
+            if (msg.state.scene !== undefined) setScenesPossible(true);
           }
         } else if (msg.type === "message") {
           // Wave 7: extra simultaneous messages (keyed) ride in `messages[]`.
@@ -591,6 +597,7 @@ export default function LivePage() {
               layersEnabled={LAYERS_V2}
               layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
               scene={scene}
+        scenesPossible={scenesPossible}
               screen="main"
             />
           </div>

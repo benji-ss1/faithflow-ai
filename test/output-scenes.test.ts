@@ -148,6 +148,13 @@ async function main() {
     assert.deepEqual(layerOpacities([], { opacity: { background: 0.2 } }), { background: 0.2 });
   });
 
+  check("scene camera-dim never beats an operator override on the slide layer", () => {
+    // The camera folds onto the SLIDE plan layer, so an override on either id wins.
+    const slideOverride: LayerWire[] = [{ id: "slide", kind: "slide", z: 10, enabled: true }];
+    assert.deepEqual(layerOpacities(slideOverride, { opacity: { camera: 0.2 } }), {},
+      "operator's slide override beats a scene's camera dim (cross-id)");
+  });
+
   check("a hidden-words scene still yields a renderable plan (never a crash/blank-state)", () => {
     for (const mode of modes) {
       const plan = resolveLayeredPlan({ ...base, mode } as PlanInput, [], { layers: { slide: false, background: false } });

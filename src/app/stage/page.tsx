@@ -44,6 +44,10 @@ export default function StagePage() {
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   // Scenes (2026-09-16): active per-screen routing snapshot (see /live).
   const [scene, setScene] = useState<SceneWire | null>(null);
+  // The operator sends `scene` (even as null) whenever Scenes is enabled for the
+  // church — that tells this surface to pre-wrap its layers, so the first scene
+  // of a service can never remount the stack mid-service.
+  const [scenesPossible, setScenesPossible] = useState(false);
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [nextItem, setNextItem] = useState<{ title: string; type: string } | null>(null);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
@@ -149,6 +153,8 @@ export default function StagePage() {
             setAnnouncement(msg.state.announcement ?? null);
             setTransition(msg.state.transition ?? null);
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
+            // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
+            if (msg.state.scene !== undefined) setScenesPossible(true);
           }
         } else if (msg.type === "message") {
           if ("clear" in msg.overlay && msg.overlay.clear) {
@@ -400,6 +406,7 @@ export default function StagePage() {
           layersEnabled={LAYERS_V2}
           layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
           scene={scene}
+        scenesPossible={scenesPossible}
           screen="stage"
         />
         {/* Scenes: route-drawn layer, so routed here (see /live). */}

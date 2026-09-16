@@ -23,6 +23,7 @@ import {
   type SceneConfig, type SceneLayerId, type SceneRecord, type SceneScreen,
 } from "@/lib/scenes";
 import type { OperatorShellCtx } from "../shell/types";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useSceneLibrary, SCENE_BUILDER_EVENT } from "./right/SceneRail";
 
 /** Cell state: true/absent = shown (no change), false = hidden on this screen. */
@@ -55,7 +56,7 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
   // never saved — it then silently reverted when the rail re-derived the wire
   // from the SAVED record. Now the draft is tracked, Save is the primary action,
   // and switching scene / closing warns before discarding.
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   const selected = useMemo(() => scenes.find((s) => s.id === selectedId) ?? null, [scenes, selectedId]);
   const dirty = useMemo(() => {
@@ -63,7 +64,16 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
     return draft.name !== selected.name
       || JSON.stringify(draft.config) !== JSON.stringify(sanitizeSceneConfig(selected.config));
   }, [selected, draft]);
-  const confirmDiscard = useCallback(() => dirty ? window.confirm("You have unsaved changes to this scene. Discard them?") : true, [dirty]);
+  const confirmDiscard = useCallback(async () => {
+    if (!dirty) return true;
+    return confirm({
+      title: "Discard your changes?",
+      description: "This scene has changes you haven't saved yet.",
+      confirmLabel: "Discard",
+      cancelLabel: "Keep editing",
+      danger: true,
+    });
+  }, [dirty, confirm]);
 
   useEffect(() => {
     if (!open) return;
@@ -100,9 +110,14 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
 
   const remove = useCallback(async () => {
     if (!selected || selected.isBuiltIn) return;
-    // Two-step: a church-wide, permanent delete must never be one mis-click.
-    if (!confirmDelete) { setConfirmDelete(true); setTimeout(() => setConfirmDelete(false), 4000); return; }
-    setConfirmDelete(false);
+    const ok = await confirm({
+      title: `Delete "${selected.name}"?`,
+      description: "This removes it for everyone in your church. It can't be undone.",
+      confirmLabel: "Delete scene",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     const res = await deleteScene(selected.id);
     setBusy(false);
@@ -112,7 +127,7 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
     toast.success("Scene deleted");
     setSelectedId(null);
     announce(); void refresh();
-  }, [selected, ctx, refresh]);
+  }, [selected, ctx, refresh, confirm]);
 
   const makeLive = useCallback(async () => {
     if (!selected || !draft) return;
@@ -130,7 +145,7 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
   }, [selected, draft, ctx, resolveAppearance, dirty, refresh]);
 
   const createNew = useCallback(async () => {
-    if (!confirmDiscard()) return;
+    if (!(await confirmDiscard())) return;
     setBusy(true);
     const res = await createScene({ name: "New scene", config: { screens: {} } });
     setBusy(false);
@@ -141,7 +156,7 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
   }, [confirmDiscard, refresh]);
 
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => { if (!next && confirmDiscard()) onClose(); }}>
+    <Dialog.Root open={open} onOpenChange={(next) => { if (next) return; void (async () => { if (await confirmDiscard()) onClose(); })(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[70]" style={{ background: "rgba(0,0,0,0.6)" }} />
         <Dialog.Content
@@ -154,7 +169,7 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
             <Dialog.Title className="text-[13px] font-semibold text-[var(--color-foreground)]">Scenes</Dialog.Title>
             <span className="text-[11px] text-[var(--color-muted-foreground)]">— choose what each screen shows</span>
             <button
-              onClick={() => { if (confirmDiscard()) onClose(); }}
+              onClick={() => { void (async () => { if (await confirmDiscard()) onClose(); })(); }}
               className="ml-auto grid h-8 w-8 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:bg-white/[0.06] hover:text-[var(--color-foreground)]"
               aria-label="Close scenes"
             >
@@ -169,7 +184,7 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => { if (confirmDiscard()) setSelectedId(s.id); }}
+                  onClick={() => { void (async () => { if (await confirmDiscard()) setSelectedId(s.id); })(); }}
                   className={`w-full text-left px-3 py-2 text-[12px] border-b truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)] ${selectedId === s.id ? "bg-[var(--color-brand)]/15 text-[var(--color-foreground)] font-semibold" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
                   style={{ borderColor: "var(--color-border)" }}
                 >
@@ -188,7 +203,7 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
               </button>
               {custom.length === 0 && (
                 <p className="p-3 text-[11px] text-[var(--color-muted-foreground)]">
-                  Your church hasn&apos;t made any scenes yet. Pick one above and press Duplicate to start your own.
+                  Your church hasn&apos;t made any scenes yet. Press New scene above, or pick a built-in and press Duplicate.
                 </p>
               )}
             </aside>
@@ -312,13 +327,14 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
               type="button"
               onClick={remove}
               disabled={!selected || selected.isBuiltIn || busy}
-              className={`ml-auto h-9 px-3 inline-flex items-center gap-1 rounded-md border text-[12px] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-destructive)] ${confirmDelete ? "bg-[var(--color-destructive)] text-white border-transparent" : "text-[var(--color-destructive)] [html.light_&]:text-[#c62828]"}`}
-              style={confirmDelete ? undefined : { borderColor: "var(--color-border)" }}
+              className="ml-auto h-9 px-3 inline-flex items-center gap-1 rounded-md border text-[12px] text-[var(--color-destructive)] [html.light_&]:text-[#c62828] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-destructive)]"
+              style={{ borderColor: "var(--color-border)" }}
               title="Deleting removes this scene for everyone in your church"
             >
-              <Trash2 className="w-3.5 h-3.5" aria-hidden /> {confirmDelete ? "Tap again to delete for everyone" : "Delete"}
+              <Trash2 className="w-3.5 h-3.5" aria-hidden /> Delete
             </button>
           </footer>
+          {dialog}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

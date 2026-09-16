@@ -4,6 +4,30 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.416",
+    "date": "2026-09-16",
+    "headline": "Scenes - decide what each screen shows, and switch them all at once",
+    "highlights": [
+      "A new Scene row under your live preview lets you switch what every screen shows with one tap.",
+      "Five scenes are ready to use - Worship, Teaching, Announcement, Offering and Pre-Service.",
+      "Press Edit to see exactly what each scene shows, or press New scene to make your own.",
+      "A scene only changes what each screen shows. It never changes what is playing, and anything you have already hidden yourself stays hidden.",
+      "Choosing None puts every screen back to normal.",
+      "Scenes are saved for your whole church, so any computer you sign in on has them. Deleting one removes it for everyone, so check before you delete."
+    ]
+  },
+  {
+    "version": "0.1.415",
+    "date": "2026-09-16",
+    "headline": "See any screen in your live preview, or all your screens at once",
+    "highlights": [
+      "Above the live preview you can now pick which screen it shows - Main, Stage, Livestream or NDI.",
+      "Press All to see every screen side by side in one big view. Press Esc or X to close it.",
+      "This is preview only. Picking a screen never changes what your projector, stage or stream shows.",
+      "Your choice is remembered next time you open the console."
+    ]
+  },
+  {
     "version": "0.1.414",
     "date": "2026-09-16",
     "headline": "Search now finds Bible verses by their words, not just songs",
@@ -57,13 +81,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "highlights": [
       "Saying \"check mic two\" or \"testing mic one two\" during a sound check no longer suggests — or projects — a verse from Micah.",
       "Saying the book properly still works exactly as before: \"Micah chapter two\", \"Micah 1 verse 2\", \"turn to Micah 6\".",
-      "Typing the short form in the reference box still works too: \"Mic 6:8\" and \"mic chapter 2\" both find Micah.",
-      "A new Scene row under your live preview lets you switch what every screen shows with one tap.",
-      "Five scenes are ready to use - Worship, Teaching, Announcement, Offering and Pre-Service.",
-      "Press Edit to see exactly what each scene shows, or press New scene to make your own.",
-      "A scene only changes what each screen shows. It never changes what is playing, and anything you have already hidden yourself stays hidden.",
-      "Choosing None puts every screen back to normal.",
-      "Scenes are saved for your whole church, so any computer you sign in on has them. Deleting one removes it for everyone, so check before you delete."
+      "Typing the short form in the reference box still works too: \"Mic 6:8\" and \"mic chapter 2\" both find Micah."
     ]
   },
   {
@@ -72,11 +90,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "headline": "Beta applications now reach the PresentFlow team inbox",
     "highlights": [
       "New beta applications from presentflow.org now appear in the PresentFlow Ops review queue.",
-      "Your application confirmation is not delayed if the internal team inbox is temporarily unavailable.",
-      "Above the live preview you can now pick which screen it shows - Main, Stage, Livestream or NDI.",
-      "Press All to see every screen side by side in one big view. Press Esc or X to close it.",
-      "This is preview only. Picking a screen never changes what your projector, stage or stream shows.",
-      "Your choice is remembered next time you open the console."
+      "Your application confirmation is not delayed if the internal team inbox is temporarily unavailable."
     ]
   },
   {
