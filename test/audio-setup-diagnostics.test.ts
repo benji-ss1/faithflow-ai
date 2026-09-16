@@ -51,9 +51,14 @@ check("empty none", deskFamilyOf("") === "none");
 // ── ranking ──
 const x32 = rankConnections({ desk: "Behringer X32", os: "mac" });
 check("X32 → USB first (verified steps)", x32[0].connection === "usb-desk" && x32[0].verified);
-check("max 3 main + builtin last", x32.filter((o) => o.connection !== "builtin").length <= 3 && x32[x32.length - 1].connection === "builtin");
+// The computer's own mic stays available for laptop-only setups, but is ALWAYS last
+// and never ranked as recommended.
+check("at most 3 desk-feed options + builtin", x32.filter((o) => o.connection !== "builtin").length <= 3);
+check("computer microphone is always last", x32[x32.length - 1].connection === "builtin");
+check("computer microphone is never 'recommended'", x32.find((o) => o.connection === "builtin")!.recommended === false);
+check("interface option suggests what to buy", rankConnections({ desk: "Yamaha MG12" }).find((o) => o.connection === "interface")!.steps.some((s) => /UMC202HD|Scarlett/.test(s)));
 check("X32 steps mention Card Out", x32[0].steps.some((s) => /Card Out/.test(s)));
-check("golden rule = post-fader aux/matrix", x32[0].steps.some((s) => /post-fader aux or matrix/i.test(s)));
+check("golden rule tells them to send its own mix", x32[0].steps.some((s) => /own mix/i.test(s) && /band/i.test(s)));
 check("A&H SQ marked unverified (sources disagree on the default)", rankConnections({ desk: "Allen & Heath SQ-5" })[0].verified === false);
 check("PreSonus marked unverified", rankConnections({ desk: "PreSonus StudioLive 32SC" })[0].verified === false);
 check("analog → interface first", rankConnections({ desk: "Behringer Xenyx 1202" })[0].connection === "interface");

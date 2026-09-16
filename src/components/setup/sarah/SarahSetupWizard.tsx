@@ -23,7 +23,7 @@ import { listSetupDevices, useLevelFeed, type SetupDevice } from "./useLevelFeed
 import type { ApplicationMatch } from "@/lib/audio/applicationMatch";
 import { rankConnections, type Connection, type ConnectionOption, type Os } from "@/lib/audio/connectionPlans";
 import { checkNoiseFloor, checkSpeech, detectActiveChannels, levelBand, overallStatus, type DiagnosticCheck } from "@/lib/audio/audioDiagnostics";
-import { saveWorkingDevice } from "@/lib/audio/savedAudioDevices";
+import { saveWorkingDevice, listSavedDevices } from "@/lib/audio/savedAudioDevices";
 import { writeNativeDevicePref, type NativeDeviceMode } from "@/lib/audio/nativeDeviceStore";
 
 type Phase = "loading" | "context" | "os" | "desk" | "connection" | "steps" | "input" | "quiet" | "speak" | "save";
@@ -61,10 +61,13 @@ const deviceToOs = (d?: string): Os | undefined => (/mac/i.test(d ?? "") ? "mac"
 const nextId = (() => { let i = 0; return () => ++i; })();
 const QUIET_MS = 8000;
 const SPEAK_MS = 10000;
+/** Enough clean speech to judge a level — we pass early rather than run the full timer. */
+const SPEAK_MIN_MS = 3500;
+const SPEAK_MIN_FRAMES = 25;
 const SPOT_MS = 6500;
 const AI_TIMEOUT_MS = 12000;
 
-export function SarahSetupWizard() {
+export function SarahSetupWizard({ onDone }: { onDone?: () => void } = {}) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("loading");
   const [trail, setTrail] = useState<Phase[]>([]);
@@ -89,6 +92,7 @@ export function SarahSetupWizard() {
   const [busy, setBusy] = useState(false);
   const [aiOffline, setAiOffline] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [lastDevice, setLastDevice] = useState<string | null>(null);
   const feed = useLevelFeed();
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -165,15 +169,15 @@ export function SarahSetupWizard() {
   }, []);
 
   const enter = useCallback((p: Phase, prof: Profile) => {
-    if (p === "os") saySoon("First — is PresentFlow running on a Mac or a Windows computer?", "listen", "Sarah is listening");
-    if (p === "desk") saySoon("What sound desk (mixer) does your church use? Tap one, or type the model below.", "listen", "Sarah is listening");
+    if (p === "os") saySoon("First — is this a Mac or a Windows computer?", "listen", "Sarah is listening");
+    if (p === "desk") saySoon("Which sound desk does your church use? Tap one, or type the model below.", "listen", "Sarah is listening");
     if (p === "connection") {
       const n = rankConnections({ desk: prof.desk, os: prof.os, failedRoutes: prof.failedRoutes }).filter((o) => o.connection !== "builtin").length;
       saySoon(`For ${prof.desk || "your setup"}${prof.os ? ` on ${OS_LABEL[prof.os]}` : ""}, churches usually connect one of these ${n} ways. Pick the one you have — you can always come back and try another.`, "think", "Sarah is thinking");
     }
-    if (p === "input") saySoon("Now pick the input below. I've put the most likely one first.", "focus", "Sarah is checking your inputs");
-    if (p === "quiet") saySoon("Quick quiet check: please make sure no one is talking and no music is playing. I'll listen for 8 seconds for hum or noise.", "listen", "Sarah is listening");
-    if (p === "speak") saySoon("Now have someone speak into the pastor's mic, like they're preaching. Try: “For God so loved the world, that he gave his only begotten Son.” I'm watching the bar.", "listen", "Sarah is listening");
+    if (p === "input") saySoon("Now pick where the sound comes in. The most likely one is first.", "focus", "Sarah is checking your inputs");
+    if (p === "quiet") saySoon("Quick quiet check. Ask everyone to stop talking and stop the music, then start it — I'll listen for 8 seconds for hum.", "listen", "Sarah is listening");
+    if (p === "speak") saySoon("Now talk into the preacher's mic like it's a normal Sunday — try reading John 3:16. I'm watching the bar.", "listen", "Sarah is listening");
   }, [saySoon]);
 
   const goTo = useCallback((p: Phase, prof?: Profile) => { go(p); enter(p, prof ?? profileRef.current); }, [go, enter]);
@@ -191,16 +195,19 @@ export function SarahSetupWizard() {
       if (cancelled) return;
       setMatch(m); setProfile(saved); setPhase("context");
       const st = m?.setup;
-      if (m?.confidence === "high") {
-        say(`Hi, I'm Sarah — I'll get your sound connected. I found your church's application for ${st?.churchName ?? "your church"}.`, "ooh", "Sarah found your application");
-        say(`It says you use ${st?.desk ?? "an unknown desk"}${st?.device ? ` on ${st.device}` : ""}. Is that still right?`, "listen", "Sarah is listening");
+      // What we remembered on THIS computer last time (device + channel), so a
+      // repeat visit starts from "here's what worked" rather than question one.
+      const savedDevice = listSavedDevices().find((d) => d.role === "primary");
+      setLastDevice(savedDevice ? `${savedDevice.name}${savedDevice.selectedChannels.length ? ` · channel ${savedDevice.selectedChannels.map((c) => c + 1).join(" & ")}` : ""}` : null);
+      if (savedDevice || saved.desk || saved.connection) {
+        const bits = [saved.desk, savedDevice?.name ? `into ${savedDevice.name}` : undefined].filter(Boolean).join(" ");
+        say(`Welcome back — I'm Sarah. Last time your sound came from ${bits || "this computer's saved setup"}. Want to use that again, or set it up fresh?`, "nod", "Sarah remembers your setup");
+      } else if (m?.confidence === "high") {
+        say(`Hi, I'm Sarah — I'll get your sound connected. Your application says you use ${st?.desk ?? "a sound desk"}${st?.device ? ` on ${st.device}` : ""}. Is that still right?`, "ooh", "Sarah found your application");
       } else if (m?.confidence === "possible") {
-        say("Hi, I'm Sarah — I'll get your sound connected. I may have found your church's application, but I'm not certain it's yours.", "think", "Sarah is checking");
-        say(`Is your church “${st?.churchName ?? "unknown"}”? If yes I'll still ask you the setup questions fresh, just to be safe.`, "listen", "Sarah is listening");
-      } else if (saved.desk || saved.connection) {
-        say(`Welcome back — I'm Sarah. Last time you set up ${saved.desk ?? "your audio"}${saved.connection ? ` using ${saved.connection}` : ""}. Want to use that again?`, "nod", "Sarah remembers you");
+        say(`Hi, I'm Sarah. I may have found your church's application (${st?.churchName ?? "unknown"}), but I'm not sure it's yours — so I'll ask you everything fresh. Ready?`, "think", "Sarah is checking");
       } else {
-        say("Hi, I'm Sarah — I'll help you connect your church's sound to PresentFlow. It takes about 3 minutes. Ready?", "neutral", "Sarah is ready");
+        say("Hi, I'm Sarah. I'll help you connect your church's sound. It takes about 3 minutes. Ready?", "neutral", "Sarah is ready");
       }
     })();
     return () => { cancelled = true; };
@@ -212,14 +219,14 @@ export function SarahSetupWizard() {
     const list = await listSetupDevices();
     const want: Record<string, string[]> = {
       "usb-desk": ["desk", "interface"], interface: ["interface", "desk"], ndi: ["ndi"], dante: ["dante"],
-      "sdi-capture": ["sdi-capture", "usb-switcher", "hdmi-capture"], builtin: ["builtin"],
+      "sdi-capture": ["sdi-capture", "usb-switcher", "hdmi-capture"],
     };
     const pref = want[profileRef.current.connection ?? ""] ?? [];
     const rank = (d: SetupDevice) => { const i = pref.indexOf(d.kind.kind); return i === -1 ? (d.kind.recommended ? 10 : 20) : i; };
     setDevices([...list].sort((a, b) => rank(a) - rank(b)));
     setLoadingDevices(false);
     if (list.length === 0) {
-      say("I can't see any audio inputs. Check the cable or interface is plugged in, then tap “Look again”.", "focus", "Sarah can't find inputs");
+      say("I can't see any audio inputs at all. Check the cable, then tap “Look again”.", "focus", "Sarah can't find inputs");
       setExtraChips(["Look again", "Try another way"]);
     }
   }, [say]);
@@ -267,23 +274,40 @@ export function SarahSetupWizard() {
     const my = ++runId.current;
     feed.resetFrames(); setMeasuring(true); setChecks([]); setExtraChips([]);
     setMood("listen"); setStatus(kind === "quiet" ? "Sarah is listening to the room" : "Sarah is listening");
-    later(() => {
+
+    // Voice check: as soon as there IS enough good speech, say so and move on —
+    // don't make someone keep talking to a timer (2026-09-16 owner directive).
+    const finish = (frames: { db: number; peak: number }[]) => {
       if (runId.current !== my) return;
       setMeasuring(false);
-      const frames = feed.snapshotFrames();
       const result = kind === "quiet" ? [checkNoiseFloor(frames)] : checkSpeech(frames);
       setChecks(result);
       const overall = overallStatus(result);
       if (overall === "pass") {
-        if (kind === "quiet") { say("Lovely and quiet — no hum. 👌", "nod", "Quiet check passed"); setExtraChips(["Continue"]); }
-        else { say("Ooh, I can hear you clearly! The level is healthy and there's no distortion.", "ooh", "Voice check passed"); setExtraChips(["Save my setup"]); }
+        if (kind === "quiet") { say("Nice and quiet — no hum. 👌", "nod", "Quiet check passed"); setExtraChips(["Continue"]); }
+        else { say("Ooh, I can hear you clearly — good level, no crackle. That's your sound sorted.", "ooh", "Voice check passed"); setExtraChips(["Save my setup"]); }
         return;
       }
       const worst = result.find((c) => c.status === "fail") ?? result.find((c) => c.status === "warn")!;
       const key = worst.id === "speech-level" ? ((worst.value ?? -99) > -6 ? "speech-level-hot" : "speech-level-low") : worst.id;
       say(`${worst.detail} ${FIX[key] ?? ""}`.trim(), "focus", overall === "fail" ? "Sarah found a problem" : "Sarah has a tip");
       setExtraChips(overall === "fail" ? ["Test again", "Try another way", "Ask Sarah"] : ["Test again", "Continue anyway"]);
-    }, kind === "quiet" ? QUIET_MS : SPEAK_MS);
+    };
+
+    if (kind === "quiet") { later(() => finish(feed.snapshotFrames()), QUIET_MS); return; }
+
+    // Poll from SPEAK_MIN_MS: the moment there's a solid run of good speech we stop
+    // early and pass. Otherwise we still stop at SPEAK_MS and report what we heard.
+    const started = Date.now();
+    const tick = () => {
+      if (runId.current !== my) return;
+      const frames = feed.snapshotFrames();
+      const elapsed = Date.now() - started;
+      if (elapsed >= SPEAK_MIN_MS && frames.length >= SPEAK_MIN_FRAMES && overallStatus(checkSpeech(frames)) === "pass") { finish(frames); return; }
+      if (elapsed >= SPEAK_MS) { finish(frames); return; }
+      later(tick, 500);
+    };
+    later(tick, SPEAK_MIN_MS);
   }, [feed, later, measuring, say]);
 
   const recordFailure = useCallback((reason: string) => {
@@ -388,10 +412,11 @@ export function SarahSetupWizard() {
                 { label: "No, start fresh", onPick: () => { userSays("No, start fresh"); setUseApp(false); setEditingFromApp(true); goTo("os"); } },
               ];
         }
-        if (profile.desk || profile.connection) {
+        if (lastDevice || profile.desk || profile.connection) {
           return [
-            { label: "Use that again", onPick: () => { userSays("Use that again"); goTo(profile.connection ? "input" : "connection"); } },
-            { label: "Start fresh", onPick: () => { userSays("Start fresh"); setProfile({ failedRoutes: profile.failedRoutes }); setEditingFromApp(true); goTo("os", { failedRoutes: profile.failedRoutes }); } },
+            { label: "Use that again", sub: lastDevice ? `${lastDevice} — I'll just check it still works` : undefined,
+              onPick: () => { userSays("Use that again"); goTo(profile.connection ? "input" : "connection"); } },
+            { label: "Set it up fresh", sub: "Something changed", onPick: () => { userSays("Set it up fresh"); setProfile({ failedRoutes: profile.failedRoutes }); setEditingFromApp(true); goTo("os", { failedRoutes: profile.failedRoutes }); } },
           ];
         }
         return [{ label: "Let's go", sub: "About 3 minutes", onPick: () => { userSays("Let's go"); goTo("os"); } }];
@@ -422,7 +447,7 @@ export function SarahSetupWizard() {
           },
         }));
       case "connection":
-        return rankConnections({ desk: profile.desk, os: profile.os, failedRoutes: profile.failedRoutes }).map((o, i) => ({
+        return rankConnections({ desk: profile.desk, os: profile.os, failedRoutes: profile.failedRoutes }).map((o, i): Opt => ({
           label: `${o.connection === "builtin" ? "Last resort · " : `${i + 1}. `}${o.title}`,
           sub: o.previouslyFailed ? `Didn't work last time: ${o.previouslyFailed}` : o.subtitle,
           warn: !!o.previouslyFailed, selected: profile.connection === o.connection,
@@ -430,10 +455,22 @@ export function SarahSetupWizard() {
             userSays(o.title); setField("connection", o.connection); setChosen(o); setDoneSteps(new Set()); go("steps");
             saySoon(o.verified ? "Here's exactly what to do. Tick each step as you go, then tap Done." : "Here's the general way to do it — your desk's manual will have the exact menu names. Tick each step, then tap Done.", "focus", "Sarah is walking you through it");
           },
-        }));
+        })).concat([{
+          label: "I don't have any of these",
+          sub: "Tell me what to get",
+          onPick: () => {
+            userSays("I don't have any of these");
+            saySoon(
+              "No problem. The cheapest way in is a small USB audio interface — a Behringer U-PHORIA UMC202HD or a Focusrite Scarlett Solo is plenty, plus one cable from your desk's aux output to its line input. " +
+              "If another computer already has the sound (a streaming PC, for example), NDI over a wired network works with no extra hardware. " +
+              "And until either arrives, this computer's own microphone will do — pick it at the bottom of the list. It's less accurate, but it works.",
+              "focus", "Sarah's suggestions");
+            setExtraChips(["Use this computer's mic for now", "I'll get an interface"]);
+          },
+        }]);
       case "steps":
         return [
-          { label: "Done — I've done the steps", onPick: () => { userSays("Done"); goTo("input"); } },
+          { label: "Done", sub: "I've finished these steps", onPick: () => { userSays("Done"); goTo("input"); } },
           { label: "I'm stuck", sub: "Ask Sarah", onPick: () => { void ask("I'm stuck on these steps. What should I check?"); } },
           { label: "Try another way", onPick: () => { userSays("Try another way"); goTo("connection"); } },
         ];
@@ -455,7 +492,7 @@ export function SarahSetupWizard() {
       default:
         return [];
     }
-  }, [phase, match, useApp, profile, devices, device, measuring, busy, loadingDevices, editingFromApp, ask, finish, go, goTo, loadDevices, measure, pickDevice, say, saySoon, setField, userSays]);
+  }, [phase, match, useApp, profile, devices, device, measuring, busy, loadingDevices, editingFromApp, lastDevice, ask, finish, go, goTo, loadDevices, measure, pickDevice, say, saySoon, setField, userSays]);
 
   const onExtraChip = (label: string) => {
     if (measuring && label !== "Ask Sarah") return;
@@ -466,7 +503,7 @@ export function SarahSetupWizard() {
       return;
     }
     if (label === "Skip the model" && phase === "desk") { userSays(label); goTo("connection"); return; }
-    if (label === "Save my setup") { userSays(label); go("save"); saySoon("Perfect. I'll remember this setup on this computer so it's picked automatically next time.", "celebrate", "Ready to save"); return; }
+    if (label === "Save my setup") { userSays(label); go("save"); saySoon("Perfect. I'll remember this on this computer and pick it for you next time.", "celebrate", "Ready to save"); return; }
     if (label === "Test again") { userSays(label); measure(phase === "quiet" ? "quiet" : "speak"); return; }
     if (label === "Try again" && device) { userSays(label); void pickDevice(device); return; }
     if (label === "Look again") { userSays(label); void loadDevices(); return; }
@@ -478,6 +515,17 @@ export function SarahSetupWizard() {
       return;
     }
     if (label === "Ask Sarah") { void ask("That check failed. What should I do?"); return; }
+    if (label === "Use this computer's mic for now") {
+      userSays(label);
+      const builtin = rankConnections({ desk: profile.desk, os: profile.os }).find((o) => o.connection === "builtin");
+      if (builtin) { setField("connection", "builtin"); setChosen(builtin); setDoneSteps(new Set()); go("steps"); saySoon("Fine for now — here's how to get the best out of it.", "nod", "Sarah is walking you through it"); }
+      return;
+    }
+    if (label === "I'll get an interface") {
+      userSays(label);
+      say("Good call. When it arrives, open Settings → Audio Input and tap Run setup again — I'll pick up from here.", "nod", "Sarah will be here");
+      return;
+    }
     void ask(label);
   };
 
@@ -666,7 +714,7 @@ export function SarahSetupWizard() {
           </form>
           <div className={s.nav}>
             <button type="button" className={s.btn} onClick={back} disabled={trail.length === 0}>Back</button>
-            <button type="button" className={s.btn} onClick={() => { clearTimers(); void feed.stop(); router.push("/dashboard"); }}>Exit setup</button>
+            <button type="button" className={s.btn} onClick={() => { clearTimers(); void feed.stop(); if (onDone) onDone(); else router.push("/dashboard"); }}>Close</button>
           </div>
         </section>
       </div>
@@ -674,7 +722,7 @@ export function SarahSetupWizard() {
       {showSuccess && (
         <SarahSuccess
           deviceLabel={`${device?.name ?? "your input"}${channels.length ? ` · ch ${channels.map((c) => c + 1).join("/")}` : ""}`}
-          onClose={() => { setShowSuccess(false); router.push("/dashboard"); }}
+          onClose={() => { setShowSuccess(false); if (onDone) onDone(); else router.push("/dashboard"); }}
         />
       )}
     </div>

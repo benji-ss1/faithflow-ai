@@ -198,10 +198,13 @@ function GeneralSection() {
   );
 }
 
-function AudioSection() {
-  // New window: the operator console keeps running (and its live slide stays up)
-  // while the volunteer works through the wizard.
-  const openWizard = () => { window.open("/setup/audio?sarah=1", "_blank", "noopener"); };
+function AudioSection({ close }: { close: () => void }) {
+  // Sarah opens INSIDE the desktop app, over the operator console — never a browser
+  // tab. Close Settings first so she isn't rendered behind this dialog.
+  const openWizard = () => {
+    close();
+    requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("presentflow:open-sarah")));
+  };
   return (
     <>
       <SectionHead title="Audio Input" description="What PresentFlow listens to. A clean feed from your sound desk is what makes detection accurate." />
@@ -563,7 +566,7 @@ export function SettingsWindow() {
       case "bible": return <BibleSection onUpgrade={() => setShowUpgrade(true)} />;
       case "songs": return <SongsSection />;
       case "screens": return <ScreensSection />;
-      case "audio": return <AudioSection />;
+      case "audio": return <AudioSection close={() => setOpen(false)} />;
       case "ndi": return <><SectionHead title="NDI Output" description="Send your slides to OBS or another computer over the network." /><NdiTab /></>;
       case "livestream": return <LivestreamSection />;
       case "themes": return <ThemesSection close={() => setOpen(false)} />;

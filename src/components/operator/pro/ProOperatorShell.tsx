@@ -72,6 +72,7 @@ import { CONFIDENCE_THRESHOLD, BIBLE_AUTOFIRE_CONFIDENCE, BIBLE_SUGGEST_CONFIDEN
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
 import { SettingsWindow } from "../settings/SettingsWindow";
+import { SarahOverlay } from "@/components/setup/sarah/SarahOverlay";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
 import { matchNextSlide, isLikelyEndOfSong, scoreCoverage, slideWords, matchBestSlide } from "@/lib/ai-detection/lyric-position";
 import { parseContextCommand, navCommandWordCount } from "@/lib/context-parser";
@@ -4972,6 +4973,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
       <WhatsNewModal />
       <SettingsWindow />
+      <SarahOverlay />
     </div>
   );
 }
