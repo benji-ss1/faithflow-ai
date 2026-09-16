@@ -1,4 +1,5 @@
 "use client";
+import { useShortcutLabel, useIsWindows } from "@/lib/usePlatformLabel";
 import type { LiveOrigin } from "@/lib/song-switch-guard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -59,6 +60,8 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
   openBlank?: boolean;
   openAdd?: boolean;
 }) {
+  const undoKey = useShortcutLabel({ mod: true, key: "Z" });
+  const redoKey = useShortcutLabel({ mod: true, shift: true, key: "Z" });
   const playlistItem = ctx.plan.items[ctx.previewItemIdx];
   const item = targetSong ? null : playlistItem;
   const itemId = targetSong ? `song_${targetSong.songId}` : (playlistItem?.id ?? null);
@@ -261,11 +264,11 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
             {!songId && <span className="text-[10px] italic text-[var(--color-warning)]/80 ml-1">Only song slides are editable</span>}
 
             <div className="ml-auto flex items-center gap-1.5">
-              <button onClick={editor.undo} disabled={!editor.canUndo} title="Undo (⌘Z)"
+              <button onClick={editor.undo} disabled={!editor.canUndo} title={`Undo (${undoKey})`}
                 className="grid h-9 w-9 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] disabled:opacity-30">
                 <Undo2 className="w-4 h-4" />
               </button>
-              <button onClick={editor.redo} disabled={!editor.canRedo} title="Redo (⌘⇧Z)"
+              <button onClick={editor.redo} disabled={!editor.canRedo} title={`Redo (${redoKey})`}
                 className="grid h-9 w-9 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] disabled:opacity-30">
                 <Redo2 className="w-4 h-4" />
               </button>
@@ -503,6 +506,7 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus }: { editor: Edit
 
 // ── Design (contextual: selected object / group) ────────────────────────────
 function DesignPanel({ editor }: { editor: Editor }) {
+  const isWindows = useIsWindows();
   const slide = editor.currentSlide;
   const selected = slide?.objects.find((o) => o.id === editor.selectedObjectId) ?? null;
   const selIds = editor.selectedObjectIds;
@@ -538,7 +542,7 @@ function DesignPanel({ editor }: { editor: Editor }) {
             <AlignBtn label="Vertical" onClick={() => editor.distributeObjects(selIds, "v")} />
           </div></div>
         )}
-        <p className="text-[10px] text-[var(--color-muted-foreground)] leading-snug">Drag any selected object to move the group. ⇧-click to add or remove one.</p>
+        <p className="text-[10px] text-[var(--color-muted-foreground)] leading-snug">Drag any selected object to move the group. {isWindows ? "Shift-click" : "⇧-click"} to add or remove one.</p>
       </div>
     );
   }

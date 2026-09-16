@@ -12,6 +12,7 @@
  * deep-link into a section. Existing tab components are REUSED as section bodies —
  * nothing that worked before was rewritten.
  */
+import { useShortcutLabel } from "@/lib/usePlatformLabel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getLayersEngineSetting, setLayersEngineEnabled, getDesktopPreferences } from "@/lib/actions";
 import { SettingsForm } from "@/components/settings/SettingsForm";
@@ -764,11 +765,12 @@ export function SettingsWindow() {
 
 /** Gear button for the operator top bar. */
 export function SettingsButton({ className }: { className?: string }) {
+  const settingsKey = useShortcutLabel({ mod: true, key: "," });
   return (
     <button
       type="button"
       onClick={() => window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT))}
-      title="Settings (⌘,)"
+      title={`Settings (${settingsKey})`}
       aria-label="Open settings"
       className={className ?? "ml-1 w-[26px] h-[26px] grid place-items-center rounded-md text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"}
     >
