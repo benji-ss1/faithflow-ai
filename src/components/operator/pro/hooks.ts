@@ -54,6 +54,7 @@ export type TimerApi = {
   toggleRun: () => void;
   reset: () => void;
   toggleShown: () => void;
+  hide: () => void;
   setPosition: (p: OverlayPosition) => void;
 };
 
@@ -104,10 +105,11 @@ export function useTimerSession(): TimerApi {
   const toggleRun = useCallback(() => setRunning((r) => !r), []);
   const reset = useCallback(() => { setRunning(false); setRemaining(baseline.current); }, []);
   const toggleShown = useCallback(() => setShown((s) => !s), []);
+  const hide = useCallback(() => setShown(false), []);
 
   return {
     state: { name, type, duration, remaining, running, shown, position },
-    setName, setType, setDuration, toggleRun, reset, toggleShown, setPosition,
+    setName, setType, setDuration, toggleRun, reset, toggleShown, hide, setPosition,
   };
 }
 
@@ -145,6 +147,8 @@ export type TimersApi = {
   removeTimer: (id: string) => Promise<void>;
   command: (id: string, cmd: TimerCommand) => void;
   toggleShown: (id: string) => void;
+  /** Hide one timer's audience overlay (idempotent). */
+  hide: (id: string) => void;
   setPosition: (id: string, p: OverlayPosition) => void;
   setScale: (id: string, scale: number) => void;
 };
@@ -266,6 +270,7 @@ export function useTimersSession(): TimersApi {
     if (willShow) reresolveTarget(id);
     setMetaFor(id, { shown: willShow });
   }, [meta, setMetaFor, reresolveTarget]);
+  const hide = useCallback((id: string) => setMetaFor(id, { shown: false }), [setMetaFor]);
   const setPosition = useCallback((id: string, p: OverlayPosition) => setMetaFor(id, { position: p }), [setMetaFor]);
   const setScale = useCallback((id: string, scale: number) => setMetaFor(id, { scale: Math.max(0.25, Math.min(8, scale)) }), [setMetaFor]);
 
@@ -300,7 +305,7 @@ export function useTimersSession(): TimersApi {
     };
   }), [defs, runtimes, meta, nowMs, targets]);
 
-  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, setPosition, setScale };
+  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, hide, setPosition, setScale };
 }
 
 /** Map a stored def row to the engine's TimerDefinition. `resolvedTargetMs` is

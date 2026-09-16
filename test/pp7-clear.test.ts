@@ -28,29 +28,42 @@ assert.equal(isEmptySlideKind("blank"), true);
 assert.equal(isEmptySlideKind("text"), false);
 console.log("pp7-clear: all passed");
 
-// ── PP7 layer order: Media above a live camera (planOutput) ───────────────────
+// ── PP7 layer order: Video Input < Media < Slide (planOutput) ─────────────────
 import { planOutput } from "../src/lib/output-plan";
 {
   const cam = { deviceId: "cam1", label: "Cam" };
   const bg = { type: "image" as const, imageUrl: "https://example.com/a.jpg" };
   const text = { kind: "text" as const, text: "Amazing grace" };
-  const slideLayer = (p: ReturnType<typeof planOutput>) => p.layers.find((l) => l.id === "slide")!;
+  const layer = (p: ReturnType<typeof planOutput>, id: string) => p.layers.find((l) => l.id === id);
 
+  // Legacy (flag off): camera hides the media; no camera layer.
   const legacy = planOutput({ mode: "live", slide: text, videoInput: cam, background: bg } as never);
-  assert.equal((slideLayer(legacy).props as { mediaOverCamera?: unknown }).mediaOverCamera, undefined, "legacy: camera hides media (no key)");
-  assert.equal(legacy.layers.find((l) => l.id === "background")!.enabled, false);
+  assert.equal(layer(legacy, "camera"), undefined, "legacy: no separate camera layer");
+  assert.equal(layer(legacy, "background")!.enabled, false, "legacy: camera hides media");
+  assert.equal((layer(legacy, "slide")!.props as { renderMode: string }).renderMode, "over-video");
 
+  // PP7: camera layer below media, media stays on the background layer, slide over both.
   const pp7 = planOutput({ mode: "live", slide: text, videoInput: cam, background: bg, mediaOverCamera: true } as never);
-  assert.deepEqual((slideLayer(pp7).props as { mediaOverCamera?: unknown }).mediaOverCamera, bg, "PP7: media drawn over the camera");
+  const camL = layer(pp7, "camera")!, bgL = layer(pp7, "background")!, slideL = layer(pp7, "slide")!;
+  assert.ok(camL && camL.enabled, "PP7: camera layer present");
+  assert.equal(bgL.enabled, true, "PP7: media shows over the camera");
+  assert.ok(camL.z < bgL.z && bgL.z < slideL.z, "PP7 z-order: camera < media < slide");
+  assert.equal((slideL.props as { renderMode: string }).renderMode, "transition", "slide not fused with camera (no remount on camera toggle)");
+  assert.equal((slideL.props as { overVideo: boolean }).overVideo, true, "slide background transparent over media");
 
-  const noCam = planOutput({ mode: "live", slide: text, background: bg, mediaOverCamera: true } as never);
-  assert.equal((slideLayer(noCam).props as { mediaOverCamera?: unknown }).mediaOverCamera, undefined, "no camera: normal background layer");
-  assert.equal(noCam.layers.find((l) => l.id === "background")!.enabled, true);
+  // Camera toggle with media: media layer and slide render mode stay identical (no restart/remount).
+  const pp7NoCam = planOutput({ mode: "live", slide: text, background: bg, mediaOverCamera: true } as never);
+  assert.deepEqual(layer(pp7NoCam, "background"), bgL, "media layer identical whether camera is on or off");
+  assert.deepEqual(layer(pp7NoCam, "slide")!.props, slideL.props, "slide layer identical whether camera is on or off");
 
+  // No media: PP7 flag changes nothing (camera stays fused over-video).
+  const camOnly = planOutput({ mode: "live", slide: text, videoInput: cam, mediaOverCamera: true } as never);
+  assert.deepEqual(camOnly, planOutput({ mode: "live", slide: text, videoInput: cam } as never), "no media: identical to legacy");
+
+  // Transparent keying and stage unchanged.
   const keyed = planOutput({ mode: "livestream", slide: text, videoInput: cam, background: bg, transparent: true, mediaOverCamera: true } as never);
-  assert.equal((slideLayer(keyed).props as { mediaOverCamera?: unknown }).mediaOverCamera, undefined, "transparent keying never paints media");
-
+  assert.deepEqual(keyed, planOutput({ mode: "livestream", slide: text, videoInput: cam, background: bg, transparent: true } as never), "transparent keying unchanged");
   const stage = planOutput({ mode: "stage", slide: text, videoInput: cam, background: bg, mediaOverCamera: true } as never);
-  assert.equal((slideLayer(stage).props as { mediaOverCamera?: unknown }).mediaOverCamera, undefined, "stage has no camera");
-  console.log("pp7 media-over-camera plan: all passed");
+  assert.deepEqual(stage, planOutput({ mode: "stage", slide: text, videoInput: cam, background: bg } as never), "stage unchanged");
+  console.log("pp7 layer order plan: all passed");
 }

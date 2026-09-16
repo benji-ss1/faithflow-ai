@@ -26,7 +26,7 @@ export function hasVideoBackground(videoInput?: VideoInputState | null, appearan
  * normally. The video layer is a sibling of the overlay (not wrapped by any
  * slide-keyed element), so slide changes never restart the video.
  */
-export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef, mediaNode }: {
+export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef }: {
   slide: SlidePayload;
   videoInput?: VideoInputState | null;
   appearance?: ThemeAppearance | null;
@@ -36,8 +36,6 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
   projectorFit?: boolean;
   videoMuted?: boolean;
   onVideoRef?: (el: HTMLVideoElement | null) => void;
-  /** ProPresenter 7: Media layer drawn above the live camera, below the words. */
-  mediaNode?: React.ReactNode;
 }) {
   // Live camera takes precedence over a theme video background.
   const themeVideoUrl = !videoInput && appearance?.bgType === "video" && appearance.bgVideoUrl ? appearance.bgVideoUrl : null;
@@ -59,7 +57,6 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
         {videoInput
           ? <LiveVideoLayer input={videoInput} />
           : <ThemeVideoBackground url={themeVideoUrl!} dim={appearance?.dim} />}
-        {videoInput && mediaNode ? <div className="absolute inset-0">{mediaNode}</div> : null}
         {slide.kind !== "empty" && (
           isOverlayKind ? (
             <div className={containerClass}>
