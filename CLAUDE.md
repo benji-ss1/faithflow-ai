@@ -51,6 +51,8 @@ Before you make any non-trivial change, read [docs/AGENT_WORKFLOW.md](docs/AGENT
 - Audio bridge → Fly.io (`./scripts/deploy.sh audio`)
 - DB + Storage → Supabase (Postgres w/ pgvector + S3-compatible storage)
 - See `DEPLOY.md` for the full runbook.
+- **Desktop downloads + auto-update live in the PUBLIC, code-free repo `benji-ss1/presentflow-releases`** (dashboard links in `src/lib/desktop-download.ts`, `UpdateBanner.tsx`, and `package.json` `build.publish`). The release workflows ALSO still upload to `benji-ss1/faithflow-ai` releases during the transition, so installs from before the move can still update. Both workflows need the `RELEASES_REPO_TOKEN` secret (fine-grained PAT, Contents read+write on presentflow-releases only). Never make `faithflow-ai` private until every live install has updated to a build that checks presentflow-releases.
+- **Windows desktop = NDI build.** `release-windows.yml` fetches the NDI 6 SDK (cached in GitHub's build cache, unpacked with innoextract) and hard-fails if the NDI addons aren't packaged. Manual fallback on Victor's laptop: `docs/WINDOWS_NDI_UPDATES.md`. Test a Windows build without publishing: run the workflow with `dry_run=true`.
 
 ## When you hit unknowns
 
