@@ -4973,7 +4973,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
       <WhatsNewModal />
       <SettingsWindow />
-      <SarahOverlay />
+      <SarahOverlay live={{
+        listening: !!ctx.audio?.listening,
+        ready: !!ctx.audio?.ready,
+        transcript: (ctx.audio?.transcript ?? []).slice(-2).map((t) => t.text).join(" ").trim() || undefined,
+        interim: ctx.audio?.interim,
+        suggestions: ctx.audio?.suggestions as { reference?: string }[] | undefined,
+        onListen: ctx.onListenToggle,
+      }} />
     </div>
   );
 }

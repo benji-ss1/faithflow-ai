@@ -26,8 +26,8 @@ import { checkNoiseFloor, checkSpeech, detectActiveChannels, levelBand, overallS
 import { saveWorkingDevice, listSavedDevices } from "@/lib/audio/savedAudioDevices";
 import { writeNativeDevicePref, type NativeDeviceMode } from "@/lib/audio/nativeDeviceStore";
 
-type Phase = "loading" | "context" | "os" | "desk" | "connection" | "steps" | "input" | "quiet" | "speak" | "save";
-const PROGRESS: Phase[] = ["context", "os", "desk", "connection", "steps", "input", "quiet", "speak", "save"];
+type Phase = "loading" | "context" | "os" | "desk" | "connection" | "steps" | "input" | "quiet" | "speak" | "save" | "tryit";
+const PROGRESS: Phase[] = ["context", "os", "desk", "connection", "steps", "input", "quiet", "speak", "save", "tryit"];
 
 type Msg = { id: number; role: "sarah" | "user"; text: string };
 type Profile = {
@@ -67,7 +67,17 @@ const SPEAK_MIN_FRAMES = 25;
 const SPOT_MS = 6500;
 const AI_TIMEOUT_MS = 12000;
 
-export function SarahSetupWizard({ onDone }: { onDone?: () => void } = {}) {
+export type SarahLive = {
+  listening: boolean;
+  ready?: boolean;
+  transcript?: string;
+  interim?: string;
+  /** Scripture detections from the live engine (shape kept loose on purpose). */
+  suggestions?: { reference?: string }[];
+  onListen?: () => void;
+};
+
+export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?: SarahLive } = {}) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("loading");
   const [trail, setTrail] = useState<Phase[]>([]);
@@ -318,6 +328,7 @@ export function SarahSetupWizard({ onDone }: { onDone?: () => void } = {}) {
     return next;
   }, [saveProfile]);
 
+  const heardRef = useRef(false);
   const finish = useCallback(async () => {
     if (finishedRef.current) return;
     finishedRef.current = true;
@@ -335,9 +346,27 @@ export function SarahSetupWizard({ onDone }: { onDone?: () => void } = {}) {
     const done: Profile = { ...profileRef.current, completedAt: Date.now() };
     setProfile(done); await saveProfile(done);
     if (!savedOk) say("Heads up: this browser wouldn't let me remember the device on this computer (storage is full or blocked). Your church setup is saved, but you may need to pick the input again next time.", "focus", "Saved with a warning");
-    setMood("celebrate"); setStatus("All set!");
-    setShowSuccess(true);
+    setMood("celebrate"); setStatus("Saved");
+    // First win: prove the whole thing works end to end before we let them go.
+    go("tryit");
+    saySoon(
+      live?.listening
+        ? "Saved. Now the fun bit — say this out loud, just like on a Sunday: “Let's turn to John chapter three, verse sixteen.”"
+        : "Saved. Now the fun bit. Switch AI listening on, then say out loud: “Let's turn to John chapter three, verse sixteen.”",
+      "listen", "Sarah is listening for your first verse");
   }, [feed, saveProfile, say]);
+
+  // First win — watch the REAL detection engine (read-only) and celebrate the
+  // moment it catches a verse. This is the moment a church realises what the app does.
+  useEffect(() => {
+    if (phase !== "tryit" || heardRef.current) return;
+    const hit = live?.suggestions?.find((x) => typeof x?.reference === "string" && x.reference.trim());
+    if (!hit) return;
+    heardRef.current = true;
+    say(`🎉 That's it — I heard ${hit.reference}. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
+    setExtraChips(["Finish"]);
+    setMood("celebrate");
+  }, [phase, live?.suggestions, say]);
 
   // ── chat ──
   const ask = useCallback(async (text: string) => {
@@ -488,11 +517,17 @@ export function SarahSetupWizard({ onDone }: { onDone?: () => void } = {}) {
       case "speak":
         return measuring ? [] : [{ label: "Start voice check", sub: "Speak for 10 seconds", onPick: () => { userSays("Start voice check"); measure("speak"); } }];
       case "save":
-        return [{ label: "Save and finish", sub: device?.name, disabled: busy, onPick: () => { userSays("Save and finish"); void finish(); } }];
+        return [{ label: "Save my setup", sub: device?.name, disabled: busy, onPick: () => { userSays("Save my setup"); void finish(); } }];
+      case "tryit": {
+        const out: Opt[] = [];
+        if (!live?.listening) out.push({ label: "Turn on AI listening", sub: "Then say the line out loud", onPick: () => { userSays("Turn on AI listening"); live?.onListen?.(); } });
+        out.push({ label: "Skip this", sub: "I'll try it later", onPick: () => { userSays("Skip this"); setShowSuccess(true); } });
+        return out;
+      }
       default:
         return [];
     }
-  }, [phase, match, useApp, profile, devices, device, measuring, busy, loadingDevices, editingFromApp, lastDevice, ask, finish, go, goTo, loadDevices, measure, pickDevice, say, saySoon, setField, userSays]);
+  }, [phase, match, useApp, profile, devices, device, measuring, busy, loadingDevices, editingFromApp, lastDevice, live, ask, finish, go, goTo, loadDevices, measure, pickDevice, say, saySoon, setField, userSays]);
 
   const onExtraChip = (label: string) => {
     if (measuring && label !== "Ask Sarah") return;
@@ -514,6 +549,7 @@ export function SarahSetupWizard({ onDone }: { onDone?: () => void } = {}) {
       void feed.stop(); goTo("connection", next);
       return;
     }
+    if (label === "Finish") { userSays(label); setShowSuccess(true); return; }
     if (label === "Ask Sarah") { void ask("That check failed. What should I do?"); return; }
     if (label === "Use this computer's mic for now") {
       userSays(label);
@@ -579,6 +615,7 @@ export function SarahSetupWizard({ onDone }: { onDone?: () => void } = {}) {
   const title: Record<Phase, string> = {
     loading: "Getting ready", context: "Welcome", os: "Your computer", desk: "Your sound desk", connection: "Ways to connect",
     steps: "Do these steps", input: "Pick your input", quiet: "Quiet check", speak: "Voice check", save: "Save your setup",
+    tryit: "Your first verse",
   };
 
   return (
@@ -617,6 +654,12 @@ export function SarahSetupWizard({ onDone }: { onDone?: () => void } = {}) {
                 <span className={bandClass}>{bandLabel}</span>
                 <span>{device?.name}{channels.length ? ` · ch ${channels.map((c) => c + 1).join("/")}` : ""}</span>
               </div>
+            </div>
+          )}
+          {phase === "tryit" && (
+            <div className={s.meter} aria-live="polite">
+              <div className={s.meterRow}><span>{live?.listening ? "AI listening — say the line out loud" : "AI listening is off"}</span></div>
+              <div className={s.heard}>{live?.interim || live?.transcript || "…"}</div>
             </div>
           )}
           {feed.running && device && device.channelCount > 2 && phase === "input" && (

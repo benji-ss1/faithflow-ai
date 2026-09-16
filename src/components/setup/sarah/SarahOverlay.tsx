@@ -11,11 +11,11 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { SarahSetupWizard } from "./SarahSetupWizard";
+import { SarahSetupWizard, type SarahLive } from "./SarahSetupWizard";
 
 export const OPEN_SARAH_EVENT = "presentflow:open-sarah";
 
-export function SarahOverlay() {
+export function SarahOverlay({ live }: { live?: SarahLive } = {}) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export function SarahOverlay() {
           <Dialog.Description className="sr-only">
             Sarah walks you through connecting your church&apos;s sound to PresentFlow.
           </Dialog.Description>
-          {open && <SarahSetupWizard onDone={close} />}
+          {open && <SarahSetupWizard onDone={close} live={live} />}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
