@@ -50,6 +50,10 @@ export type ActionSpec =
   | { type: "set_announcement"; announcement: AnnouncementPayload | null }
   | { type: "set_transition"; transition: TransitionSpec | null }
   | { type: "logo" }
+  // Scenes (2026-09-16): switch the active per-screen routing. Non-destructive
+  // (it only changes what each screen SHOWS of what is already playing), so it
+  // is legal on a slide as well as in an Automation.
+  | { type: "scene"; sceneId: string }
   // Destructive (guarded) — NEVER a slide action; macro-only, behind confirm
   | { type: "blank" }
   | { type: "kill" }
@@ -73,6 +77,7 @@ const SPEC_TO_ENGINE: Record<Exclude<ActionSpecType, "macro">, EngineActionType>
   set_announcement: "SET_ANNOUNCEMENT",
   set_transition: "SET_TRANSITION",
   logo: "LOGO",
+  scene: "SET_LOOK",
   blank: "BLANK",
   kill: "KILL",
   clear_all_layers: "CLEAR_ALL_LAYERS",
@@ -103,6 +108,7 @@ export function specToEngineAction(spec: ActionSpec): EngineAction | null {
     case "set_announcement": return { type: "SET_ANNOUNCEMENT", announcement: spec.announcement };
     case "set_transition": return { type: "SET_TRANSITION", transition: spec.transition };
     case "logo": return { type: "LOGO" };
+    case "scene": return { type: "SET_LOOK", lookId: spec.sceneId };
     case "blank": return { type: "BLANK" };
     case "kill": return { type: "KILL" };
     case "clear_all_layers": return { type: "CLEAR_ALL_LAYERS" };
@@ -133,6 +139,13 @@ export function validateSpec(spec: unknown): ValidateResult {
   const s = spec as Record<string, unknown>;
   const t = s.type;
   switch (t) {
+    case "scene": {
+      // Scene ids are built-in slugs ("builtin-worship") or DB uuids — the same
+      // short-safe-token rule every other id uses. An unknown id is NOT an error
+      // here (scenes can be renamed/deleted); the dispatcher no-ops on it.
+      if (typeof s.sceneId !== "string" || !SAFE_TOKEN.test(s.sceneId)) return { ok: false, reason: "bad-sceneId" };
+      return { ok: true };
+    }
     case "set_background_media": {
       const a = s.assetRef as Record<string, unknown> | undefined;
       if (!a || typeof a.id !== "string" || typeof a.url !== "string" || typeof a.fileName !== "string" || typeof a.kind !== "string")
@@ -280,6 +293,7 @@ export function sanitizeSpec(spec: unknown): ActionSpec | null {
   if (!validateSpec(spec).ok) return null;
   const s = spec as Record<string, unknown>;
   switch (s.type as ActionSpecType) {
+    case "scene": return { type: "scene", sceneId: s.sceneId as string };
     case "set_background_media": {
       const a = s.assetRef as Record<string, unknown>;
       const assetRef: MediaAssetRef = { id: a.id as string, url: a.url as string, fileName: a.fileName as string, kind: a.kind as string };

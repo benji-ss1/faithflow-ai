@@ -4,6 +4,30 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.418",
+    "date": "2026-09-16",
+    "headline": "Scenes - decide what each screen shows, and switch them all at once",
+    "highlights": [
+      "A new Scene row under your live preview lets you switch what every screen shows with one tap.",
+      "Five scenes are ready to use - Worship, Teaching, Announcement, Offering and Pre-Service.",
+      "Press Edit to see exactly what each scene shows, or press New scene to make your own.",
+      "A scene only changes what each screen shows. It never changes what is playing, and anything you have already hidden yourself stays hidden.",
+      "Choosing None puts every screen back to normal.",
+      "Scenes are saved for your whole church, so any computer you sign in on has them. Deleting one removes it for everyone, so check before you delete."
+    ]
+  },
+  {
+    "version": "0.1.417",
+    "date": "2026-09-16",
+    "headline": "See any screen in your live preview, or all your screens at once",
+    "highlights": [
+      "Above the live preview you can now pick which screen it shows - Main, Stage, Livestream or NDI.",
+      "Press All to see every screen side by side in one big view. Press Esc or X to close it.",
+      "This is preview only. Picking a screen never changes what your projector, stage or stream shows.",
+      "It always opens on Main, so you never walk into a service watching the wrong screen."
+    ]
+  },
+  {
     "version": "0.1.416",
     "date": "2026-09-16",
     "headline": "Sarah now opens inside the app",
