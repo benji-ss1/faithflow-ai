@@ -1,7 +1,7 @@
 ---
 headline: See any screen in your live preview, or all your screens at once
 audience: operator
-version: 0.1.415
+version: 0.1.417
 date: 2026-09-16
 highlights:
   - Above the live preview you can now pick which screen it shows - Main, Stage, Livestream or NDI.

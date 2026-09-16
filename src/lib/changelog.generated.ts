@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.416",
+    "version": "0.1.418",
     "date": "2026-09-16",
     "headline": "Scenes - decide what each screen shows, and switch them all at once",
     "highlights": [
@@ -17,7 +17,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.415",
+    "version": "0.1.417",
     "date": "2026-09-16",
     "headline": "See any screen in your live preview, or all your screens at once",
     "highlights": [
@@ -25,6 +25,25 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Press All to see every screen side by side in one big view. Press Esc or X to close it.",
       "This is preview only. Picking a screen never changes what your projector, stage or stream shows.",
       "It always opens on Main, so you never walk into a service watching the wrong screen."
+    ]
+  },
+  {
+    "version": "0.1.415",
+    "date": "2026-09-16",
+    "headline": "Sarah walks you through connecting your sound",
+    "highlights": [
+      "Meet Sarah, your audio setup assistant. She asks what desk you use, shows the exact steps for your setup, then listens to check it actually works.",
+      "She spots which channel your mixer is sending on, warns about hum, a too-quiet voice or distortion, and tells you how to fix each one.",
+      "If one way of connecting does not work, she remembers and suggests the next one.",
+      "Once it works, PresentFlow remembers that input and picks it automatically next time.",
+      "Find her any time in Settings, under Audio Input.",
+      "Settings now open from the gear in the top bar, or by pressing Cmd+comma (Ctrl+comma on Windows).",
+      "Everything is in one place, grouped into Service, Output, Organisation and System.",
+      "Search finds the setting you want, and tells you which section it is in.",
+      "You can export this computer's settings to a file and import them on another machine.",
+      "Attach actions to media, sermon, blank and logo slides, not just song slides.",
+      "The action fires when you send that slide live, exactly as it does for songs.",
+      "Scripture slides are not included yet, because their slide numbers change with translation."
     ]
   },
   {

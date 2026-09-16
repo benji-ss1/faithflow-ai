@@ -1,7 +1,7 @@
 ---
 headline: Scenes - decide what each screen shows, and switch them all at once
 audience: operator
-version: 0.1.416
+version: 0.1.418
 date: 2026-09-16
 highlights:
   - A new Scene row under your live preview lets you switch what every screen shows with one tap.
