@@ -33,7 +33,8 @@ export function SarahOverlay({ live }: { live?: SarahLive } = {}) {
         <Dialog.Content
           // The wizard owns its own layout, chrome and Close button.
           className="fixed inset-0 z-[91] overflow-y-auto focus:outline-none"
-          onEscapeKeyDown={(e) => e.preventDefault()}   // leaving mid-check should be deliberate
+          // Escape always gets the operator back to the console (they may need the
+          // projector NOW); a stray click outside does not, so a check isn't lost by accident.
           onInteractOutside={(e) => e.preventDefault()}
         >
           <Dialog.Title className="sr-only">Audio setup with Sarah</Dialog.Title>

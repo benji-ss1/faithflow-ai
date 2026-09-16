@@ -50,11 +50,11 @@ const DESKS = [
 ];
 
 const FIX: Record<string, string> = {
-  signal: "Nothing is reaching this input yet. Check the right input and channel are picked, the desk's USB or aux send is turned up and not muted, the cable is in, and (on a Mac) microphone access is allowed for PresentFlow.",
-  "noise-floor": "I'm hearing hum or background noise in a quiet room. Make sure no music is playing, use balanced cables, plug this computer into the same power as the desk, or add a DI box with ground lift on the audio cable. Never remove a power earth.",
-  "speech-level-low": "The voice is too quiet. Turn up the aux or USB send on the desk (or the interface gain) until talking reaches the green “Good” part of the bar.",
-  "speech-level-hot": "The voice is too hot. Lower the send, or switch on the pad on your interface.",
-  clipping: "It's distorting. Lower the send or interface gain, or turn on the pad. If it's a mic input fed by a line output, use a line input instead.",
+  signal: "Nothing is coming through yet. Check the cable is in, the send on the desk is turned up and not muted, you've picked the right input here, and (on a Mac) that PresentFlow is allowed to use the microphone.",
+  "noise-floor": "I can hear a hum. Check nothing is playing, then plug this computer into the same power socket as the sound desk. Still humming? Tap “Ask Sarah” and I'll take you through the cable fix.",
+  "speech-level-low": "That's too quiet for me. Turn up the send on the desk — the one feeding this computer — until talking reaches the green “Good” part of the bar.",
+  "speech-level-hot": "That's too loud — it'll distort. Turn the send down a little, or press the pad button on your interface.",
+  clipping: "It's crackling — the sound is too strong. Turn the send down, or press the pad button on your interface.",
 };
 const OS_LABEL: Record<Os, string> = { mac: "macOS", windows: "Windows" };
 const deviceToOs = (d?: string): Os | undefined => (/mac/i.test(d ?? "") ? "mac" : /windows|pc/i.test(d ?? "") ? "windows" : undefined);
@@ -63,7 +63,7 @@ const QUIET_MS = 8000;
 const SPEAK_MS = 10000;
 /** Enough clean speech to judge a level — we pass early rather than run the full timer. */
 const SPEAK_MIN_MS = 3500;
-const SPEAK_MIN_FRAMES = 25;
+const SPEAK_MIN_FRAMES = 60; // ≈3s at the native 20 Hz probe rate
 const SPOT_MS = 6500;
 const AI_TIMEOUT_MS = 12000;
 
@@ -73,7 +73,7 @@ export type SarahLive = {
   transcript?: string;
   interim?: string;
   /** Scripture detections from the live engine (shape kept loose on purpose). */
-  suggestions?: { reference?: string }[];
+  suggestions?: { id?: string; reference?: string }[];
   onListen?: () => void;
 };
 
@@ -103,6 +103,8 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
   const [aiOffline, setAiOffline] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [lastDevice, setLastDevice] = useState<string | null>(null);
+  // Returning operator re-checking a known-good setup: skip the quiet-room step.
+  const [quickCheck, setQuickCheck] = useState(false);
   const feed = useLevelFeed();
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -210,8 +212,9 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
       const savedDevice = listSavedDevices().find((d) => d.role === "primary");
       setLastDevice(savedDevice ? `${savedDevice.name}${savedDevice.selectedChannels.length ? ` · channel ${savedDevice.selectedChannels.map((c) => c + 1).join(" & ")}` : ""}` : null);
       if (savedDevice || saved.desk || saved.connection) {
-        const bits = [saved.desk, savedDevice?.name ? `into ${savedDevice.name}` : undefined].filter(Boolean).join(" ");
-        say(`Welcome back — I'm Sarah. Last time your sound came from ${bits || "this computer's saved setup"}. Want to use that again, or set it up fresh?`, "nod", "Sarah remembers your setup");
+        const how = saved.connection ? rankConnections({ desk: saved.desk, os: saved.os }).find((o) => o.connection === saved.connection)?.title : undefined;
+        const bits = [how ? how.toLowerCase() : undefined, savedDevice?.name ? `into ${savedDevice.name}` : undefined].filter(Boolean).join(", ");
+        say(`Welcome back — I'm Sarah. Last time your sound came in ${bits || "using this computer's saved setup"}${savedDevice?.selectedChannels.length ? ` on channel ${savedDevice.selectedChannels.map((c) => c + 1).join(" & ")}` : ""}. Shall I just check that still works?`, "nod", "Sarah remembers your setup");
       } else if (m?.confidence === "high") {
         say(`Hi, I'm Sarah — I'll get your sound connected. Your application says you use ${st?.desk ?? "a sound desk"}${st?.device ? ` on ${st.device}` : ""}. Is that still right?`, "ooh", "Sarah found your application");
       } else if (m?.confidence === "possible") {
@@ -244,6 +247,15 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
 
   const pickDevice = useCallback(async (d: SetupDevice) => {
     if (busy) return;
+    // The desktop helper has ONE capture slot: while AI listening is running it
+    // reports levels for the LIVE input no matter which device we asked for, so a
+    // check here would measure — and then save — the wrong thing.
+    if (live?.listening) {
+      userSays(d.name);
+      saySoon("AI listening is running, so I'd end up measuring that input instead of this one. Turn listening off and I'll test it properly.", "focus", "Sarah needs listening off");
+      setExtraChips(live?.onListen ? ["Turn off AI listening"] : []);
+      return;
+    }
     setBusy(true);
     const my = ++runId.current;
     userSays(d.name);
@@ -329,8 +341,10 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
   }, [saveProfile]);
 
   const heardRef = useRef(false);
+  const baselineRef = useRef<Set<string> | null>(null);
   const finish = useCallback(async () => {
     if (finishedRef.current) return;
+    if (live?.listening && !window.confirm("Saving this input restarts AI listening for a moment. If a service is running right now, that's a short gap. Save anyway?")) return;
     finishedRef.current = true;
     setBusy(true);
     const d = deviceRef.current; const chs = channelsRef.current;
@@ -360,7 +374,12 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
   // moment it catches a verse. This is the moment a church realises what the app does.
   useEffect(() => {
     if (phase !== "tryit" || heardRef.current) return;
-    const hit = live?.suggestions?.find((x) => typeof x?.reference === "string" && x.reference.trim());
+    const current = live?.suggestions ?? [];
+    // Snapshot what the console had already detected BEFORE this step, so an old
+    // verse from earlier in the service can't be celebrated as "your first win".
+    if (!baselineRef.current) { baselineRef.current = new Set(current.map((x, i) => x?.id ?? `${x?.reference ?? ""}#${i}`)); return; }
+    const hit = current.find((x) => typeof x?.reference === "string" && x.reference.trim()
+      && !baselineRef.current!.has(x?.id ?? `${x.reference}#${current.indexOf(x)}`));
     if (!hit) return;
     heardRef.current = true;
     say(`🎉 That's it — I heard ${hit.reference}. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
@@ -415,7 +434,7 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
     if (!answered) {
       setTyping(false);
       const worst = checksRef.current.find((c) => c.status !== "pass");
-      say(worst ? (FIX[worst.id] ?? worst.detail) : "I can't chat right now, but follow the steps on screen — and remember the feed should be a post-fader aux or matrix with the pulpit mics and band in it. Tap “Try another way” if this route isn't working.", "focus", "Sarah's tip");
+      say(worst ? (FIX[worst.id] ?? worst.detail) : "I can't chat right now. Keep going with the steps on screen — the sound you send me needs the preacher's mic AND the band in it. If this way isn't working, tap “Try another way”.", "focus", "Sarah's tip");
     }
   }, [aiOffline, say, setField, userSays, saveProfile]);
 
@@ -443,9 +462,9 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
         }
         if (lastDevice || profile.desk || profile.connection) {
           return [
-            { label: "Use that again", sub: lastDevice ? `${lastDevice} — I'll just check it still works` : undefined,
-              onPick: () => { userSays("Use that again"); goTo(profile.connection ? "input" : "connection"); } },
-            { label: "Set it up fresh", sub: "Something changed", onPick: () => { userSays("Set it up fresh"); setProfile({ failedRoutes: profile.failedRoutes }); setEditingFromApp(true); goTo("os", { failedRoutes: profile.failedRoutes }); } },
+            { label: "Yes, check it", sub: lastDevice ?? undefined,
+              onPick: () => { userSays("Yes, check it"); setQuickCheck(true); goTo(profile.connection ? "input" : "connection"); } },
+            { label: "Something's changed", sub: "Set it up a different way", onPick: () => { userSays("Set it up fresh"); setProfile({ failedRoutes: profile.failedRoutes }); setEditingFromApp(true); goTo("os", { failedRoutes: profile.failedRoutes }); } },
           ];
         }
         return [{ label: "Let's go", sub: "About 3 minutes", onPick: () => { userSays("Let's go"); goTo("os"); } }];
@@ -515,25 +534,25 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
       case "quiet":
         return measuring ? [] : [{ label: "Start quiet check", sub: "8 seconds of silence", onPick: () => { userSays("Start quiet check"); measure("quiet"); } }];
       case "speak":
-        return measuring ? [] : [{ label: "Start voice check", sub: "Speak for 10 seconds", onPick: () => { userSays("Start voice check"); measure("speak"); } }];
+        return measuring ? [] : [{ label: "Start voice check", sub: "Just talk until I say stop", onPick: () => { userSays("Start voice check"); measure("speak"); } }];
       case "save":
         return [{ label: "Save my setup", sub: device?.name, disabled: busy, onPick: () => { userSays("Save my setup"); void finish(); } }];
       case "tryit": {
         const out: Opt[] = [];
         if (!live?.listening) out.push({ label: "Turn on AI listening", sub: "Then say the line out loud", onPick: () => { userSays("Turn on AI listening"); live?.onListen?.(); } });
-        out.push({ label: "Skip this", sub: "I'll try it later", onPick: () => { userSays("Skip this"); setShowSuccess(true); } });
+        out.push({ label: "Skip this", sub: "I'll try it later", onPick: () => { userSays("Skip this"); if (onDone) { void feed.stop(); clearTimers(); onDone(); } else setShowSuccess(true); } });
         return out;
       }
       default:
         return [];
     }
-  }, [phase, match, useApp, profile, devices, device, measuring, busy, loadingDevices, editingFromApp, lastDevice, live, ask, finish, go, goTo, loadDevices, measure, pickDevice, say, saySoon, setField, userSays]);
+  }, [phase, match, useApp, profile, devices, device, measuring, busy, loadingDevices, editingFromApp, lastDevice, live, quickCheck, ask, finish, go, goTo, loadDevices, measure, pickDevice, say, saySoon, setField, userSays]);
 
   const onExtraChip = (label: string) => {
     if (measuring && label !== "Ask Sarah") return;
     if (label === "Continue" || label === "Continue anyway") {
       userSays(label);
-      if (phase === "input") goTo("quiet");
+      if (phase === "input") goTo(quickCheck ? "speak" : "quiet");
       else if (phase === "quiet") goTo("speak");
       return;
     }
@@ -549,7 +568,8 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
       void feed.stop(); goTo("connection", next);
       return;
     }
-    if (label === "Finish") { userSays(label); setShowSuccess(true); return; }
+    if (label === "Finish") { userSays(label); if (onDone) { void feed.stop(); clearTimers(); onDone(); } else setShowSuccess(true); return; }
+    if (label === "Turn off AI listening") { userSays(label); live?.onListen?.(); say("Thanks — pick your input again and I'll test it.", "nod", "Ready to test"); setExtraChips([]); return; }
     if (label === "Ask Sarah") { void ask("That check failed. What should I do?"); return; }
     if (label === "Use this computer's mic for now") {
       userSays(label);
@@ -689,7 +709,7 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
             <strong className={s.chatTitle}>{title[phase]}</strong>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {aiOffline && <span className={s.offlinePill} title="Sarah's chat needs a Groq key / active subscription">Offline guide</span>}
-              {match && match.confidence !== "none" && phase !== "loading" && (
+              {match && match.confidence !== "none" && phase !== "loading" && phase !== "context" && (
                 <button type="button" className={s.link} onClick={() => {
                   const useIt = !useApp;
                   setUseApp(useIt);

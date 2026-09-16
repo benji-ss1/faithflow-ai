@@ -4748,6 +4748,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Read-only slice of the live audio state for the Sarah setup overlay. Memoized so
+  // the overlay isn't handed a fresh object on every ASR frame; the overlay itself
+  // renders nothing while closed.
+  const sarahLive = useMemo(() => ({
+    listening: !!ctx.audio?.listening,
+    ready: !!ctx.audio?.ready,
+    transcript: (ctx.audio?.transcript ?? []).slice(-2).map((t) => t.text).join(" ").trim() || undefined,
+    interim: ctx.audio?.interim,
+    suggestions: ctx.audio?.suggestions as { id?: string; reference?: string }[] | undefined,
+    onListen: ctx.onListenToggle,
+  }), [ctx.audio?.listening, ctx.audio?.ready, ctx.audio?.transcript, ctx.audio?.interim, ctx.audio?.suggestions, ctx.onListenToggle]);
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
       <AnnouncementBar />
@@ -4973,14 +4985,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
       <WhatsNewModal />
       <SettingsWindow />
-      <SarahOverlay live={{
-        listening: !!ctx.audio?.listening,
-        ready: !!ctx.audio?.ready,
-        transcript: (ctx.audio?.transcript ?? []).slice(-2).map((t) => t.text).join(" ").trim() || undefined,
-        interim: ctx.audio?.interim,
-        suggestions: ctx.audio?.suggestions as { reference?: string }[] | undefined,
-        onListen: ctx.onListenToggle,
-      }} />
+      <SarahOverlay live={sarahLive} />
     </div>
   );
 }
