@@ -40,9 +40,10 @@ export type MediaBinUploadQueueHandle = {
 /** Only this many image previews are decoded at once (uploading + next up). */
 const PREVIEW_WINDOW = 6;
 
-function isNetworkError(err: unknown): boolean {
-  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
-  return err instanceof TypeError || (err instanceof Error && /connection|network|failed to fetch/i.test(err.message));
+/** Park the queue ONLY when the browser itself reports offline — a CORS/S3
+ *  error while online must fail that one file, never freeze the queue. */
+function browserOffline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
 }
 
 export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
@@ -72,7 +73,7 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
     itemsRef.current = next;
     if (unmounted.current) return;
     setItems(next);
-    const n = next.filter((i) => i.status === "queued" || i.status === "uploading").length;
+    const n = next.filter((i) => i.status === "uploading" || (i.status === "queued" && !i.offline)).length;
     if (n !== lastCount.current) { lastCount.current = n; onActiveCountChange(n); }
   }, [onActiveCountChange]);
 
@@ -86,7 +87,7 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
     let budget = PREVIEW_WINDOW;
     let changed = false;
     const next = itemsRef.current.map((i) => {
-      const wants = !i.isVideo && (i.status === "uploading" || i.status === "done" || (i.status === "queued" && budget > 0));
+      const wants = !i.isVideo && (i.status === "uploading" || (i.status === "queued" && budget > 0));
       if (i.status === "uploading" || (i.status === "queued" && !i.isVideo)) budget--;
       if (wants && !i.previewUrl) { changed = true; return { ...i, previewUrl: URL.createObjectURL(i.file) }; }
       if (!wants && i.previewUrl && i.status !== "error") { URL.revokeObjectURL(i.previewUrl); changed = true; return { ...i, previewUrl: null }; }
@@ -103,9 +104,12 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
     commit(keep);
   }, [commit]);
 
+  const liveRef = useRef(live);
+  liveRef.current = live;
+  const pumpRef = useRef<() => void>(() => {});
   const pump = useCallback(() => {
     if (unmounted.current) return;
-    const limit = live ? Math.min(2, MEDIA_BIN_UPLOAD_CONCURRENCY) : MEDIA_BIN_UPLOAD_CONCURRENCY;
+    const limit = liveRef.current ? Math.min(2, MEDIA_BIN_UPLOAD_CONCURRENCY) : MEDIA_BIN_UPLOAD_CONCURRENCY;
     while (active.current < limit) {
       const next = itemsRef.current.find((i) => i.status === "queued" && !i.offline);
       if (!next) break;
@@ -125,11 +129,12 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
         .then(() => {
           uploadedSinceRefresh.current.push(next.id);
           patch(next.id, { status: "done", progress: 1 });
+          syncPreviews(); // release the decoded preview straight away
         })
         .catch((err: unknown) => {
           if (unmounted.current) return;
           if ((err as { name?: string })?.name === "AbortError") return;
-          const offline = isNetworkError(err);
+          const offline = browserOffline();
           const message = err instanceof Error ? err.message : "Upload failed";
           patch(next.id, { status: "error", error: offline ? "No connection — will retry when back online" : message });
           if (offline) {
@@ -142,7 +147,7 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
         .finally(() => {
           active.current--;
           if (unmounted.current) return;
-          const busy = itemsRef.current.some((i) => i.status === "queued" || i.status === "uploading");
+          const busy = itemsRef.current.some((i) => i.status === "uploading" || (i.status === "queued" && !i.offline));
           if (!busy && uploadedSinceRefresh.current.length > 0) {
             const batch = new Set(uploadedSinceRefresh.current);
             uploadedSinceRefresh.current = [];
@@ -156,10 +161,11 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
             });
           }
           syncPreviews();
-          pump();
+          pumpRef.current(); // latest pump (fresh live/refresh), never a stale closure
         });
     }
-  }, [live, patch, commit, syncPreviews, refresh, removeWhere]);
+  }, [patch, commit, syncPreviews, refresh, removeWhere]);
+  pumpRef.current = pump;
 
   // Back online → resume anything parked by a network drop.
   useEffect(() => {
@@ -180,6 +186,9 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
     abort.current = ac;
     return () => {
       unmounted.current = true;
+      if (itemsRef.current.some((i) => i.status === "uploading" || i.status === "queued")) {
+        toast.warning("Media Bin uploads were stopped — drop the files again to finish.", { id: "pf-bin-upload-stopped" });
+      }
       ac.abort(); // cancel in-flight uploads — nothing continues invisibly
       for (const i of itemsRef.current) if (i.previewUrl) URL.revokeObjectURL(i.previewUrl);
     };
@@ -191,7 +200,7 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
       const wizard: File[] = [];
       const skipped: Array<{ name: string; route: DroppedFileRoute["route"] }> = [];
       let alreadyFailed = 0;
-      const known = new Map(itemsRef.current.filter((i) => i.status !== "done").map((i) => [i.fingerprint, i] as const));
+      const known = new Map(itemsRef.current.map((i) => [i.fingerprint, i] as const));
       for (const file of files) {
         const r = classifyDroppedFile(file);
         if (r.route === "image" || r.route === "video") {
@@ -215,7 +224,7 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
       if (opts?.truncated) toast.warning("Only the first 200 files were added — drop the rest in a second batch.");
       if (alreadyFailed > 0) toast.info(`${alreadyFailed === 1 ? "That file is" : `${alreadyFailed} files are`} already in the bin — use Retry on the tile.`);
       if (add.length > 0) {
-        commit([...add, ...itemsRef.current]);
+        commit([...itemsRef.current, ...add]); // FIFO: earlier drops upload first
         syncPreviews();
         pump();
       }
@@ -229,9 +238,14 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
     },
   }), [commit, syncPreviews, pump, onOpenWizard]);
 
-  const retry = (id: number) => { patch(id, { status: "queued", progress: 0, error: undefined, offline: false }); syncPreviews(); pump(); };
+  const unpark = (xs: Item[]) => xs.map((i) => (i.offline ? { ...i, offline: false } : i));
+  const retry = (id: number) => {
+    commit(unpark(itemsRef.current).map((i) => (i.id === id ? { ...i, status: "queued" as const, progress: 0, error: undefined } : i)));
+    syncPreviews();
+    pump();
+  };
   const retryAllFailed = () => {
-    commit(itemsRef.current.map((i) => (i.status === "error" ? { ...i, status: "queued" as const, progress: 0, error: undefined, offline: false } : i)));
+    commit(unpark(itemsRef.current).map((i) => (i.status === "error" ? { ...i, status: "queued" as const, progress: 0, error: undefined } : i)));
     syncPreviews();
     pump();
   };
@@ -240,7 +254,7 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
   if (items.length === 0) return null;
   const failed = items.filter((i) => i.status === "error").length;
   return (
-    <div className="px-2 pt-2">
+    <div className="px-2 pt-2 max-h-[45vh] overflow-y-auto overscroll-contain">
       <span className="sr-only" aria-live="polite">
         {failed > 0 ? `${failed} upload${failed === 1 ? "" : "s"} failed` : ""}
       </span>
