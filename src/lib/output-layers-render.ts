@@ -53,16 +53,22 @@ export function layerOpacities(
   const out: Record<string, number> = {};
   // Scene opacity is the FLOOR; an explicit operator opacity always wins (same
   // precedence as visibility below).
-  const putMask = (planId: string, v?: number) => {
+  // A scene's opacity applies ONLY where the operator has no override for that
+  // layer — the same "operator always wins" rule visibility uses. Without the
+  // map.has() guard a scene would dim a layer whose opacity the operator had
+  // deliberately set back to full (an override with opacity:1/undefined writes
+  // nothing, so the scene's value would have survived).
+  const putMask = (planId: string, sourceId: string, v?: number) => {
+    if (map.has(sourceId)) return;
     if (typeof v === "number" && v >= 0 && v < 1) out[planId] = v;
   };
   if (mask?.opacity) {
-    putMask("background", mask.opacity.background);
+    putMask("background", "background", mask.opacity.background);
     // Camera opacity folds onto the slide layer (planOutput fuses the camera
     // into the slide's over-video render); an explicit slide value wins.
-    putMask("slide", mask.opacity.camera);
-    putMask("slide", mask.opacity.slide);
-    putMask("theme-logo", mask.opacity.logo);
+    putMask("slide", "camera", mask.opacity.camera);
+    putMask("slide", "slide", mask.opacity.slide);
+    putMask("theme-logo", "logo", mask.opacity.logo);
   }
   const put = (planId: string, l?: LayerWire) => {
     if (l && typeof l.opacity === "number" && l.opacity >= 0 && l.opacity < 1) out[planId] = l.opacity;

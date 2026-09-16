@@ -3067,16 +3067,26 @@ export type SceneInput = { name?: string; config?: Record<string, unknown> };
 
 const MAX_SCENES = 50;
 
+/** A safe uuid shape — a non-uuid id would otherwise throw a Postgres 22P02 out
+ *  of the server action instead of returning a clean "not found". */
+const SCENE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function sanitizeSceneInput(input: SceneInput): Promise<{ name: string; config: Record<string, unknown> }> {
   // sanitizeSceneConfig whitelist-REBUILDS the config (unknown screens/layers
-  // and out-of-range values are dropped, never stored).
+  // and out-of-range values are dropped, never stored). `name` is defensively
+  // coerced: a non-string from a hand-rolled caller must not throw on .trim().
   const { sanitizeSceneConfig } = await import("./scenes");
-  const name = (input.name ?? "Scene").trim().slice(0, 120) || "Scene";
+  const rawName = typeof input.name === "string" ? input.name : "Scene";
+  const name = rawName.trim().slice(0, 120) || "Scene";
   return { name, config: sanitizeSceneConfig(input.config) as unknown as Record<string, unknown> };
 }
 
 export async function listScenes(): Promise<Result<Array<{ id: string; name: string; config: Record<string, unknown>; isBuiltIn: boolean; sortOrder: number }>>> {
   const user = await requireUser();
+  // Same shape as listMacros: a view-only role gets a clean {ok:false} rather
+  // than a redirect (a redirect from a background console fetch would yank the
+  // operator off the page).
+  if (!hasCap(user.role, "operate_services")) return { ok: false, error: "Not permitted" };
   const db = getDb();
   const rows = await db.select().from(scenes)
     .where(eq(scenes.churchId, user.churchId))
@@ -3097,9 +3107,15 @@ export async function createScene(input: SceneInput): Promise<Result<{ id: strin
 
 export async function updateScene(id: string, input: SceneInput): Promise<Result> {
   const user = await requireCap("edit_library");
+  if (!SCENE_UUID_RE.test(id)) return { ok: false, error: "Scene not found" };
   const db = getDb();
   const clean = await sanitizeSceneInput(input);
-  const res = await db.update(scenes).set({ ...clean, updatedAt: new Date() })
+  // PARTIAL update: only write the fields the caller actually sent, so a
+  // config-only save can never silently rename the scene to "Scene".
+  const patch: { name?: string; config?: Record<string, unknown>; updatedAt: Date } = { updatedAt: new Date() };
+  if (typeof input.name === "string") patch.name = clean.name;
+  if (input.config !== undefined) patch.config = clean.config;
+  const res = await db.update(scenes).set(patch)
     .where(and(eq(scenes.id, id), eq(scenes.churchId, user.churchId)));
   if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Scene not found" };
   return { ok: true };
@@ -3107,6 +3123,7 @@ export async function updateScene(id: string, input: SceneInput): Promise<Result
 
 export async function deleteScene(id: string): Promise<Result> {
   const user = await requireCap("edit_library");
+  if (!SCENE_UUID_RE.test(id)) return { ok: false, error: "Scene not found" };
   const db = getDb();
   const res = await db.delete(scenes)
     .where(and(eq(scenes.id, id), eq(scenes.churchId, user.churchId)));

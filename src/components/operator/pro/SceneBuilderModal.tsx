@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, SlidersHorizontal, Copy, Trash2, Check } from "lucide-react";
+import { X, SlidersHorizontal, Copy, Trash2, Check, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { createScene, updateScene, deleteScene } from "@/lib/actions";
 import {
@@ -47,12 +47,23 @@ function setThemeFor(cfg: SceneConfig, screen: SceneScreen, themeId: string | nu
 }
 
 export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCtx; open: boolean; onClose: () => void }) {
-  const { scenes, themes, resolveAppearance, refresh } = useSceneLibrary();
+  const { scenes, custom, themes, resolveAppearance, refresh } = useSceneLibrary();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ name: string; config: SceneConfig } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Unsaved-work guards (review 🔴): "Make live" used to publish a draft that was
+  // never saved — it then silently reverted when the rail re-derived the wire
+  // from the SAVED record. Now the draft is tracked, Save is the primary action,
+  // and switching scene / closing warns before discarding.
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const selected = useMemo(() => scenes.find((s) => s.id === selectedId) ?? null, [scenes, selectedId]);
+  const dirty = useMemo(() => {
+    if (!selected || !draft || selected.isBuiltIn) return false;
+    return draft.name !== selected.name
+      || JSON.stringify(draft.config) !== JSON.stringify(sanitizeSceneConfig(selected.config));
+  }, [selected, draft]);
+  const confirmDiscard = useCallback(() => dirty ? window.confirm("You have unsaved changes to this scene. Discard them?") : true, [dirty]);
 
   useEffect(() => {
     if (!open) return;
@@ -89,6 +100,9 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
 
   const remove = useCallback(async () => {
     if (!selected || selected.isBuiltIn) return;
+    // Two-step: a church-wide, permanent delete must never be one mis-click.
+    if (!confirmDelete) { setConfirmDelete(true); setTimeout(() => setConfirmDelete(false), 4000); return; }
+    setConfirmDelete(false);
     setBusy(true);
     const res = await deleteScene(selected.id);
     setBusy(false);
@@ -100,14 +114,34 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
     announce(); void refresh();
   }, [selected, ctx, refresh]);
 
-  const makeLive = useCallback(() => {
+  const makeLive = useCallback(async () => {
     if (!selected || !draft) return;
+    // Save first when there are unsaved edits, so what goes live is what is
+    // stored — otherwise the rail would quietly revert it moments later.
+    if (dirty) {
+      setBusy(true);
+      const res = await updateScene(selected.id, { name: draft.name, config: draft.config as unknown as Record<string, unknown> });
+      setBusy(false);
+      if (!res.ok) { toast.error(res.error); return; }
+      announce(); void refresh();
+    }
     ctx.onSetScene(sceneToWire({ id: selected.id, name: draft.name, config: draft.config }, { rev: Date.now(), resolveAppearance }));
     toast.success(`${draft.name} is live on every screen`);
-  }, [selected, draft, ctx, resolveAppearance]);
+  }, [selected, draft, ctx, resolveAppearance, dirty, refresh]);
+
+  const createNew = useCallback(async () => {
+    if (!confirmDiscard()) return;
+    setBusy(true);
+    const res = await createScene({ name: "New scene", config: { screens: {} } });
+    setBusy(false);
+    if (!res.ok) { toast.error(res.error); return; }
+    announce(); await refresh();
+    if (res.data?.id) setSelectedId(res.data.id);
+    toast.success("New scene created — tick or hide what each screen shows");
+  }, [confirmDiscard, refresh]);
 
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog.Root open={open} onOpenChange={(next) => { if (!next && confirmDiscard()) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[70]" style={{ background: "rgba(0,0,0,0.6)" }} />
         <Dialog.Content
@@ -120,7 +154,7 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
             <Dialog.Title className="text-[13px] font-semibold text-[var(--color-foreground)]">Scenes</Dialog.Title>
             <span className="text-[11px] text-[var(--color-muted-foreground)]">— choose what each screen shows</span>
             <button
-              onClick={onClose}
+              onClick={() => { if (confirmDiscard()) onClose(); }}
               className="ml-auto grid h-8 w-8 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:bg-white/[0.06] hover:text-[var(--color-foreground)]"
               aria-label="Close scenes"
             >
@@ -135,7 +169,7 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => setSelectedId(s.id)}
+                  onClick={() => { if (confirmDiscard()) setSelectedId(s.id); }}
                   className={`w-full text-left px-3 py-2 text-[12px] border-b truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)] ${selectedId === s.id ? "bg-[var(--color-brand)]/15 text-[var(--color-foreground)] font-semibold" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
                   style={{ borderColor: "var(--color-border)" }}
                 >
@@ -144,8 +178,18 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
                   {ctx.activeScene?.id === s.id && <span className="ml-1 text-[10px] text-[var(--color-brand)]">live</span>}
                 </button>
               ))}
-              {scenes.length === 0 && (
-                <p className="p-3 text-[11px] text-[var(--color-muted-foreground)]">No scenes yet.</p>
+              <button
+                type="button"
+                onClick={createNew}
+                disabled={busy}
+                className="w-full text-left px-3 py-2 text-[12px] font-medium text-[var(--color-brand)] hover:bg-[var(--color-brand)]/10 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)]"
+              >
+                + New scene
+              </button>
+              {custom.length === 0 && (
+                <p className="p-3 text-[11px] text-[var(--color-muted-foreground)]">
+                  Your church hasn&apos;t made any scenes yet. Pick one above and press Duplicate to start your own.
+                </p>
               )}
             </aside>
 
@@ -167,11 +211,16 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
                     {selected.isBuiltIn && <span className="text-[11px] text-[var(--color-muted-foreground)]">Built-in scenes can&apos;t be changed — use Duplicate.</span>}
                   </div>
 
+                  <p className="mb-2 flex items-center gap-3 text-[11px] text-[var(--color-muted-foreground)]">
+                    <span className="inline-flex items-center gap-1"><Check className="w-3.5 h-3.5 text-[var(--color-brand)]" aria-hidden /> shown as usual</span>
+                    <span className="inline-flex items-center gap-1"><EyeOff className="w-3.5 h-3.5" aria-hidden /> hidden on that screen</span>
+                    {dirty && <span className="ml-auto rounded px-1.5 py-0.5 bg-amber-500/15 text-amber-200 [html.light_&]:bg-amber-100 [html.light_&]:text-amber-900">Unsaved</span>}
+                  </p>
                   <table className="w-full text-[12px] border-collapse">
                     <caption className="sr-only">Which layers each screen shows</caption>
                     <thead>
                       <tr>
-                        <th scope="col" className="text-left font-medium text-[var(--color-muted-foreground)] p-2">Shows</th>
+                        <th scope="col" className="text-left font-medium text-[var(--color-muted-foreground)] p-2">Shows on…</th>
                         {SCENE_SCREENS.map((sc) => (
                           <th key={sc} scope="col" className="font-medium text-[var(--color-muted-foreground)] p-2">{SCENE_SCREEN_LABELS[sc]}</th>
                         ))}
@@ -191,9 +240,9 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
                                   aria-label={`${SCENE_LAYER_LABELS[layer]} on ${SCENE_SCREEN_LABELS[sc]}: ${shown ? "shown" : "hidden"}`}
                                   disabled={selected.isBuiltIn}
                                   onClick={() => setDraft({ ...draft, config: toggle(draft.config, sc, layer) })}
-                                  className={`h-8 w-8 grid place-items-center rounded-md border disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)] ${shown ? "bg-[var(--color-brand)]/20 border-[var(--color-brand)] text-[var(--color-foreground)]" : "border-[var(--color-border)] text-[var(--color-muted-foreground)]"}`}
+                                  className={`h-10 w-10 grid place-items-center rounded-md border disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)] ${shown ? "bg-[var(--color-brand)]/20 border-[var(--color-brand)] text-[var(--color-foreground)]" : "bg-[var(--color-destructive)]/10 border-[var(--color-destructive)]/40 text-[var(--color-muted-foreground)]"}`}
                                 >
-                                  {shown ? <Check className="w-4 h-4" aria-hidden /> : <span aria-hidden>—</span>}
+                                  {shown ? <Check className="w-4 h-4" aria-hidden /> : <EyeOff className="w-4 h-4" aria-hidden />}
                                 </button>
                               </td>
                             );
@@ -233,9 +282,19 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
           <footer className="h-12 shrink-0 flex items-center gap-2 px-4 border-t" style={{ borderColor: "var(--color-border)", background: "var(--color-elevated)" }}>
             <button
               type="button"
-              onClick={makeLive}
+              onClick={save}
+              disabled={!selected || selected.isBuiltIn || busy || !dirty}
+              className="h-9 px-3 rounded-md text-[12px] font-semibold bg-[var(--color-brand)] text-white disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => { void makeLive(); }}
               disabled={!selected || busy}
-              className="h-8 px-3 rounded-md text-[12px] font-semibold bg-[var(--color-brand)] text-white disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+              className="h-9 px-3 rounded-md border text-[12px] font-medium text-[var(--color-foreground)] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+              style={{ borderColor: "var(--color-border)" }}
+              title="Show this scene on every screen now"
             >
               Make live
             </button>
@@ -243,28 +302,21 @@ export function SceneBuilderModal({ ctx, open, onClose }: { ctx: OperatorShellCt
               type="button"
               onClick={clone}
               disabled={!draft || busy}
-              className="h-8 px-3 inline-flex items-center gap-1 rounded-md border text-[12px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-50"
+              className="h-9 px-3 inline-flex items-center gap-1 rounded-md border text-[12px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
               style={{ borderColor: "var(--color-border)" }}
             >
               <Copy className="w-3.5 h-3.5" aria-hidden /> Duplicate
             </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={!selected || selected.isBuiltIn || busy}
-              className="h-8 px-3 rounded-md border text-[12px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-50"
-              style={{ borderColor: "var(--color-border)" }}
-            >
-              Save
-            </button>
+
             <button
               type="button"
               onClick={remove}
               disabled={!selected || selected.isBuiltIn || busy}
-              className="ml-auto h-8 px-3 inline-flex items-center gap-1 rounded-md border text-[12px] text-[var(--color-destructive)] disabled:opacity-50"
-              style={{ borderColor: "var(--color-border)" }}
+              className={`ml-auto h-9 px-3 inline-flex items-center gap-1 rounded-md border text-[12px] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-destructive)] ${confirmDelete ? "bg-[var(--color-destructive)] text-white border-transparent" : "text-[var(--color-destructive)] [html.light_&]:text-[#c62828]"}`}
+              style={confirmDelete ? undefined : { borderColor: "var(--color-border)" }}
+              title="Deleting removes this scene for everyone in your church"
             >
-              <Trash2 className="w-3.5 h-3.5" aria-hidden /> Delete
+              <Trash2 className="w-3.5 h-3.5" aria-hidden /> {confirmDelete ? "Tap again to delete for everyone" : "Delete"}
             </button>
           </footer>
         </Dialog.Content>
@@ -281,6 +333,6 @@ export function SceneBuilderHost({ ctx }: { ctx: OperatorShellCtx }) {
     window.addEventListener(SCENE_BUILDER_EVENT, on);
     return () => window.removeEventListener(SCENE_BUILDER_EVENT, on);
   }, []);
-  if (!ctx.scenesUiOn) return null;
-  return <SceneBuilderModal ctx={ctx} open={open} onClose={() => setOpen(false)} />;
+  if (!ctx.scenesUiOn || !open) return null; // lazy: no duplicate scene/theme fetches while closed
+  return <SceneBuilderModal ctx={ctx} open onClose={() => setOpen(false)} />;
 }

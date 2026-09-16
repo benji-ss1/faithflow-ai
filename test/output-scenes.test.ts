@@ -136,6 +136,18 @@ async function main() {
     assert.deepEqual(layerOpacities(undefined, null), {});
   });
 
+  check("scene opacity NEVER beats an operator override for that layer", () => {
+    // An override that exists but writes no opacity (i.e. full brightness) must
+    // still win: without the map.has() guard the scene's dimming survived.
+    const fullBright: LayerWire[] = [{ id: "background", kind: "background", z: 0, enabled: true }];
+    assert.deepEqual(layerOpacities(fullBright, { opacity: { background: 0.2 } }), {},
+      "operator's full-brightness override beats the scene's dim");
+    const camOverride: LayerWire[] = [{ id: "camera", kind: "camera", z: 5, enabled: true }];
+    assert.deepEqual(layerOpacities(camOverride, { opacity: { camera: 0.3 } }), {});
+    // With no override for that id the scene's value applies.
+    assert.deepEqual(layerOpacities([], { opacity: { background: 0.2 } }), { background: 0.2 });
+  });
+
   check("a hidden-words scene still yields a renderable plan (never a crash/blank-state)", () => {
     for (const mode of modes) {
       const plan = resolveLayeredPlan({ ...base, mode } as PlanInput, [], { layers: { slide: false, background: false } });

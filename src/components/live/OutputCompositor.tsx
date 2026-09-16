@@ -26,7 +26,7 @@
  * `planOutput()` is exported and unit-tested (test/output-compositor.test.ts) as
  * the golden record of the precedence rules.
  */
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { SlideRenderer } from "./SlideRenderer";
 import { OutputSlide } from "./OutputSlide";
 import { TransitionWrapper } from "./TransitionWrapper";
@@ -134,6 +134,20 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // undefined ⇒ every code path below behaves exactly as it did pre-Scenes
   // (parity locked by test/output-scenes.test.ts across the same ≥96 fixtures).
   const mask = screen ? maskFor(scene, screen) : undefined;
+  // REMOUNT LATCH (review 🔴, 2026-09-16). The opacity wrapper below changes the
+  // element type+key of every layer, so a boolean that FLIPS at runtime would
+  // unmount/remount the whole layer stack on each scene switch — replaying the
+  // enter transition on a held verse (the 2026-08-19 fade-pulse this repo
+  // explicitly forbids, CLAUDE.md rule 7), restarting shader/video backgrounds,
+  // and re-acquiring the camera (~200-800ms of black). So the latch is
+  // MONOTONIC: once ANY scene has been seen on this surface it stays on for the
+  // life of the window, and it keys on the SCENE being present at all (not on
+  // whether THIS screen is routed), so switching between scenes that route
+  // different screens never flips it. A church that never uses a scene keeps the
+  // byte-identical legacy DOM (no wrapper at all).
+  const sceneSeenRef = useRef(false);
+  if (scene) sceneSeenRef.current = true;
+  const wrapLayers = !!layersEnabled || sceneSeenRef.current;
   // Per-screen theme override. Resolved operator-side into a wire appearance, so
   // here it is a straight substitution — and because the local name shadows the
   // prop, every downstream renderer picks it up with no further plumbing.
@@ -169,7 +183,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
     // change — a future opacity slider can never remount the camera/slide (which
     // would drop the video element / restart a transition). The flag-OFF legacy
     // path stays byte-identical (no wrapper at all), preserving 96-fixture parity.
-    if (layersEnabled || sceneActive) {
+    if (wrapLayers) {
       const op = opacities[layer.id] ?? 1;
       return (
         <div key={`op-${layer.id}`} className="absolute inset-0" style={{ opacity: op }}>

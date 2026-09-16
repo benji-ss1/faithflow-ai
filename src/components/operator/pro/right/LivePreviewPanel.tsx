@@ -227,8 +227,11 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             layersEnabled
             layerOverrides={ctx.liveLayers.overrides}
             previewFrozen
+            scene={ctx.activeScene}
+            screen="main"
           />
         ) : (
+          /* Scenes: mirror the projector's routing in the legacy preview too. */
           <PresentationCanvas zone={ctx.zone}>
             {/* WYSIWYG: show the active background behind the slide, exactly like
                 the projector (slide goes transparent via overVideo). */}

@@ -25,10 +25,10 @@ import type { ThemeAppearance } from "./broadcast";
 export type SceneScreen = "main" | "stage" | "livestream" | "ndi";
 export const SCENE_SCREENS: SceneScreen[] = ["main", "stage", "livestream", "ndi"];
 export const SCENE_SCREEN_LABELS: Record<SceneScreen, string> = {
-  main: "Main",
+  main: "Projector",
   stage: "Stage",
-  livestream: "Stream",
-  ndi: "NDI",
+  livestream: "Livestream",
+  ndi: "NDI feed",
 };
 
 /**

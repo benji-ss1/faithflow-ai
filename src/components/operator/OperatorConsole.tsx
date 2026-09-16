@@ -2210,6 +2210,9 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       appearance: effectiveAppearance,
       videoInput,
       zone: activeZone,
+      // Scenes: the cold path (nothing live yet) must not drop the active scene,
+      // or a lower third sent first would knock every screen back to un-routed.
+      ...(activeScene ? { scene: activeScene } : {}),
     };
     const nextLt = (line1 || line2) ? { line1, line2 } : null;
     // Hold it against the CURRENT live slide so later emits of that same slide
@@ -2227,7 +2230,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     lastOutputStateRef.current = state;
     publishObsPreviewState(state); // after the projector + remote posts
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, activeScene]);
   // Actually CLEAR the lower third on the projector (was a placeholder toast
   // that left it on screen — a real live hazard). Reuses the working send path
   // with empty lines, which broadcasts lowerThird:null and toasts "cleared".
