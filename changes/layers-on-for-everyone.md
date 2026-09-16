@@ -1,7 +1,7 @@
 ---
 headline: Layers is now on for every church
 audience: operator
-version: 0.1.421
+version: 0.1.422
 date: 2026-09-16
 highlights:
   - The strip on the right of the operator screen is now on for everyone, so you can hide the words, background, camera or logo one at a time.

@@ -4,12 +4,19 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.421",
+    "version": "0.1.422",
     "date": "2026-09-16",
     "headline": "Layers is now on for every church",
     "highlights": [
       "The strip on the right of the operator screen is now on for everyone, so you can hide the words, background, camera or logo one at a time.",
-      "Church admins can turn Layers off in Settings if they don't want it.",
+      "Church admins can turn Layers off in Settings if they don't want it."
+    ]
+  },
+  {
+    "version": "0.1.421",
+    "date": "2026-09-16",
+    "headline": "Sarah now shows you around the real app",
+    "highlights": [
       "When it's time to pick your input, Sarah lights up the real Audio panel and coaches you through it, so you learn where it lives.",
       "For your first verse, the spotlight glides to the AI switch and then to the live preview, so you watch it land exactly where your congregation will see it.",
       "Sarah notices what's going on as you work, for example \"I can see your NDI source\", or \"no NDI sources, so check both computers are on the same wired network\".",
