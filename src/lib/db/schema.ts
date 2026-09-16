@@ -772,6 +772,20 @@ export const betaApplications = pgTable("beta_applications", {
   index("idx_beta_applications_created").on(t.createdAt),
 ]);
 
+// Sarah audio setup (2026-09-15) — per-church audio setup profile: what the
+// church told Sarah (desk, OS, connection), which application it was confirmed
+// against, corrections, and connection routes that FAILED (so they're skipped
+// next time). Separate table on purpose: church_preferences is select-all'd on
+// hot paths. docs/migrations/2026-09-15-add-church-audio-profiles.sql
+export const churchAudioProfiles = pgTable("church_audio_profiles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull().unique(),
+  profile: jsonb("profile").notNull().default({}),
+  confirmedApplicationId: uuid("confirmed_application_id"),
+  updatedByUserId: uuid("updated_by_user_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // OpenFlow conversations (Increment A2) — church-scoped chat history for the
 // in-app assistant. Messages are stored as a JSONB array on the row (a
 // conversation is small + always read whole, so no separate messages table /
