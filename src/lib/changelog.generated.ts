@@ -4,13 +4,22 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.429",
+    "version": "0.1.430",
     "date": "2026-09-16",
     "headline": "Songs, media, imports and your team now open inside the desktop app",
     "highlights": [
       "In Settings, Song library and song imports now open the Songs browser in the app, not your web browser.",
       "Media library opens the Media browser in the app.",
       "Church admins can invite people, change roles and remove members right in Settings, under Team & Church."
+    ]
+  },
+  {
+    "version": "0.1.429",
+    "date": "2026-09-16",
+    "headline": "Only people who run services can change the default theme",
+    "highlights": [
+      "Applying a theme as the church default now needs a role that can run services (admin, operator or volunteer).",
+      "Pastor and viewer accounts can still see themes but can no longer change the default."
     ]
   },
   {
