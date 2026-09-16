@@ -827,27 +827,7 @@ app.whenReady().then(async () => {
     }
   };
 
-  // Windows NDI builds are compiled by hand on a machine with the license-gated
-  // NDI SDK; the CI Windows installer has no NDI addon. Auto-updating a local
-  // NDI build would silently replace it with a CI build and NDI would vanish, so
-  // skip the updater when either bundled NDI addon is present (win32 only —
-  // the macOS DMG also bundles the addon and keeps its existing update path).
-  const isLocalWindowsNdiBuild = (): boolean => {
-    if (process.platform !== "win32" || !app.isPackaged) return false;
-    try {
-      const native = path.join(process.resourcesPath, "native");
-      return (
-        fs.existsSync(path.join(native, "ndi-receiver", "build", "Release", "ndi_receiver.node")) ||
-        fs.existsSync(path.join(native, "ndi-sender", "build", "Release", "ndi_sender.node"))
-      );
-    } catch {
-      return false;
-    }
-  };
-
-  if (isLocalWindowsNdiBuild()) {
-    console.log("[updater] skipped: local Windows NDI build (CI installer lacks NDI). Reinstall a newer NDI build manually.");
-  } else if (app.isPackaged && isCurrentAppSigned()) {
+  if (app.isPackaged && isCurrentAppSigned()) {
     try {
       autoUpdater.autoDownload = true;
       autoUpdater.autoInstallOnAppQuit = true;
