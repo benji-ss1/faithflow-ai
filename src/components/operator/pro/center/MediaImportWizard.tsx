@@ -539,7 +539,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                   htmlFor="media-import-input"
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
-                  onDrop={(e) => { e.preventDefault(); setDragOver(false); enqueueFiles(Array.from(e.dataTransfer.files)); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); enqueueFiles(Array.from(e.dataTransfer.files)); }}
                   className={cn(
                     "flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed px-6 py-14 text-center cursor-pointer transition-colors",
                     dragOver

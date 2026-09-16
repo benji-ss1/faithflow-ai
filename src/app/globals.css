@@ -727,6 +727,7 @@ html[data-platform="win"] aside[data-tour="right"] { overflow-x: hidden; }
 @keyframes pfBinCheck { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
 .pf-bin-check { animation: pfBinCheck 180ms cubic-bezier(.34,1.56,.64,1) both; }
 @keyframes pfBinShake { 0%,100% { transform: none; } 20%,60% { transform: translateX(-3px); } 40%,80% { transform: translateX(3px); } }
+.pf-bin-tile-failed { border-color: color-mix(in oklab, var(--color-destructive) 75%, #000); }
 .pf-bin-tile-shake { animation: pfBinShake 240ms ease-in-out 1; }
 @media (prefers-reduced-motion: reduce) {
   .pf-bin-drop, .pf-bin-ring, .pf-bin-tile-media { transition: none; }

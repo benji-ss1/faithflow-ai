@@ -42,12 +42,10 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isImageAsset } from "@/lib/media-drop";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
-import { MediaImportWizard, uploadMediaFile } from "../center/MediaImportWizard";
-import {
-  isOsFileDrag, classifyDroppedFile, collectDroppedFiles, skippedSummary,
-  MEDIA_BIN_UPLOAD_CONCURRENCY, type DroppedFileRoute,
-} from "@/lib/media-bin-drop";
+import { MediaImportWizard } from "../center/MediaImportWizard";
+import { isOsFileDrag, collectDroppedFiles, isFileInputTarget } from "@/lib/media-bin-drop";
 import { isRealDragLeave } from "@/lib/spring-load";
+import { MediaBinUploadQueue, type MediaBinUploadQueueHandle } from "./MediaBinUploadQueue";
 import { MediaImageEditor } from "../center/MediaImageEditor";
 import { Pencil } from "lucide-react";
 
@@ -58,18 +56,6 @@ type Asset = {
   url?: string | null;
   thumbUrl?: string | null;
   mediaKey?: string | null;
-};
-
-// An OS-dropped image/video uploading inline in the bin (placeholder tile).
-type PendingUpload = {
-  key: string;
-  file: File;
-  contentType: string;
-  isVideo: boolean;
-  previewUrl: string | null;
-  progress: number; // 0..1
-  status: "queued" | "uploading" | "done" | "error";
-  error?: string;
 };
 
 // Popped-out preset height (used when the operator taps the pop-out button
@@ -117,11 +103,9 @@ export function MediaBinSection({
   const vidInputRef = useRef<HTMLInputElement>(null);
   // ── OS file drop (Finder / Explorer → bin) ──────────────────────────────────
   const [fileDragOver, setFileDragOver] = useState(false);
-  const [pending, setPending] = useState<PendingUpload[]>([]);
-  const pendingRef = useRef<PendingUpload[]>([]);
-  pendingRef.current = pending;
-  const activeUploadsRef = useRef(0);
-  const uploadedSinceRefreshRef = useRef(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const queueRef = useRef<MediaBinUploadQueueHandle>(null);
+  const dragClearTimerRef = useRef<number | null>(null);
   // Defer a single-click (open full library) so a double-click (quick preview)
   // cancels it — otherwise the first click of a dblclick navigates away first.
   const clickTimerRef = useRef<number | null>(null);
@@ -259,98 +243,27 @@ export function MediaBinSection({
   // ── OS file drop ─────────────────────────────────────────────────────────────
   // Only REAL OS files are handled here; in-app drags (media tiles, library
   // items, slides) never match isOsFileDrag, so every existing drop target keeps
-  // working exactly as before.
-  const patchPending = useCallback((key: string, patch: Partial<PendingUpload>) => {
-    setPending((prev) => prev.map((p) => (p.key === key ? { ...p, ...patch } : p)));
+  // working exactly as before. Uploads/progress live in MediaBinUploadQueue so
+  // progress never re-renders this (large) component.
+
+  // Post-upload refresh that NEVER blanks the bin on a failed fetch (unlike the
+  // general `load`, whose behaviour is left untouched).
+  const refreshAfterUpload = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/media/list", { cache: "no-store" });
+      if (!res.ok) return false;
+      const json = await res.json();
+      if (!Array.isArray(json?.assets)) return false;
+      setAssets(json.assets);
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
-
-  const pump = useCallback(() => {
-    while (activeUploadsRef.current < MEDIA_BIN_UPLOAD_CONCURRENCY) {
-      const next = pendingRef.current.find((p) => p.status === "queued");
-      if (!next) break;
-      activeUploadsRef.current++;
-      next.status = "uploading"; // claim synchronously so the loop can't double-start it
-      patchPending(next.key, { status: "uploading", progress: 0, error: undefined });
-      let lastPaint = 0;
-      void uploadMediaFile(next.file, undefined, undefined, {
-        contentType: next.contentType,
-        onProgress: (fr) => {
-          const now = performance.now();
-          if (now - lastPaint < 100 && fr < 1) return; // ≤10 paints/s per tile
-          lastPaint = now;
-          patchPending(next.key, { progress: fr });
-        },
-      })
-        .then(() => {
-          uploadedSinceRefreshRef.current = true;
-          patchPending(next.key, { status: "done", progress: 1 });
-        })
-        .catch((err: unknown) => {
-          patchPending(next.key, { status: "error", error: err instanceof Error ? err.message : "Upload failed" });
-        })
-        .finally(() => {
-          activeUploadsRef.current--;
-          const stillBusy = pendingRef.current.some((p) => p.key !== next.key && (p.status === "queued" || p.status === "uploading"));
-          if (!stillBusy && uploadedSinceRefreshRef.current) {
-            uploadedSinceRefreshRef.current = false;
-            // Swap placeholders for real tiles only AFTER the refreshed list is in
-            // (no gap/flicker), with a short beat so the check mark reads.
-            void Promise.all([load(), new Promise((r) => window.setTimeout(r, 700))]).then(() => {
-              setPending((prev) => {
-                for (const p of prev) if (p.status === "done" && p.previewUrl) URL.revokeObjectURL(p.previewUrl);
-                return prev.filter((p) => p.status !== "done");
-              });
-            });
-            window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
-          }
-          pump();
-        });
-    }
-  }, [patchPending, load]);
-
-  useEffect(() => { if (pending.some((p) => p.status === "queued")) pump(); }, [pending, pump]);
-
-  // Revoke any preview object URLs on unmount.
-  useEffect(() => () => { for (const p of pendingRef.current) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl); }, []);
-
-  const retryUpload = (key: string) => patchPending(key, { status: "queued", progress: 0, error: undefined });
-  const dismissUpload = (key: string) => setPending((prev) => {
-    const hit = prev.find((p) => p.key === key);
-    if (hit?.previewUrl) URL.revokeObjectURL(hit.previewUrl);
-    return prev.filter((p) => p.key !== key);
-  });
-
-  const importDroppedFiles = (files: File[]) => {
-    const inline: PendingUpload[] = [];
-    const wizard: File[] = [];
-    const skipped: Array<{ name: string; route: DroppedFileRoute["route"] }> = [];
-    const existing = new Set(pendingRef.current.filter((p) => p.status !== "done").map((p) => p.key));
-    for (const file of files) {
-      const r = classifyDroppedFile(file);
-      if (r.route === "image" || r.route === "video") {
-        const key = `${file.name}:${file.size}:${file.lastModified}`;
-        if (existing.has(key)) continue; // same file already queued in this bin
-        existing.add(key);
-        inline.push({
-          key, file, contentType: r.contentType, isVideo: r.route === "video",
-          previewUrl: URL.createObjectURL(file), progress: 0, status: "queued",
-        });
-      } else if (r.route === "deck" || r.route === "pro") {
-        wizard.push(file);
-      } else {
-        skipped.push({ name: file.name, route: r.route });
-      }
-    }
-    const summary = skippedSummary(skipped);
-    if (summary) toast.error(summary, { duration: 7000 });
-    if (inline.length > 0) setPending((prev) => [...inline, ...prev]);
-    // Decks / ProPresenter → the existing wizard pipeline (fresh array each drop).
-    if (wizard.length > 0) {
-      setWizardFiles([...wizard]);
-      setWizardOpen(true);
-    }
-    if (inline.length === 0 && wizard.length === 0 && !summary) toast.error("Nothing to import from that drop");
-  };
+  const openWizardWith = useCallback((files: File[]) => {
+    setWizardFiles(files);
+    setWizardOpen(true);
+  }, []);
 
   // Guard so a burst of dragenter events (children) can't toggle open→closed.
   const springOpenedRef = useRef(false);
@@ -360,49 +273,76 @@ export function MediaBinSection({
     springOpenedRef.current = true;
     onToggle();
   };
+  // A drag event belongs to the bin only if its DOM target is really inside the
+  // section. React bubbles events out of PORTALS (the import wizard / image
+  // editor dialogs render inside this component), so without this a drop on
+  // the wizard's own drop zone would be imported twice.
+  const ownsDragEvent = (e: React.DragEvent) =>
+    isOsFileDrag(e.dataTransfer?.types) && (e.currentTarget as HTMLElement).contains(e.target as Node);
+  const armOverlay = () => {
+    setFileDragOver(true);
+    // Fallback: an OS drag cancelled with Esc may never send dragleave/drop.
+    if (dragClearTimerRef.current) window.clearTimeout(dragClearTimerRef.current);
+    dragClearTimerRef.current = window.setTimeout(() => setFileDragOver(false), 1500);
+  };
   const onBinDragEnter = (e: React.DragEvent) => {
-    if (!isOsFileDrag(e.dataTransfer?.types)) return;
+    if (!ownsDragEvent(e)) return;
     e.preventDefault();
     springOpen(); // collapsed bin springs open for a file drag
-    setFileDragOver(true);
+    armOverlay();
   };
   const onBinDragOver = (e: React.DragEvent) => {
-    if (!isOsFileDrag(e.dataTransfer?.types)) return;
+    if (!ownsDragEvent(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-    if (!fileDragOver) setFileDragOver(true);
+    armOverlay();
   };
   const onBinDragLeave = (e: React.DragEvent) => {
-    if (!fileDragOver) return;
     if (!isRealDragLeave(e.currentTarget as HTMLElement, e.relatedTarget)) return;
     setFileDragOver(false);
   };
   const onBinDrop = (e: React.DragEvent) => {
-    if (!isOsFileDrag(e.dataTransfer?.types)) return;
+    if (!ownsDragEvent(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setFileDragOver(false);
     springOpen();
     // Entries must be read synchronously from the live DataTransfer.
-    void collectDroppedFiles(e.dataTransfer).then(importDroppedFiles).catch(() => toast.error("Couldn't read the dropped files"));
+    void collectDroppedFiles(e.dataTransfer)
+      .then(({ files, truncated }) => queueRef.current?.importFiles(files, { truncated }))
+      .catch(() => toast.error("Couldn't read the dropped files"));
   };
 
   // Safety net: a file dropped anywhere that ISN'T a drop target must not make
   // the page (or the desktop shell) navigate to / open the file. Only OS-file
-  // drags are touched; handlers that already accepted the drop run first
-  // (bubble phase) and in-app drags are ignored entirely.
+  // drags are touched; element drop handlers run first (bubble phase) and mark
+  // the event handled; native <input type=file> drops are left alone.
   useEffect(() => {
-    const guard = (e: DragEvent) => { if (isOsFileDrag(e.dataTransfer ? Array.from(e.dataTransfer.types) : null)) e.preventDefault(); };
+    const onOver = (e: DragEvent) => {
+      if (!isOsFileDrag(e.dataTransfer ? Array.from(e.dataTransfer.types) : null)) return;
+      if (isFileInputTarget(e.target)) return;
+      e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      setFileDragOver(false);
+      if (!isOsFileDrag(e.dataTransfer ? Array.from(e.dataTransfer.types) : null)) return;
+      if (isFileInputTarget(e.target)) return;
+      if (e.defaultPrevented) return; // a real drop target handled it
+      e.preventDefault();
+      toast.info("Drop files on the Media Bin to upload them", { id: "pf-stray-file-drop" });
+    };
+    const onLeaveWindow = (e: DragEvent) => { if (!e.relatedTarget) setFileDragOver(false); };
     const clear = () => setFileDragOver(false);
-    window.addEventListener("dragover", guard);
-    window.addEventListener("drop", guard);
-    window.addEventListener("drop", clear);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("drop", onDrop);
+    window.addEventListener("dragleave", onLeaveWindow);
     window.addEventListener("dragend", clear);
     return () => {
-      window.removeEventListener("dragover", guard);
-      window.removeEventListener("drop", guard);
-      window.removeEventListener("drop", clear);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("drop", onDrop);
+      window.removeEventListener("dragleave", onLeaveWindow);
       window.removeEventListener("dragend", clear);
+      if (dragClearTimerRef.current) window.clearTimeout(dragClearTimerRef.current);
     };
   }, []);
 
@@ -439,7 +379,6 @@ export function MediaBinSection({
     window.addEventListener("pointerup", onUp);
   };
 
-  const uploadingCount = pending.filter((p) => p.status === "queued" || p.status === "uploading").length;
   const count = assets?.length ?? 0;
   const GRID_CAP = 60;
   const shown = assets ? assets.slice(0, GRID_CAP) : [];
@@ -485,7 +424,7 @@ export function MediaBinSection({
       <header className="flex items-center h-8 px-2.5 gap-1 bg-[linear-gradient(180deg,var(--color-panel),transparent)] shrink-0">
         <button type="button" className="flex items-center gap-1 shrink-0 text-left" onClick={onToggle}>
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <span className="eyebrow">Media Bin</span>
+          <span className="eyebrow" title="Media Bin — drag files here from Finder or File Explorer to upload">Media Bin</span>
           {assets !== null && (
             <span className="ml-1.5 min-w-[16px] h-[15px] px-1 grid place-items-center rounded-full bg-[var(--color-brand)]/16 text-[var(--color-brand)] text-[9px] font-mono font-bold tabular-nums">{count}</span>
           )}
@@ -542,12 +481,23 @@ export function MediaBinSection({
         </button>
       </header>
 
+      {/* Upload queue stays MOUNTED while collapsed so uploads keep going. */}
+      <div className={open ? undefined : "hidden"}>
+        <MediaBinUploadQueue
+          ref={queueRef}
+          refresh={refreshAfterUpload}
+          onOpenWizard={openWizardWith}
+          onActiveCountChange={setUploadingCount}
+          live={!!ctx?.liveSlide}
+          thumbMin={thumbMin}
+        />
+      </div>
       {open && (
         <div className="overflow-y-auto p-2" style={{ height: effH }}>
           {assets === null && (
             <div className="text-[11px] text-[var(--color-muted-foreground)] opacity-60 px-1 py-2">Loading media…</div>
           )}
-          {assets !== null && assets.length === 0 && pending.length === 0 && (
+          {assets !== null && assets.length === 0 && uploadingCount === 0 && (
             <div className="flex flex-col items-start gap-1.5 px-1 py-2">
               <span className="text-[11px] text-[var(--color-muted-foreground)]">No media yet.</span>
               <button
@@ -556,14 +506,11 @@ export function MediaBinSection({
               >
                 <Upload className="w-3 h-3" /> Upload your first image or video
               </button>
-              <span className="text-[10px] text-[var(--color-muted-foreground)] opacity-70">…or drag files here from Finder / Explorer (images, video, PowerPoint, PDF)</span>
+              <span className="text-[10px] text-[var(--color-muted-foreground)] opacity-70">…or drag files here from Finder or File Explorer (images, video, PowerPoint, PDF)</span>
             </div>
           )}
-          {(pending.length > 0 || (assets && assets.length > 0)) && (
+          {assets && assets.length > 0 && (
             <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbMin}px, 1fr))` }}>
-              {pending.map((p, i) => (
-                <PendingTile key={p.key} item={p} index={i} onRetry={() => retryUpload(p.key)} onDismiss={() => dismissUpload(p.key)} />
-              ))}
               {shown.map((a) => {
                 const isVideo = (a.kind || "").startsWith("video");
                 return (
@@ -703,47 +650,6 @@ export function MediaBinSection({
         />
       )}
     </section>
-  );
-}
-
-// ── Inline upload placeholder tile (OS drop) ─────────────────────────────────
-function PendingTile({ item, index, onRetry, onDismiss }: { item: PendingUpload; index: number; onRetry: () => void; onDismiss: () => void }) {
-  const R = 7, C = 2 * Math.PI * R;
-  const failed = item.status === "error";
-  return (
-    <div
-      className={cn("pf-bin-tile-in relative aspect-video rounded-md overflow-hidden bg-black border", failed ? "pf-bin-tile-shake border-[var(--color-destructive)]" : "border-[var(--color-border)]")}
-      style={{ ["--i" as string]: Math.min(index, 6) }}
-      title={failed ? `${item.file.name} — ${item.error}` : `Uploading ${item.file.name}`}
-    >
-      {item.previewUrl && (item.isVideo ? (
-        // eslint-disable-next-line jsx-a11y/media-has-caption
-        <video src={item.previewUrl} muted preload="metadata" className="pf-bin-tile-media w-full h-full object-cover pointer-events-none" data-ready={item.status === "done" ? "" : undefined} />
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.previewUrl} alt="" className="pf-bin-tile-media w-full h-full object-cover pointer-events-none" data-ready={item.status === "done" ? "" : undefined} />
-      ))}
-      {(item.status === "queued" || item.status === "uploading") && <div className="pf-bin-shimmer" aria-hidden />}
-      <div className="absolute inset-0 grid place-items-center">
-        {item.status === "done" ? (
-          <CheckCircle2 className="pf-bin-check w-5 h-5 text-[var(--color-brand)] drop-shadow" />
-        ) : failed ? (
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={onRetry} aria-label={`Retry ${item.file.name}`} title="Retry" className="grid h-6 w-6 place-items-center rounded-full bg-black/70 text-white hover:bg-black/90"><RotateCw className="w-3 h-3" /></button>
-            <button type="button" onClick={onDismiss} aria-label={`Dismiss ${item.file.name}`} title="Dismiss" className="grid h-6 w-6 place-items-center rounded-full bg-black/70 text-white hover:bg-black/90"><X className="w-3 h-3" /></button>
-          </div>
-        ) : (
-          <svg width="20" height="20" viewBox="0 0 20 20" className="drop-shadow" aria-hidden>
-            <circle cx="10" cy="10" r={R} fill="rgba(0,0,0,.55)" stroke="rgba(255,255,255,.25)" strokeWidth="2" />
-            <circle cx="10" cy="10" r={R} fill="none" stroke="var(--color-brand)" strokeWidth="2" strokeLinecap="round"
-              strokeDasharray={C} strokeDashoffset={C * (1 - Math.max(0.04, item.progress))} transform="rotate(-90 10 10)" className="pf-bin-ring" />
-          </svg>
-        )}
-      </div>
-      <span className="absolute left-0 right-0 bottom-0 px-1 py-0.5 truncate text-[9px] text-white/85 bg-gradient-to-t from-black/70 to-transparent">
-        {failed ? "Failed — retry?" : item.file.name}
-      </span>
-    </div>
   );
 }
 
