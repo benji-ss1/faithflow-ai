@@ -33,6 +33,28 @@ function fitCacheKey(text: string, bw: number, bh: number, maxPx: number) {
   // Round box dims to nearest 4px so trivial resize jitter still cache-hits.
   return `${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${maxPx}|${text}`;
 }
+/**
+ * The operator's A−/A+ size choice applied to the auto-fitted size (2026-09-16).
+ *
+ * DEFAULT (scale 1.0) is the auto-fit: the largest size that fits the screen, so
+ * text is never cut off. The operator then has real freedom in BOTH directions,
+ * because every projector, room and screen is different:
+ *  - SMALLER (scale < 1): shrinks freely, with no readability floor — smaller text
+ *    can never be cut off, so there is nothing to protect them from.
+ *  - BIGGER (scale > 1): honoured even when it no longer fits. That is a
+ *    deliberate operator choice; the preview surfaces flag it ("text cut off")
+ *    so it is never silent, and the projector itself shows no badge.
+ * `bestAuto` must be the fit found with the UNSCALED ceiling, otherwise short
+ * text would be scaled twice (once by the raised ceiling, once here).
+ */
+export function resolveShownSize(bestAuto: number, scale: number, ceilBasePx: number): number {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  if (s <= 1) return Math.max(8, Math.round(bestAuto * s));
+  // Bigger: scale the fitted size, bounded by a scaled ceiling so a runaway value
+  // can't produce an absurd glyph size.
+  return Math.max(8, Math.min(Math.round(bestAuto * s), Math.round(ceilBasePx * s)));
+}
+
 function fitCacheGet(k: string): number | undefined { return fitCache.get(k); }
 function fitCacheDelete(k: string) { fitCache.delete(k); }
 /** Whether the page's web fonts have settled. Part of every fit-cache key: a size
@@ -181,6 +203,15 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   // long slide may still overflow. We tighten line-height (1.15 → 1.05)
   // and let the safe-area padding absorb the excess rather than shrink.
   const [tightLine, setTightLine] = useState(false);
+  // True when the operator deliberately sized text BIGGER than fits (A+ past the
+  // edge). The default auto-fit never sets this.
+  const [chosenOverflow, setChosenOverflow] = useState(false);
+  // The real output windows never show operator chrome — only previews do.
+  const [isOutputSurface, setIsOutputSurface] = useState(true);
+  useEffect(() => {
+    try { setIsOutputSurface(/^\/(live|stage|livestream|ndi)(\/|$)/.test(window.location.pathname)); }
+    catch { setIsOutputSurface(true); }
+  }, []);
   const [pad, setPad] = useState(4);
   const [pageIdx, setPageIdx] = useState(0);
   // TEMP debug (2026-08-15): surface what the fit actually measured so a tiny
@@ -286,7 +317,11 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // and NEVER clips out of frame. Guaranteed fit beats preferred size.
       const absMinPx = Math.max(14, Math.round(0.028 * containerH));
       const scale = fontScaleRef.current;
-      const ceilPx = Math.round(projectorCeilingPx(containerH) * Math.max(1, scale));
+      // The AUTO fit always searches with the base ceiling: it answers "what is the
+      // largest size that fits?", independent of the operator's A−/A+ choice, which
+      // is applied afterwards by resolveShownSize. (It used to search a raised
+      // ceiling, so A+ could never enlarge a slide that already filled the screen.)
+      const ceilPx = Math.round(projectorCeilingPx(containerH));
       // Projector line spacing tightened to 1.08 — measure + render use the SAME
       // value so the fit stays exact.
       t.style.lineHeight = "1.08";
@@ -352,13 +387,16 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       const tight = belowPref || stillOverflows;
       // A+ rides the raised ceiling (in ceilPx); A− multiplies down. Clamped to
       // the guaranteed-fit range so manual scale can never clip or vanish.
-      // Never display larger than the verified fit, and never force the display UP
-      // to absMinPx when the last-resort shrink went below it (that would re-clip).
-      const shown = Math.min(best, Math.max(Math.min(absMinPx, best), Math.min(ceilPx, Math.round(best * Math.min(1, scale)))));
+      // Default = the verified auto fit (never cut off). The operator's A−/A+ is
+      // applied on top: smaller is free, bigger is honoured even past the edge.
+      const shown = resolveShownSize(best, scale, ceilPx);
       lastFittedRef.current = best;
       if (AF_DEBUG) setAfDbg({ bw: Math.round(bw), bh: Math.round(bh), best });
       t.style.fontSize = `${shown}px`;
       t.style.lineHeight = tight ? "1.02" : "1.08";
+      // Only an operator choice to go BIGGER can overflow now. Flag it so the
+      // operator's preview can say so (never silent).
+      setChosenOverflow(scale > 1 && !(t.scrollWidth <= ebw + 1 && t.scrollHeight <= ebh + 1));
       setTightLine(tight);
       setSize(shown);
       return;
@@ -565,6 +603,19 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
         paddingRight: pad,
       }}
     >
+      {/* Operator-only notice: they chose a size bigger than the screen (A+ past
+          the edge). Never shown on the projector/stage/stream/NDI windows. */}
+      {projectorFit && chosenOverflow && !isOutputSurface && (
+        <span
+          // Sized in CANVAS pixels: this lives inside the 1920x1080 canvas, which the
+          // operator preview scales to ~18%, so 44px renders at a readable ~8px.
+          className="absolute z-30 rounded-lg font-semibold text-white bg-[color:var(--color-destructive,#e11d48)] pointer-events-none"
+          style={{ top: 16, right: 16, fontSize: 44, lineHeight: 1.1, padding: "8px 18px" }}
+          role="status"
+        >
+          Text cut off at this size
+        </span>
+      )}
       {AF_DEBUG && projectorFit && (
         <div style={{ position: "absolute", bottom: 4, left: 4, zIndex: 9999, background: "#0a84ff", color: "#fff", font: "700 13px monospace", padding: "2px 6px", borderRadius: 4, pointerEvents: "none" }}>
           AF box {afDbg.bw}×{afDbg.bh} fit={afDbg.best}px
