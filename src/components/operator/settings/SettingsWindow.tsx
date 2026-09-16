@@ -13,6 +13,9 @@
  * nothing that worked before was rewritten.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getLayersEngineSetting, setLayersEngineEnabled, getDesktopPreferences } from "@/lib/actions";
+import { SettingsForm } from "@/components/settings/SettingsForm";
+import { SignOutAllDevices } from "@/components/settings/SignOutAllDevices";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   X, Search, SlidersHorizontal, Monitor, Volume2, Cast, Radio, Palette, BookOpen,
@@ -57,7 +60,7 @@ const SECTIONS: Section[] = [
   { id: "bible", label: "Bible & Detection", group: "Service", icon: BookOpen, keywords: "scripture translation verse confidence auto approve detection kjv niv esv licence license store purchase" },
   { id: "songs", label: "Songs & Library", group: "Service", icon: Music, keywords: "lyrics library import propresenter easyworship ccli arrangement" },
   { id: "privacy", label: "Privacy & Transcripts", group: "Service", icon: Shield, keywords: "recording retention delete data sermon transcript gdpr storage" },
-  { id: "screens", label: "Screens & Outputs", group: "Output", icon: Monitor, keywords: "display projector stage audience resolution monitor blank identify" },
+  { id: "screens", label: "Screens & Outputs", group: "Output", icon: Monitor, keywords: "display projector stage audience resolution monitor blank identify layers clear lyrics hide" },
   { id: "stage", label: "Stage Display & Transitions", group: "Output", icon: MonitorSpeaker, keywords: "confidence monitor clock notes next slide fade dissolve cut speed" },
   { id: "audio", label: "Audio Input", group: "Output", icon: Volume2, keywords: "microphone mixer desk channel sarah wizard setup level meter interface dante blackmagic" },
   { id: "ndi", label: "NDI Output", group: "Output", icon: Cast, keywords: "network video obs stream send receive" },
@@ -90,6 +93,7 @@ const ROW_INDEX: { section: SectionId; label: string }[] = [
   { section: "privacy", label: "Sermon archive" },
   { section: "screens", label: "Configure output screens" },
   { section: "screens", label: "Paired devices" },
+  { section: "screens", label: "Layers (hide words, background, camera, logo)" },
   { section: "stage", label: "Stage display (clock, notes, next slide)" },
   { section: "stage", label: "Slide transitions" },
   { section: "audio", label: "Run Sarah's audio setup" },
@@ -140,7 +144,15 @@ function Row({ label, help, children }: { label: string; help?: string; children
 
 /** Opens in a NEW window on purpose: navigating the current one would tear down the
  *  live operator console (mic capture, output sync, the slide that is on screen). */
-function LinkRow({ label, help, href, cta = "Open" }: { label: string; help?: string; href: string; cta?: string }) {
+function LinkRow({ label, help, href, cta = "Open", onOpen }: { label: string; help?: string; href: string; cta?: string; onOpen?: () => void }) {
+  if (onOpen) {
+    return (
+      <Row label={label} help={help}>
+        <button type="button" onClick={onOpen}
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold bg-[var(--color-brand)] text-white hover:opacity-90">{cta}</button>
+      </Row>
+    );
+  }
   return (
     <Row label={label} help={help}>
       <a href={href} target="_blank" rel="noreferrer"
@@ -158,6 +170,69 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
       <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
     </button>
   );
+}
+
+/** Screen assignment lives in the operator's own Hardware → Screens panel (it has
+ *  the desktop display access) — open that instead of a browser page. */
+function openScreensPanel(close: () => void) {
+  close();
+  requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("presentflow:open-hardware", { detail: { panel: "screens" } })));
+}
+
+/** Layers on/off for the church (default ON, 2026-09-16). Anyone sees it; only a
+ *  church admin can change it (enforced server-side). */
+function LayersRow() {
+  const [state, setState] = useState<{ enabled: boolean; canEdit: boolean } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    getLayersEngineSetting()
+      .then((r) => { if (!live) return; if (r.ok && r.data) setState(r.data); else setMsg("Couldn't load this setting."); })
+      .catch(() => { if (live) setMsg("Couldn't load this setting."); });
+    return () => { live = false; };
+  }, []);
+  const change = async (next: boolean) => {
+    if (!state?.canEdit || busy) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await setLayersEngineEnabled(next);
+      if (!r.ok) { setMsg(r.error); return; }
+      setState({ ...state, enabled: next });
+      setMsg("Saved. Reload the app (Advanced → Reload and clear cache) to apply it on this computer.");
+    } catch { setMsg("Couldn't save. Check your connection and try again."); }
+    finally { setBusy(false); }
+  };
+  const help = "The strip on the right of the operator for hiding the words, background, camera or logo one at a time, and the X that clears the whole screen."
+    + (state && !state.canEdit ? " Only a church admin can change this." : "");
+  return (
+    <>
+      <Row label="Layers" help={help}>
+        {state
+          ? <span className={state.canEdit && !busy ? "" : "opacity-50 pointer-events-none"}><Toggle on={state.enabled} onChange={change} label="Layers" /></span>
+          : <span className="text-[12px] text-[var(--color-muted-foreground)]">Loading…</span>}
+      </Row>
+      {msg && <Row label="" help={msg} />}
+    </>
+  );
+}
+
+/** The church preferences form (translation, detection, auto-approve, transcript
+ *  retention…) rendered IN the desktop Settings window — the same component and
+ *  server actions as /settings, so nothing is duplicated. */
+function PreferencesInline() {
+  const [data, setData] = useState<Awaited<ReturnType<typeof getDesktopPreferences>> | null>(null);
+  useEffect(() => {
+    let live = true;
+    getDesktopPreferences().then((r) => { if (live) setData(r); }).catch(() => { if (live) setData({ ok: false, error: "Couldn't load settings." }); });
+    return () => { live = false; };
+  }, []);
+  if (!data) return <p className="text-[13px] text-[var(--color-muted-foreground)]">Loading…</p>;
+  if (!data.ok || !data.data) return <p className="text-[13px] text-[var(--color-muted-foreground)]">{data.ok ? "Couldn't load settings." : data.error}</p>;
+  return (<>
+    <p className="mb-3 text-[12.5px] text-[var(--color-muted-foreground)]">Changes save for your whole church. Some take effect after the app reloads (Advanced → Reload and clear cache).</p>
+    <SettingsForm display={data.data.display} prefs={data.data.prefs} translations={data.data.translations} previewTheme={false} />
+  </>);
 }
 
 /* ── sections that aren't just an existing tab ───────────────────────────── */
@@ -229,13 +304,14 @@ function AudioSection({ close }: { close: () => void }) {
   );
 }
 
-function ScreensSection() {
+function ScreensSection({ close }: { close: () => void }) {
   return (
     <>
       <SectionHead title="Screens & Outputs" description="Which display shows the projector, the stage screen and the livestream overlay." />
       <Card>
-        <LinkRow label="Configure output screens" help="Assign each connected display to Projector, Stage or Livestream. Needs the desktop app." href="/settings/screens" cta="Configure" />
+        <LinkRow label="Configure output screens" help="Assign each connected display to Projector, Stage or Livestream." href="/settings/screens" cta="Configure" onOpen={() => openScreensPanel(close)} />
         <LinkRow label="Paired devices" help="Phones, tablets and other computers showing your outputs." href="/settings/devices" />
+        <LayersRow />
         <Row label="Aspect ratio & safe-area guides" help="These are set live from the operator toolbar and the output inspector, so they always match what's on the projector." />
       </Card>
     </>
@@ -279,9 +355,7 @@ function BibleSection({ onUpgrade }: { onUpgrade: () => void }) {
   return (
     <>
       <SectionHead title="Bible & Detection" description="Translations, and how confident the AI must be before it projects anything." />
-      <div className="mb-4"><Card>
-        <LinkRow label="Detection & translation settings" help="Default translation, confidence, auto-approve and transcript retention." href="/settings" cta="Open" />
-      </Card></div>
+      <div className="mb-6"><PreferencesInline /></div>
       <BibleStoreTab onUpgrade={onUpgrade} />
       <div className="mt-6">
         <SectionHead title="Bible licences" description="Licensed translations your church has activated." />
@@ -309,7 +383,7 @@ function OrgSection({ kind }: { kind: "team" | "billing" | "integrations" }) {
       <SectionHead title="Team & Church" description="Who can operate services, edit the library and change settings." />
       <Card>
         <LinkRow label="Team members" help="Invite people and set what each person can do." href="/settings/team" cta="Manage" />
-        <LinkRow label="Church details" help="Name, city and timezone." href="/settings" />
+        <LinkRow label="Church details" help="Name, city and timezone." href="/organization" />
       </Card>
     </>
   );
@@ -360,10 +434,8 @@ function AdvancedSection() {
             onClick={() => { try { localStorage.removeItem("presentflow.pro.savedAudioDevices.v1"); setCleared(true); } catch { /* ignore */ } }}
             className="h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">{cleared ? "Forgotten" : "Forget"}</button>
         </Row>
-        <Row label="Sign out of all devices" help="Ends every signed-in session for your account.">
-          <a href="/settings" className="h-8 px-3 grid place-items-center rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">Open</a>
-        </Row>
       </Card>
+      <SignOutAllDevices />
       <div className="mt-6">
         <SectionHead title="Settings file" description="Move this computer's setup to another machine, or start over." />
         <SettingsPortability />
@@ -392,7 +464,7 @@ function StageSection({ close }: { close: () => void }) {
           <button type="button" onClick={() => { close(); requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("presentflow:open-panel", { detail: { panel: "settings" } }))); }}
             className="h-8 px-3 rounded-lg text-[13px] font-semibold bg-[var(--color-brand)] text-white hover:opacity-90">Open stage panel</button>
         </Row>
-        <LinkRow label="Assign the stage screen" help="Choose which physical display shows the stage view." href="/settings/screens" cta="Configure" />
+        <LinkRow label="Assign the stage screen" help="Choose which physical display shows the stage view." href="/settings/screens" cta="Configure" onOpen={() => openScreensPanel(close)} />
         <Row label="Slide transitions" help="Transitions are chosen per slide from the slide menu in the operator console, so what you set is what you see on the projector." />
       </Card>
     </>
@@ -417,7 +489,7 @@ function PrivacySection() {
       <SectionHead title="Privacy & Transcripts" description="What PresentFlow keeps from your services, and for how long." />
       <Card>
         <Row label="What is recorded" help="PresentFlow transcribes speech to find scripture and songs. Audio itself is never stored — only the text, and only for your church." />
-        <LinkRow label="Transcript retention" help="Choose how long transcripts are kept before they're deleted automatically." href="/settings" cta="Change" />
+        <Row label="Transcript retention" help="Set how long transcripts are kept in Bible & Detection, in this window." />
         <LinkRow label="Sermon archive" help="Past transcripts and summaries your church has kept." href="/archive" />
       </Card>
     </>
@@ -565,7 +637,7 @@ export function SettingsWindow() {
       case "general": return <GeneralSection />;
       case "bible": return <BibleSection onUpgrade={() => setShowUpgrade(true)} />;
       case "songs": return <SongsSection />;
-      case "screens": return <ScreensSection />;
+      case "screens": return <ScreensSection close={() => setOpen(false)} />;
       case "audio": return <AudioSection close={() => setOpen(false)} />;
       case "ndi": return <><SectionHead title="NDI Output" description="Send your slides to OBS or another computer over the network." /><NdiTab /></>;
       case "livestream": return <LivestreamSection />;
