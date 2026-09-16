@@ -18,6 +18,8 @@
  *     (default 5s) — prevents a stuck / re-heard phrase from spamming.
  */
 
+import { dspConstraints, isRawCaptureEnabled } from "./audio/rawCapture";
+
 export type CustomCommand = { id: string; phrase: string; action: string };
 export type VoiceCommandMatch = { action: string; phrase: string };
 
@@ -159,10 +161,11 @@ export function audioConstraintsFor(
   // an under-driven feed dropping below Deepgram's floor mid-service. DSP stays
   // ON for all browser sources until a per-church toggle + field A/B exists.
   // NDI/native audio never reaches this path — it bypasses browser DSP entirely.
+  // Hardware I/O Phase A: an operator may opt a SPECIFIC interface into raw
+  // multichannel (DSP off, all channels) — rawCapture.ts. Default unchanged.
+  const raw = pref?.kind === "device" && isRawCaptureEnabled(pref.id, pref.label);
   const base: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
+    ...dspConstraints(raw),
     sampleRate: 16000,
   };
   // 2026-07-26 mixer-USB fix — professional digital mixers (Allen & Heath
@@ -179,7 +182,7 @@ export function audioConstraintsFor(
   // "microphone" mode keeps channelCount: 1 because a bare mic is
   // mono by definition + DSP paths get confused by ambiguous channel
   // negotiation.
-  if (type === "mixer") {
+  if (type === "mixer" || raw) {
     base.channelCount = { ideal: 32 } as ConstrainULong;
   } else {
     base.channelCount = 1;

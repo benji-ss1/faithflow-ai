@@ -1,0 +1,11 @@
+{
+  "name": "presentflow-decklink-audio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PresentFlow native Blackmagic (DeckLink/UltraStudio) embedded-audio capture addon (N-API). UNVERIFIED on hardware — needs Desktop Video SDK headers (prepare-sdk) to build and the Desktop Video driver to run.",
+  "main": "index.js",
+  "gypfile": true,
+  "scripts": { "build": "node-gyp rebuild" },
+  "dependencies": { "node-addon-api": "^8.0.0" },
+  "devDependencies": { "node-gyp": "^10.0.0" }
+}

@@ -52,6 +52,32 @@ export function isNdiAudioBridgePresent(): boolean {
   return typeof api?.ndiAudio?.startReceive === "function";
 }
 
+// Hardware I/O Phase B — opt-in "pro audio driver" (RtAudio: CoreAudio /
+// WASAPI / ASIO) in the Electron main process. Mirrored here so capture-mode
+// resolution can stay synchronous; the main process holds the source of truth
+// (userData) and the Audio tab re-syncs this on mount. OFF by default.
+export const PRO_DRIVER_KEY = "presentflow.audio.proDriver.v1";
+
+export function readProDriverFlag(): boolean {
+  if (!isBrowserEnv()) return false;
+  try { return localStorage.getItem(PRO_DRIVER_KEY) === "1"; } catch { return false; }
+}
+export function writeProDriverFlag(enabled: boolean): void {
+  if (!isBrowserEnv()) return;
+  try { localStorage.setItem(PRO_DRIVER_KEY, enabled ? "1" : "0"); } catch { /* ignore */ }
+  try { window.dispatchEvent(new CustomEvent(CAPTURE_MODE_CHANGED_EVENT, { detail: { proDriver: enabled } })); } catch { /* ignore */ }
+}
+export function hasProDriverBridge(): boolean {
+  if (!isBrowserEnv()) return false;
+  const api = (window as unknown as { electronAPI?: { audio?: { native?: { getProDriver?: unknown } } } }).electronAPI;
+  return typeof api?.audio?.native?.getProDriver === "function";
+}
+/** Windows may use native capture ONLY through the opt-in pro driver (it
+ *  reports failure on real device-open, unlike the stubbed dshow path). */
+export function windowsNativeAllowed(): boolean {
+  return readProDriverFlag() && hasProDriverBridge();
+}
+
 // Type-narrowed view of the electronAPI surface we care about. Kept local
 // (not imported from electron.d.ts) so this module compiles cleanly even
 // when the global type augmentation isn't loaded — the module is imported
@@ -168,7 +194,7 @@ export async function resolveEffectiveMode(preferred: CaptureMode): Promise<Effe
   // mid-service "no audio" toast. That is unacceptable for a live service. So on
   // Windows we lock native OFF ENTIRELY: even an EXPLICIT 'native' pick resolves
   // to the proven browser/WASAPI path. macOS keeps its field-proven native path.
-  if (isWindowsRenderer()) {
+  if (isWindowsRenderer() && !windowsNativeAllowed()) {
     if (preferred === "native") console.warn("[capture] native mode is not available on Windows yet — using the browser/WASAPI path.");
     return "browser";
   }

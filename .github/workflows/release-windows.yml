@@ -54,6 +54,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
         run: npm version "${{ github.event.inputs.version }}" --no-git-tag-version
 
+      - name: Verify native audio module (RtAudio / audify) loads
+        # Hardware I/O Phase B (opt-in pro audio driver). NON-BLOCKING: the app
+        # degrades to standard capture without it, so a flaky prebuild download
+        # must never block a release — but the warning makes the gap visible.
+        continue-on-error: true
+        run: node -e "const {RtAudio}=require('audify'); new RtAudio(); console.log('audify OK', process.arch)"
+
       - name: Compile Electron main
         run: npm run electron:build:tsc
 

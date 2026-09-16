@@ -51,6 +51,19 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
         run: npm version "${{ github.event.inputs.version }}" --no-git-tag-version
 
+      - name: Verify native audio module (RtAudio / audify) loads
+        # Hardware I/O Phase B (opt-in pro audio driver). NON-BLOCKING: the app
+        # degrades to standard capture without it, so a flaky prebuild download
+        # must never block a release — but the warning makes the gap visible.
+        continue-on-error: true
+        run: node -e "const {RtAudio}=require('audify'); new RtAudio(); console.log('audify OK', process.arch)"
+
+      - name: Make audify universal (arm64 + x64, pinned sha256)
+        # prebuild-install fetches the HOST arch only; both DMGs share one
+        # node_modules, so lipo both prebuilds together.
+        continue-on-error: true
+        run: bash scripts/audify-universal.sh
+
       - name: Compile Electron main
         run: npm run electron:build:tsc
 
@@ -58,6 +71,14 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --mac dmg zip --arm64 --x64 --publish never
+
+      - name: Check packaged audio driver architectures (warn only)
+        continue-on-error: true
+        run: |
+          for app in release/mac-arm64/*.app release/mac/*.app; do
+            f="$app/Contents/Resources/app.asar.unpacked/node_modules/audify/build/Release/audify.node"
+            [ -f "$f" ] && lipo -info "$f" || echo "::warning::audify.node missing in $app (pro audio driver unavailable in that build)"
+          done
 
       - name: Ad-hoc codesign the .app + repack zip
         # macOS Squirrel (electron-updater's mac install path) refuses to swap
