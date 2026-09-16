@@ -205,15 +205,15 @@ export function TopBar({
       <button
         type="button"
         onClick={() => setSearchOpen(true)}
-        aria-label="Open search (Cmd+K)"
-        className="group flex items-center h-[30px] w-[248px] [html[data-platform=win]_&]:max-[1380px]:w-[168px] rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] hover:border-[color-mix(in_oklab,var(--color-brand)_40%,var(--color-border))] hover:bg-[var(--color-app-bg)] transition-[border-color,background] duration-150 px-2.5 gap-2 shrink-0"
+        aria-label={`Open search (${modKey === "⌘" ? "Cmd+K" : "Ctrl+K"})`}
+        className="group flex items-center h-[30px] w-[248px] [html[data-platform=win]_&]:max-[1380px]:w-[168px] [html[data-platform=win]_&]:max-[1180px]:w-[34px] [html[data-platform=win]_&]:max-[1180px]:px-0 [html[data-platform=win]_&]:max-[1180px]:justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] hover:border-[color-mix(in_oklab,var(--color-brand)_40%,var(--color-border))] hover:bg-[var(--color-app-bg)] transition-[border-color,background] duration-150 px-2.5 gap-2 shrink-0"
         style={{ fontFamily: "var(--font-sans)" }}
       >
         <Search className="w-4 h-4 text-[var(--color-muted-foreground)] group-hover:text-[var(--color-brand)] transition-colors shrink-0" />
-        <span className="flex-1 text-left text-[12.5px] font-medium text-[var(--color-muted-foreground)] truncate">
+        <span className="flex-1 text-left text-[12.5px] font-medium text-[var(--color-muted-foreground)] truncate [html[data-platform=win]_&]:max-[1180px]:hidden">
           Search lyrics, songs, Bible, media…
         </span>
-        <kbd className="text-[9px] font-mono font-semibold px-1.5 py-[2px] rounded-md border border-[var(--color-border)] bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] shrink-0">
+        <kbd className="text-[9px] font-mono font-semibold px-1.5 py-[2px] rounded-md border border-[var(--color-border)] bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] shrink-0 [html[data-platform=win]_&]:max-[1180px]:hidden">
           {modKey}K
         </kbd>
       </button>

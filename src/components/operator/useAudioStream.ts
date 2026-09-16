@@ -1,4 +1,6 @@
 "use client";
+import { resolveMicBoost } from "@/lib/audio/micBoostPolicy";
+import { isWindowsUA } from "@/lib/platform";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { detectAll, SuggestionDedupe, WORSHIP_SCRIPTURE_CAP, type DetectAllResult } from "@/lib/ai-detection";
 import { parseBareVerse, parseBookVerseOnly, isValidChapter } from "@/lib/bible-parser";
@@ -2859,13 +2861,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         const isMicSource = window.localStorage.getItem(AUDIO_SOURCE_TYPE_KEY) === "microphone";
         const hpRaw = window.localStorage.getItem(MIC_HIGHPASS_KEY);
         highpassOn = hpRaw === null ? isMicSource : hpRaw === "1";
-        const boostRaw = window.localStorage.getItem(MIC_BOOST_KEY);
-        const parsedBoost = boostRaw === null ? (isMicSource ? 1.5 : 1) : parseFloat(boostRaw);
         // Stress review: a mixer feed is already line-level; 3x drives it
         // into the worklet's [-1,1] clamp (hard clipping → worse ASR, not
         // better). Cap mixer at 2x; bare mics keep the full 3x headroom.
-        const maxBoost = isMicSource ? 3 : 2;
-        boost = Number.isFinite(parsedBoost) ? Math.min(maxBoost, Math.max(1, parsedBoost)) : 1;
+        // 2026-09-16: unset mic boost defaults to 1x on Windows (OS boost
+        // already stacks there); macOS unchanged — see micBoostPolicy.ts.
+        boost = resolveMicBoost({ raw: window.localStorage.getItem(MIC_BOOST_KEY), isMicSource, isWindows: isWindowsUA() });
       } catch { highpassOn = false; boost = 1; }
       let pipelineTail: AudioNode = source;
       // 2026-07-27 per-channel routing — apply the mixer picker's gainDb

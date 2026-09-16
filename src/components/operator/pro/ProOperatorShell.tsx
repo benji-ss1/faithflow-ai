@@ -21,6 +21,8 @@
  *   │  BottomBar (40px)                                        │
  *   └──────────────────────────────────────────────────────────┘
  */
+import { isWindowsUA } from "@/lib/platform";
+import { leftPanelMaxWidth } from "@/lib/panelLayout";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Quote, X } from "lucide-react";
@@ -1938,13 +1940,40 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       if (raw) {
         const parsed = parseInt(raw, 10);
         if (Number.isFinite(parsed)) {
-          const max = Math.floor(window.innerWidth * 0.5);
+          const max = leftPanelMaxWidth(window.innerWidth);
           const clamped = Math.min(max, Math.max(LEFT_PANEL_MIN_WIDTH, parsed));
           setLeftPanelWidth(clamped);
           leftPanelWidthRef.current = clamped;
         }
       }
     } catch { /* noop */ }
+  }, []);
+  // 2026-09-16 Windows round 2 — re-clamp the left panel when the WINDOW is
+  // resized (e.g. snapped to half-screen), so a wide saved width can't crush the
+  // center. Re-derives from the SAVED preference each time (never persists the
+  // clamp), so the operator's width comes back on a bigger window. Windows-only:
+  // macOS keeps its original mount/drag-only clamp.
+  useEffect(() => {
+    if (typeof window === "undefined" || !isWindowsUA()) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const onResize = () => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => {
+        if (leftResizingRef.current) return;
+        let preferred = leftPanelWidthRef.current;
+        try {
+          const saved = parseInt(window.localStorage.getItem(LEFT_PANEL_WIDTH_KEY) ?? "", 10);
+          if (Number.isFinite(saved)) preferred = saved;
+        } catch { /* noop */ }
+        const next = Math.min(leftPanelMaxWidth(window.innerWidth), Math.max(LEFT_PANEL_MIN_WIDTH, preferred));
+        if (next !== leftPanelWidthRef.current) {
+          leftPanelWidthRef.current = next;
+          setLeftPanelWidth(next);
+        }
+      }, 150);
+    };
+    window.addEventListener("resize", onResize);
+    return () => { window.removeEventListener("resize", onResize); if (t) clearTimeout(t); };
   }, []);
   const startLeftResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1955,7 +1984,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const startWidth = leftPanelWidthRef.current;
     const onMove = (ev: MouseEvent) => {
       if (!leftResizingRef.current) return;
-      const maxW = Math.floor(window.innerWidth * 0.5);
+      const maxW = leftPanelMaxWidth(window.innerWidth);
       const next = Math.min(maxW, Math.max(LEFT_PANEL_MIN_WIDTH, startWidth + (ev.clientX - startX)));
       leftPanelWidthRef.current = next;
       setLeftPanelWidth(next);
