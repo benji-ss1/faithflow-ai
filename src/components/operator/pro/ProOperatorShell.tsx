@@ -2499,13 +2499,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // ProPresenter 7 layer UI (on by default; kill switch in pp7-layers-flag): clear rail beside the
   // preview + F-key clears + Media Bin clicks go behind the words.
   const pp7Layers = usePp7Layers() && ctx.layersEngineOn;
-  const pp7MessagesActive = messages.state.showing || messagesBoard.active.some((m) => !m.hidden);
-  const pp7MsgRef = useRef({ messages, messagesBoard });
-  pp7MsgRef.current = { messages, messagesBoard };
+  // PP7: timers show through the Messages layer, so they light and clear with it.
+  const pp7MessagesActive = messages.state.showing || messagesBoard.active.some((m) => !m.hidden) || timer.state.shown || timers.slots.some((t) => t.shown);
+  const pp7MsgRef = useRef({ messages, messagesBoard, timer, timers });
+  pp7MsgRef.current = { messages, messagesBoard, timer, timers };
   const pp7ClearMessages = useCallback(() => {
-    const { messages: m, messagesBoard: b } = pp7MsgRef.current;
+    const { messages: m, messagesBoard: b, timer: t1, timers: ts } = pp7MsgRef.current;
     m.hide();
     b.clearAll();
+    t1.hide();
+    for (const slot of ts.slots) if (slot.shown) ts.hide(slot.def.id);
   }, []);
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
   // Always-current handle to the session so the callback below (captured by

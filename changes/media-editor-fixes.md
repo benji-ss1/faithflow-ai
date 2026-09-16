@@ -1,7 +1,7 @@
 ---
 headline: Editing images works again
 audience: operator
-version: 0.1.433
+version: 0.1.435
 date: 2026-09-16
 highlights:
   - The Edit image window now always opens on top and every button responds, whether you open it from the Media Bin or the Media library. Press Esc to close it, and your keyboard shortcuts won't change the screen behind it while it's open.

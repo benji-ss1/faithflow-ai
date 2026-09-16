@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.433",
+    "version": "0.1.435",
     "date": "2026-09-16",
     "headline": "Editing images works again",
     "highlights": [
@@ -15,6 +15,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Clicking an edited picture in the Media Bin now shows it the way you framed it.",
       "If you cleared the words off the screen (T key), showing an edited picture now brings the screen back.",
       "Removing a flat background saves the result as a new picture in your Media library; the original picture is left as it was."
+    ]
+  },
+  {
+    "version": "0.1.433",
+    "date": "2026-09-16",
+    "headline": "Clear Messages now clears timers too",
+    "highlights": [
+      "The Messages clear button (and Clear All) now also takes timers off the screen."
     ]
   },
   {
