@@ -12,7 +12,9 @@ const KEYS = ["x", "y", "w", "h"] as const;
 
 /** Advance one step (dt in seconds, clamped so a tab switch can't explode it). */
 export function stepSpring(state: SpringState, target: Rect, dtSec: number, k = SPRING): SpringState {
-  const dt = Math.min(Math.max(dtSec, 0), 1 / 30);
+  const dt = Number.isFinite(dtSec) ? Math.min(Math.max(dtSec, 0), 1 / 30) : 0;
+  // A non-finite target would poison the state forever (and the rAF loop never settles).
+  if (!["x", "y", "w", "h"].every((k) => Number.isFinite(target[k as keyof Rect]))) return state;
   const pos = { ...state.pos }; const vel = { ...state.vel };
   for (const key of KEYS) {
     const a = -k.stiffness * (pos[key] - target[key]) - k.damping * vel[key];

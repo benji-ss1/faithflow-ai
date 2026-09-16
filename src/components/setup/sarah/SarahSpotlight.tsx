@@ -14,7 +14,7 @@
  *   • Not a modal: `role="dialog" aria-modal="false"`, no focus trap.
  *   • The glide writes SVG attributes through refs — zero React renders per frame.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { settled, stepSpring, type Rect, type SpringState } from "@/lib/audio/spring";
@@ -43,6 +43,8 @@ export interface SarahSpotlightProps {
   children?: React.ReactNode;
   actions?: SpotlightAction[];
   onClose: () => void;
+  /** Told whenever the target appears or disappears (e.g. the operator closed the panel). */
+  onTargetChange?: (found: boolean) => void;
 }
 
 function readRect(key: string | null): Rect | null {
@@ -60,16 +62,29 @@ export function placeCard(rect: Rect | null, vw: number, vh: number, cw = CARD_W
   const clampY = (y: number) => Math.max(12, Math.min(vh - ch - 12, y));
   if (!rect) return { left: clampX((vw - cw) / 2), top: clampY((vh - ch) / 2) };
   const midY = rect.y + rect.h / 2 - ch / 2;
-  if (rect.x + rect.w + GAP + cw <= vw - 12) return { left: rect.x + rect.w + GAP, top: clampY(midY) };
-  if (rect.x - GAP - cw >= 12) return { left: rect.x - GAP - cw, top: clampY(midY) };
+  // Short strips (a top-bar button) — sit BELOW so the card doesn't cover the rest of the bar.
+  if (rect.h < 80 && rect.y + rect.h + GAP + ch <= vh - 12) return { left: clampX(rect.x + rect.w / 2 - cw / 2), top: rect.y + rect.h + GAP };
+  const onScreen = rect.x + rect.w > 0 && rect.y + rect.h > 0 && rect.x < vw && rect.y < vh;
+  if (!onScreen) return { left: clampX((vw - cw) / 2), top: clampY((vh - ch) / 2) };
+  if (rect.x + rect.w + GAP + cw <= vw - 12) return { left: clampX(rect.x + rect.w + GAP), top: clampY(midY) };
+  if (rect.x - GAP - cw >= 12) return { left: clampX(rect.x - GAP - cw), top: clampY(midY) };
   if (rect.y + rect.h + GAP + ch <= vh - 12) return { left: clampX(rect.x + rect.w / 2 - cw / 2), top: rect.y + rect.h + GAP };
-  return { left: clampX(rect.x + rect.w / 2 - cw / 2), top: clampY(rect.y - GAP - ch) };
+  if (rect.y - GAP - ch >= 12) return { left: clampX(rect.x + rect.w / 2 - cw / 2), top: rect.y - GAP - ch };
+  // Nothing fits cleanly: take the roomier vertical side and keep the card off the cutout.
+  const below = vh - (rect.y + rect.h);
+  return below >= rect.y
+    ? { left: clampX(rect.x + rect.w / 2 - cw / 2), top: clampY(rect.y + rect.h + GAP) }
+    : { left: clampX(rect.x + rect.w / 2 - cw / 2), top: clampY(rect.y - GAP - ch) };
 }
 
-export function SarahSpotlight({ target, mood, title, body, children, actions = [], onClose }: SarahSpotlightProps) {
+export function SarahSpotlight({ target, mood, title, body, children, actions = [], onClose, onTargetChange }: SarahSpotlightProps) {
   const [mounted, setMounted] = useState(false);
   const [hasTarget, setHasTarget] = useState(false);
   const [card, setCard] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  // 🔴 fix: the card used to fly in from the top-left corner. Hide it until it's placed.
+  const [placed, setPlaced] = useState(false);
+  const maskId = `sarah-mask-${useId().replace(/[:]/g, "")}`;
+  const restoreFocus = useRef<HTMLElement | null>(null);
   const holeRef = useRef<SVGRectElement | null>(null);
   const ringRef = useRef<SVGRectElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -126,7 +141,9 @@ export function SarahSpotlight({ target, mood, title, body, children, actions = 
       const r = readRect(target);
       targetRectRef.current = r;
       setHasTarget(!!r);
-      setCard(placeCard(r, window.innerWidth, window.innerHeight, CARD_W, cardRef.current?.offsetHeight || CARD_H_EST));
+      const next = placeCard(r, window.innerWidth, window.innerHeight, Math.min(CARD_W, window.innerWidth - 24), cardRef.current?.offsetHeight || CARD_H_EST);
+      setCard((prev) => (Math.abs(prev.left - next.left) < 1 && Math.abs(prev.top - next.top) < 1 ? prev : next));
+      setPlaced(true);
       if (!r) return;
       if (!springRef.current || reduced.current) {
         // First appearance (or reduced motion): start slightly larger and settle in.
@@ -140,21 +157,37 @@ export function SarahSpotlight({ target, mood, title, body, children, actions = 
     }
 
     measure();
+    if (ro && cardRef.current) ro.observe(cardRef.current);
     const mo = typeof MutationObserver !== "undefined" ? new MutationObserver(() => {
       const el = target ? document.querySelector(`[data-tour="${target}"]`) : null;
       if (el !== observed) measure();
     }) : null;
     mo?.observe(document.body, { childList: true, subtree: true });
-    const onScroll = () => measure();
+    let scrollRaf = 0;
+    const onScroll = () => { if (scrollRaf) return; scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; measure(); }); };
     window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     window.addEventListener("resize", measure);
     return () => {
       cancelAnimationFrame(rafRef.current);
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
       ro?.disconnect(); mo?.disconnect();
       window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
       window.removeEventListener("resize", measure);
     };
   }, [mounted, target]);
+
+  useLayoutEffect(() => {
+    if (hasTarget && springRef.current) paint(springRef.current.pos);
+    onTargetChange?.(hasTarget);
+  }, [hasTarget, onTargetChange]);
+
+  // 🔴 keyboard users: move focus INTO the card when it opens (no trap), and hand it back on close.
+  useEffect(() => {
+    if (!placed) return;
+    if (!restoreFocus.current) restoreFocus.current = document.activeElement as HTMLElement | null;
+    cardRef.current?.focus({ preventScroll: true });
+  }, [placed]);
+  useEffect(() => () => { try { restoreFocus.current?.focus({ preventScroll: true }); } catch { /* gone */ } }, []);
 
   // Esc closes ONLY when focus is inside Sarah's card — never steals operator hotkeys.
   useEffect(() => {
@@ -173,13 +206,12 @@ export function SarahSpotlight({ target, mood, title, body, children, actions = 
       {/* Dim + cutout. Purely visual: pointer-events none, so every control stays usable. */}
       <svg aria-hidden className="fixed inset-0 z-[85] w-screen h-screen" style={{ pointerEvents: "none" }}>
         <defs>
-          <mask id="sarah-spotlight-mask">
+          <mask id={maskId}>
             <rect x="0" y="0" width="100%" height="100%" fill="white" />
             {hasTarget && <rect ref={holeRef} rx="14" ry="14" fill="black" />}
           </mask>
         </defs>
-        <rect x="0" y="0" width="100%" height="100%" fill="rgba(8,7,6,0.62)" mask="url(#sarah-spotlight-mask)"
-          style={{ transition: "fill 300ms ease" }} />
+        <rect x="0" y="0" width="100%" height="100%" fill="rgba(8,7,6,0.62)" mask={`url(#${maskId})`} />
         {hasTarget && (
           <rect ref={ringRef} rx="14" ry="14" fill="none" stroke="#ff8a52" strokeWidth="2"
             style={{ filter: "drop-shadow(0 0 18px rgba(232,80,26,0.55))" }} />
@@ -191,11 +223,18 @@ export function SarahSpotlight({ target, mood, title, body, children, actions = 
         ref={cardRef}
         role="dialog"
         aria-modal="false"
-        aria-label={`Sarah: ${title}`}
+        aria-labelledby={`${maskId}-title`}
+        tabIndex={-1}
         className="fixed z-[92] rounded-2xl border border-white/10 bg-[rgba(18,16,14,0.94)] text-[#ece7e0] shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-md"
         style={{
-          width: CARD_W, left: card.left, top: card.top,
-          transition: reduced.current ? "none" : "left 420ms cubic-bezier(0.2,0.8,0.2,1), top 420ms cubic-bezier(0.2,0.8,0.2,1)",
+          width: `min(${CARD_W}px, calc(100vw - 24px))`, left: card.left, top: card.top,
+          opacity: placed ? 1 : 0,
+          transform: placed ? "translateY(0)" : "translateY(6px)",
+          // Glide timed to match the cutout's spring so the card neither leads nor lags.
+          transition: reduced.current || !placed
+            ? "opacity 180ms ease"
+            : "left 480ms cubic-bezier(0.25,1,0.5,1), top 480ms cubic-bezier(0.25,1,0.5,1), opacity 180ms ease, transform 180ms ease",
+          outline: "none",
         }}
       >
         <div className="flex items-start gap-3 p-4">
@@ -210,8 +249,10 @@ export function SarahSpotlight({ target, mood, title, body, children, actions = 
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
-            <div className="mt-0.5 text-[15px] font-semibold leading-snug" aria-live="polite">{title}</div>
-            <p className="mt-1 text-[13px] leading-relaxed text-[#cfc7bc]">{body}</p>
+            <div aria-live="polite">
+              <div id={`${maskId}-title`} className="mt-0.5 text-[15px] font-semibold leading-snug">{title}</div>
+              <p className="mt-1 text-[13px] leading-relaxed text-[#cfc7bc]">{body}</p>
+            </div>
             {children && <div className="mt-3">{children}</div>}
           </div>
         </div>

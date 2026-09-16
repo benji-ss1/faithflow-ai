@@ -53,6 +53,10 @@ export function SarahOverlay({ live }: { live?: SarahLive } = {}) {
         role="dialog"
         aria-modal="true"
         aria-label="Audio setup with Sarah"
+        // The shell suppresses operator hotkeys while any [role=dialog][data-state=open]
+        // exists. OPEN while her panel is up (so Space/G can't fire a slide behind it);
+        // CLOSED while she's coaching (the operator must be able to drive the real app).
+        data-state={coaching ? "closed" : "open"}
         className="fixed z-[91] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(1060px,92vw)] h-[min(660px,86vh)] rounded-3xl overflow-hidden shadow-[0_40px_120px_rgba(0,0,0,0.6)] ring-1 ring-white/10"
       >
         <SarahSetupWizard onDone={close} live={live} onCoachChange={setCoaching} />
