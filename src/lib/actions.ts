@@ -1752,7 +1752,11 @@ export async function updatePreferences(data: {
 // still whitelists `layersV2` OUT so a general settings save can never flip it.
 // Church-scoped: writes only the caller's own church_preferences row.
 export async function setLayersEngineEnabled(enabled: boolean): Promise<Result> {
-  const user = await requireRole("admin");
+  // requireUser + explicit role check (NOT requireRole): requireRole redirects,
+  // and a redirect from a server action called inside the desktop operator would
+  // navigate away from the live console. Return a clean error instead.
+  const user = await requireUser();
+  if (user.role !== "admin") return { ok: false, error: "Only a church admin can change Layers" };
   if (typeof enabled !== "boolean") return { ok: false, error: "Invalid value" };
   const db = getDb();
   const [existing] = await db.select({ id: churchPreferences.id }).from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
@@ -1767,6 +1771,50 @@ export async function setLayersEngineEnabled(enabled: boolean): Promise<Result> 
   revalidatePath("/settings");
   revalidatePath("/operator");
   return { ok: true };
+}
+
+/** Everything the church preferences form needs, for the desktop Settings window
+ *  (same values the /settings page reads). Church-scoped, read-only. */
+export async function getDesktopPreferences(): Promise<Result<{
+  display: { blankBgColor: string };
+  prefs: {
+    defaultTranslationId: string | null; aiListeningDefault: boolean; audioInputDeviceLabel: string | null;
+    detectionConfidenceThreshold: number; productionMode: boolean; transcriptRetentionDays: number;
+    commandPrefix: string; autoApproveEnabled: boolean; autoApproveThreshold: number; autoSendToLive: boolean;
+  };
+  translations: { id: string; code: string; name: string }[];
+}>> {
+  const user = await requireUser();
+  const db = getDb();
+  const [display] = await db.select({ blankBgColor: settings.blankBgColor }).from(settings).where(eq(settings.churchId, user.churchId)).limit(1);
+  const [p] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+  const { listTranslations } = await import("./server/bible");
+  const translations = (await listTranslations()).filter((t) => !t.licenseRequired).map((t) => ({ id: t.id, code: t.code, name: t.name }));
+  return { ok: true, data: {
+    display: { blankBgColor: display?.blankBgColor || "#000000" },
+    prefs: {
+      defaultTranslationId: p?.defaultTranslationId || null,
+      aiListeningDefault: p?.aiListeningDefault ?? false,
+      audioInputDeviceLabel: p?.audioInputDeviceLabel || null,
+      detectionConfidenceThreshold: p?.detectionConfidenceThreshold ?? 60,
+      productionMode: p?.productionMode ?? false,
+      transcriptRetentionDays: p?.transcriptRetentionDays ?? 90,
+      commandPrefix: p?.commandPrefix ?? "presentflow",
+      autoApproveEnabled: p?.autoApproveEnabled ?? false,
+      autoApproveThreshold: p?.autoApproveThreshold ?? 90,
+      autoSendToLive: p?.autoSendToLive ?? false,
+    },
+    translations,
+  } };
+}
+
+/** Read the Layers setting for the desktop Settings window (any signed-in role
+ *  may read; only admins may change it). Default ON when no row exists. */
+export async function getLayersEngineSetting(): Promise<Result<{ enabled: boolean; canEdit: boolean }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const [row] = await db.select({ layersV2: churchPreferences.layersV2 }).from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+  return { ok: true, data: { enabled: row?.layersV2 ?? true, canEdit: user.role === "admin" } };
 }
 
 // Phase 6: sermon deck metadata --------------------------------------------

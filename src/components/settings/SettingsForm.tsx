@@ -18,10 +18,13 @@ type Prefs = {
   autoSendToLive: boolean;
 };
 
-export function SettingsForm({ display, prefs, translations }: {
+export function SettingsForm({ display, prefs, translations, previewTheme = true }: {
   display: Display;
   prefs: Prefs;
   translations: { id: string; code: string; name: string }[];
+  /** false inside the live operator (desktop Settings window): never flip the
+   *  running console's light/dark class on mount — the value is still saved. */
+  previewTheme?: boolean;
 }) {
   const [d, setD] = useState<Display>(display);
   const [p, setP] = useState<Prefs>(prefs);
@@ -32,11 +35,12 @@ export function SettingsForm({ display, prefs, translations }: {
 
   useEffect(() => {
     // Apply production mode client-side immediately so the toggle previews before save
-    document.documentElement.classList.toggle("dark", p.productionMode);
+    // (skipped inside the live operator — never flip the running console's theme).
+    if (previewTheme) document.documentElement.classList.toggle("dark", p.productionMode);
     // Also persist as a cookie so the server RSC layout renders with the
     // correct class on next hard reload — no flash of the wrong theme.
     document.cookie = `ff_dark=${p.productionMode ? "1" : "0"}; path=/; max-age=31536000; SameSite=Lax`;
-  }, [p.productionMode]);
+  }, [p.productionMode, previewTheme]);
 
   useEffect(() => {
     // Prefer the Electron IPC bridge when available so we can enumerate
@@ -85,7 +89,9 @@ export function SettingsForm({ display, prefs, translations }: {
     }
 
     loadInputs();
-    loadSystemSources();
+    // Inside the live operator skip screen/window enumeration: it runs
+    // desktopCapturer (CPU spike, possible macOS Screen Recording prompt mid-service).
+    if (previewTheme) loadSystemSources();
     return () => { cancelled = true; };
   }, []);
 

@@ -1,7 +1,7 @@
 ---
 headline: PresentFlow fits and feels smoother on Windows
 audience: operator
-version: 0.1.425
+version: 0.1.426
 date: 2026-09-16
 highlights:
   - On Windows, the top bar no longer pushes the settings button off the edge of the screen.
