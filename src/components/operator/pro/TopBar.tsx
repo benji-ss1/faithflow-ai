@@ -267,9 +267,7 @@ export function TopBar({
         }}
       />
       {pp7Themes ? (
-        <ThemePopover open={themePopOpen} onOpenChange={setThemePopOpen}>
-          <span aria-hidden className="self-stretch w-0" />
-        </ThemePopover>
+        <ThemePopover open={themePopOpen} onOpenChange={setThemePopOpen} anchorSelector='[data-fluid-action="Themes"]' />
       ) : null}
 
       <div className="flex-1 min-w-0 flex items-center justify-center text-[13px] text-[var(--color-muted-foreground)] truncate px-4 [html[data-platform=win]_&]:max-[1380px]:px-2">
