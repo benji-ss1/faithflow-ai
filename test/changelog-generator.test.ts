@@ -1,6 +1,6 @@
 // Run: npx tsx test/changelog-generator.test.ts
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, readdirSync, copyFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -87,16 +87,28 @@ const reordered = readHistory(`const CHANGELOG_HISTORY: ChangelogEntry[] = [
 ];`);
 assert.deepEqual(reordered, [{ version: "1.0.1", headline: "Single 'q'" }, { version: "1.0.0", headline: "Bé" }]);
 
-// ---- real data: shape valid, newest-first, unique versions, generated entries present
+// ---- ordering is by SEMVER, not string sort (0.1.10 > 0.1.9), whatever the input order
+const semverFixture = ["0.1.9", "0.1.10", "0.2.0", "0.1.100"].map((v, i) =>
+  parseChangeFile(md(`headline: S${i}\nversion: ${v}\ndate: 2026-09-0${i + 1}`), `s${i}`));
+assert.deepEqual(
+  buildEntries(semverFixture, { history: [] }).map((e: ChangelogEntry) => e.version),
+  ["0.2.0", "0.1.100", "0.1.10", "0.1.9"],
+  "descending semver, not lexicographic",
+);
+
+// ---- real data: shape valid, newest-first, generated entries merged — all DERIVED, never hardcoded
 for (const e of CHANGELOG) {
   assert.ok(e.version && e.date && e.headline && Array.isArray(e.highlights) && e.highlights.length, `valid ${e.version}`);
 }
 for (let i = 1; i < CHANGELOG.length; i++) assert.ok(cmpVersion(CHANGELOG[i - 1].version, CHANGELOG[i].version) > 0, `ordered at ${i}`);
 for (const g of GENERATED_CHANGELOG) assert.ok(CHANGELOG.includes(g), `generated ${g.version} merged`);
-const all = JSON.stringify(CHANGELOG);
-assert.ok(all.includes("A full editor for your OBS live-stream words"));
-assert.ok(all.includes("Over your camera now has a Layout choice"));
-assert.deepEqual(GENERATED_CHANGELOG.map((e) => e.version), ["0.1.404", "0.1.403"]);
+assert.equal(new Set(CHANGELOG.map((e) => e.version)).size, CHANGELOG.length, "versions unique after merge");
+// the committed generated module is EXACTLY what a fresh build of the real changes/ dir yields
+const realChanges = classifyChangeFiles(readdirSync("changes")).files
+  .map((f: string) => parseChangeFile(readFileSync(join("changes", f), "utf8"), f.replace(/\.md$/, "")));
+const freshlyBuilt = buildEntries(realChanges, { history: realHistory }) as ChangelogEntry[];
+assert.ok(freshlyBuilt.length > 0, "the real changes/ dir produces entries");
+assert.deepEqual(GENERATED_CHANGELOG, freshlyBuilt, "src/lib/changelog.generated.ts is a fresh build of changes/*.md");
 
 // ---- WhatsNew: a new generated entry shows exactly once
 let stored: string | null = "0.1.402";
@@ -110,17 +122,38 @@ assert.ok(shows(CHANGELOG) > 0);
 assert.equal(stored, CHANGELOG[0].version);
 assert.equal(shows(CHANGELOG), 0);
 
-// ---- LIFECYCLE: day1 release dismissed -> day2 note via `changes:new` -> modal shows it once
+// ---- LIFECYCLE on a SYNTHETIC fixture repo (never the real changes/ dir, so adding a
+//      real What's New note can never break this): day1 release dismissed -> day2 note via
+//      `changes:new` -> modal shows it once.
 const tmp = mkdtempSync(join(tmpdir(), "pf-changes-"));
 mkdirSync(join(tmp, "changes"));
 mkdirSync(join(tmp, "src/lib"), { recursive: true });
-copyFileSync("src/lib/changelog.ts", join(tmp, "src/lib/changelog.ts"));
-for (const f of readdirSync("changes")) if (f !== "README.md") copyFileSync(join("changes", f), join(tmp, "changes", f));
+writeFileSync(join(tmp, "src/lib/changelog.ts"), `import type { ChangelogEntry } from "./changelog-types";
+const CHANGELOG_HISTORY: ChangelogEntry[] = [
+  { version: "0.1.402", date: "2026-08-30", headline: "Hist newest", highlights: ["h"] },
+  { version: "0.1.401", date: "2026-08-29", headline: "Hist older", highlights: ["h"] },
+];
+export const CHANGELOG: ChangelogEntry[] = CHANGELOG_HISTORY;
+`);
+writeFileSync(join(tmp, "package.json"), JSON.stringify({ version: "0.1.400" }));
+const fixtureNotes: Record<string, string> = {
+  "fix-one.md": md("headline: Fix one\nversion: 0.1.403\ndate: 2026-09-01"),
+  "feature-b.md": md("headline: Feature B\norder: 1\nversion: 0.1.404\ndate: 2026-09-02\nhighlights:\n  - B one\n  - B two"),
+  "feature-a.md": md("headline: Feature A\norder: 2\nversion: 0.1.404\ndate: 2026-09-03"),
+};
+for (const [f, body] of Object.entries(fixtureNotes)) writeFileSync(join(tmp, "changes", f), body);
+const fixtureHistory = readHistory(readFileSync(join(tmp, "src/lib/changelog.ts"), "utf8"));
+assert.deepEqual(fixtureHistory.map((h: { version: string }) => h.version), ["0.1.402", "0.1.401"], "fixture history parsed");
 const loadChanges = () =>
-  readdirSync(join(tmp, "changes")).filter((f) => f.endsWith(".md")).sort()
+  classifyChangeFiles(readdirSync(join(tmp, "changes"))).files
     .map((f) => parseChangeFile(readFileSync(join(tmp, "changes", f), "utf8"), f.replace(/\.md$/, "")));
-const asEntries = realHistory as unknown as ChangelogEntry[];
-const day1 = mergeChangelog(buildEntries(loadChanges(), { history: realHistory }) as ChangelogEntry[], asEntries);
+const asEntries = fixtureHistory as unknown as ChangelogEntry[];
+const buildFixture = () => mergeChangelog(buildEntries(loadChanges(), { history: fixtureHistory }) as ChangelogEntry[], asEntries);
+const day1 = buildFixture();
+assert.deepEqual(day1.map((e) => e.version), ["0.1.404", "0.1.403", "0.1.402", "0.1.401"], "generated merged above curated history, newest-first");
+assert.equal(day1[0].headline, "Feature B", "order: wins inside a release");
+assert.deepEqual(day1[0].highlights, ["B one", "B two", "Feature A"], "highlights concatenated in order");
+assert.equal(day1[0].date, "2026-09-03", "release date = latest file date in the group");
 stored = "0.1.402";
 assert.ok(shows(day1) > 0, "day1 release shows");
 assert.equal(stored, "0.1.404", "day1 dismissed at 0.1.404");
@@ -132,13 +165,17 @@ const created = readFileSync(join(tmp, "changes/tuesday-feature.md"), "utf8");
 assert.match(created, /^date: \d{4}-\d{2}-\d{2}$/m);
 writeFileSync(join(tmp, "changes/tuesday-feature.md"), created.replace(/headline: .*/, "headline: Brand new Tuesday feature").replace(/ {2}- TODO.*/, "  - NEW THING"));
 assert.throws(() => run("tuesday-feature"), "refuses to overwrite");
-const day2 = mergeChangelog(buildEntries(loadChanges(), { history: realHistory }) as ChangelogEntry[], asEntries);
+const day2 = buildFixture();
 const newOnDay2 = newerEntries(day2, stored);
 assert.equal(newOnDay2.length, 1, "day2 shows exactly the new note");
 assert.deepEqual(newOnDay2[0].highlights, ["NEW THING"]);
 assert.equal(shows(day2), 1);
 assert.equal(shows(day2), 0, "and only once");
 assert.match(run("wednesday"), /version 0\.1\.406/, "next note keeps climbing");
+// a badly-cased extension in the fixture dir is surfaced (build/check reject it) and never silently built
+writeFileSync(join(tmp, "changes/Oops.MD"), md("headline: Ignored\nversion: 0.1.407\ndate: 2026-09-05"));
+assert.deepEqual(classifyChangeFiles(readdirSync(join(tmp, "changes"))).badExt, ["Oops.MD"], "bad extension flagged");
+assert.ok(!loadChanges().some((c) => c.headline === "Ignored"), "bad-extension file is not built");
 writeFileSync(join(tmp, "package.json"), JSON.stringify({ version: "0.1.999" }));
 assert.match(run("desktop-ahead"), /version 0\.1\.1000/, "starts above a package.json app version that is ahead of the notes");
 

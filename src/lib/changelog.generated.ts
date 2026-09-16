@@ -4,6 +4,49 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.413",
+    "date": "2026-09-16",
+    "headline": "The right Mac download, every time",
+    "highlights": [
+      "Fixed: if the app can't tell which kind of Mac you have, it now asks instead of guessing — so an Intel Mac never gets a download it can't open.",
+      "When it isn't sure, the update bar shows both choices, Apple Silicon and Intel Mac, with a reminder that the Apple menu → About This Mac tells you which one you have.",
+      "When it can tell, nothing changes — one click still downloads the right build. Windows downloads are unchanged."
+    ]
+  },
+  {
+    "version": "0.1.412",
+    "date": "2026-09-16",
+    "headline": "The desktop app can update itself again",
+    "highlights": [
+      "Fixed: the desktop app was never checking for new versions, so churches had to download and re-install by hand to get anything new. It now checks again automatically.",
+      "You are still asked before an update installs — nothing changes on your machine mid-service without you saying so.",
+      "This takes effect from the next installer: install the new version once by hand, and updates after that come through on their own."
+    ]
+  },
+  {
+    "version": "0.1.411",
+    "date": "2026-09-16",
+    "headline": "The desktop app can reach everything it needs again",
+    "highlights": [
+      "Fixed: the offline copy of the Bible now downloads in the desktop app, so verses keep working when the internet drops.",
+      "Fixed: the \"new version available — reload\" prompt appears in the desktop app again.",
+      "Fixed: churches on a paid plan now get their Pro features and premium themes in the desktop app instead of being treated as a free plan.",
+      "Fixed: importing a ProPresenter file from the desktop app no longer fails with a \"Parse failed\" error.",
+      "Fixed: older pictures and videos in your media library now get their thumbnails filled in.",
+      "Changed: starting a library import now needs an admin or operator account, matching every other library edit."
+    ]
+  },
+  {
+    "version": "0.1.410",
+    "date": "2026-09-16",
+    "headline": "A sound check no longer puts a Micah verse on screen",
+    "highlights": [
+      "Saying \"check mic two\" or \"testing mic one two\" during a sound check no longer suggests — or projects — a verse from Micah.",
+      "Saying the book properly still works exactly as before: \"Micah chapter two\", \"Micah 1 verse 2\", \"turn to Micah 6\".",
+      "Typing the short form in the reference box still works too: \"Mic 6:8\" and \"mic chapter 2\" both find Micah."
+    ]
+  },
+  {
     "version": "0.1.409",
     "date": "2026-09-15",
     "headline": "Beta applications now reach the PresentFlow team inbox",
