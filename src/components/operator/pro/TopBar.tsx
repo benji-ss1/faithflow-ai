@@ -306,7 +306,7 @@ export function TopBar({
         {/* Big-bright AI Live pill — prominent OFF/CONNECTING/LIVE/OFFLINE indicator.
             When errored, the pill splits into a status chip + inline Retry button. */}
         <Tooltip.Provider delayDuration={200}>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1" data-tour="ai-pill">
             <Tooltip.Root>
               <Tooltip.Trigger asChild>
                 <SwitchMode

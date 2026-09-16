@@ -4760,7 +4760,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     interim: ctx.audio?.interim,
     suggestions: ctx.audio?.suggestions as { id?: string; reference?: string }[] | undefined,
     onListen: ctx.onListenToggle,
-  }), [ctx.audio?.listening, ctx.audio?.ready, ctx.audio?.transcript, ctx.audio?.interim, ctx.audio?.suggestions, ctx.onListenToggle]);
+    noAudioSignal: ctx.audio?.noAudioSignal,
+    clipping: ctx.audio?.clipping,
+    reconnectAttempts: ctx.audio?.reconnectAttempts,
+    reconnectFailed: !!ctx.audio?.reconnectFailed,
+  }), [ctx.audio?.listening, ctx.audio?.ready, ctx.audio?.transcript, ctx.audio?.interim, ctx.audio?.suggestions, ctx.onListenToggle,
+       ctx.audio?.noAudioSignal, ctx.audio?.clipping, ctx.audio?.reconnectAttempts, ctx.audio?.reconnectFailed]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">

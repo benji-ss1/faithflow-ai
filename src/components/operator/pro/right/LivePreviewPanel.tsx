@@ -182,6 +182,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           preview video ref that drives VideoControlBar is never dropped. */}
       <div hidden={mv.screen !== "main"}>
       <div
+        data-tour="live-preview"
         className={
           isLive
             ? "relative aspect-video w-full rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
