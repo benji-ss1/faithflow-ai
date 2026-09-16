@@ -12,6 +12,7 @@ import { audioGuideReply, audioGuideSearch, MissingApiKeyError, GroqRateLimitedE
 import { SARAH_KNOWLEDGE, SARAH_ASK_KNOWLEDGE, SARAH_STEPS, CHECK_IDS, knowledgeCovers, type SarahStep } from "@/lib/audio/sarahKnowledge";
 import { OS_VALUES, CONNECTION_VALUES, MIX_VALUES } from "@/lib/server/audio-setup";
 import { createLimiter } from "@/lib/rate-limit";
+import { curatedAnswer, relevantAnswers } from "@/lib/audio/sarahAnswers";
 
 // Web search costs real money per call. Daily caps per church and per person, on the
 // shared limiter (in-memory today; becomes durable when the Redis/pg backend is set).
@@ -74,11 +75,29 @@ export async function POST(req: Request) {
     // Real questions ("my X32 USB shows nothing", "how do I send NDI from OBS?") get a
     // grounded web search over manufacturer docs first. If search finds nothing solid,
     // Sarah answers from the curated knowledge base instead — never an unsourced guess.
-    // Gear the curated knowledge covers → answer from verified knowledge, never search.
+    // 1) A common question with a hand-written, verified answer → return it exactly.
+    //    No model rewording, so no drift or invented details. Instant, and no Groq cost.
+    if (body.mode === "ask") {
+      const exact = curatedAnswer(message);
+      if (exact) {
+        console.info(`[audio-guide] ask answered from curated answer: ${exact.id}`);
+        return NextResponse.json({ ok: true, data: { reply: exact.answer, mood: "nod", suggestions: [] } });
+      }
+    }
+    // 2) Gear the knowledge covers but no exact answer → the model, grounded ONLY on the
+    //    few relevant entries (a big knowledge blob made it skip steps and invent details).
     if (body.mode === "ask" && knowledgeCovers(message)) {
-      const data = await audioGuideReply({ message, history, context: { step, setup, diagnostics, knowledge: SARAH_ASK_KNOWLEDGE } });
-      console.info("[audio-guide] ask answered from knowledge base");
-      return NextResponse.json({ ok: true, data: { ...data, correction: undefined } });
+      const grounding = relevantAnswers(message).map((e) => e.answer).join("\n") || SARAH_ASK_KNOWLEDGE;
+      try {
+        const data = await audioGuideReply({ message, history, context: { step, setup, diagnostics, knowledge: grounding } });
+        return NextResponse.json({ ok: true, data: { ...data, correction: undefined } });
+      } catch (e) {
+        if (e instanceof MissingApiKeyError) throw e;
+        // A model hiccup (e.g. Groq "Failed to validate JSON") shouldn't leave them with nothing.
+        const best = relevantAnswers(message, 1)[0];
+        if (best) return NextResponse.json({ ok: true, data: { reply: best.answer, mood: "nod", suggestions: [] } });
+        throw e;
+      }
     }
     if (body.mode === "ask") {
       // Search is best-effort: a rate limit or an over-size request (common on lower Groq
