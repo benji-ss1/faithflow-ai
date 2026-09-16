@@ -17,6 +17,10 @@ on:
       version:
         description: "Version to build + attach to the v<version> release (e.g. 0.1.230). Blank = package.json version."
         required: false
+      dry_run:
+        description: "Build + verify only; upload the installer as a workflow artifact instead of touching the release."
+        type: boolean
+        default: false
   push:
     tags:
       - "win-v*.*.*"
@@ -31,7 +35,7 @@ permissions:
 jobs:
   build-win:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -54,6 +58,57 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
         run: npm version "${{ github.event.inputs.version }}" --no-git-tag-version
 
+      # NDI: the license-gated SDK isn't in the repo. Download NDI's own installer,
+      # install it silently (Inno Setup), and build both native addons against
+      # Electron's ABI. HARD FAIL if either addon is missing — a Windows installer
+      # without NDI must never be published (installs would auto-update into it
+      # and silently lose NDI audio in / video out).
+      # The SDK is fetched ONCE and kept in the GitHub Actions cache, so later builds
+      # reuse the saved copy (no download, no installer). On a cache miss we download
+      # NDI's installer and UNPACK it with innoextract, which never shows a UI and so
+      # can't hang like a silent install can. Bump the key to pick up a new SDK.
+      - name: Restore NDI 6 SDK from cache
+        id: ndi-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ndi-sdk
+          key: ndi-6-sdk-2026-04-16
+
+      - name: Fetch NDI 6 SDK (cache miss only)
+        if: steps.ndi-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = "Stop"
+          choco install innoextract -y --no-progress
+          $exe = Join-Path $env:RUNNER_TEMP "NDI6SDK.exe"
+          Invoke-WebRequest -Uri "https://downloads.ndi.tv/SDK/NDI_SDK/NDI%206%20SDK.exe" -OutFile $exe
+          $raw = Join-Path $env:RUNNER_TEMP "ndi-raw"
+          innoextract --silent --output-dir $raw $exe
+          $lib = Get-ChildItem $raw -Recurse -Filter "Processing.NDI.Lib.x64.lib" | Where-Object { $_.DirectoryName -like "*x64*" } | Select-Object -First 1
+          if (-not $lib) { Get-ChildItem $raw -Recurse -Depth 3 | Select-Object FullName; throw "NDI .lib not found in extracted installer" }
+          $root = $lib.Directory.Parent.Parent.FullName
+          Write-Host "Extracted SDK root: $root"
+          Copy-Item -Recurse $root (Join-Path $env:RUNNER_TEMP "ndi-sdk")
+
+      - name: Check NDI 6 SDK layout
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP "ndi-sdk"
+          foreach ($f in @("Include\Processing.NDI.Lib.h", "Lib\x64\Processing.NDI.Lib.x64.lib", "Bin\x64\Processing.NDI.Lib.x64.dll")) {
+            if (-not (Test-Path (Join-Path $sdk $f))) { Get-ChildItem $sdk | Select-Object FullName; throw "NDI SDK file missing: $f" }
+          }
+          "NDI_SDK_DIR=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build NDI native addons
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          npm run ndi:rebuild:win
+          foreach ($f in @("native\ndi-receiver\build\Release\ndi_receiver.node", "native\ndi-sender\build\Release\ndi_sender.node")) {
+            if (-not (Test-Path $f)) { throw "NDI addon missing: $f" }
+          }
+
       - name: Compile Electron main
         run: npm run electron:build:tsc
 
@@ -62,7 +117,27 @@ jobs:
         # installer. Intentional for the pilot (SmartScreen "Run anyway").
         run: npx electron-builder --win nsis --x64 --publish never
 
+      - name: Verify NDI is packaged
+        shell: pwsh
+        run: |
+          $base = "release\win-unpacked\resources\native"
+          foreach ($f in @("ndi-receiver\build\Release\ndi_receiver.node", "ndi-receiver\build\Release\Processing.NDI.Lib.x64.dll", "ndi-sender\build\Release\ndi_sender.node", "ndi-sender\build\Release\Processing.NDI.Lib.x64.dll")) {
+            if (-not (Test-Path (Join-Path $base $f))) { throw "Packaged NDI file missing: $f" }
+          }
+          Write-Host "NDI packaged OK"
+
+      - name: Upload installer as workflow artifact (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: presentflow-windows-installer
+          path: |
+            release/*.exe
+            release/latest.yml
+          retention-days: 7
+
       - name: Upload installer + latest.yml to the release
+        if: "!(github.event_name == 'workflow_dispatch' && inputs.dry_run)"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

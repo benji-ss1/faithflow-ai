@@ -236,6 +236,15 @@
       "target": "nsis",
       "extraResources": [
         {
+          "from": "native/ndi-sender",
+          "to": "native/ndi-sender",
+          "filter": [
+            "build/Release/ndi_sender.node",
+            "index.js",
+            "package.json"
+          ]
+        },
+        {
           "from": "native/ndi-receiver",
           "to": "native/ndi-receiver",
           "filter": [
@@ -247,6 +256,10 @@
         {
           "from": "native/ndi-receiver/ndi-sdk/lib/Processing.NDI.Lib.x64.dll",
           "to": "native/ndi-receiver/build/Release/Processing.NDI.Lib.x64.dll"
+        },
+        {
+          "from": "native/ndi-sender/ndi-sdk/lib/Processing.NDI.Lib.x64.dll",
+          "to": "native/ndi-sender/build/Release/Processing.NDI.Lib.x64.dll"
         }
       ]
     },
