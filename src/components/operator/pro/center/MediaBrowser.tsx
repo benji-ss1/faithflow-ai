@@ -36,6 +36,7 @@ import { takePendingImport, onOsDropImport, type PendingImport } from "./pending
 import { MediaImageEditor } from "./MediaImageEditor";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
+import { usePp7Layers } from "@/lib/pp7-layers-flag";
 
 type Asset = {
   id: string;
@@ -301,7 +302,15 @@ export function MediaBrowser({
   };
 
   // ── Actions ───────────────────────────────────────────────────────────────
+  const pp7Layers = usePp7Layers();
   const sendLive = (a: Asset) => {
+    // PP7 layers flag: media goes on the Media layer behind the words.
+    if (pp7Layers && ctx.layersEngineOn) {
+      setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: normalizeMediaKind(a.kind), mediaKey: a.mediaKey });
+      setSelectedId(a.id);
+      toast.success(`“${a.fileName || "Media"}” is on the Media layer`, { id: "pf-media-layer", description: "Clear Media (F3) removes it. Your words stay." });
+      return;
+    }
     // Was something already on the projector? (a blank slide = nothing live).
     const wasLive = !!ctx.liveSlide && ctx.liveSlide.kind !== "blank";
     setSelectedId(a.id);
