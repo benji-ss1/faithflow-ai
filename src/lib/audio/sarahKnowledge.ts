@@ -48,17 +48,23 @@ export const SARAH_KNOWLEDGE: Record<SarahStep, string> = {
 
 export const CHECK_IDS = ["signal", "noise-floor", "speech-level", "clipping", "channel"] as const;
 
+/** One arrow class, used by BOTH the detector and the sentence filter — a path the
+ *  detector notices must also be removable, and unicode arrows must not slip past. */
+const ARROW = "(?:->|=>|\\u2192|\\u27F6|\\u279C|\\u2794|\\u00BB|\\u25B8|\\u25B6|>)";
+
 /** Replace any "A → B" menu path Sarah wasn't given with a safe pointer to the manual. */
 export function stripUngroundedPaths(reply: string, knowledge: string): { text: string; stripped: boolean } {
-  const known = knowledge.toLowerCase().replace(/\s+/g, " ");
+  const known = knowledge.toLowerCase().replace(/\s+/g, " ").replace(new RegExp(ARROW, "g"), "\u2192");
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   let stripped = false;
-  const re = /([\p{L}\p{N}][\p{L}\p{N} &/+-]{0,40})\s*(?:→|->|>)\s*([\p{L}\p{N}][\p{L}\p{N} &/+-]{0,40})/gu;
+  const re = new RegExp(`([\\p{L}\\p{N}][\\p{L}\\p{N} &/+-]{0,40})\\s*${ARROW}\\s*([\\p{L}\\p{N}][\\p{L}\\p{N} &/+-]{0,40})`, "gu");
   for (const m of reply.matchAll(re)) {
     const a = m[1].trim().split(/\s+/).slice(-1)[0].toLowerCase();
     const b = m[2].trim().split(/\s+/)[0].toLowerCase();
-    if (!new RegExp(`${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*→\\s*${b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(known)) { stripped = true; break; }
+    if (!new RegExp(`${esc(a)}\\s*\\u2192\\s*${esc(b)}`).test(known)) { stripped = true; break; }
   }
   if (!stripped) return { text: reply, stripped };
-  const safe = reply.split(/(?<=[.!?])\s+/).filter((s) => !/→|->/.test(s)).join(" ").trim();
-  return { text: `${safe ? `${safe} ` : ""}The exact menu names depend on your desk model — check your desk's manual for its USB or output patch page.`, stripped };
+  const hasArrow = new RegExp(ARROW, "u");
+  const safe = reply.split(/(?<=[.!?])\s+/).filter((s) => !hasArrow.test(s)).join(" ").trim();
+  return { text: `${safe ? `${safe} ` : ""}The exact menu names depend on your desk model \u2014 check your desk's manual for its USB or output patch page.`, stripped };
 }

@@ -68,6 +68,14 @@ const kb = SARAH_KNOWLEDGE.connection;
 check("known path survives", stripUngroundedPaths("On the desk: Routing → Card Out, choose Out 9-16.", kb).stripped === false);
 check("invented path is stripped", stripUngroundedPaths("Open Setup → Magic Audio Wizard and enable it.", kb).stripped === true);
 check("stripped reply still helps", /check your desk's manual/i.test(stripUngroundedPaths("Open Setup → Magic Wizard.", kb).text));
+// Adversarial (verifier agent, 2026-09-16): a path the detector notices must also be REMOVED,
+// and non-ASCII arrows must not slip past.
+for (const arrow of ["\u2192", "->", "=>", "\u27F6", "\u279C", "\u00BB", "\u25B8", ">"]) {
+  const out = stripUngroundedPaths(`Go to Setup ${arrow} Magic Wizard and enable it.`, kb);
+  check(`invented path with "${arrow}" is detected`, out.stripped === true);
+  check(`invented path with "${arrow}" is removed from the text`, !out.text.includes("Magic Wizard"));
+}
+check("known X32 path still survives with a > arrow", stripUngroundedPaths("On the desk: Routing > Card Out, choose Out 9-16.", kb).stripped === false);
 check("plain reply untouched", stripUngroundedPaths("Turn the aux send up by about 6 dB.", kb).text === "Turn the aux send up by about 6 dB.");
 
 console.log(`audio-setup-diagnostics: ${passed} passed, ${failed} failed`);

@@ -65,6 +65,20 @@ check("stopword-only names don't create a false conflict", scoreApplication(app(
 check("accented own application still matches", scoreApplication(app({ contactEmail: "tech@gracechapel.org", churchName: "Église Évangélique", answers: answers("Église Évangélique") }), { ...ctx, churchName: "Eglise Evangelique" }).confidence === "high");
 check("unrelated → none", scoreApplication(app({ contactEmail: "x@other.org", churchName: "Redemption House", answers: answers("Redemption House") }), { ...ctx, city: "Accra", country: "Ghana" }).confidence === "none");
 
+// Verifier agent (2026-09-16): a shared PERSONAL-mail domain must not act as identity on its own.
+const sharedHost = scoreApplication(
+  app({ contactEmail: "someone@gmx.com", churchName: "Redemption House Abuja", answers: answers("Redemption House Abuja", "Yamaha TF", "Windows", "Abuja") }),
+  { userEmail: "me@gmx.com", memberEmails: ["me@gmx.com"], churchName: "Grace Chapel Lagos", city: "Lagos", country: "Nigeria" });
+check("shared free-mail host alone is not identity", !sharedHost.identityMatched);
+check("shared free-mail host does not release details", sharedHost.setup.desk === undefined && sharedHost.setup.applicantName === undefined);
+// A REAL church domain corroborated by the church name still works (the normal case).
+check("church domain + matching name = identity", scoreApplication(app(), ctx).identityMatched === true);
+// A church domain with a conflicting name and different city is NOT enough on its own.
+const uncorroborated = scoreApplication(
+  app({ contactEmail: "pastor@sharedhost.test", churchName: "Totally Different Assembly", answers: answers("Totally Different Assembly", "X32", "Mac", "Accra") }),
+  { userEmail: "tech@sharedhost.test", memberEmails: ["tech@sharedhost.test"], churchName: "Grace Chapel Lagos", city: "Lagos", country: "Nigeria" });
+check("uncorroborated domain is not identity", !uncorroborated.identityMatched && uncorroborated.setup.desk === undefined);
+
 // ── best match ──
 const best = bestApplicationMatch([
   app({ id: "a", contactEmail: "x@other.org", churchName: "Redemption House", answers: answers("Redemption House") }),

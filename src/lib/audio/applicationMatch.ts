@@ -61,9 +61,13 @@ export interface ApplicationMatch {
   setup: ExtractedSetup;
 }
 
-const FREE_MAIL = new Set([
+export const FREE_MAIL = new Set([
   "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "hotmail.com", "hotmail.co.uk",
-  "outlook.com", "live.com", "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com", "ymail.com",
+  "outlook.com", "outlook.co.uk", "live.com", "live.co.uk", "msn.com", "icloud.com", "me.com", "mac.com",
+  "aol.com", "proton.me", "protonmail.com", "pm.me", "ymail.com", "yahoo.ca", "yahoo.in", "yahoo.com.au",
+  "gmx.com", "gmx.de", "gmx.net", "mail.com", "zoho.com", "yandex.com", "yandex.ru", "fastmail.com",
+  "hey.com", "tutanota.com", "tuta.io", "comcast.net", "btinternet.com", "sky.com", "virginmedia.com",
+  "hotmail.fr", "hotmail.it", "web.de", "orange.fr", "free.fr", "163.com", "qq.com", "rediffmail.com",
 ]);
 const CHURCH_STOPWORDS = new Set([
   "the", "of", "and", "a", "church", "chapel", "ministries", "ministry", "international", "intl", "assembly",
@@ -151,7 +155,10 @@ export function scoreApplication(app: ApplicationRow, ctx: ChurchContext): Appli
   const w: Record<string, number> = { "email-user": 60, "email-member": 50, domain: 35, "church-name": 40, city: 12, country: 6, "applicant-name": 10 };
   const on = (k: string) => signals.find((x) => x.key === k)!.matched;
   const score = signals.reduce((s, x) => s + (x.matched ? w[x.key] : 0), 0);
-  const identityMatched = on("email-user") || on("email-member") || on("domain");
+  // A domain signal ALONE is not proof: a free-mail host we haven't listed could be shared
+  // by two unrelated churches. Require it to be corroborated by the church name or city.
+  const domainCorroborated = on("domain") && (on("church-name") || on("city"));
+  const identityMatched = on("email-user") || on("email-member") || domainCorroborated;
   // Conflict only when BOTH names carry distinctive words and none are shared.
   const nameConflict = hasDistinctiveTokens(full.churchName, locations) && hasDistinctiveTokens(ctx.churchName, locations) && nameSim === 0;
 

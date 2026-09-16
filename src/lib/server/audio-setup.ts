@@ -5,7 +5,7 @@
 import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { betaApplications, churchAudioProfiles, churches, users } from "../db/schema";
-import { bestApplicationMatch, norm, type ApplicationMatch, type ApplicationRow } from "../audio/applicationMatch";
+import { bestApplicationMatch, norm, FREE_MAIL, type ApplicationMatch, type ApplicationRow } from "../audio/applicationMatch";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -74,7 +74,9 @@ async function findMatch(db: Db, user: { email: string; name?: string; churchId:
     .where(and(eq(users.churchId, user.churchId), isNotNull(users.emailVerifiedAt))).limit(200);
   const memberEmails = memberRows.map((r) => r.email.toLowerCase());
   const emailSet = [...new Set([user.email.toLowerCase(), ...memberEmails])];
-  const domains = [...new Set(emailSet.map((e) => e.split("@")[1]).filter((d) => d && !/^(gmail|googlemail|yahoo|hotmail|outlook|live|icloud|me|aol|proton|protonmail|ymail)\./.test(d)))].slice(0, 5);
+  // ONE free-mail list (shared with applicationMatch) so the prefilter and the scorer
+  // can never disagree about what counts as a church's own domain.
+  const domains = [...new Set(emailSet.map((e) => e.split("@")[1]).filter((d) => d && !FREE_MAIL.has(d)))].slice(0, 5);
   const words = norm(church.name).split(/[^\p{L}\p{N}]+/u)
     .filter((w) => w.length >= 4 && !["church", "chapel", "ministries", "ministry", "international", "assembly", "fellowship", "redeemed", "christian", "house", "gospel", "mission"].includes(w))
     .slice(0, 4);

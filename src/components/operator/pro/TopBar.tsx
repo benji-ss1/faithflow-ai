@@ -21,6 +21,7 @@ import { FluidTabs } from "./FluidTabs";
 import { SwitchMode } from "./SwitchMode";
 import { FeaturesBell } from "./ActivitiesCard";
 import { DeepReloadButton } from "./DeepReloadButton";
+import { SettingsButton } from "../settings/SettingsWindow";
 import { AIDiagnosticModal, type LiveAudioStats } from "../AIDiagnosticModal";
 import { readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
 
@@ -677,6 +678,9 @@ export function TopBar({
             just scrolled the preview; Audience/Stage were non-interactive
             display-availability chips) — output windows are opened/assigned from
             the Screens panel (bottom-left sidebar), which is unchanged. */}
+        {/* Settings — one window for every setting (⌘,). 2026-09-16: the Pro shell
+            previously had NO settings entry point at all. */}
+        <SettingsButton />
         {/* Deep reload — clear cache & pull the latest version */}
         <DeepReloadButton />
         {/* Recent features / What's-new bell — revisit updates any time */}
