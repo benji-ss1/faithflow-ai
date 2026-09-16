@@ -181,6 +181,19 @@ export type OperatorShellCtx = {
   // `layersV2` opt-in. When false the panel shows a disabled affordance.
   layersEngineOn: boolean;
   liveLayers: UseLiveLayers;
+  // SCENES (2026-09-16) — ProPresenter "Looks". `scenesUiOn` = NEXT_PUBLIC_SCENES_V1
+  // kill-switch AND this church's `scenes_enabled` opt-in; the Scene Rail renders
+  // nothing when false. `activeScene` is the wire snapshot currently published
+  // (null = "None", a provable no-op); `onSetScene` switches all four screens in
+  // ONE atomic output post.
+  scenesUiOn: boolean;
+  activeScene: import("@/lib/scenes").SceneWire | null;
+  onSetScene: (scene: import("@/lib/scenes").SceneWire | null) => void;
+  // Apply a scene BY ID (the Automations/slide-action seam — engine SET_LOOK).
+  // Resolving an id to a wire needs the church's scene list + themes, which live
+  // in the Scene Rail, so this hands off via an in-window event; when Scenes is
+  // off for the church nothing is listening and it is a documented no-op.
+  onApplyScene: (sceneId: string) => void;
   // Phase 4 — set a media asset as the (persistent) background layer, routing
   // through the setMediaAsBackground store machinery (Wave 4). The real handler
   // behind the SET_BACKGROUND_MEDIA engine action.

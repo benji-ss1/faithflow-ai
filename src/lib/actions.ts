@@ -6,7 +6,7 @@ import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
 import { bakeThemeIntoObjectsJson } from "./theme-bake";
 import { isHex6Color } from "./hex-color";
-import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, type ServiceItemType } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
 import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
@@ -3055,4 +3055,61 @@ export async function deleteMacro(id: string): Promise<Result> {
   const user = await requireCap("operate_services");
   const { deleteMacroCore } = await import("./server/automations");
   return deleteMacroCore(getDb(), user.churchId, id);
+}
+
+// ── Scenes (church-scoped) ──────────────────────────────────────────────────
+// ProPresenter parity (spec §2/§22.2 "Looks"). A scene stores ROUTING ONLY —
+// which layers each output screen shows, plus an optional per-screen theme id.
+// The 5 built-ins live in code (src/lib/scenes.ts), so these actions only ever
+// touch a church's OWN custom scenes. Same shape as the timer/template CRUD:
+// church-scoped predicate IS the authorization, row cap + whitelist on write.
+export type SceneInput = { name?: string; config?: Record<string, unknown> };
+
+const MAX_SCENES = 50;
+
+async function sanitizeSceneInput(input: SceneInput): Promise<{ name: string; config: Record<string, unknown> }> {
+  // sanitizeSceneConfig whitelist-REBUILDS the config (unknown screens/layers
+  // and out-of-range values are dropped, never stored).
+  const { sanitizeSceneConfig } = await import("./scenes");
+  const name = (input.name ?? "Scene").trim().slice(0, 120) || "Scene";
+  return { name, config: sanitizeSceneConfig(input.config) as unknown as Record<string, unknown> };
+}
+
+export async function listScenes(): Promise<Result<Array<{ id: string; name: string; config: Record<string, unknown>; isBuiltIn: boolean; sortOrder: number }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select().from(scenes)
+    .where(eq(scenes.churchId, user.churchId))
+    .orderBy(asc(scenes.sortOrder), asc(scenes.createdAt));
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, config: (r.config as Record<string, unknown>) ?? {}, isBuiltIn: r.isBuiltIn, sortOrder: r.sortOrder })) };
+}
+
+export async function createScene(input: SceneInput): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const clean = await sanitizeSceneInput(input);
+  const existing = await db.select({ sortOrder: scenes.sortOrder }).from(scenes).where(eq(scenes.churchId, user.churchId));
+  if (existing.length >= MAX_SCENES) return { ok: false, error: `Scene limit reached (${MAX_SCENES}). Delete an existing scene to add another.` };
+  const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.sortOrder)) + 1 : 0;
+  const [row] = await db.insert(scenes).values({ churchId: user.churchId, ...clean, sortOrder: nextOrder }).returning({ id: scenes.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function updateScene(id: string, input: SceneInput): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const clean = await sanitizeSceneInput(input);
+  const res = await db.update(scenes).set({ ...clean, updatedAt: new Date() })
+    .where(and(eq(scenes.id, id), eq(scenes.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Scene not found" };
+  return { ok: true };
+}
+
+export async function deleteScene(id: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const res = await db.delete(scenes)
+    .where(and(eq(scenes.id, id), eq(scenes.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Scene not found" };
+  return { ok: true };
 }

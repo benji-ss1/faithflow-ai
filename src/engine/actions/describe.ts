@@ -27,6 +27,7 @@ export function describeSpec(s: ActionSpec, macroName?: string): string {
     case "blank": return "Blank";
     case "kill": return "Kill / clear all";
     case "clear_all_layers": return "Clear all layers";
+    case "scene": return `Switch scene to ${s.sceneId}`;
     case "macro": return macroName ? `Run automation: ${macroName}` : `Run automation ${s.macroId}`;
     default: return "Action";
   }

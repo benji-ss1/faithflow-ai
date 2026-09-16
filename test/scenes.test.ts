@@ -119,6 +119,29 @@ async function main() {
     }
   });
 
+  // Automations / slide actions: the scene action must validate, sanitize and
+  // map onto the engine's SET_LOOK, and must be legal on a slide (it never
+  // changes what is playing, so it is non-destructive).
+  {
+    const { validateSpec, sanitizeSpec, specToEngineAction, validateForSlide, isGuardedSpec } = await import("../src/engine/actions/spec");
+    check("scene action: valid id accepted, junk rejected", () => {
+      assert.equal(validateSpec({ type: "scene", sceneId: "builtin-worship" }).ok, true);
+      assert.equal(validateSpec({ type: "scene", sceneId: "" }).ok, false);
+      assert.equal(validateSpec({ type: "scene" }).ok, false);
+      assert.equal(validateSpec({ type: "scene", sceneId: "../../etc/passwd" }).ok, false);
+      assert.equal(validateSpec({ type: "scene", sceneId: "x".repeat(65) }).ok, false);
+    });
+    check("scene action: sanitized to whitelisted fields only, maps to SET_LOOK", () => {
+      const clean = sanitizeSpec({ type: "scene", sceneId: "builtin-teaching", evil: "<script>" });
+      assert.deepEqual(clean, { type: "scene", sceneId: "builtin-teaching" });
+      assert.deepEqual(specToEngineAction(clean!), { type: "SET_LOOK", lookId: "builtin-teaching" });
+    });
+    check("scene action: allowed on a slide and NOT guarded (non-destructive)", () => {
+      assert.equal(validateForSlide({ type: "scene", sceneId: "builtin-offering" }).ok, true);
+      assert.equal(isGuardedSpec({ type: "scene", sceneId: "builtin-offering" }), false);
+    });
+  }
+
   console.log(`\nScenes model: ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
 }

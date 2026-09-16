@@ -133,7 +133,10 @@ export const ACTION_BINDINGS: Record<EngineActionType, ActionBinding> = {
   // todo-wired.
   SET_BACKGROUND_MEDIA: { mode: "ctx", method: "onSetBackgroundMedia" },
   TRIGGER_MACRO: { mode: "engine-only" },
-  SET_LOOK: { mode: "engine-only" },
+  // Scenes (2026-09-16): SET_LOOK is now REAL-wired to ctx.onApplyScene, which
+  // switches the active per-screen routing in one atomic OutputState post.
+  // Non-destructive (it never changes what is playing) ⇒ no confirm gate.
+  SET_LOOK: { mode: "ctx", method: "onApplyScene" },
   TOGGLE_PROP: { mode: "engine-only" },
 };
 
@@ -212,8 +215,8 @@ export function dispatchAction(
     case "SET_BACKGROUND_MEDIA": ctx.onSetBackgroundMedia(action.assetRef); return { handled: true };
 
     // ── Engine-only future phases ──
+    case "SET_LOOK": ctx.onApplyScene(action.lookId); return { handled: true };
     case "TRIGGER_MACRO": // Phase 3
-    case "SET_LOOK":      // Phase 7
     case "TOGGLE_PROP":   // Phase 8
       return { handled: false, reason: "engine-only" };
 

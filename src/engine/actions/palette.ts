@@ -32,6 +32,9 @@ export const ACTION_PALETTE: PaletteEntry[] = [
   { label: "Clear message", make: () => ({ type: "clear_message" }), slideSafe: true },
   { label: "Show logo", make: () => ({ type: "logo" }), slideSafe: true },
   { label: "Clear lower third", make: () => ({ type: "clear_lower_third" }), slideSafe: true },
+  // Scenes: one generic entry; the operator edits the id in the action editor
+  // (or picks a scene in the Scene Builder and copies its id).
+  { label: "Switch scene…", make: () => ({ type: "scene", sceneId: "builtin-worship" }), slideSafe: true },
   { label: "Blank (guarded)", make: () => ({ type: "blank" }), slideSafe: false },
   { label: "Kill / clear all output (guarded)", make: () => ({ type: "kill" }), slideSafe: false },
   { label: "Clear all layers (guarded)", make: () => ({ type: "clear_all_layers" }), slideSafe: false },
