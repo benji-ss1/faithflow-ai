@@ -134,7 +134,9 @@ export function RightIconBar({
     // Audio tab removed from Settings — the AUDIO guardian chip already surfaces
     // the issue inline; operators can check hardware settings in the left sidebar.
     const onOpenAudioSettings = () => {
-      // No-op: Audio removed from settings panel.
+      // 2026-09-16: was a no-op (the ⚠ AUDIO chip did nothing). Open the real
+      // Audio hardware panel in the left sidebar instead.
+      window.dispatchEvent(new CustomEvent("presentflow:open-hardware", { detail: { panel: "audio" } }));
     };
     // Themes now opens as a full-screen operator modal.
     const onOpenThemesSettings = () => {

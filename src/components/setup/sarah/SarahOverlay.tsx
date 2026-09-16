@@ -1,49 +1,67 @@
 "use client";
 
 /**
- * SarahOverlay — hosts the audio setup wizard INSIDE the desktop operator shell
- * (2026-09-16 owner directive). "Run setup" used to navigate to /setup/audio, which
- * tore the operator out of the app and into a web page; now Sarah opens over the
- * console and closes back to exactly where they were.
+ * SarahOverlay — hosts Sarah INSIDE the desktop operator shell (2026-09-16).
  *
- * Opened by dispatching `presentflow:open-sarah`. Mounted once in ProOperatorShell,
- * so it costs nothing until it is opened (Radix renders no portal while closed).
+ * Two modes:
+ *   • panel — the spotlight panel (Sarah's conversation), centred over a light scrim.
+ *   • coach — the panel steps aside (kept MOUNTED, so no progress is lost) while
+ *     SarahSpotlight glides around the real app: the Audio panel, the AI switch,
+ *     the live preview.
+ *
+ * Not a Radix modal on purpose: no focus trap, so Sarah coaching the real app never
+ * locks the operator out of it. Opened by `presentflow:open-sarah`; renders nothing
+ * until then.
  */
-import { useCallback, useEffect, useState } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { SarahSetupWizard, type SarahLive } from "./SarahSetupWizard";
 
 export const OPEN_SARAH_EVENT = "presentflow:open-sarah";
 
 export function SarahOverlay({ live }: { live?: SarahLive } = {}) {
   const [open, setOpen] = useState(false);
+  const [coaching, setCoaching] = useState(false);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const onOpen = () => setOpen(true);
+    const onOpen = () => { setCoaching(false); setOpen(true); };
     window.addEventListener(OPEN_SARAH_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_SARAH_EVENT, onOpen);
   }, []);
 
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => { setOpen(false); setCoaching(false); }, []);
 
-  return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/45 backdrop-blur-[2px]" />
-        <Dialog.Content
-          // The wizard owns its own layout, chrome and Close button.
-          className="fixed z-[91] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(1060px,92vw)] h-[min(660px,86vh)] rounded-3xl overflow-hidden shadow-[0_40px_120px_rgba(0,0,0,0.6)] ring-1 ring-white/10 focus:outline-none"
-          // Escape always gets the operator back to the console (they may need the
-          // projector NOW); a stray click outside does not, so a check isn't lost by accident.
-          onInteractOutside={(e) => e.preventDefault()}
-        >
-          <Dialog.Title className="sr-only">Audio setup with Sarah</Dialog.Title>
-          <Dialog.Description className="sr-only">
-            Sarah walks you through connecting your church&apos;s sound to PresentFlow.
-          </Dialog.Description>
-          {open && <SarahSetupWizard onDone={close} live={live} />}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+  // Esc closes the panel only when focus is inside it — slide hotkeys elsewhere are untouched.
+  useEffect(() => {
+    if (!open || coaching) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && panelRef.current?.contains(document.activeElement)) close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, coaching, close]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
+    <>
+      <div hidden={coaching} aria-hidden className="fixed inset-0 z-[90] bg-black/45 backdrop-blur-[2px]" />
+      <div
+        ref={panelRef}
+        hidden={coaching}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Audio setup with Sarah"
+        // The shell suppresses operator hotkeys while any [role=dialog][data-state=open]
+        // exists. OPEN while her panel is up (so Space/G can't fire a slide behind it);
+        // CLOSED while she's coaching (the operator must be able to drive the real app).
+        data-state={coaching ? "closed" : "open"}
+        className="fixed z-[91] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(1060px,92vw)] h-[min(660px,86vh)] rounded-3xl overflow-hidden shadow-[0_40px_120px_rgba(0,0,0,0.6)] ring-1 ring-white/10"
+      >
+        <SarahSetupWizard onDone={close} live={live} onCoachChange={setCoaching} />
+      </div>
+    </>,
+    document.body,
   );
 }

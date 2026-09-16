@@ -44,6 +44,20 @@ export function HardwareSection() {
     measure();
   }, [measure]);
 
+  // Programmatic opener (2026-09-16) — lets Sarah's spotlight, and the red ⚠ AUDIO
+  // chip, open the REAL hardware panel instead of a copy of it.
+  // detail: { panel: "screens" | "audio" | "video" }. Always OPENS (never toggles shut).
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const k = (e as CustomEvent<{ panel?: HardwareKey }>).detail?.panel;
+      if (k !== "screens" && k !== "audio" && k !== "video") return;
+      measure();
+      setPanel(k);
+    };
+    window.addEventListener("presentflow:open-hardware", onOpen);
+    return () => window.removeEventListener("presentflow:open-hardware", onOpen);
+  }, [measure]);
+
   // Esc closes; click outside (not on the trigger rows) closes.
   useEffect(() => {
     if (!panel) return;
@@ -123,6 +137,7 @@ export function HardwareSection() {
         <div
           ref={panelRef}
           role="dialog"
+          data-tour={`hardware-${panel}`}
           aria-label={`${HARDWARE_LABELS[panel]} hardware`}
           className="fixed w-[360px] bg-[var(--color-panel)] border-r border-[var(--color-border)] shadow-[var(--edge-top),var(--shadow-lg)] flex flex-col z-40"
           style={{

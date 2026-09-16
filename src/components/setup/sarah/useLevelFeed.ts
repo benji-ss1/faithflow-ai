@@ -48,7 +48,8 @@ export function friendlyProbeError(raw?: string): string {
   return "I couldn't open that input. Check it's plugged in and not in use by another app, then try again.";
 }
 
-export async function listSetupDevices(): Promise<SetupDevice[]> {
+export async function listSetupDevices(opts: { probe?: boolean } = {}): Promise<SetupDevice[]> {
+  const probePermission = opts.probe !== false;
   const n = nativeApi();
   if (n) {
     try {
@@ -60,10 +61,14 @@ export async function listSetupDevices(): Promise<SetupDevice[]> {
     } catch { /* fall through to browser */ }
   }
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return [];
-  try {
-    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
-    probe.getTracks().forEach((t) => t.stop());
-  } catch { /* labels may be blank without permission */ }
+  // A background re-poll must NOT open the mic each time (it flashes the mic indicator
+  // and can disturb live capture) — only the first, deliberate listing probes permission.
+  if (probePermission) {
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach((t) => t.stop());
+    } catch { /* labels may be blank without permission */ }
+  }
   const all = await navigator.mediaDevices.enumerateDevices();
   return all.filter((d) => d.kind === "audioinput" && d.deviceId !== "default").map((d) => ({
     key: `b:${d.deviceId}`, name: d.label || "Audio input", source: "browser" as const, deviceId: d.deviceId,
