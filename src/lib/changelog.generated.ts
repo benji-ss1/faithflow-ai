@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.423",
+    "version": "0.1.424",
     "date": "2026-09-16",
     "headline": "More settings now work right inside the desktop app",
     "highlights": [
@@ -12,6 +12,19 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Your Bible translation, detection and auto-approve settings, and how long transcripts are kept, can now be changed right in the Settings window.",
       "Setting up your screens now opens the Screens panel in the app instead of your web browser.",
       "Signing out of all devices now works from Settings without leaving the app first."
+    ]
+  },
+  {
+    "version": "0.1.423",
+    "date": "2026-09-16",
+    "headline": "Lyrics and verses no longer get cut off on the projector or stage screen",
+    "highlights": [
+      "Fixed a bug where some slides lost their last line on the main projector and stage screen, while the NDI feed showed them in full. Every slide now fits the screen on every output.",
+      "It could happen to short slides as well as long ones - it depended on which slide was showing while the lyric font finished loading. That no longer matters.",
+      "Lyrics shown over your camera in lower-third mode now fit inside the band instead of spilling out of it.",
+      "Long Bible verses no longer run into the reference line at the bottom.",
+      "The text size control now goes from 30% up to 250%, so you have more room to suit your projector and room.",
+      "Making text bigger never pushes it off the screen - short lines grow, and a slide that already fills the screen stays fitted. Making it smaller has no limit."
     ]
   },
   {

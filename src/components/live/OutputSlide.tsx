@@ -60,7 +60,20 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
         {slide.kind !== "empty" && (
           isOverlayKind ? (
             <div className={containerClass}>
-              <SlideRenderer slide={slide} overVideo projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} verticalAlign={videoInput?.overlay === "full" ? (videoInput?.lyricsPos ?? "center") : "center"} />
+              <SlideRenderer
+                slide={slide}
+                overVideo
+                projectorFit={projectorFit}
+                fontScale={fontScale}
+                referenceScale={referenceScale}
+                referenceColor={referenceColor}
+                appearance={appearance}
+                verticalAlign={videoInput?.overlay === "full" ? (videoInput?.lyricsPos ?? "center") : "center"}
+                // Lower-third camera mode draws the lyrics in the 38% band above
+                // (overlayClass). Fit them to THAT band, not the whole frame, or
+                // multi-line lyrics clip out of it (2026-09-16).
+                fitBandFraction={videoInput && videoInput.overlay !== "full" ? 0.38 : undefined}
+              />
             </div>
           ) : (
             <div className="absolute inset-0">

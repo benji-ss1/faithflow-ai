@@ -33,7 +33,44 @@ function fitCacheKey(text: string, bw: number, bh: number, maxPx: number) {
   // Round box dims to nearest 4px so trivial resize jitter still cache-hits.
   return `${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${maxPx}|${text}`;
 }
+/**
+ * The operator's A−/A+ size choice applied to the fitted size (2026-09-16).
+ *
+ * Lyrics must NEVER be cut off — including by the operator's own size control.
+ *  - AUTO (1.0): the largest size that fits the screen.
+ *  - BIGGER (scale > 1): the search ceiling is raised by `scale`, so `best` is the
+ *    largest size that STILL FITS under that raised ceiling. Short lines grow a lot
+ *    ("Jesus wept" fills the wall); a long slide that already fills the screen
+ *    cannot grow, because the only way to grow it is to push it off the edge.
+ *    Shown as-is: bigger is always a size that fits.
+ *  - SMALLER (scale < 1): shrinks freely with no readability floor — smaller text
+ *    can never be cut off. Hard 8px minimum so it never becomes invisible.
+ */
+export function resolveShownSize(best: number, scale: number): number {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  if (s >= 1) return best;
+  return Math.max(8, Math.round(best * s));
+}
+
+/** The search ceiling for a given operator scale: raised when going bigger (so
+ *  short text can grow), unchanged otherwise. */
+export function searchCeilingPx(ceilBasePx: number, scale: number): number {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  return Math.round(ceilBasePx * Math.max(1, s));
+}
+
 function fitCacheGet(k: string): number | undefined { return fitCache.get(k); }
+function fitCacheDelete(k: string) { fitCache.delete(k); }
+/** Whether the page's web fonts have settled. Part of every fit-cache key: a size
+ *  measured with the FALLBACK font (narrower glyphs) must never be reused once the
+ *  real font (Sora) has loaded — that reuse is how a slide got stuck too big and
+ *  lost its bottom line (2026-09-16 "lyrics cut off on main + stage"). */
+function fontsSettledToken(): string {
+  try {
+    if (typeof document === "undefined" || !document.fonts) return "fx";
+    return document.fonts.status === "loaded" ? "f1" : "f0";
+  } catch { return "fx"; }
+}
 function fitCacheSet(k: string, v: number) {
   if (fitCache.size >= FIT_CACHE_MAX) {
     const first = fitCache.keys().next().value;
@@ -134,7 +171,13 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   // Themes: fontFamily/fontWeight change glyph widths, so they must be part of
   // the fit-cache key AND trigger a refit — otherwise a theme swap reuses the
   // previous font's cached size and the verse overflows / undersizes.
-  const fontToken = `${(textStyle?.fontFamily as string) ?? ""}|${(textStyle?.fontWeight as string | number) ?? ""}`;
+  // 2026-09-16 (lyrics cut off on main + stage): the key ALSO needs the text
+  // transform, letter-spacing and style. Lyrics render UPPERCASE but edit mode and
+  // some scripture views render true case — same text, same box, same old key — so
+  // a size measured on the narrower lowercase glyphs was reused for the wider
+  // uppercase render and the bottom line was clipped.
+  const resolvedTransform = editable ? "none" : ((textStyle?.textTransform as string | undefined) ?? "uppercase");
+  const fontToken = `${(textStyle?.fontFamily as string) ?? ""}|${(textStyle?.fontWeight as string | number) ?? ""}|${resolvedTransform}|${(textStyle?.letterSpacing as string | number | undefined) ?? ""}|${(textStyle?.fontStyle as string | undefined) ?? ""}`;
   // Read fontScale through a ref so the ResizeObserver's `fit` closure (which
   // is captured once, deps []) always sees the CURRENT scale on a resize, not
   // a stale value. A scale CHANGE separately triggers a refit via the
@@ -206,7 +249,10 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     const useCanvas = !!(projectorFit && canvas && canvas.w > 0 && canvas.h > 0);
     // Vertical safe-area: shrink the height the fit targets (projector/canvas
     // path only) so lyrics over a camera keep a top/bottom margin and never clip.
-    const reserveV = Math.max(0, Math.min(0.5, reserveVerticalRatio || 0));
+    // Clamp raised 0.5 → 0.7: the camera lower-third band is only 38% of the frame,
+    // so its text must be fitted to 38% (a reserve of 0.62). At 0.5 the fit sized
+    // lower-third lyrics for 50% and they clipped out of the band.
+    const reserveV = Math.max(0, Math.min(0.7, reserveVerticalRatio || 0));
     const measW = useCanvas ? canvas!.w : box.clientWidth;
     const measH = useCanvas ? Math.round(canvas!.h * (1 - reserveV)) : box.clientHeight;
     const padPx = Math.max(4, Math.min(48, Math.round(Math.min(measW, measH) * paddingRatio)));
@@ -266,7 +312,9 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // and NEVER clips out of frame. Guaranteed fit beats preferred size.
       const absMinPx = Math.max(14, Math.round(0.028 * containerH));
       const scale = fontScaleRef.current;
-      const ceilPx = Math.round(projectorCeilingPx(containerH) * Math.max(1, scale));
+      // A+ raises the SEARCH ceiling (short text grows); the result is still the
+      // largest size that fits, so bigger never pushes lyrics off the screen.
+      const ceilPx = searchCeilingPx(Math.round(projectorCeilingPx(containerH)), scale);
       // Projector line spacing tightened to 1.08 — measure + render use the SAME
       // value so the fit stays exact.
       t.style.lineHeight = "1.08";
@@ -285,9 +333,21 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // needed, and pathologically long text bottoms out at the guaranteed-fit
       // floor rather than clipping. A−/A+ scale rides the ceiling. Seeded by the
       // word-count band for fast convergence; cached by text+box.
-      const projKey = `projfit|${Math.round(ebw / 4) * 4}|${Math.round(ebh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${currentText}`;
+      const projKey = `projfit|${Math.round(ebw / 4) * 4}|${Math.round(ebh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${fontsSettledToken()}|${currentText}`;
       let best: number;
-      const cachedProj = editingRef.current ? undefined : fitCacheGet(projKey);
+      let cachedProj = editingRef.current ? undefined : fitCacheGet(projKey);
+      // NEVER TRUST A CACHED SIZE THAT NO LONGER FITS (2026-09-16 root cause of
+      // lyrics cut off on main + stage). A cached size is a MEASUREMENT taken in
+      // one moment; the fonts, the styling or the box can differ now. Verifying it
+      // costs one layout read; trusting it blindly clipped the bottom line and the
+      // later refits (font-ready, timers) all hit the same bad cache entry.
+      // A cached 8px is the accepted last-resort result for a slide that cannot fit
+      // at all — re-verifying it would discard it and redo the full search on every
+      // refit (~30 forced layouts × 7 refits × every screen).
+      if (cachedProj !== undefined && cachedProj > 8 && !fitsAt(cachedProj)) {
+        fitCacheDelete(projKey);
+        cachedProj = undefined;
+      }
       if (cachedProj !== undefined) {
         best = cachedProj;
       } else {
@@ -305,13 +365,28 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // Below the preferred floor → a long passage; tighten leading for a touch
       // more room. Only a pathological single line can still overflow (paginateForFit
       // already splits long text) — warn once for diagnostics.
+      // LAST-RESORT SHRINK: if even the guaranteed-fit floor overflows (a
+      // pathological slide, or a very tight zone/band), keep shrinking rather than
+      // clip. The operator's rule is absolute — lyrics must never be cut off. This
+      // only ever runs when the normal floor has already failed, so no ordinary
+      // slide changes size.
+      if (!fitsAt(best)) {
+        let lo = 8, hi = best - 1, found = 8;
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+        }
+        best = found;
+        if (!editingRef.current) fitCacheSet(projKey, best);
+      }
       const belowPref = best < prefFloorPx;
       const stillOverflows = !fitsAt(best);
       if (stillOverflows) warnOverflowOnce(currentText, best);
       const tight = belowPref || stillOverflows;
       // A+ rides the raised ceiling (in ceilPx); A− multiplies down. Clamped to
       // the guaranteed-fit range so manual scale can never clip or vanish.
-      const shown = Math.max(absMinPx, Math.min(ceilPx, Math.round(best * Math.min(1, scale))));
+      // Bigger = the fitted size under the raised ceiling; smaller = scaled down freely.
+      const shown = resolveShownSize(best, scale);
       lastFittedRef.current = best;
       if (AF_DEBUG) setAfDbg({ bw: Math.round(bw), bh: Math.round(bh), best });
       t.style.fontSize = `${shown}px`;
@@ -450,11 +525,22 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   // line reflows/overflows on swap. Refit ONCE when the webfonts are actually
   // ready. One-shot: later slides fit correctly because the font is already
   // loaded by then. No artificial delay — a real "font is ready" signal.
+  // 2026-09-16: ALSO refit on every later font load. `fonts.ready` resolves once;
+  // a font whose download starts AFTER the slide is already showing (a later
+  // weight/style, a theme font swapped mid-service) fired no refit at all, so the
+  // slide stayed sized for the fallback font and was cut off on every surface —
+  // reproduced in a browser (Arial Narrow fallback, Sora arriving post-mount).
   useEffect(() => {
-    if (typeof document === "undefined" || !document.fonts?.ready) return;
+    if (typeof document === "undefined" || !document.fonts) return;
     let cancelled = false;
-    document.fonts.ready.then(() => { if (!cancelled) fitRef.current(); });
-    return () => { cancelled = true; };
+    const refit = () => { if (!cancelled) fitRef.current(); };
+    document.fonts.ready?.then(refit);
+    const fonts = document.fonts as FontFaceSet & EventTarget;
+    try { fonts.addEventListener("loadingdone", refit); } catch { /* older engines: ready-only */ }
+    return () => {
+      cancelled = true;
+      try { fonts.removeEventListener("loadingdone", refit); } catch { /* ignore */ }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

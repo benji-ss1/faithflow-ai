@@ -19,7 +19,10 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
   // projector for designed or song slides (only plain-lyric slides scaled).
   // Now every text object scales by it — matching the plain-lyric path and the
   // editor's live preview.
-  const fs = Number.isFinite(fontScale) && fontScale > 0 ? fontScale : 1;
+  // Capped at the previous 1.6 maximum (2026-09-16): designed slides use FIXED text
+  // boxes with overflow hidden and are not auto-fitted, so the wider 0.3–2.5 operator
+  // range would cut their text off far sooner. Smaller is still unlimited.
+  const fs = Number.isFinite(fontScale) && fontScale > 0 ? Math.min(fontScale, 1.6) : 1;
   // H1 (2026-09-10): the REF −/+ control multiplies ONLY the reference text.
   // For styled scripture slides the reference is a positioned OBJECT (not the
   // fallback footer), so REF was a no-op. Identify it by matching the slide's
