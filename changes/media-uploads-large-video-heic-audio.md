@@ -1,7 +1,7 @@
 ---
 headline: Bigger videos and iPhone photos in the Media Bin
 audience: operator
-version: 0.1.434
+version: 0.1.436
 date: 2026-09-16
 highlights:
   - Videos up to 5 GB now upload. Big files are sent in pieces behind the scenes, with the same progress ring — and cancelling really stops the upload. While something is live on screen, big uploads slow down on purpose so they don't disturb your service.
