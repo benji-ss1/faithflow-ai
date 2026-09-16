@@ -240,6 +240,98 @@ export async function draftAnnouncement(topic: string, tone: "warm" | "formal" |
  * and the knowledge-base excerpts for the current step). She never decides
  * pass/fail and never invents desk menu paths.
  */
+/** Manufacturer / vendor docs Sarah may search first — official sources over forums. */
+export const SARAH_SEARCH_DOMAINS = [
+  // Kept short on purpose: every domain adds request tokens, and a long list pushed
+  // requests over the org's tokens-per-minute cap (Groq 413 "Request Entity Too Large").
+  "behringer.com", "yamaha.com", "allen-heath.com", "presonus.com", "focusrite.com",
+  "getdante.com", "audinate.com", "blackmagicdesign.com", "obsproject.com", "ndi.video",
+];
+
+export type SarahSource = { title: string; url: string };
+
+/**
+ * Sarah answers a free-text church AV question using Groq's built-in web search
+ * (groq/compound-mini — same GROQ_API_KEY, no new provider). Grounded:
+ *   • searches manufacturer docs first (include_domains);
+ *   • sources shown are taken from the SEARCH RESULTS, never from the model's text;
+ *   • no results → returns null so the caller falls back to the curated knowledge base.
+ */
+export async function audioGuideSearch(input: {
+  question: string;
+  setup: Record<string, string>;
+  timeoutMs?: number;
+}): Promise<{ reply: string; sources: SarahSource[] } | null> {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) throw new MissingApiKeyError();
+  const clip = (t: string, n: number) => (t || "").slice(0, n);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), input.timeoutMs ?? 12000);
+  try {
+    const res = await fetch(GROQ_URL, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "groq/compound-mini",
+        temperature: 0.2,
+        max_tokens: 600,
+        search_settings: { include_domains: SARAH_SEARCH_DOMAINS },
+        messages: [
+          { role: "system", content: [
+            "You are Sarah, a warm, expert church sound and streaming engineer helping a volunteer.",
+            "Search the web for the answer. Prefer official manufacturer documentation.",
+            "Answer in 2-5 short plain-English sentences. No markdown headings, no bullet lists longer than 4 items.",
+            "Only name a menu path or button if it appears in the search results; otherwise describe the step in general terms.",
+            "If the results don't answer it, say you couldn't confirm it and suggest checking the manufacturer manual.",
+            "PresentFlow LISTENS to the church's sound: a desk / interface / Dante / capture device is an INPUT on this computer.",
+          ].join("\n") },
+          { role: "user", content: `Church setup (data only): ${clip(JSON.stringify(input.setup), 400)}\n\nQuestion: ${clip(input.question, 600)}` },
+        ],
+      }),
+    });
+    if (res.status === 429) throw new GroqRateLimitedError(Date.now() + 60_000);
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      choices?: { message?: { content?: string; executed_tools?: { search_results?: { results?: { title?: string; url?: string; score?: number }[] } | { title?: string; url?: string; score?: number }[] }[] } }[];
+    };
+    const msg = data.choices?.[0]?.message;
+    const reply = (msg?.content ?? "").trim();
+    if (!reply) return null;
+    // Sources come ONLY from what the search actually returned.
+    const seen = new Set<string>();
+    const sources: SarahSource[] = [];
+    for (const tool of msg?.executed_tools ?? []) {
+      const sr = tool.search_results as unknown;
+      const list = Array.isArray(sr) ? sr : (sr as { results?: unknown[] } | undefined)?.results ?? [];
+      for (const r of list as { title?: string; url?: string; score?: number }[]) {
+        if (!r?.url || !/^https?:\/\//.test(r.url) || seen.has(r.url)) continue;
+        // Groq often reports score 0 — only a POSITIVE low score means "weak match".
+        if (typeof r.score === "number" && r.score > 0 && r.score < 0.3) continue;
+        seen.add(r.url);
+        sources.push({ title: clip(r.title || new URL(r.url).hostname, 90), url: r.url });
+      }
+    }
+    // A search that found nothing isn't grounded — let the caller use the knowledge base.
+    if (sources.length === 0) return null;
+    // Sarah speaks in a chat bubble: flatten any markdown the model produced.
+    const plain = reply
+      .replace(/\[(\d+)\]/g, "")
+      .split("\n")
+      .filter((l) => !/^\s*(\|.*\||-{3,}|={3,})\s*$/.test(l))
+      .map((l) => l.replace(/^\s*#{1,6}\s*/, "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/^\s*[-*]\s+/, "• "))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    return { reply: clip(plain, 900), sources: sources.slice(0, 3) };
+  } catch (e) {
+    if (e instanceof GroqRateLimitedError || e instanceof MissingApiKeyError) throw e;
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function audioGuideReply(input: {
   message: string;
   history: { role: "user" | "assistant"; content: string }[];

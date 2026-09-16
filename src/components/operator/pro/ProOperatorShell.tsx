@@ -4758,7 +4758,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     ready: !!ctx.audio?.ready,
     transcript: (ctx.audio?.transcript ?? []).slice(-2).map((t) => t.text).join(" ").trim() || undefined,
     interim: ctx.audio?.interim,
-    suggestions: ctx.audio?.suggestions as { id?: string; reference?: string }[] | undefined,
+    // Scripture detections only, with a human reference. The engine's suggestions carry
+    // ref:{book,chapter,verseStart,verseEnd} — there is no ready-made "reference" string.
+    suggestions: (ctx.audio?.suggestions ?? [])
+      .filter((x) => x.type === "scripture" && !x.isPhraseMatch)
+      .map((x) => {
+        const r = (x as { ref: { book: string; chapter: number; verseStart: number; verseEnd: number } }).ref;
+        return { id: x.id, ref: r, reference: `${r.book} ${r.chapter}:${r.verseStart}${r.verseEnd !== r.verseStart ? `-${r.verseEnd}` : ""}` };
+      }),
     onListen: ctx.onListenToggle,
     noAudioSignal: ctx.audio?.noAudioSignal,
     clipping: ctx.audio?.clipping,

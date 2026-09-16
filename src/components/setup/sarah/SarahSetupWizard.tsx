@@ -22,6 +22,7 @@ import { SarahSuccess } from "./SarahSuccess";
 import { SarahSpotlight } from "./SarahSpotlight";
 import { topWatchNote } from "@/lib/audio/sarahWatchers";
 import { NATIVE_AUDIO_INPUT_CHANGED_EVENT, readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
+import { dispatchInternal } from "@/lib/internal-events";
 import { listSetupDevices, useLevelFeed, type SetupDevice } from "./useLevelFeed";
 import type { ApplicationMatch } from "@/lib/audio/applicationMatch";
 import { rankConnections, type Connection, type ConnectionOption, type Os } from "@/lib/audio/connectionPlans";
@@ -32,7 +33,7 @@ import { writeNativeDevicePref, type NativeDeviceMode } from "@/lib/audio/native
 type Phase = "loading" | "context" | "os" | "desk" | "connection" | "steps" | "input" | "quiet" | "speak" | "save" | "tryit";
 const PROGRESS: Phase[] = ["context", "os", "desk", "connection", "steps", "input", "quiet", "speak", "save", "tryit"];
 
-type Msg = { id: number; role: "sarah" | "user"; text: string };
+type Msg = { id: number; role: "sarah" | "user"; text: string; sources?: { title: string; url: string }[] };
 type Profile = {
   desk?: string; os?: Os; connection?: Connection; mixType?: "main" | "aux" | "unsure";
   failedRoutes?: { connection: string; reason: string; at: number }[];
@@ -76,7 +77,7 @@ export type SarahLive = {
   transcript?: string;
   interim?: string;
   /** Scripture detections from the live engine (shape kept loose on purpose). */
-  suggestions?: { id?: string; reference?: string }[];
+  suggestions?: { id?: string; reference?: string; ref?: { book: string; chapter: number; verseStart: number; verseEnd: number } }[];
   onListen?: () => void;
   noAudioSignal?: boolean;
   clipping?: boolean;
@@ -221,7 +222,23 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
     if (p === "speak") saySoon("Now talk into the preacher's mic like it's a normal Sunday — try reading John 3:16. I'm watching the bar.", "listen", "Sarah is listening");
   }, [saySoon]);
 
-  const goTo = useCallback((p: Phase, prof?: Profile) => { go(p); enter(p, prof ?? profileRef.current); }, [go, enter]);
+  // The app already knows whether this is a Mac or Windows — don't make a volunteer
+  // answer it. The OS step is skipped whenever it can be detected (one step fewer to the win).
+  const goTo = useCallback((p: Phase, prof?: Profile) => {
+    let target = p;
+    let next = prof ?? profileRef.current;
+    if (p === "os") {
+      const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+      const detected: Os | undefined = /Mac OS X|Macintosh/i.test(ua) ? "mac" : /Windows/i.test(ua) ? "windows" : undefined;
+      if (detected) {
+        next = { ...next, os: detected };
+        setProfile((cur) => ({ ...cur, os: detected }));
+        target = "desk";
+      }
+    }
+    go(target);
+    enter(target, next);
+  }, [go, enter]);
 
   // ── load context ──
   useEffect(() => {
@@ -412,7 +429,15 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
       && !baselineRef.current!.has(x?.id ?? `${x.reference}#${current.indexOf(x)}`));
     if (!hit) return;
     heardRef.current = true;
-    say(`That's it — I heard ${hit.reference}. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
+    // First win: put the verse on the projector. Same path as Shift+clicking a scripture
+    // chip — an explicit operator action (they're running the setup), not zero-click
+    // auto-fire, so the CLAUDE.md rule-7 confidence gates are not involved.
+    if (hit.ref) {
+      dispatchInternal("presentflow:bible-goto", {
+        book: hit.ref.book, chapter: hit.ref.chapter, verseStart: hit.ref.verseStart, verseEnd: hit.ref.verseEnd, live: true,
+      });
+    }
+    say(`That's it — ${hit.reference} is on your screen. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
     setCoachWin(hit.reference ?? "your verse");
     setExtraChips(["Finish"]);
     setMood("celebrate");
@@ -517,7 +542,7 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
         const res = await fetch("/api/ai/audio-guide", {
           method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
           body: JSON.stringify({
-            message: t, history,
+            message: t, history, mode: "ask",
             context: {
               step: phaseRef.current,
               setup: {
@@ -531,9 +556,14 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
         const j = await res.json();
         if (j?.ok) {
           answered = true;
-          const d = j.data as { reply: string; mood: SarahMood; suggestions: string[]; correction?: { field: string; to: string } };
+          const d = j.data as { reply: string; mood: SarahMood; suggestions: string[]; correction?: { field: string; to: string }; sources?: { title: string; url: string }[] };
           setTyping(false);
-          say(d.reply, d.mood === "celebrate" ? "nod" : d.mood, "Sarah replied");
+          if (d.sources?.length) {
+            setMsgs((x) => [...x, { id: nextId(), role: "sarah", text: d.reply, sources: d.sources }]);
+            setMood("nod"); setStatus("Sarah looked it up");
+          } else {
+            say(d.reply, d.mood === "celebrate" ? "nod" : d.mood, "Sarah replied");
+          }
           if (d.suggestions?.length) setExtraChips(d.suggestions.slice(0, 3));
           if (d.correction) {
             const f = d.correction.field as keyof Profile;
@@ -735,8 +765,12 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
   const pct = Math.max(0, Math.min(100, ((topDb + 60) / 60) * 100));
   const liveLevel = feed.running ? pct / 100 : 0;
   const band = levelBand(topDb);
-  const bandLabel = { silent: "No sound", quiet: "Too quiet", good: "Good", loud: "Too loud" }[band];
-  const bandClass = band === "good" ? s.bandGood : band === "silent" ? s.bandBad : s.bandWarn;
+  const liveBandLabel = { silent: "No sound", quiet: "Too quiet", good: "Good", loud: "Too loud" }[band];
+  // Once the voice check has finished, the meter reports the RESULT — the instantaneous
+  // level drops between words and read "Too quiet" right under "Voice check passed".
+  const speechResult = !measuring && phase !== "input" ? checks.find((c) => c.id === "speech-level") : undefined;
+  const bandLabel = speechResult?.status === "pass" ? "Good — check passed" : liveBandLabel;
+  const bandClass = speechResult?.status === "pass" || band === "good" ? s.bandGood : band === "silent" ? s.bandBad : s.bandWarn;
   const lastPct = useRef(0);
   useEffect(() => {
     if (!feed.running || phaseRef.current === "quiet") return;
@@ -846,7 +880,17 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
 
           <div className={s.log} ref={logRef} role="log" aria-live="polite">
             {msgs.map((m) => (
-              <div key={m.id} className={`${s.msg} ${m.role === "sarah" ? s.msgSarah : s.msgUser}`}>{m.text}</div>
+              <div key={m.id} className={`${s.msg} ${m.role === "sarah" ? s.msgSarah : s.msgUser}`}>
+                {m.text}
+                {m.sources && m.sources.length > 0 && (
+                  <div className={s.sources}>
+                    <span className={s.sourcesLabel}>Sources</span>
+                    {m.sources.map((src) => (
+                      <a key={src.url} href={src.url} target="_blank" rel="noreferrer" className={s.sourceLink}>{src.title}</a>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
             {phase === "context" && match && match.confidence !== "none" && useApp && (
               <div className={s.card}>
