@@ -28,6 +28,26 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+  tests:
+    name: Tests (offline suite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # Runs every test file listed in test/suites/ci.txt (pure tests, no DB or
+      # API keys). A failing or hung file fails the PR. Tests that need a DB or
+      # are known-broken on main live in test/suites/known-failing.txt.
+      - name: Test
+        run: npm run test:ci
+
   changes:
     name: What's New entry (changes/*.md)
     runs-on: ubuntu-latest
