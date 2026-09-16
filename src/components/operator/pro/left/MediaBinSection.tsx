@@ -40,7 +40,7 @@ import { snapshotBackgroundState, restoreBackgroundState, removeCustomBackground
 import { deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isImageAsset } from "@/lib/media-drop";
-import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
+import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide, shouldSendFramedSlide } from "../center/mediaFrame";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { MediaImportWizard } from "../center/MediaImportWizard";
 import { isOsFileDrag, collectDroppedFiles, isFileInputTarget } from "@/lib/media-bin-drop";
@@ -553,7 +553,12 @@ export function MediaBinSection({
                           if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
                           clickTimerRef.current = window.setTimeout(() => {
                             clickTimerRef.current = null;
-                            if (ctx) { if (pp7Layers && ctx.layersEngineOn) sendToMediaLayer(a); else sendAsSlide(a); } else onCenterMode?.("media");
+                            if (ctx) {
+                              // A saved frame can't ride the Media layer (plain full-screen) —
+                              // project it framed when no words are live.
+                              const framed = shouldSendFramedSlide(!!(a.url && loadMediaFrame(ctx.churchId, a.id)), (a.kind || "").startsWith("video"), ctx.liveSlide as { kind: string; text?: string } | null);
+                              if (pp7Layers && ctx.layersEngineOn && !framed) sendToMediaLayer(a); else sendAsSlide(a);
+                            } else onCenterMode?.("media");
                           }, 250);
                         }}
                         onDoubleClick={(e) => {

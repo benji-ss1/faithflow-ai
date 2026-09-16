@@ -5047,7 +5047,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <AITranscriptTicker ctx={ctx} />
       <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorBlank(false); setSlideEditorAdd(false); }} />
       {mediaEdit ? (
-        <MediaImageEditor asset={mediaEdit} ctx={ctx} onClose={() => setMediaEdit(null)} />
+        <MediaImageEditor
+          asset={mediaEdit}
+          ctx={ctx}
+          onClose={() => setMediaEdit(null)}
+          // "Remove flat background" saves a NEW transparent asset. There's no safe
+          // in-place updater for the originating playlist/media-group slide here
+          // (it would rewrite plan data mid-service), so the original slide is left
+          // untouched and the operator is told where the new picture lives.
+          onAssetReplaced={(a) => {
+            setMediaEdit(a);
+            toast("Background removed — saved as a new picture in your Media library", { position: "top-center" });
+          }}
+        />
       ) : null}
 
       <div data-tour="bottom">
