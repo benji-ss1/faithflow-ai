@@ -37,7 +37,9 @@ export function MediaUploader({ purpose }: { purpose: "media" | "pptx" }) {
       if (!put.ok) throw new Error("Upload failed");
 
       if (purpose === "media") {
-        const kind = file.type.startsWith("video/") ? "video" : "image";
+        // Route by the real MIME family — an MP3 must never be registered as an image.
+        const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : file.type.startsWith("image/") ? "image" : null;
+        if (!kind) throw new Error("That file type isn't supported here — use an image, video or audio file");
         const res = await registerMediaAsset({ kind, fileName: file.name, s3Key: presign.key, mimeType: file.type, sizeBytes: file.size });
         if (!res.ok) throw new Error(res.error);
         toast.success("Uploaded");

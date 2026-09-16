@@ -2499,13 +2499,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // ProPresenter 7 layer UI (on by default; kill switch in pp7-layers-flag): clear rail beside the
   // preview + F-key clears + Media Bin clicks go behind the words.
   const pp7Layers = usePp7Layers() && ctx.layersEngineOn;
-  const pp7MessagesActive = messages.state.showing || messagesBoard.active.some((m) => !m.hidden);
-  const pp7MsgRef = useRef({ messages, messagesBoard });
-  pp7MsgRef.current = { messages, messagesBoard };
+  // PP7: timers show through the Messages layer, so they light and clear with it.
+  const pp7MessagesActive = messages.state.showing || messagesBoard.active.some((m) => !m.hidden) || timer.state.shown || timers.slots.some((t) => t.shown);
+  const pp7MsgRef = useRef({ messages, messagesBoard, timer, timers });
+  pp7MsgRef.current = { messages, messagesBoard, timer, timers };
   const pp7ClearMessages = useCallback(() => {
-    const { messages: m, messagesBoard: b } = pp7MsgRef.current;
+    const { messages: m, messagesBoard: b, timer: t1, timers: ts } = pp7MsgRef.current;
     m.hide();
     b.clearAll();
+    t1.hide();
+    for (const slot of ts.slots) if (slot.shown) ts.hide(slot.def.id);
   }, []);
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
   // Always-current handle to the session so the callback below (captured by
@@ -5044,7 +5047,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <AITranscriptTicker ctx={ctx} />
       <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorBlank(false); setSlideEditorAdd(false); }} />
       {mediaEdit ? (
-        <MediaImageEditor asset={mediaEdit} ctx={ctx} onClose={() => setMediaEdit(null)} />
+        <MediaImageEditor
+          asset={mediaEdit}
+          ctx={ctx}
+          onClose={() => setMediaEdit(null)}
+          // "Remove flat background" saves a NEW transparent asset. There's no safe
+          // in-place updater for the originating playlist/media-group slide here
+          // (it would rewrite plan data mid-service), so the original slide is left
+          // untouched and the operator is told where the new picture lives.
+          onAssetReplaced={(a) => {
+            setMediaEdit(a);
+            toast("Background removed — saved as a new picture in your Media library", { position: "top-center" });
+          }}
+        />
       ) : null}
 
       <div data-tour="bottom">

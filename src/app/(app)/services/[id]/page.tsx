@@ -27,7 +27,7 @@ export default async function PlanEditPage({ params }: { params: Promise<{ id: s
       planTitle={plan.title}
       initialItems={items.map((i) => ({ id: i.id, order: i.order, type: i.type, title: i.title }))}
       songs={songs.map((s) => ({ id: s.id, title: s.title }))}
-      media={media.map((m) => ({ id: m.id, fileName: m.fileName, kind: m.kind }))}
+      media={media.flatMap((m) => (m.kind === "audio" ? [] : [{ id: m.id, fileName: m.fileName, kind: m.kind }]))}
       pptx={pptx.map((p) => ({ id: p.id, originalFileName: p.originalFileName, status: p.status }))}
     />
   );

@@ -437,11 +437,15 @@ export async function listSongs(churchId: string, libraryFilter?: string | null)
   return db.select().from(songs).where(where).orderBy(asc(songs.title));
 }
 
-export async function listMedia(churchId: string, libraryFilter?: string | null) {
+export async function listMedia(churchId: string, libraryFilter?: string | null, opts?: { includeAudio?: boolean }) {
   const db = getDb();
-  const where = libraryFilter === undefined
+  const base = libraryFilter === undefined
     ? eq(mediaAssets.churchId, churchId)
     : and(eq(mediaAssets.churchId, churchId), libraryFilter === null ? sql`${mediaAssets.libraryId} IS NULL` : eq(mediaAssets.libraryId, libraryFilter));
+  // Audio assets are OUT of every surface by default (no output can play them:
+  // send-live / backgrounds / slides assume image|video). Only the Media Bin
+  // opts in. `kind::text` so this is valid before the enum migration too.
+  const where = opts?.includeAudio ? base : and(base, sql`${mediaAssets.kind}::text <> 'audio'`);
   return db.select().from(mediaAssets).where(where).orderBy(asc(mediaAssets.createdAt));
 }
 
