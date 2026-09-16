@@ -12,9 +12,10 @@
  */
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Film, RotateCw, X } from "lucide-react";
+import { CheckCircle2, Film, Music, RotateCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { uploadMediaFile } from "../center/MediaImportWizard";
+import { cachedAudioSupport, loadMediaCapabilities } from "@/lib/media-upload-client";
 import {
   classifyDroppedFile, skippedSummary, MEDIA_BIN_UPLOAD_CONCURRENCY, type DroppedFileRoute,
 } from "@/lib/media-bin-drop";
@@ -26,6 +27,9 @@ type Item = {
   file: File;
   contentType: string;
   isVideo: boolean;
+  /** Audio / HEIC can't be previewed as an <img> — show an icon instead. */
+  noPreview?: boolean;
+  isAudio?: boolean;
   previewUrl: string | null;
   progress: number;
   status: Status;
@@ -87,7 +91,7 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
     let budget = PREVIEW_WINDOW;
     let changed = false;
     const next = itemsRef.current.map((i) => {
-      const wants = !i.isVideo && (i.status === "uploading" || (i.status === "queued" && budget > 0));
+      const wants = !i.isVideo && !i.noPreview && (i.status === "uploading" || (i.status === "queued" && budget > 0));
       if (i.status === "uploading" || (i.status === "queued" && !i.isVideo)) budget--;
       if (wants && !i.previewUrl) { changed = true; return { ...i, previewUrl: URL.createObjectURL(i.file) }; }
       if (!wants && i.previewUrl && i.status !== "error") { URL.revokeObjectURL(i.previewUrl); changed = true; return { ...i, previewUrl: null }; }
@@ -119,6 +123,7 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
       let lastPaint = 0;
       void uploadMediaFile(next.file, abort.current.signal, undefined, {
         contentType: next.contentType,
+        isLive: () => !!liveRef.current,
         onProgress: (fr) => {
           const now = performance.now();
           if (now - lastPaint < 100 && fr < 1) return; // ≤10 paints/s per tile
@@ -196,6 +201,10 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
     };
   }, []);
 
+  // Know up front whether audio is enabled, so an MP3 dropped before the
+  // media_kind migration gets the grouped "coming soon" toast, not a failed tile.
+  useEffect(() => { void loadMediaCapabilities(); }, []);
+
   useImperativeHandle(ref, () => ({
     importFiles(files, opts) {
       const add: Item[] = [];
@@ -206,13 +215,18 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
       const known = new Map(itemsRef.current.map((i) => [i.fingerprint, i] as const));
       for (const file of files) {
         const r = classifyDroppedFile(file);
-        if (r.route === "image" || r.route === "video") {
+        if (r.route === "audio" && cachedAudioSupport() === false) {
+          skipped.push({ name: file.name, route: "audio" });
+          continue;
+        }
+        if (r.route === "image" || r.route === "video" || r.route === "audio") {
           const fingerprint = `${file.name}:${file.size}:${file.lastModified}`;
           const dup = known.get(fingerprint);
           if (dup) { if (dup.status === "error") alreadyFailed++; else alreadyInQueue++; continue; }
           const item: Item = {
             id: nextId.current++, fingerprint, file, contentType: r.contentType,
-            isVideo: r.route === "video", previewUrl: null, progress: 0, status: "queued",
+            isVideo: r.route === "video", isAudio: r.route === "audio",
+            noPreview: r.route === "audio" || (r.route === "image" && !!r.heic), previewUrl: null, progress: 0, status: "queued",
           };
           known.set(fingerprint, item);
           add.push(item);
@@ -296,7 +310,7 @@ const PendingTile = memo(function PendingTile({ item, index, onRetry, onDismiss 
         <img src={item.previewUrl} alt="" decoding="async" className="pf-bin-tile-media w-full h-full object-cover pointer-events-none" data-ready={item.status === "done" ? "" : undefined} />
       ) : (
         <div className="w-full h-full grid place-items-center text-white/40">
-          {item.isVideo ? <Film className="w-5 h-5" /> : null}
+          {item.isVideo ? <Film className="w-5 h-5" /> : item.isAudio ? <Music className="w-5 h-5" /> : null}
         </div>
       )}
       {working && <div className="pf-bin-shimmer" aria-hidden />}

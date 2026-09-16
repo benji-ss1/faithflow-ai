@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import {
   isOsFileDrag, classifyDroppedFile, fileExtension, skippedSummary,
-  MEDIA_BIN_MAX_BYTES,
+  MEDIA_BIN_MAX_BYTES, MEDIA_BIN_VIDEO_MAX_BYTES,
 } from "../src/lib/media-bin-drop";
 
 let pass = 0, fail = 0;
@@ -52,13 +52,25 @@ check("ProPresenter → pro (wizard)", () => {
   assert.equal(classifyDroppedFile(f("song.pro6")).route, "pro");
   assert.equal(classifyDroppedFile(f("song.pro")).route, "pro");
 });
-check("audio → coming soon, not silently dropped", () => {
-  assert.equal(classifyDroppedFile(f("worship.mp3")).route, "audio");
-  assert.equal(classifyDroppedFile(f("x.wav")).route, "audio");
-  assert.equal(classifyDroppedFile(f("x", "audio/mpeg")).route, "audio");
+check("supported audio → upload with canonical MIME (empty OS type too)", () => {
+  assert.deepEqual(classifyDroppedFile(f("worship.mp3")), { route: "audio", contentType: "audio/mpeg" });
+  assert.deepEqual(classifyDroppedFile(f("x.WAV")), { route: "audio", contentType: "audio/wav" });
+  assert.deepEqual(classifyDroppedFile(f("x.m4a")), { route: "audio", contentType: "audio/mp4" });
+  assert.deepEqual(classifyDroppedFile(f("x.aac")), { route: "audio", contentType: "audio/aac" });
+  assert.deepEqual(classifyDroppedFile(f("x", "audio/mpeg")), { route: "audio", contentType: "audio/mpeg" });
+  assert.deepEqual(classifyDroppedFile(f("x", "audio/x-m4a")), { route: "audio", contentType: "audio/mp4" });
 });
-check("HEIC → heic message", () => {
-  assert.equal(classifyDroppedFile(f("IMG_0001.HEIC")).route, "heic");
+check("other audio formats → honest format message, never silently dropped", () => {
+  assert.equal(classifyDroppedFile(f("x.flac")).route, "audio-format");
+  assert.equal(classifyDroppedFile(f("x.ogg")).route, "audio-format");
+  assert.equal(classifyDroppedFile(f("x", "audio/ogg")).route, "audio-format");
+  assert.equal(classifyDroppedFile(f("big.mp3", "", MEDIA_BIN_MAX_BYTES + 1)).route, "too-large");
+});
+check("HEIC/HEIF → image (converted to JPEG before upload)", () => {
+  assert.deepEqual(classifyDroppedFile(f("IMG_0001.HEIC")), { route: "image", contentType: "image/jpeg", heic: true });
+  assert.deepEqual(classifyDroppedFile(f("a.heif")), { route: "image", contentType: "image/jpeg", heic: true });
+  assert.deepEqual(classifyDroppedFile(f("x", "image/heic")), { route: "image", contentType: "image/jpeg", heic: true });
+  assert.equal(classifyDroppedFile(f("IMG.heic", "", 0)).route, "empty");
 });
 check("SVG and unknown types are unsupported (SVG XSS exclusion kept)", () => {
   assert.equal(classifyDroppedFile(f("logo.svg", "image/svg+xml")).route, "unsupported");
@@ -67,7 +79,10 @@ check("SVG and unknown types are unsupported (SVG XSS exclusion kept)", () => {
 });
 check("empty and oversize files are rejected with a reason", () => {
   assert.equal(classifyDroppedFile(f("a.png", "", 0)).route, "empty");
-  assert.deepEqual(classifyDroppedFile(f("big.mp4", "", MEDIA_BIN_MAX_BYTES + 1)), { route: "too-large", limitMb: 500 });
+  // Large videos now go through multipart: 600 MB is fine, >5 GB is not.
+  assert.deepEqual(classifyDroppedFile(f("big.mp4", "", MEDIA_BIN_MAX_BYTES + 1)), { route: "video", contentType: "video/mp4" });
+  assert.deepEqual(classifyDroppedFile(f("huge.mp4", "", MEDIA_BIN_VIDEO_MAX_BYTES + 1)), { route: "too-large", limitMb: 5120 });
+  assert.deepEqual(classifyDroppedFile(f("big.png", "", MEDIA_BIN_MAX_BYTES + 1)), { route: "too-large", limitMb: 500 });
   assert.deepEqual(classifyDroppedFile(f("big.pptx", "", 151 * 1024 * 1024)), { route: "too-large", limitMb: 150 });
   assert.equal(classifyDroppedFile(f("big.pdf", "", 400 * 1024 * 1024)).route, "deck");
 });
@@ -78,8 +93,8 @@ check("fileExtension edge cases", () => {
 });
 check("skippedSummary groups reasons; null when nothing skipped", () => {
   assert.equal(skippedSummary([]), null);
-  const s = skippedSummary([{ name: "a.mp3", route: "audio" }, { name: "b.mp3", route: "audio" }, { name: "c.svg", route: "unsupported" }])!;
-  assert.match(s, /2 files: audio/);
+  const s = skippedSummary([{ name: "a.flac", route: "audio-format" }, { name: "b.ogg", route: "audio-format" }, { name: "c.svg", route: "unsupported" }])!;
+  assert.match(s, /2 files: that audio format/);
   assert.match(s, /“c.svg”: not a supported type/);
 });
 

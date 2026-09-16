@@ -8,6 +8,7 @@ test/adversarial/audio-sessions-cross-church.test.ts
 test/adversarial/auto-approve-safeguards.test.ts
 test/adversarial/auto-approve-shell-rules.test.ts
 test/adversarial/learned-keyterms-cross-church.test.ts
+test/adversarial/media-register-scope.test.ts
 test/adversarial/sermon-backfill-cross-church.test.ts
 test/adversarial/song-chunk-scope.test.ts
 test/ai-pipeline.test.ts

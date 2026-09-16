@@ -6,7 +6,9 @@ export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scriptu
 // pgEnum so the DB enum and every TS annotation can never drift. type-only import
 // downstream ⇒ zero runtime/bundle cost in client components.
 export type ServiceItemType = (typeof serviceItemTypeEnum.enumValues)[number];
-export const mediaKindEnum = pgEnum("media_kind", ["image", "video"]);
+// "audio" added 2026-09-16 (docs/migrations/2026-09-16-add-media-kind-audio.sql). Code gates
+// every audio write on isAudioMediaSupported() so it is safe before the migration.
+export const mediaKindEnum = pgEnum("media_kind", ["image", "video", "audio"]);
 export const pptxStatusEnum = pgEnum("pptx_status", ["pending", "converting", "ready", "failed"]);
 
 // Phase 5 additions ---------------------------------------------------------

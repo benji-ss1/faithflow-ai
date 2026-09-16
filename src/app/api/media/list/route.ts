@@ -27,7 +27,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Invalid library id" }, { status: 400 });
   }
   const filter = lib == null || lib === "all" ? undefined : lib === "default" ? null : lib;
-  const media = await listMedia(user.churchId, filter);
+  // ?audio=1 — only the operator Media Bin opts in to audio tiles (see listMedia).
+  const includeAudio = new URL(req.url).searchParams.get("audio") === "1";
+  const media = await listMedia(user.churchId, filter, { includeAudio });
   const withUrls = await Promise.all(media.map(async (m) => {
     // `url` is the full-res original — used for PROJECTION (must stay high-res).
     // `thumbUrl` is the small grid preview (falls back to the original when no
@@ -43,6 +45,7 @@ export async function GET(req: Request) {
       fileName: m.fileName,
       kind: m.kind,
       sizeBytes: m.sizeBytes,
+      durationMs: m.durationMs ?? null,
       createdAt: m.createdAt.toISOString(),
       url,
       thumbUrl,
