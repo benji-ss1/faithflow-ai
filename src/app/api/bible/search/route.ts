@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
 import { createLimiter } from "@/lib/rate-limit";
-import { hybridSearch, listTranslations } from "@/lib/server/bible";
+import { ftsIndexReady, hybridSearch, listTranslations } from "@/lib/server/bible";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -66,9 +66,15 @@ export async function POST(req: Request) {
     // paraphrase still resolves semantically. Licensed translations resolve
     // against the public-domain fallback inside hybridSearch.
     const hits = await hybridSearch(translationId, finalQuery, Math.min(requested, 100));
+    // `lexicalAvailable` tells the client whether the FTS arm actually ran.
+    // hybridSearch SKIPS it when the index is invalid, in which case NO hit is
+    // `lexical` and a client-side lexical relevance gate would hide everything.
+    // Clients gate ONLY when this is true (see gateByLexical in
+    // src/lib/bible-palette-search.ts). Cached for 60s inside ftsIndexReady.
+    const lexicalAvailable = await ftsIndexReady();
     // Backwards-compat: expose both `hits` and `results` so older callers
     // that read `res.results` keep working.
-    return NextResponse.json({ hits, results: hits, translation: translationCode });
+    return NextResponse.json({ hits, results: hits, translation: translationCode, lexicalAvailable });
   } catch (e) {
     console.error("semantic search error:", e);
     return NextResponse.json({ error: "Search failed" }, { status: 500 });

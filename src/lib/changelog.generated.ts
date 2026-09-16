@@ -4,23 +4,75 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.414",
+    "date": "2026-09-16",
+    "headline": "Search now finds Bible verses by their words, not just songs",
+    "highlights": [
+      "Press Cmd+K and type a phrase you remember — \"love is patient\", \"the Lord is my shepherd\" — and the verse comes up in a new Bible Verses group, with its reference and the words themselves.",
+      "It still finds the verse when you remember the wording a little differently from the way your Bible puts it.",
+      "The search box at the top of the web app does the same thing. Before, a remembered phrase only ever brought back songs.",
+      "Songs stay on top: a song title you type — \"way maker\" — still comes back as the song, with verses underneath.",
+      "Verses only appear when your words genuinely match a verse, so a typo or a stray phrase no longer fills the list with near-misses.",
+      "Picking a verse opens it in the Bible panel ready to check. It does not send anything to the screen.",
+      "Typing a reference like John 3:16 still goes straight to that verse, and a song line with numbers in it — \"bless the lord 10000 reasons\" — now shows both the song and the Bible results instead of hiding one."
+    ]
+  },
+  {
+    "version": "0.1.413",
+    "date": "2026-09-16",
+    "headline": "The right Mac download, every time",
+    "highlights": [
+      "Fixed: if the app can't tell which kind of Mac you have, it now asks instead of guessing — so an Intel Mac never gets a download it can't open.",
+      "When it isn't sure, the update bar shows both choices, Apple Silicon and Intel Mac, with a reminder that the Apple menu → About This Mac tells you which one you have.",
+      "When it can tell, nothing changes — one click still downloads the right build. Windows downloads are unchanged."
+    ]
+  },
+  {
+    "version": "0.1.412",
+    "date": "2026-09-16",
+    "headline": "The desktop app can update itself again",
+    "highlights": [
+      "Fixed: the desktop app was never checking for new versions, so churches had to download and re-install by hand to get anything new. It now checks again automatically.",
+      "You are still asked before an update installs — nothing changes on your machine mid-service without you saying so.",
+      "This takes effect from the next installer: install the new version once by hand, and updates after that come through on their own."
+    ]
+  },
+  {
+    "version": "0.1.411",
+    "date": "2026-09-16",
+    "headline": "The desktop app can reach everything it needs again",
+    "highlights": [
+      "Fixed: the offline copy of the Bible now downloads in the desktop app, so verses keep working when the internet drops.",
+      "Fixed: the \"new version available — reload\" prompt appears in the desktop app again.",
+      "Fixed: churches on a paid plan now get their Pro features and premium themes in the desktop app instead of being treated as a free plan.",
+      "Fixed: importing a ProPresenter file from the desktop app no longer fails with a \"Parse failed\" error.",
+      "Fixed: older pictures and videos in your media library now get their thumbnails filled in.",
+      "Changed: starting a library import now needs an admin or operator account, matching every other library edit."
+    ]
+  },
+  {
     "version": "0.1.410",
     "date": "2026-09-16",
-    "headline": "Scenes - decide what each screen shows, and switch them all at once",
+    "headline": "A sound check no longer puts a Micah verse on screen",
     "highlights": [
+      "Saying \"check mic two\" or \"testing mic one two\" during a sound check no longer suggests — or projects — a verse from Micah.",
+      "Saying the book properly still works exactly as before: \"Micah chapter two\", \"Micah 1 verse 2\", \"turn to Micah 6\".",
+      "Typing the short form in the reference box still works too: \"Mic 6:8\" and \"mic chapter 2\" both find Micah.",
       "A new Scene row under your live preview lets you switch what every screen shows with one tap.",
       "Five scenes are ready to use - Worship, Teaching, Announcement, Offering and Pre-Service.",
-      "Press Edit to build your own - a simple grid of what each screen shows, with its own theme if you want one.",
-      "A scene only changes what each screen SHOWS. It never changes what is playing, and it never overrides a layer you cleared yourself.",
+      "Press Edit to see exactly what each scene shows, or press New scene to make your own.",
+      "A scene only changes what each screen shows. It never changes what is playing, and anything you have already hidden yourself stays hidden.",
       "Choosing None puts every screen back to normal.",
-      "Scenes are saved for your whole church, so any computer you sign in on has them."
+      "Scenes are saved for your whole church, so any computer you sign in on has them. Deleting one removes it for everyone, so check before you delete."
     ]
   },
   {
     "version": "0.1.409",
     "date": "2026-09-15",
-    "headline": "See any screen in your live preview, or all your screens at once",
+    "headline": "Beta applications now reach the PresentFlow team inbox",
     "highlights": [
+      "New beta applications from presentflow.org now appear in the PresentFlow Ops review queue.",
+      "Your application confirmation is not delayed if the internal team inbox is temporarily unavailable.",
       "Above the live preview you can now pick which screen it shows - Main, Stage, Livestream or NDI.",
       "Press All to see every screen side by side in one big view. Press Esc or X to close it.",
       "This is preview only. Picking a screen never changes what your projector, stage or stream shows.",
