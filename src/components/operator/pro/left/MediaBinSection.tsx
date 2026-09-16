@@ -175,7 +175,7 @@ export function MediaBinSection({
       id: a.id, url: a.url, fileName: a.fileName || "Media",
       kind: normalizeMediaKind(a.kind || "image"), mediaKey: a.mediaKey || undefined,
     });
-    toast.success(`“${a.fileName || "Media"}” is on the Media layer`, { id: "pf-media-layer", description: ctx && ctx.liveLayers.rows.some((r) => r.id === "camera" && r.active) ? "The camera is live, so the media stays hidden until the camera is cleared." : "Clear Media (F3) removes it. Your words stay." });
+    toast.success(`“${a.fileName || "Media"}” is on the Media layer`, { id: "pf-media-layer", description: ctx && ctx.liveLayers.rows.some((r) => r.id === "camera" && r.active) ? "It covers the live camera. Clear Media (F3) shows the camera again." : "Clear Media (F3) removes it. Your words stay." });
   };
 
   const sendAsSlide = (a: Asset) => {
