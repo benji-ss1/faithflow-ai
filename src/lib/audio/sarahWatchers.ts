@@ -47,8 +47,8 @@ export interface WatchSnapshot {
 const SILENT_DB = -60;
 /** A single gap between words must not read as "broken gear". */
 const SUSTAINED_SILENCE_S = 6;
-/** Hum or a noise floor is not "receiving sound": require a real level. */
-const GOOD_SIGNAL_DB = -45;
+/** Speech peaking below this is too quiet for reliable detection (matches the voice check). */
+const TOO_QUIET_DB = -30;
 const NDI_GRACE_SECONDS = 10;
 const RANK: Record<WatchSeverity, number> = { problem: 0, warn: 1, good: 2 };
 
@@ -108,12 +108,17 @@ export function evaluateWatchers(s: WatchSnapshot): WatchNote[] {
     out.push({ id: "dante-rate", severity: "warn", message: `This computer's Dante Virtual Soundcard is at ${Math.round(sel.sampleRate / 1000)} kHz.`, fix: "Match the rate shown in Dante Controller — most Dante networks run at 48 kHz." });
   }
 
+  // Audible but too low for the speech engine — the most common desk-feed mistake.
+  if (sel && !s.selectedMissing && !silent && !s.clipping && typeof s.levelDb === "number" && s.levelDb > SILENT_DB && s.levelDb < TOO_QUIET_DB) {
+    out.push({ id: "too-quiet", severity: "warn", message: `I can hear ${shortName(sel.name)}, but it's too quiet for me to follow the words.`, fix: "Turn up the send on the desk (the one feeding this computer), or the gain on your interface, until talking reaches the green part of the bar." });
+  }
+
   if (s.clipping) out.push({ id: "clipping", severity: "warn", message: "Your sound is coming in too loud — it crackles, and that garbles the words.", fix: "Turn the send on the desk down a little." });
   if (s.audioQuality === "low" && !silent) out.push({ id: "muddy", severity: "warn", message: "I can hear you, but the sound is muddy.", fix: "A direct feed from the desk sounds far clearer than a microphone in the room." });
 
   // Good news only when nothing else is wrong, and only for a real level — not hum.
   const troubled = out.some((n) => n.severity !== "good");
-  if (sel && !troubled && !s.selectedMissing && !silent && !s.clipping && typeof s.levelDb === "number" && s.levelDb > GOOD_SIGNAL_DB) {
+  if (sel && !troubled && !s.selectedMissing && !silent && !s.clipping && typeof s.levelDb === "number" && s.levelDb >= TOO_QUIET_DB) {
     out.push({ id: "signal-good", severity: "good", message: `I'm receiving sound from ${shortName(sel.name)}.` });
   }
 
