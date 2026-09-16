@@ -58,6 +58,8 @@ import { OutputRoutingRow } from "./right/OutputRoutingRow";
 // RightIconBar's popovers). Old RightTabs.tsx kept in tree, unused.
 import { RightIconBar } from "./right/RightIconBar";
 import { VerticalClearRail } from "./right/VerticalClearRail";
+import { Pp7ClearRail } from "./right/Pp7ClearRail";
+import { usePp7Layers } from "@/lib/pp7-layers-flag";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
@@ -2494,6 +2496,17 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const messages = useMessagesSession();
   const timers = useTimersSession();        // Wave 7 — multi named timers
   const messagesBoard = useMessagesBoard();  // Wave 7 — templates + active messages
+  // ProPresenter 7 layer UI (on by default; kill switch in pp7-layers-flag): clear rail beside the
+  // preview + F-key clears + Media Bin clicks go behind the words.
+  const pp7Layers = usePp7Layers() && ctx.layersEngineOn;
+  const pp7MessagesActive = messages.state.showing || messagesBoard.active.some((m) => !m.hidden);
+  const pp7MsgRef = useRef({ messages, messagesBoard });
+  pp7MsgRef.current = { messages, messagesBoard };
+  const pp7ClearMessages = useCallback(() => {
+    const { messages: m, messagesBoard: b } = pp7MsgRef.current;
+    m.hide();
+    b.clearAll();
+  }, []);
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
   // Always-current handle to the session so the callback below (captured by
   // effects that don't re-subscribe on every grid change) never reads a stale
@@ -4957,7 +4970,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             <OutputRoutingRow ctx={ctx} />
           )}
           <OperatorErrorBoundary fallbackLabel="Live preview panel error">
-            <LivePreviewPanel ctx={ctx} onVideoRef={(el) => { previewVideoRef.current = el; }} />
+            {pp7Layers ? (
+              <LivePreviewPanel
+                ctx={ctx}
+                onVideoRef={(el) => { previewVideoRef.current = el; }}
+                hideClearButton
+                rail={<Pp7ClearRail ctx={ctx} messagesActive={pp7MessagesActive} onClearMessages={pp7ClearMessages} />}
+              />
+            ) : (
+              <LivePreviewPanel ctx={ctx} onVideoRef={(el) => { previewVideoRef.current = el; }} />
+            )}
           </OperatorErrorBoundary>
           {ctx.liveSlide?.kind === "video" && <VideoControlBar videoRef={previewVideoRef} />}
           {/* SCENES (2026-09-16) — always-visible one-tap Scene Rail (spec §22.2),
@@ -5008,7 +5030,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             reserves no column ⇒ zero DOM, byte-identical legacy layout. Sits as
             its own flex column to the right of the sidebar, so it never overlaps
             or shifts the sidebar's inline popovers. */}
-        {ctx.layersEngineOn && (
+        {ctx.layersEngineOn && !pp7Layers && (
           <OperatorErrorBoundary fallbackLabel="Clear-cues rail error">
             <VerticalClearRail ctx={ctx} />
           </OperatorErrorBoundary>
