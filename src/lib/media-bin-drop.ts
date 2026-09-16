@@ -17,13 +17,17 @@
  *   image / video   → uploaded straight into the bin (inline placeholder tiles)
  *   deck / pro      → the existing MediaImportWizard (PPTX→PDF→slide images,
  *                     PDF→slide images, ProPresenter→songs) — unchanged pipeline
- *   audio           → honest "coming soon" (no audio media kind exists yet)
- *   heic            → honest "convert to JPG" (Chromium can't display HEIC)
+ *   audio (mp3/wav/m4a/aac) → uploaded into the bin as an audio tile (server
+ *                     gates it until the media_kind migration is applied)
+ *   heic / heif     → "image": converted to JPEG in the browser, then uploaded
+ *   other audio     → honest "use MP3/WAV/M4A/AAC" message
  *   unsupported     → honest message, never a silent no-op
  */
 import { classifyDrop } from "./spring-load";
 
-export const MEDIA_BIN_MAX_BYTES = 500 * 1024 * 1024; // mirrors /api/media/presign "media" cap
+export const MEDIA_BIN_MAX_BYTES = 500 * 1024 * 1024; // mirrors /api/media/presign "media" cap (images, audio)
+/** Videos over ~100 MB upload in parts (S3 multipart) — mirrors MEDIA_MULTIPART_MAX_BYTES. */
+export const MEDIA_BIN_VIDEO_MAX_BYTES = 5 * 1024 * 1024 * 1024;
 export const MEDIA_BIN_DECK_MAX_BYTES = 150 * 1024 * 1024; // mirrors presign "pptx" cap
 /** Cap how many files a single drop (incl. folder expansion) may enqueue. */
 export const MEDIA_BIN_MAX_FILES = 200;
@@ -31,12 +35,12 @@ export const MEDIA_BIN_MAX_FILES = 200;
 export const MEDIA_BIN_UPLOAD_CONCURRENCY = 3;
 
 export type DroppedFileRoute =
-  | { route: "image"; contentType: string }
+  | { route: "image"; contentType: string; heic?: true }
   | { route: "video"; contentType: string }
+  | { route: "audio"; contentType: string }
+  | { route: "audio-format" }
   | { route: "deck" }
   | { route: "pro" }
-  | { route: "audio" }
-  | { route: "heic" }
   | { route: "empty" }
   | { route: "too-large"; limitMb: number }
   | { route: "unsupported" };
@@ -52,7 +56,12 @@ const IMAGE_MIME = new Set(Object.values(IMAGE_EXT));
 const VIDEO_MIME = new Set(Object.values(VIDEO_EXT));
 const DECK_EXT = new Set(["pptx", "ppt", "pdf"]);
 const PRO_EXT = new Set(["pro", "pro5", "pro6", "pro7", "pro7x"]);
-const AUDIO_EXT = new Set(["mp3", "wav", "m4a", "aac", "flac", "ogg", "oga", "aif", "aiff", "wma"]);
+const AUDIO_EXT: Record<string, string> = { mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", aac: "audio/aac" };
+const AUDIO_MIME_ALIASES: Record<string, string> = {
+  "audio/mpeg": "audio/mpeg", "audio/mp3": "audio/mpeg", "audio/wav": "audio/wav", "audio/x-wav": "audio/wav",
+  "audio/wave": "audio/wav", "audio/mp4": "audio/mp4", "audio/x-m4a": "audio/mp4", "audio/m4a": "audio/mp4", "audio/aac": "audio/aac",
+};
+const OTHER_AUDIO_EXT = new Set(["flac", "ogg", "oga", "aif", "aiff", "wma", "opus"]);
 const HEIC_EXT = new Set(["heic", "heif"]);
 
 export function fileExtension(name: string): string {
@@ -80,15 +89,25 @@ export function classifyDroppedFile(file: { name: string; type: string; size: nu
     return { route: "deck" };
   }
   if (PRO_EXT.has(ext)) return file.size === 0 ? { route: "empty" } : { route: "pro" };
-  if (HEIC_EXT.has(ext) || mime === "image/heic" || mime === "image/heif") return { route: "heic" };
-  if (AUDIO_EXT.has(ext) || mime.startsWith("audio/")) return { route: "audio" };
+  if (HEIC_EXT.has(ext) || mime === "image/heic" || mime === "image/heif") {
+    if (file.size === 0) return { route: "empty" };
+    if (file.size > MEDIA_BIN_MAX_BYTES) return { route: "too-large", limitMb: 500 };
+    return { route: "image", contentType: "image/jpeg", heic: true }; // converted before upload
+  }
+  const audioType = AUDIO_EXT[ext] ?? (ext ? undefined : AUDIO_MIME_ALIASES[mime]);
+  if (audioType) {
+    if (file.size === 0) return { route: "empty" };
+    if (file.size > MEDIA_BIN_MAX_BYTES) return { route: "too-large", limitMb: 500 };
+    return { route: "audio", contentType: audioType };
+  }
+  if (OTHER_AUDIO_EXT.has(ext) || mime.startsWith("audio/")) return { route: "audio-format" };
 
   const imageType = IMAGE_EXT[ext] ?? (IMAGE_MIME.has(mime) ? mime : undefined);
   const videoType = imageType ? undefined : VIDEO_EXT[ext] ?? (VIDEO_MIME.has(mime) ? mime : undefined);
   if (!imageType && !videoType) return { route: "unsupported" };
   if (file.size === 0) return { route: "empty" };
-  if (file.size > MEDIA_BIN_MAX_BYTES) return { route: "too-large", limitMb: 500 };
-  return imageType ? { route: "image", contentType: imageType } : { route: "video", contentType: videoType! };
+  if (imageType) return file.size > MEDIA_BIN_MAX_BYTES ? { route: "too-large", limitMb: 500 } : { route: "image", contentType: imageType };
+  return file.size > MEDIA_BIN_VIDEO_MAX_BYTES ? { route: "too-large", limitMb: 5120 } : { route: "video", contentType: videoType! };
 }
 
 /** Human summary for the files a drop could not import (grouped, one toast). */
@@ -97,9 +116,8 @@ export function skippedSummary(skipped: Array<{ name: string; route: DroppedFile
   const by = (r: string) => skipped.filter((s) => s.route === r);
   const parts: string[] = [];
   const list = (xs: typeof skipped) => (xs.length === 1 ? `“${xs[0].name}”` : `${xs.length} files`);
-  if (by("audio").length) parts.push(`${list(by("audio"))}: audio in the Media Bin is coming soon`);
-  if (by("heic").length) parts.push(`${list(by("heic"))}: iPhone photos (HEIC) aren't supported yet — export as JPG`);
-  if (by("too-large").length) parts.push(`${list(by("too-large"))}: too large (media 500 MB, PowerPoint 150 MB)`);
+  if (by("audio-format").length) parts.push(`${list(by("audio-format"))}: that audio format isn't supported — use MP3, WAV, M4A or AAC`);
+  if (by("too-large").length) parts.push(`${list(by("too-large"))}: too large (video 5 GB, images and audio 500 MB, PowerPoint 150 MB)`);
   if (by("empty").length) parts.push(`${list(by("empty"))}: empty file`);
   if (by("unsupported").length) parts.push(`${list(by("unsupported"))}: not a supported type`);
   return parts.join(" · ");

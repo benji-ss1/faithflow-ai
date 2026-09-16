@@ -30,7 +30,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
   ChevronDown, ChevronRight, Images, ExternalLink, Maximize2, Minimize2,
   Upload, ImagePlus, Film, MonitorPlay, PanelBottom, FolderInput, Trash2, X, GripHorizontal,
-  CheckCircle2, RotateCw,
+  CheckCircle2, RotateCw, Music,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CenterMode } from "../ProOperatorShell";
@@ -58,6 +58,11 @@ type Asset = {
   thumbUrl?: string | null;
   mediaKey?: string | null;
 };
+
+/** Audio has no output path yet (no audio slide kind) — it must never be sent
+ *  live, used as a background, or dragged onto a slide. */
+const isAudioAsset = (a: Asset) => (a.kind || "") === "audio";
+const AUDIO_NOT_PROJECTABLE = "Audio can't be shown on screen — playback from the Media Bin is coming soon";
 
 // Popped-out preset height (used when the operator taps the pop-out button
 // instead of hand-dragging the resize handle).
@@ -120,7 +125,7 @@ export function MediaBinSection({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/media/list", { cache: "no-store" });
+      const res = await fetch("/api/media/list?audio=1", { cache: "no-store" });
       if (!res.ok) { setAssets([]); return; }
       const json = await res.json();
       setAssets(Array.isArray(json?.assets) ? json.assets : []);
@@ -149,6 +154,7 @@ export function MediaBinSection({
 
   // ── Actions (all reuse existing paths) ─────────────────────────────────────
   const setAsBackground = (a: Asset) => {
+    if (isAudioAsset(a)) { toast.error(AUDIO_NOT_PROJECTABLE); return; }
     if (!a.url) { toast.error("This asset has no file to use as a background"); return; }
     const prev = snapshotBackgroundState();
     const bg = setMediaAsBackground({
@@ -165,7 +171,7 @@ export function MediaBinSection({
   // Send the asset to the projector as a full slide (image → framed if the
   // operator saved a crop; video → plain). Mirrors MediaBrowser.toSlide.
   const toSlide = (a: Asset): SlidePayload | null => {
-    if (!a.url) return null;
+    if (!a.url || isAudioAsset(a)) return null;
     if ((a.kind || "").startsWith("video")) return { kind: "video", url: a.url, fit: "contain" };
     const frame = ctx ? loadMediaFrame(ctx.churchId, a.id) : null;
     if (frame) {
@@ -179,6 +185,7 @@ export function MediaBinSection({
   // (the slide stays live; F3 / the rail's Media button clears only the media).
   const pp7Layers = usePp7Layers();
   const sendToMediaLayer = (a: Asset) => {
+    if (isAudioAsset(a)) { toast.error(AUDIO_NOT_PROJECTABLE); return; }
     if (!a.url) { toast.error("This asset has no file to show"); return; }
     setMediaAsBackground({
       id: a.id, url: a.url, fileName: a.fileName || "Media",
@@ -188,6 +195,7 @@ export function MediaBinSection({
   };
 
   const sendAsSlide = (a: Asset) => {
+    if (isAudioAsset(a)) { toast.error(AUDIO_NOT_PROJECTABLE); return; }
     const slide = toSlide(a);
     if (!slide || !ctx) { toast.error("Can't send this asset"); return; }
     ctx.onSendSlideToLive(slide);
@@ -263,7 +271,7 @@ export function MediaBinSection({
   // general `load`, whose behaviour is left untouched).
   const refreshAfterUpload = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch("/api/media/list", { cache: "no-store" });
+      const res = await fetch("/api/media/list?audio=1", { cache: "no-store" });
       if (!res.ok) return false;
       const json = await res.json();
       if (!Array.isArray(json?.assets)) return false;
@@ -525,6 +533,41 @@ export function MediaBinSection({
           {assets && assets.length > 0 && (
             <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbMin}px, 1fr))` }}>
               {shown.map((a) => {
+                if (isAudioAsset(a)) {
+                  return (
+                    <ContextMenu.Root key={a.id}>
+                      <ContextMenu.Trigger asChild>
+                        <div>
+                          <AudioTile asset={a} onPreview={() => setPreview(a)} />
+                        </div>
+                      </ContextMenu.Trigger>
+                      <ContextMenu.Portal>
+                        <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[190px]">
+                          <ContextMenu.Item onSelect={() => setPreview(a)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
+                            <Music className="w-3.5 h-3.5 opacity-80" /> Listen (this computer only)
+                          </ContextMenu.Item>
+                          <ContextMenu.Sub>
+                            <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between gap-2 data-[state=open]:bg-[var(--color-panel)]">
+                              <span className="flex items-center gap-2"><FolderInput className="w-3.5 h-3.5 opacity-80" /> Move to library</span><span className="opacity-60">▸</span>
+                            </ContextMenu.SubTrigger>
+                            <ContextMenu.Portal>
+                              <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px] max-h-[300px] overflow-y-auto">
+                                <ContextMenu.Item onSelect={() => void moveToLibrary(a, null)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Default (unfiled)</ContextMenu.Item>
+                                {libs.map((lib) => (
+                                  <ContextMenu.Item key={lib.id} onSelect={() => void moveToLibrary(a, lib.id)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer truncate">{lib.name}</ContextMenu.Item>
+                                ))}
+                              </ContextMenu.SubContent>
+                            </ContextMenu.Portal>
+                          </ContextMenu.Sub>
+                          <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                          <ContextMenu.Item onSelect={() => void deleteAsset(a)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)] flex items-center gap-2">
+                            <Trash2 className="w-3.5 h-3.5" /> Delete
+                          </ContextMenu.Item>
+                        </ContextMenu.Content>
+                      </ContextMenu.Portal>
+                    </ContextMenu.Root>
+                  );
+                }
                 const isVideo = (a.kind || "").startsWith("video");
                 return (
                   <ContextMenu.Root key={a.id}>
@@ -693,7 +736,13 @@ function MediaPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => vo
       </button>
       <div onClick={(e) => e.stopPropagation()} className="max-w-[90vw] max-h-[85vh] flex flex-col items-center gap-2">
         {asset.url ? (
-          isVideo ? (
+          isAudioAsset(asset) ? (
+            <div className="flex flex-col items-center gap-3 rounded-lg bg-[var(--color-elevated)] p-6">
+              <Music className="w-10 h-10 text-white/70" />
+              {/* Local listen only — never routed to any output. */}
+              <audio src={asset.url} controls autoPlay className="w-[min(420px,80vw)]" />
+            </div>
+          ) : isVideo ? (
             // eslint-disable-next-line jsx-a11y/media-has-caption
             <video src={asset.url} controls autoPlay className="max-w-[90vw] max-h-[80vh] rounded-lg shadow-2xl" />
           ) : (
@@ -707,5 +756,38 @@ function MediaPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => vo
       </div>
     </div>,
     document.body,
+  );
+}
+
+// ── Audio tile (music icon + filename + duration; never draggable / live) ─────
+function formatDuration(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return "";
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function AudioTile({ asset, onPreview }: { asset: Asset; onPreview: () => void }) {
+  const [duration, setDuration] = useState("");
+  useEffect(() => {
+    if (!asset.url) return;
+    // Metadata-only load (a few KB) just to read the duration.
+    const el = new Audio();
+    el.preload = "metadata";
+    const onMeta = () => setDuration(formatDuration(el.duration));
+    el.addEventListener("loadedmetadata", onMeta);
+    el.src = asset.url;
+    return () => { el.removeEventListener("loadedmetadata", onMeta); el.removeAttribute("src"); el.load(); };
+  }, [asset.url]);
+  return (
+    <button
+      type="button"
+      onDoubleClick={onPreview}
+      title={`${asset.fileName || "Audio"} — audio files can't be shown on screen yet · double-click to listen · right-click for options`}
+      className="relative aspect-video w-full rounded-md overflow-hidden bg-[var(--color-elevated)] border border-[var(--color-border)] flex flex-col items-center justify-center gap-0.5 text-left hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] transition-colors"
+    >
+      <Music className="w-5 h-5 text-[var(--color-muted-foreground)]" aria-hidden />
+      {duration && <span className="text-[9px] tabular-nums text-[var(--color-muted-foreground)]">{duration}</span>}
+      <span className="absolute left-0 right-0 bottom-0 px-1 py-0.5 truncate text-[9px] text-white/85 bg-gradient-to-t from-black/70 to-transparent">{asset.fileName || "Audio"}</span>
+    </button>
   );
 }
