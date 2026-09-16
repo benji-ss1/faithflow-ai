@@ -146,6 +146,35 @@ export function gateByLexical(hits: BiblePaletteHit[], lexicalAvailable: boolean
   return [...hits.filter((h) => h.lexical === true), ...hits.filter((h) => h.lexical !== true)];
 }
 
+/**
+ * Keys of references ALREADY VISIBLE on the fast path, for `dedupeAgainstShown`.
+ *
+ * Review fix 🟡2 (2026-09-16): this used to seed ALL 8 COMMON_REFS
+ * unconditionally, but those items are subject to cmdk's filter — for "i can do
+ * all things" the item value "bible Philippians 4:13" scores 0, so Phil 4:13 was
+ * HIDDEN from the Bible group *and* suppressed from the server group: the one
+ * verse the operator asked for appeared nowhere. A common ref now only
+ * suppresses a server hit when its own item actually renders (score > 0, or an
+ * empty query where cmdk shows everything). `scoreFn` is cmdk's own
+ * `defaultFilter`, passed in so this stays pure/unit-testable.
+ */
+export function fastPathShownKeys(
+  query: string,
+  commonRefs: readonly string[],
+  phraseKeys: readonly string[],
+  scoreFn: (value: string, search: string) => number,
+): Set<string> {
+  const keys = new Set<string>(phraseKeys);
+  const q = query.trim();
+  for (const ref of commonRefs) {
+    if (q && scoreFn(`bible ${ref}`, q) <= 0) continue; // item is filtered out → invisible → must not suppress
+    let p: { book: string; chapter: number; verseStart: number } | undefined;
+    try { p = parseTypedReference(ref)[0]; } catch { p = undefined; }
+    if (p) keys.add(refKey({ book: p.book, chapter: p.chapter, verse: p.verseStart }));
+  }
+  return keys;
+}
+
 type FetchLike = (input: string, init?: RequestInit) => Promise<{ ok?: boolean; json: () => Promise<unknown> }>;
 
 export type BiblePaletteSearcherOptions = {
@@ -225,7 +254,10 @@ export function createBiblePaletteSearcher(opts: BiblePaletteSearcherOptions): B
       setBibleSearchCached(key, hits, PALETTE_TRANSLATION);
       opts.onResults(q, hits, "ok");
     } catch {
-      // AbortError (superseded) or network — never surface noise in the palette.
+      // A SUPERSEDED request (AbortError) must stay silent; a genuine network
+      // failure otherwise left the PREVIOUS query's verses on screen, so it
+      // reports "busy" like a 429 (one line, review 🟢 note 2026-09-16).
+      if (!c.signal.aborted && gen === generation) opts.onResults(q, [], "busy");
     } finally {
       if (controller === c) { controller = null; opts.onPending?.(false); }
     }

@@ -19,11 +19,13 @@ import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { phraseSearch } from "@/services/bible/phraseSearch";
 import { dispatchInternal } from "@/lib/internal-events";
+import { defaultFilter } from "cmdk";
 import { parseTypedReference } from "@/lib/bible-parser";
 import { requestSongOpen } from "@/lib/song-selection";
 import { useSongLyricSearch } from "@/lib/song-lyric-search-store";
 import {
   createBiblePaletteSearcher,
+  fastPathShownKeys,
   dedupeAgainstShown,
   isConfirmedBibleReference,
   refKey,
@@ -90,17 +92,17 @@ export function SearchPalette({
 
   // Never show the same reference twice: the fast path (COMMON_REFS + curated
   // phrase corpus) wins, the server group fills in what it didn't have.
-  const shownRefKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const r of COMMON_REFS) {
-      const p = (() => { try { return parseTypedReference(r)[0]; } catch { return undefined; } })();
-      if (p) keys.add(refKey({ book: p.book, chapter: p.chapter, verse: p.verseStart }));
-    }
-    for (const h of phraseHits) {
-      keys.add(refKey({ book: h.entry.book, chapter: h.entry.chapter, verse: h.entry.verse }));
-    }
-    return keys;
-  }, [phraseHits]);
+  // A common ref only suppresses a server hit when its own item is actually
+  // VISIBLE under cmdk's filter — see fastPathShownKeys (review fix 🟡2).
+  const shownRefKeys = useMemo(
+    () => fastPathShownKeys(
+      query,
+      COMMON_REFS,
+      phraseHits.map((h) => refKey({ book: h.entry.book, chapter: h.entry.chapter, verse: h.entry.verse })),
+      (value, search) => defaultFilter!(value, search, []),
+    ),
+    [query, phraseHits],
+  );
   const bibleVerseHits = useMemo(
     () => dedupeAgainstShown(bibleHits, shownRefKeys),
     [bibleHits, shownRefKeys],
@@ -154,9 +156,16 @@ export function SearchPalette({
               />
             </div>
             <Command.List className="flex-1 min-h-0 overflow-y-auto p-1.5 text-[13px]">
-              <Command.Empty className="px-4 py-6 text-center text-[var(--color-muted-foreground)]">
-                No results.
-              </Command.Empty>
+              {/* Review fix 🟡1: the Bible Verses group is forceMounted, and
+                  forceMounted items don't increment cmdk's filtered.count — so
+                  Command.Empty rendered "No results." directly ABOVE five listed
+                  verses. Gate it on that group being empty too. Any future
+                  forceMounted group must be added here. */}
+              {bibleVerseHits.length === 0 && (
+                <Command.Empty className="px-4 py-6 text-center text-[var(--color-muted-foreground)]">
+                  No results.
+                </Command.Empty>
+              )}
 
               <Command.Group heading={<span className="eyebrow">Playlist</span>} className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5">
                 {ctx.plan.items.map((it, idx) => (

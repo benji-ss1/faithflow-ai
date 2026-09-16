@@ -14,6 +14,7 @@ import { defaultFilter } from "cmdk";
 import {
   createBiblePaletteSearcher,
   gateByLexical,
+  fastPathShownKeys,
   dedupeAgainstShown,
   isConfirmedBibleReference,
   shouldRunBiblePaletteSearch,
@@ -250,6 +251,51 @@ async function main() {
     assert.equal(status, "busy", "palette can show 'Bible search is busy'");
     s.search("love is patient"); await sleep(60);
     assert.equal(calls, 2, "an error must never be cached as a result");
+  });
+
+  // ── Review fix 1 (final pass): forceMounted group vs Command.Empty ─────────
+  console.log("\"No results.\" never renders above a populated Bible group:");
+  await check("Command.Empty is gated on the forceMounted Bible group being empty", () => {
+    assert.ok(
+      /bibleVerseHits\.length === 0 && \(\s*<Command\.Empty/.test(paletteSrc.replace(/\{\/\*[\s\S]*?\*\/\}/g, "")),
+      "Command.Empty must be gated on bibleVerseHits.length === 0",
+    );
+  });
+  await check("a query with ONLY Bible hits shows no 'No results.' line", () => {
+    // cmdk's filtered.count ignores forceMounted items, so the component's own
+    // gate is the only thing standing between the operator and a contradiction.
+    const emptyShown = (bibleVerseHitCount: number, cmdkFilteredCount: number) =>
+      cmdkFilteredCount === 0 && bibleVerseHitCount === 0;
+    assert.equal(emptyShown(5, 0), false, "5 verses listed → no 'No results.'");
+    assert.equal(emptyShown(0, 0), true, "genuinely nothing → 'No results.' still shows");
+    assert.equal(emptyShown(0, 3), false);
+  });
+
+  // ── Review fix 2 (final pass): COMMON_REFS must not suppress invisibly ─────
+  console.log("Fast-path dedupe only suppresses VISIBLE common refs:");
+  const score = (v: string, q: string) => defaultFilter!(v, q, []);
+  const COMMON = ["John 3:16", "Philippians 4:13", "Psalm 23:1"];
+  await check('"i can do all things" surfaces Phil 4:13 from exactly ONE group', () => {
+    const q = "i can do all things";
+    assert.equal(score("bible Philippians 4:13", q), 0, "premise: the common-ref item is filtered out");
+    const keys = fastPathShownKeys(q, COMMON, [], score);
+    const hit: BiblePaletteHit = { book: "Philippians", chapter: 4, verse: 13, text: "I can do all things through Christ…", lexical: true };
+    const out = dedupeAgainstShown([hit], keys);
+    assert.equal(out.length, 1, "an invisible common ref must not suppress the server hit");
+  });
+  await check("a VISIBLE common ref still suppresses the duplicate", () => {
+    const q = "john 3:16";
+    assert.ok(score("bible John 3:16", q) > 0, "premise: the common-ref item renders");
+    const keys = fastPathShownKeys(q, COMMON, [], score);
+    assert.deepEqual(dedupeAgainstShown([HIT_JOHN], keys), [], "no double-listing");
+  });
+  await check("phrase-corpus keys always suppress (their items are not filtered the same way)", () => {
+    const keys = fastPathShownKeys("anything", COMMON, [refKey({ book: "John", chapter: 3, verse: 16 })], score);
+    assert.deepEqual(dedupeAgainstShown([HIT_JOHN], keys), []);
+  });
+  await check("empty query keeps every common ref seeded (cmdk shows them all)", () => {
+    const keys = fastPathShownKeys("", COMMON, [], score);
+    assert.equal(keys.size, 3);
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);
