@@ -1,7 +1,7 @@
 ---
 headline: Drag files straight into the Media Bin
 audience: operator
-version: 0.1.427
+version: 0.1.431
 date: 2026-09-16
 highlights:
   - Drag images and videos from Finder or File Explorer onto the Media Bin — each one appears right away with a progress ring and turns into a normal tile when it's done.
