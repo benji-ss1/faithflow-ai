@@ -1,7 +1,7 @@
 ---
 headline: Clear Messages now clears straight away
 audience: operator
-version: 0.1.426
+version: 0.1.427
 date: 2026-09-16
 highlights:
   - Pressing Clear Messages removes every message from the projector and livestream immediately.

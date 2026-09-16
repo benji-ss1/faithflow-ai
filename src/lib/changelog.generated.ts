@@ -4,12 +4,25 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.426",
+    "version": "0.1.427",
     "date": "2026-09-16",
     "headline": "Clear Messages now clears straight away",
     "highlights": [
       "Pressing Clear Messages removes every message from the projector and livestream immediately.",
       "Before, some messages could stay on screen for up to 5 seconds after you cleared them."
+    ]
+  },
+  {
+    "version": "0.1.426",
+    "date": "2026-09-16",
+    "headline": "PresentFlow fits and feels smoother on Windows",
+    "highlights": [
+      "On Windows, the top bar no longer pushes the settings button off the edge of the screen.",
+      "The red AUDIO warning no longer covers the buttons at the top right, so you can still click them.",
+      "On narrower Windows screens, the Edit slide, Add slide and Tidy buttons show as icons instead of spilling under the live panel. Hover to see the name.",
+      "The operator screen is lighter to run on Windows, and buttons stay still when you click them, so clicks land reliably.",
+      "Windows shows \"Ctrl K\" for search instead of the Mac key.",
+      "With the latest Windows desktop app, the window opens sized to your screen without the File/Edit/View menu bar, and PresentFlow stops turning your Windows microphone volume up."
     ]
   },
   {

@@ -62,7 +62,7 @@ export function CenterHeader({
     "shrink-0 h-8 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] flex items-center gap-1.5 text-[11.5px] font-semibold text-[var(--color-foreground)] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:translate-y-0 active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none disabled:shadow-none";
 
   return (
-    <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-panel),var(--color-app-bg))] shadow-[var(--edge-top)] flex items-center px-3 gap-2">
+    <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-panel),var(--color-app-bg))] shadow-[var(--edge-top)] flex items-center px-3 gap-2 min-w-0 [html[data-platform=win]_&]:@container">
       <Icon className="w-4 h-4 text-[var(--color-brand)]" />
       {/* Item title is read-only; edit via the library entry. */}
       <div
@@ -84,14 +84,14 @@ export function CenterHeader({
             title="Edit slide — fonts, layout, backgrounds"
             className={actionBtn}
           >
-            <Pencil className="w-3.5 h-3.5" /> Edit slide
+            <Pencil className="w-3.5 h-3.5" /> <span className="[html[data-platform=win]_&]:@max-[720px]:hidden">Edit slide</span>
           </button>
           <button
             onClick={() => void onAddSlide()}
             title="Add a new slide to the end of this song"
             className={actionBtn}
           >
-            <Plus className="w-3.5 h-3.5" /> Add slide
+            <Plus className="w-3.5 h-3.5" /> <span className="[html[data-platform=win]_&]:@max-[720px]:hidden">Add slide</span>
           </button>
           {/* Tidy — re-break THIS song into cleaner, fewer-words-per-slide slides
               (A2), right where the operator manages the current song. */}
@@ -115,7 +115,7 @@ export function CenterHeader({
             title="Tidy slides — re-break into cleaner, easier-to-read slides"
             className={actionBtn}
           >
-            <Sparkles className={cn("w-3.5 h-3.5 text-[var(--color-brand)]", isTidying && "animate-spin")} /> {isTidying ? "Tidying…" : "Tidy"}
+            <Sparkles className={cn("w-3.5 h-3.5 text-[var(--color-brand)]", isTidying && "animate-spin")} /> <span className="[html[data-platform=win]_&]:@max-[720px]:hidden">{isTidying ? "Tidying…" : "Tidy"}</span>
           </button>
         </>
       )}
@@ -133,7 +133,7 @@ export function CenterHeader({
             title="Edit this image — crop, frame, pan/zoom, blur-fill"
             className={actionBtn}
           >
-            <Pencil className="w-3.5 h-3.5" /> Edit image
+            <Pencil className="w-3.5 h-3.5" /> <span className="[html[data-platform=win]_&]:@max-[720px]:hidden">Edit image</span>
           </button>
         );
       })()}
@@ -200,7 +200,7 @@ function CenterSizeSlider({
         max={max}
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
-        className="w-[150px]"
+        className="w-[150px] [html[data-platform=win]_&]:@max-[640px]:w-[90px]"
         style={{ accentColor: "var(--color-brand)" }}
         aria-label="Card size"
       />
