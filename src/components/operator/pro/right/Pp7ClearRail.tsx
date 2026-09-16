@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Music, Send, Layers, Megaphone, SquareMenu, Image as ImageIcon, Video, X } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
+import { clearVideoInputLive } from "@/lib/video-input-clear";
 import { shouldIgnore, anyOverlayOpen } from "@/hooks/useOperatorHotkeys";
 import {
   PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, PP7_CLEAR_KEY, decodePp7ClearKey,
@@ -60,7 +61,7 @@ export function Pp7ClearRail({
     announcements: !!ctx.announcement,
     slide: !isEmptySlideKind(kind) && !isMediaSlideKind(kind) && !!row("slide")?.active,
     media: !!row("background")?.active || (isMediaSlideKind(kind) && !!row("slide")?.active),
-    videoInput: !!row("camera")?.active,
+    videoInput: !!ctx.videoInput && !!row("camera")?.active,
   }), [messagesActive, row, ctx.announcement, kind]);
 
   const available: Record<Pp7ClearLayer, boolean> = {
@@ -80,7 +81,8 @@ export function Pp7ClearRail({
         if (isMediaSlideKind(ctx.liveSlide?.kind)) ctx.onKill();
         return;
       case "videoInput":
-        if (row("camera")?.active) ctx.liveLayers.clearLayer("camera");
+        // Stop the feed like the camera panel's Clear, so it can go live again.
+        if (ctx.videoInput) clearVideoInputLive();
         return;
       case "props":
         if (row("logo")?.active) ctx.liveLayers.clearLayer("logo");
@@ -96,13 +98,13 @@ export function Pp7ClearRail({
     }
   }, [ctx, row, onClearMessages]);
 
+  // Clear All = every PP7 layer clear, plus the livestream lower third. Runs the
+  // per-layer clears (not liveLayers.clearAll) so nothing is left permanently
+  // disabled — the camera, media and slide all work normally afterwards.
   const clearAll = useCallback(() => {
-    onClearMessages();
-    ctx.onSetAnnouncement(null);
-    setActiveBackgroundId("none");
-    ctx.liveLayers.clearAll();
-    ctx.onKill();
-  }, [ctx, onClearMessages]);
+    for (const layer of PP7_CLEAR_ORDER) clear(layer);
+    ctx.onClearLowerThird?.();
+  }, [ctx, clear]);
 
   // F1–F7 (PP7 shortcuts). Ignored while typing, with modifiers, or while a
   // dialog/menu is open (same guard as the operator hotkeys). Audio (F5) has no

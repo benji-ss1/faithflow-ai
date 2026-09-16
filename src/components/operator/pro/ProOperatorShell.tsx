@@ -2504,7 +2504,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   pp7MsgRef.current = { messages, messagesBoard };
   const pp7ClearMessages = useCallback(() => {
     const { messages: m, messagesBoard: b } = pp7MsgRef.current;
-    if (m.state.showing) m.toggleShow();
+    m.hide();
     b.clearAll();
   }, []);
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
