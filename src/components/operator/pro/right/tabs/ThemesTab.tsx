@@ -10,7 +10,7 @@ import { useCustomThemes, useBlankSlides } from "@/hooks/useCustomThemes";
 import { cn } from "@/lib/utils";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
-import { toast } from "sonner";
+import { applyThemeLive } from "@/lib/theme-apply-client";
 
 type DbTheme = {
   id: string;
@@ -54,29 +54,9 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
   async function applyTheme(t: DbTheme) {
     setApplying(t.id);
     try {
-      const res = await fetch(`/api/themes/${t.id}/apply`, { method: "POST" });
-      if (!res.ok) {
-        toast.error("Could not apply theme");
-      } else {
-        // Refresh local isDefault flags so the badge updates without a page reload.
-        setDbThemes((prev) => prev.map((th) => ({ ...th, isDefault: th.id === t.id })));
-        // Drive the live output immediately (same-machine, like font-scale) so
-        // the projector/stage/livestream reflect the applied theme without a
-        // refetch. OperatorConsole listens for this and emits it on OutputState.
-        const { themeConfigToAppearance } = await import("@/lib/theme-appearance");
-        window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
-          detail: { appearance: themeConfigToAppearance(t.config) },
-        }));
-        // ALSO restyle the whole current song — every slide/preview, not just the
-        // live screen (user directive). PlaylistSection (which knows the current
-        // song + can refresh + offer undo) handles this.
-        window.dispatchEvent(new CustomEvent("presentflow:apply-theme-to-song", {
-          detail: { themeId: t.id, themeName: t.name },
-        }));
-        toast.success(`Theme "${t.name}" applied`);
-      }
-    } catch {
-      toast.error("Could not apply theme");
+      const ok = await applyThemeLive(t);
+      // Refresh local isDefault flags so the badge updates without a page reload.
+      if (ok) setDbThemes((prev) => prev.map((th) => ({ ...th, isDefault: th.id === t.id })));
     } finally {
       setApplying(null);
     }

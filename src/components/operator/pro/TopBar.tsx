@@ -19,6 +19,8 @@ import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { cn } from "@/lib/utils";
 import { SearchPalette } from "./SearchPalette";
+import { ThemePopover } from "./ThemePopover";
+import { usePp7Layers } from "@/lib/pp7-layers-flag";
 import { FluidTabs } from "./FluidTabs";
 import { SwitchMode } from "./SwitchMode";
 import { FeaturesBell } from "./ActivitiesCard";
@@ -78,6 +80,8 @@ export function TopBar({
 }) {
   // "⌘" on Mac, "Ctrl" on Windows. Resolved after mount so SSR/hydration match.
   const [modKey, setModKey] = useState("⌘");
+  const pp7Themes = usePp7Layers();
+  const [themePopOpen, setThemePopOpen] = useState(false);
   useEffect(() => { setModKey(modKeyLabel()); }, []);
   const currentTitle =
     centerMode === "bible" ? "Bible"
@@ -255,8 +259,18 @@ export function TopBar({
         ]}
         activeId={centerMode}
         onSelect={(id) => toggleMode(id as CenterMode)()}
-        action={{ label: "Themes", icon: Palette, onClick: () => window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings")) }}
+        action={{
+          label: "Themes",
+          icon: Palette,
+          // ProPresenter-style Themes popover (kill switch → old direct editor).
+          onClick: () => (pp7Themes ? setThemePopOpen((v) => !v) : window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"))),
+        }}
       />
+      {pp7Themes ? (
+        <ThemePopover open={themePopOpen} onOpenChange={setThemePopOpen}>
+          <span aria-hidden className="self-stretch w-0" />
+        </ThemePopover>
+      ) : null}
 
       <div className="flex-1 min-w-0 flex items-center justify-center text-[13px] text-[var(--color-muted-foreground)] truncate px-4 [html[data-platform=win]_&]:max-[1380px]:px-2">
         {titleEditing ? (
