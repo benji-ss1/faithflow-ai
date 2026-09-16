@@ -4744,6 +4744,17 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // Web-side: TopBar dispatches window "presentflow:open-tour" from the
   // logo/about menu. Bridge it to the tour opener regardless of Electron
   // availability so the button works in both shell and pure-web contexts.
+  // Settings window deep-link (2026-09-16): open the in-app Songs / Media browser
+  // in the centre panel instead of sending the desktop user to the web app.
+  useEffect(() => {
+    const onMode = (e: Event) => {
+      const m = (e as CustomEvent<{ mode?: CenterMode }>).detail?.mode;
+      if (m === "songs" || m === "media" || m === "slides" || m === "bible") setCenterMode(m);
+    };
+    window.addEventListener("presentflow:set-center-mode", onMode);
+    return () => window.removeEventListener("presentflow:set-center-mode", onMode);
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const winHandler = () => setTourOpen(true);

@@ -44,8 +44,11 @@ function initials(name: string, email: string): string {
   return parts.map((p) => p[0]?.toUpperCase() || "").join("").slice(0, 2) || "?";
 }
 
-export function TeamManager({ currentUserId, members, pendingInvites }: {
+export function TeamManager({ currentUserId, members, pendingInvites, onChanged }: {
   currentUserId: string; members: Member[]; pendingInvites: Pending[];
+  /** Called after any successful change. The web page re-renders via
+   *  revalidatePath; the desktop Settings window passes this to refetch. */
+  onChanged?: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("operator");
@@ -64,9 +67,9 @@ export function TeamManager({ currentUserId, members, pendingInvites }: {
       if (res.data) {
         // Invite row saved, but email delivery failed — warn instead of a
         // false "sent" so the admin knows to fix the sender domain.
-        toast.warning(res.data, { duration: 12000 });
+        toast.warning(res.data, { duration: 12000 }); onChanged?.();
       } else {
-        toast.success(`Invite sent to ${email}`);
+        toast.success(`Invite sent to ${email}`); onChanged?.();
       }
       setEmail("");
     });
@@ -76,7 +79,7 @@ export function TeamManager({ currentUserId, members, pendingInvites }: {
     startTransition(async () => {
       const res = await updateTeammateRole(userId, newRole);
       if (!res.ok) toast.error(res.error);
-      else toast.success("Role updated");
+      else { toast.success("Role updated"); onChanged?.(); }
     });
   }
 
@@ -85,7 +88,7 @@ export function TeamManager({ currentUserId, members, pendingInvites }: {
     startTransition(async () => {
       const res = await removeTeammate(userId);
       if (!res.ok) toast.error(res.error);
-      else toast.success("Removed");
+      else { toast.success("Removed"); onChanged?.(); }
     });
   }
 
@@ -94,7 +97,7 @@ export function TeamManager({ currentUserId, members, pendingInvites }: {
     startTransition(async () => {
       const res = await revokeInvitation(id);
       if (!res.ok) toast.error(res.error);
-      else toast.success("Invite revoked");
+      else { toast.success("Invite revoked"); onChanged?.(); }
     });
   }
 

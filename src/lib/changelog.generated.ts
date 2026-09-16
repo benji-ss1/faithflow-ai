@@ -4,6 +4,16 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.429",
+    "date": "2026-09-16",
+    "headline": "Songs, media, imports and your team now open inside the desktop app",
+    "highlights": [
+      "In Settings, Song library and song imports now open the Songs browser in the app, not your web browser.",
+      "Media library opens the Media browser in the app.",
+      "Church admins can invite people, change roles and remove members right in Settings, under Team & Church."
+    ]
+  },
+  {
     "version": "0.1.428",
     "date": "2026-09-16",
     "headline": "Clear Messages now clears straight away",
