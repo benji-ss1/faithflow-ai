@@ -27,7 +27,7 @@
  * the golden record of the precedence rules.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { readPp7LayersFlag } from "@/lib/pp7-layers-flag";
+import { readPp7LayersFlag, PP7_LAYERS_STORAGE_KEY } from "@/lib/pp7-layers-flag";
 import { SlideRenderer } from "./SlideRenderer";
 import { OutputSlide } from "./OutputSlide";
 import { TransitionWrapper } from "./TransitionWrapper";
@@ -174,7 +174,14 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // server and first client render match; the flag lives in the same origin's
   // localStorage/env as the operator.
   const [pp7Order, setPp7Order] = useState(false);
-  useEffect(() => { setPp7Order(!!layersEnabled && readPp7LayersFlag()); }, [layersEnabled]);
+  useEffect(() => {
+    const read = () => setPp7Order(!!layersEnabled && readPp7LayersFlag());
+    read();
+    // Kill switch flipped on this machine reaches already-open output windows.
+    const onStorage = (e: StorageEvent) => { if (e.key === PP7_LAYERS_STORAGE_KEY) read(); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [layersEnabled]);
   const plan = planOutput(pp7Order ? { ...resolvedInput, mediaOverCamera: true } : resolvedInput);
   const slide = resolvedInput.slide;
   const opacities = layersEnabled || sceneActive

@@ -4,6 +4,20 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.435",
+    "date": "2026-09-16",
+    "headline": "Editing images works again",
+    "highlights": [
+      "The Edit image window now always opens on top and every button responds, whether you open it from the Media Bin or the Media library. Press Esc to close it, and your keyboard shortcuts won't change the screen behind it while it's open.",
+      "\"Auto-fill screen with logo\" and \"Remove flat background (beta)\" no longer leave Save and Save & Show greyed out.",
+      "Drag the small orange squares on the corners to crop or resize the picture — they work again, even when the picture fills the whole screen, and your crop is kept after you press Save.",
+      "In Logo on background, the logo keeps exactly the size and shape you set, and the Size slider moves with it.",
+      "Clicking an edited picture in the Media Bin now shows it the way you framed it.",
+      "If you cleared the words off the screen (T key), showing an edited picture now brings the screen back.",
+      "Removing a flat background saves the result as a new picture in your Media library; the original picture is left as it was."
+    ]
+  },
+  {
     "version": "0.1.434",
     "date": "2026-09-16",
     "headline": "Bigger videos and iPhone photos in the Media Bin",
@@ -12,6 +26,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "iPhone photos (HEIC) just work — they're turned into normal JPG pictures on your computer before uploading.",
       "Audio in the Media Bin (MP3, WAV, M4A, AAC) is coming soon. Until it's switched on, dropping an audio file shows a short \"coming soon\" message instead of a failed upload.",
       "Uploads are checked more carefully: a file that isn't really a picture or video is turned away with a clear message, while a photo that was simply renamed (say a PNG saved as .jpg) still goes through."
+    ]
+  },
+  {
+    "version": "0.1.433",
+    "date": "2026-09-16",
+    "headline": "Clear Messages now clears timers too",
+    "highlights": [
+      "The Messages clear button (and Clear All) now also takes timers off the screen."
     ]
   },
   {
