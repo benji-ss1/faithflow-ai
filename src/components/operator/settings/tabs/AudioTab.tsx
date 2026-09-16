@@ -1,4 +1,6 @@
 "use client";
+import { defaultMicBoost, WINDOWS_INPUT_GUIDANCE } from "@/lib/audio/micBoostPolicy";
+import { useIsWindows } from "@/lib/usePlatformLabel";
 import { useEffect, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { ChevronDown, ChevronRight, X, Plus, Stethoscope, Wand2 } from "lucide-react";
@@ -90,6 +92,7 @@ const ACTIONS = [
 type CustomCommand = { id: string; phrase: string; action: string };
 
 export function AudioTab() {
+  const isWindows = useIsWindows();
   const [mode, setMode] = useState<"online" | "offline">("online");
   const [voiceOn, setVoiceOn] = useState(true);
   // JPD Fix 4: default OFF — AI stays on until the operator turns it off.
@@ -758,7 +761,7 @@ export function AudioTab() {
         // Mixer feeds cap at 2x (line-level signal clips at 3x — see the
         // matching clamp in useAudioStream's pipeline build); mics get 3x.
         const maxBoost = sourceType === "microphone" ? 3 : 2;
-        const effectiveBoost = Math.min(maxBoost, micBoost ?? (sourceType === "microphone" ? 1.5 : 1));
+        const effectiveBoost = Math.min(maxBoost, micBoost ?? defaultMicBoost(sourceType === "microphone", isWindows));
         const effectiveHp = highpassOn ?? (sourceType === "microphone");
         const restartPipeline = () => {
           try { window.dispatchEvent(new CustomEvent("presentflow:audio-input-changed", { detail: { reason: "mic-preprocessing" } })); } catch {}
@@ -788,6 +791,9 @@ export function AudioTab() {
             <div className="text-[11px] text-zinc-500 -mt-2 pl-2">
               Amplifies quiet audio before transcription. Use 1.5–2x for a room mic picking up a distant preacher; leave at 1x for a mixer feed.
             </div>
+            {isWindows && (
+              <div className="text-[11px] text-zinc-500 -mt-2 pl-2">{WINDOWS_INPUT_GUIDANCE}</div>
+            )}
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[12px] font-semibold text-zinc-100">Reduce low-frequency rumble</div>
