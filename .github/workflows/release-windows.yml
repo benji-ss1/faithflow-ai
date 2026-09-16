@@ -63,22 +63,46 @@ jobs:
       # Electron's ABI. HARD FAIL if either addon is missing — a Windows installer
       # without NDI must never be published (installs would auto-update into it
       # and silently lose NDI audio in / video out).
-      - name: Install NDI 6 SDK
+      # The SDK is fetched ONCE and kept in the GitHub Actions cache, so later builds
+      # reuse the saved copy (no download, no installer). On a cache miss we download
+      # NDI's installer and UNPACK it with innoextract, which never shows a UI and so
+      # can't hang like a silent install can. Bump the key to pick up a new SDK.
+      - name: Restore NDI 6 SDK from cache
+        id: ndi-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ndi-sdk
+          key: ndi-6-sdk-2026-04-16
+
+      - name: Fetch NDI 6 SDK (cache miss only)
+        if: steps.ndi-cache.outputs.cache-hit != 'true'
         shell: pwsh
+        timeout-minutes: 10
         run: |
           $ErrorActionPreference = "Stop"
+          choco install innoextract -y --no-progress
           $exe = Join-Path $env:RUNNER_TEMP "NDI6SDK.exe"
           Invoke-WebRequest -Uri "https://downloads.ndi.tv/SDK/NDI_SDK/NDI%206%20SDK.exe" -OutFile $exe
-          $p = Start-Process -FilePath $exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -Wait -PassThru
-          Write-Host "NDI SDK installer exit code: $($p.ExitCode)"
-          $sdk = "C:\Program Files\NDI\NDI 6 SDK"
-          if (-not (Test-Path "$sdk\Lib\x64\Processing.NDI.Lib.x64.lib")) {
-            Get-ChildItem "C:\Program Files\NDI" -ErrorAction SilentlyContinue | Format-List FullName
-            throw "NDI 6 SDK not found at $sdk after install"
+          $raw = Join-Path $env:RUNNER_TEMP "ndi-raw"
+          innoextract --silent --output-dir $raw $exe
+          $lib = Get-ChildItem $raw -Recurse -Filter "Processing.NDI.Lib.x64.lib" | Where-Object { $_.DirectoryName -like "*x64*" } | Select-Object -First 1
+          if (-not $lib) { Get-ChildItem $raw -Recurse -Depth 3 | Select-Object FullName; throw "NDI .lib not found in extracted installer" }
+          $root = $lib.Directory.Parent.Parent.FullName
+          Write-Host "Extracted SDK root: $root"
+          Copy-Item -Recurse $root (Join-Path $env:RUNNER_TEMP "ndi-sdk")
+
+      - name: Check NDI 6 SDK layout
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP "ndi-sdk"
+          foreach ($f in @("Include\Processing.NDI.Lib.h", "Lib\x64\Processing.NDI.Lib.x64.lib", "Bin\x64\Processing.NDI.Lib.x64.dll")) {
+            if (-not (Test-Path (Join-Path $sdk $f))) { Get-ChildItem $sdk | Select-Object FullName; throw "NDI SDK file missing: $f" }
           }
+          "NDI_SDK_DIR=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build NDI native addons
         shell: pwsh
+        timeout-minutes: 15
         run: |
           npm run ndi:rebuild:win
           foreach ($f in @("native\ndi-receiver\build\Release\ndi_receiver.node", "native\ndi-sender\build\Release\ndi_sender.node")) {
