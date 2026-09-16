@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.428",
+    "version": "0.1.429",
     "date": "2026-09-16",
     "headline": "Only people who run services can change the default theme",
     "highlights": [
