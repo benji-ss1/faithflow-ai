@@ -4,6 +4,26 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.413",
+    "date": "2026-09-16",
+    "headline": "The right Mac download, every time",
+    "highlights": [
+      "Fixed: if the app can't tell which kind of Mac you have, it now asks instead of guessing — so an Intel Mac never gets a download it can't open.",
+      "When it isn't sure, the update bar shows both choices, Apple Silicon and Intel Mac, with a reminder that the Apple menu → About This Mac tells you which one you have.",
+      "When it can tell, nothing changes — one click still downloads the right build. Windows downloads are unchanged."
+    ]
+  },
+  {
+    "version": "0.1.412",
+    "date": "2026-09-16",
+    "headline": "The desktop app can update itself again",
+    "highlights": [
+      "Fixed: the desktop app was never checking for new versions, so churches had to download and re-install by hand to get anything new. It now checks again automatically.",
+      "You are still asked before an update installs — nothing changes on your machine mid-service without you saying so.",
+      "This takes effect from the next installer: install the new version once by hand, and updates after that come through on their own."
+    ]
+  },
+  {
     "version": "0.1.411",
     "date": "2026-09-16",
     "headline": "The desktop app can reach everything it needs again",

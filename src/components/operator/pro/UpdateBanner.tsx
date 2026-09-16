@@ -23,6 +23,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { SlidePayload } from "@/lib/broadcast";
+import { DESKTOP_DOWNLOAD_ARM64_URL, DESKTOP_DOWNLOAD_X64_URL } from "@/lib/desktop-download";
 
 const GITHUB_LATEST_URL = "https://api.github.com/repos/benji-ss1/faithflow-ai/releases/latest";
 const GITHUB_RELEASE_PAGE = "https://github.com/benji-ss1/faithflow-ai/releases/latest";
@@ -57,9 +58,98 @@ function platformArtifact(): { test: RegExp; label: string } {
   return { test: /\.dmg$/i, label: "DMG" };
 }
 
+// Best-effort Apple-Silicon vs Intel detection so the one-click auto-download
+// grabs the RIGHT .dmg. macOS Chromium masks the CPU in the UA (always reports
+// "Intel Mac OS X"), so we sniff the GPU renderer via WebGL: Apple Silicon
+// reports an "Apple Mx" GPU, Intel Macs report Intel/AMD/Radeon.
+//
+// 2026-09-16 fix: the sniff is a HINT, never a guess. It used to default to
+// arm64 whenever it couldn't tell (no WebGL context, blocked/absent
+// WEBGL_debug_renderer_info, unrecognised renderer string) — an Intel Mac with
+// WebGL blocked was handed an Apple-Silicon DMG that simply will not run. Now
+// an unknown result returns "ask" and the banner offers BOTH builds instead.
+//
+// NOTE on ordering: on an INTEL Mac, Chrome's ANGLE string still names Apple as
+// the vendor ("ANGLE (Apple, ANGLE Metal Renderer: Intel(R) UHD Graphics…)"),
+// so the Intel/AMD/Radeon test MUST run before the Apple test.
+export function macArchChoice(renderer: string | null): "arm64" | "x64" | "ask" {
+  const r = (renderer || "").trim().toLowerCase();
+  if (!r) return "ask";
+  if (/intel|amd|radeon|nvidia|geforce/.test(r)) return "x64";
+  // Apple must be matched by an Apple-SILICON-specific shape, never by the bare
+  // vendor word: "Apple Software Renderer" (the macOS software-GL fallback seen
+  // on Intel Macs with acceleration off) and "Apple Paravirtual device" (VMs)
+  // are both real strings that say nothing about the CPU — they fall through to
+  // "ask", which is exactly what this feature is for.
+  if (/apple\s*(m\d|silicon|gpu)\b/.test(r)) return "arm64";
+  return "ask";
+}
+
+// Reads the unmasked GPU renderer string, or null when it can't be determined
+// (no canvas/WebGL, extension blocked, throw). null → macArchChoice → "ask".
+function readMacGpuRenderer(): string | null {
+  try {
+    const canvas = document.createElement("canvas");
+    const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+    if (!gl) return null;
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    if (!dbg) return null;
+    const renderer = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "");
+    return renderer || null;
+  } catch {
+    return null;
+  }
+}
+
+type PickedAsset = {
+  url?: string;
+  // Present only when the Mac architecture is UNKNOWN: the banner must ask
+  // rather than hand out a DMG that may not run.
+  choices?: { armUrl: string; x64Url: string };
+};
+
+// From a release's asset list, pick the exact file this machine should download.
+// For macOS, disambiguate arm64 vs x64 so the auto-download is runnable; when we
+// can't tell, return both so the operator picks. Any other case falls back to
+// the first asset matching the platform regex.
+function pickAsset(
+  assets: { name?: string; browser_download_url?: string }[],
+  plat: { test: RegExp },
+): PickedAsset | undefined {
+  const matches = assets.filter((a) => plat.test.test(a.name || ""));
+  if (matches.length === 0) return undefined;
+  // KNOWN LIMIT: a release carrying exactly ONE .dmg is handed to every Mac
+  // without an arch check — i.e. an arm64-only release would reach an Intel Mac.
+  // Every release today ships BOTH arches (see docs/DMG_RELEASE_SOP.md), so this
+  // path is not reachable in practice; if single-arch releases ever return,
+  // route this through macArchChoice too.
+  if (matches.length === 1) return { url: matches[0].browser_download_url };
+  if (plat.test.source.includes("dmg")) {
+    const arm = matches.find((a) => /arm64/i.test(a.name || ""));
+    const intel = matches.find((a) => /x64|intel/i.test(a.name || ""));
+    const choice = macArchChoice(readMacGpuRenderer());
+    if (choice === "arm64") return { url: (arm || matches[0]).browser_download_url };
+    if (choice === "x64") return { url: (intel || matches[0]).browser_download_url };
+    // Unknown → offer both. Fall back to the published static URLs for a side
+    // that this particular release somehow doesn't carry. CAVEAT: those
+    // constants are pinned by hand (0.1.380 today), so in that unlikely case the
+    // banner would advertise the new version while one button downloads the
+    // older pinned build — still a RUNNABLE app for that Mac, which is the point
+    // here. Keep the constants bumped with every release (DMG_RELEASE_SOP).
+    return {
+      url: (arm || matches[0]).browser_download_url,
+      choices: {
+        armUrl: arm?.browser_download_url || DESKTOP_DOWNLOAD_ARM64_URL,
+        x64Url: intel?.browser_download_url || DESKTOP_DOWNLOAD_X64_URL,
+      },
+    };
+  }
+  return { url: matches[0].browser_download_url };
+}
+
 type State =
   | { kind: "idle" }
-  | { kind: "manual-available"; version: string; url: string; label: string }
+  | { kind: "manual-available"; version: string; url: string; label: string; choices?: { armUrl: string; x64Url: string } }
   | { kind: "downloading"; version: string }
   | { kind: "ready"; version: string }
   | { kind: "error"; message: string };
@@ -137,7 +227,7 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
         // built for both carries both, and each OS resolves to its own file.
         const plat = platformArtifact();
         const assets = Array.isArray(data.assets) ? data.assets : [];
-        const myAsset = assets.find((a) => plat.test.test(a.name || ""));
+        const myAsset = pickAsset(assets, plat);
         const isNewer = compareSemver(latest, current) > 0;
         if (isNewer && myAsset) {
           // Respect a prior dismissal for this exact tag — user X'd it out,
@@ -153,10 +243,11 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
           // Newer release with an artifact for this OS AND not dismissed. Point
           // the click at THIS platform's file directly (fallback: release page)
           // so a Mac never lands on a page of Windows files or vice-versa.
-          const url = myAsset.browser_download_url || data.html_url || GITHUB_RELEASE_PAGE;
+          const url = myAsset.url || data.html_url || GITHUB_RELEASE_PAGE;
+          const choices = myAsset.choices;
           setState((prev) => {
-            if (prev.kind === "idle") return { kind: "manual-available", version: latest, url, label: plat.label };
-            if (prev.kind === "manual-available" && prev.version !== latest) return { kind: "manual-available", version: latest, url, label: plat.label };
+            if (prev.kind === "idle") return { kind: "manual-available", version: latest, url, label: plat.label, choices };
+            if (prev.kind === "manual-available" && prev.version !== latest) return { kind: "manual-available", version: latest, url, label: plat.label, choices };
             return prev;
           });
         } else {
@@ -194,7 +285,7 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
   if (state.kind === "idle") return null;
 
   if (state.kind === "manual-available") {
-    const openDownload = async () => {
+    const openDownload = async (target: string = state.url) => {
       // 2026-07-30 field-fix — three-tier open ladder. The IPC path
       // (shell:openExternal) has a strict hostname allowlist that excludes
       // github.com, so on shells older than the fix that adds it, the click
@@ -208,42 +299,85 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
       //      so the operator can paste it into a browser manually.
       let opened = false;
       try {
-        const res = await window.electronAPI?.shell?.openExternal(state.url);
+        const res = await window.electronAPI?.shell?.openExternal(target);
         if (res && typeof res === "object" && "ok" in res && res.ok === true) opened = true;
       } catch { /* fall through */ }
       if (!opened) {
         try {
-          const w = window.open(state.url, "_blank", "noopener,noreferrer");
+          const w = window.open(target, "_blank", "noopener,noreferrer");
           if (w) opened = true;
         } catch { /* fall through */ }
       }
       if (!opened) {
         try {
-          await navigator.clipboard?.writeText(state.url);
+          await navigator.clipboard?.writeText(target);
           const { toast } = await import("sonner");
-          toast.info(`Download URL copied — paste into your browser: ${state.url}`, { duration: 20_000, id: "update-url-copy" });
+          toast.info(`Download URL copied — paste into your browser: ${target}`, { duration: 20_000, id: "update-url-copy" });
         } catch {
-          console.error("[UpdateBanner] failed to open or copy URL", state.url);
+          console.error("[UpdateBanner] failed to open or copy URL", target);
         }
       }
     };
+
+    const dismiss = () => {
+      try { window.localStorage.setItem(DISMISSED_MANUAL_KEY, state.version); } catch { /* noop */ }
+      setState({ kind: "idle" });
+    };
+
+    // Mac architecture unknown (no/blocked WebGL, unrecognised GPU) — ASK
+    // instead of guessing. Guessing arm64 here handed Intel Macs a DMG that
+    // will not open. Both builds are offered; either click downloads that one.
+    if (state.choices) {
+      const { armUrl, x64Url } = state.choices;
+      return (
+        <div className="w-full px-4 py-2 text-sm font-medium text-white bg-violet-600 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+          <span className="text-center">
+            ⬇ Update {state.version} available — which Mac do you have?
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => openDownload(armUrl)}
+              className="px-2 py-0.5 rounded bg-violet-800 hover:bg-violet-900 text-xs whitespace-nowrap cursor-pointer"
+              title="Download the Apple Silicon (M-series) DMG"
+            >
+              Apple Silicon (M1/M2/M3…)
+            </button>
+            <button
+              onClick={() => openDownload(x64Url)}
+              className="px-2 py-0.5 rounded bg-violet-800 hover:bg-violet-900 text-xs whitespace-nowrap cursor-pointer"
+              title="Download the Intel Mac DMG"
+            >
+              Intel Mac
+            </button>
+          </div>
+          <span className="text-xs text-white/80 text-center">
+            Not sure? Apple menu → About This Mac shows which.
+          </span>
+          <button
+            onClick={dismiss}
+            aria-label="Dismiss this update notice"
+            title="Dismiss — banner will not reappear until a newer DMG is tagged"
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-violet-700/60 text-white/80 hover:text-white text-lg leading-none"
+          >
+            ×
+          </button>
+        </div>
+      );
+    }
     return (
       <div
         className="w-full px-4 py-2 text-sm font-medium text-white flex items-center justify-center gap-2 bg-violet-600"
         title={`Download the latest ${state.label} for your computer`}
       >
         <button
-          onClick={openDownload}
+          onClick={() => openDownload()}
           className="flex-1 text-center hover:underline cursor-pointer"
         >
           ⬇ Update {state.version} available — click to download the new {state.label}
           {state.label === "DMG" ? " (right-click → Open on first launch)" : " (if Windows warns, choose More info → Run anyway)"}
         </button>
         <button
-          onClick={() => {
-            try { window.localStorage.setItem(DISMISSED_MANUAL_KEY, state.version); } catch { /* noop */ }
-            setState({ kind: "idle" });
-          }}
+          onClick={dismiss}
           aria-label="Dismiss this update notice"
           title="Dismiss — banner will not reappear until a newer DMG is tagged"
           className="w-6 h-6 flex items-center justify-center rounded hover:bg-violet-700/60 text-white/80 hover:text-white text-lg leading-none"
