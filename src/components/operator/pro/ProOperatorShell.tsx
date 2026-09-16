@@ -2496,7 +2496,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const messages = useMessagesSession();
   const timers = useTimersSession();        // Wave 7 — multi named timers
   const messagesBoard = useMessagesBoard();  // Wave 7 — templates + active messages
-  // ProPresenter 7 layer UI (flag, off by default): clear rail beside the
+  // ProPresenter 7 layer UI (on by default; kill switch in pp7-layers-flag): clear rail beside the
   // preview + F-key clears + Media Bin clicks go behind the words.
   const pp7Layers = usePp7Layers() && ctx.layersEngineOn;
   const pp7MessagesActive = messages.state.showing || messagesBoard.active.some((m) => !m.hidden);

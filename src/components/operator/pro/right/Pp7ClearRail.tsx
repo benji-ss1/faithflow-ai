@@ -101,8 +101,9 @@ export function Pp7ClearRail({
   }, [ctx, row, onClearMessages]);
 
   // Clear All = every PP7 layer clear, plus the livestream lower third. Runs the
-  // per-layer clears (not liveLayers.clearAll) so nothing is left permanently
-  // disabled — the camera, media and slide all work normally afterwards.
+  // per-layer clears (not liveLayers.clearAll) so the camera, media and slide all
+  // work normally afterwards. The theme logo (Props) stays off until re-enabled
+  // from the Layers panel, as a cleared prop does in ProPresenter.
   const clearAll = useCallback(() => {
     for (const layer of PP7_CLEAR_ORDER) clear(layer);
     ctx.onClearLowerThird?.();
@@ -147,11 +148,13 @@ export function Pp7ClearRail({
             key={layer}
             type="button"
             aria-disabled={!available[layer]}
+            tabIndex={available[layer] ? undefined : -1}
+            aria-pressed={available[layer] ? active[layer] : undefined}
             onClick={() => { if (available[layer]) clear(layer); }}
             title={label}
             aria-label={label}
             data-active={active[layer] ? "true" : "false"}
-            className={`flex-1 min-h-0 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 ${i > 0 ? "border-t border-black/40" : ""} ${!available[layer] ? "cursor-default" : active[layer] ? "bg-[#7a1f1f] hover:bg-[#8f2626]" : "hover:bg-white/10"}`}
+            className={`flex-1 min-h-0 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 ${i > 0 ? "border-t border-black/40" : ""} ${!available[layer] ? "cursor-not-allowed" : active[layer] ? "bg-[#7a1f1f] hover:bg-[#8f2626]" : "hover:bg-white/10"}`}
           >
             <Icon className={`w-4 h-4 ${available[layer] ? "text-white/85" : "text-white/25"}`} />
           </button>
