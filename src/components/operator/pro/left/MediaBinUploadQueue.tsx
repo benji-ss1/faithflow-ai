@@ -155,8 +155,10 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
             // actually in (never a gap), with a beat so the check mark reads.
             void Promise.all([refresh(), new Promise((r) => window.setTimeout(r, 700))]).then(([ok]) => {
               if (unmounted.current) return;
-              if (ok) removeWhere((i) => i.status === "done" && batch.has(i.id));
-              else toast.error("Uploaded — but the Media Bin couldn't refresh. Reopen it to see the new media.");
+              // Files ARE uploaded either way — always clear their placeholders so a
+              // failed refresh can't leave stale tiles that block re-dropping.
+              removeWhere((i) => i.status === "done" && batch.has(i.id));
+              if (!ok) toast.error("Uploaded — but the Media Bin couldn't refresh. Reopen it to see the new media.");
               window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
             });
           }
@@ -200,13 +202,14 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
       const wizard: File[] = [];
       const skipped: Array<{ name: string; route: DroppedFileRoute["route"] }> = [];
       let alreadyFailed = 0;
+      let alreadyInQueue = 0;
       const known = new Map(itemsRef.current.map((i) => [i.fingerprint, i] as const));
       for (const file of files) {
         const r = classifyDroppedFile(file);
         if (r.route === "image" || r.route === "video") {
           const fingerprint = `${file.name}:${file.size}:${file.lastModified}`;
           const dup = known.get(fingerprint);
-          if (dup) { if (dup.status === "error") alreadyFailed++; continue; }
+          if (dup) { if (dup.status === "error") alreadyFailed++; else alreadyInQueue++; continue; }
           const item: Item = {
             id: nextId.current++, fingerprint, file, contentType: r.contentType,
             isVideo: r.route === "video", previewUrl: null, progress: 0, status: "queued",
@@ -232,7 +235,8 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
         toast.info(`Opening the import wizard for ${wizard.length} presentation${wizard.length === 1 ? "" : "s"}…`, { id: "pf-bin-wizard" });
         onOpenWizard([...wizard]);
       }
-      if (add.length === 0 && wizard.length === 0 && !summary && alreadyFailed === 0) {
+      if (alreadyInQueue > 0) toast.info(`${alreadyInQueue === 1 ? "That file is" : `${alreadyInQueue} files are`} already uploading or just uploaded.`);
+      if (add.length === 0 && wizard.length === 0 && !summary && alreadyFailed === 0 && alreadyInQueue === 0) {
         toast.error("Nothing to import from that drop");
       }
     },
