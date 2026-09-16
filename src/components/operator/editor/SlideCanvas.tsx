@@ -542,7 +542,7 @@ function ObjectView({
       )}
       {selected && !readOnly && !editing && (
         <>
-          <div className={cn("absolute inset-0 pointer-events-none ring-2", soleSelected ? "ring-[#e8501a]" : "ring-[#e8501a]/70")} />
+          <div className={cn("absolute inset-0 z-[2] pointer-events-none ring-2", soleSelected ? "ring-[#e8501a]" : "ring-[#e8501a]/70")} />
           {/* Resize handles only for an unlocked sole selection — a group moves
               as a unit and locked objects can't be resized. */}
           {soleSelected && !locked && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as HandleKey[]).map((k) => (
@@ -555,7 +555,10 @@ function ObjectView({
 }
 
 function Handle({ k, onBegin }: { k: HandleKey; onBegin: (e: React.MouseEvent) => void }) {
-  const pos: React.CSSProperties = { position: "absolute", width: 10, height: 10, background: "#e8501a", border: "1px solid #fff", borderRadius: 2 };
+  // zIndex 2: an image object's <img> is `position:relative; zIndex:1` (blur-fill
+  // layering), which otherwise painted OVER the handles and swallowed every
+  // resize drag (turning it into a move).
+  const pos: React.CSSProperties = { position: "absolute", zIndex: 2, width: 10, height: 10, background: "#e8501a", border: "1px solid #fff", borderRadius: 2 };
   const map: Record<HandleKey, React.CSSProperties> = {
     nw: { left: -5, top: -5, cursor: "nwse-resize" },
     n:  { left: "50%", top: -5, transform: "translateX(-50%)", cursor: "ns-resize" },

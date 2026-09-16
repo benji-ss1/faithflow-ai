@@ -797,17 +797,24 @@ export function MediaBrowser({
                             {a.fileName}
                           </span>
                           {/* Pencil icon — visible on card hover, triggers rename */}
-                          <button
-                            type="button"
+                          {/* span[role=button], not <button>: a button nested in the
+                              card <button> is invalid HTML (hydration error). */}
+                          <span
+                            role="button"
+                            tabIndex={0}
                             title="Rename"
+                            aria-label="Rename"
                             onClick={(e) => {
                               e.stopPropagation();
                               startRename(a);
                             }}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-white/20 text-white/70 hover:text-white shrink-0"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); startRename(a); }
+                            }}
+                            className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-white/20 text-white/70 hover:text-white shrink-0"
                           >
                             <Pencil className="h-3 w-3" />
-                          </button>
+                          </span>
                         </>
                       )}
                     </div>

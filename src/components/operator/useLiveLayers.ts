@@ -136,7 +136,9 @@ function computeActive(kind: LayerWire["kind"], enabled: boolean, payload: unkno
       const s = payload as SlidePayload | undefined;
       if (!s) return false;
       if (s.kind === "empty") return false;
-      if (s.kind === "text") return !!s.text && s.text.trim().length > 0;
+      // An empty-text slide with objects (a framed media image / designed slide)
+      // genuinely paints — count its objects.
+      if (s.kind === "text") return (!!s.text && s.text.trim().length > 0) || (Array.isArray(s.objects) && s.objects.length > 0);
       return true; // image/video/etc.
     }
     case "logo":

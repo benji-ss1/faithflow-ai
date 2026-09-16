@@ -19,7 +19,7 @@ import { SLIDE_SAFE_PALETTE } from "@/engine/actions/palette";
 import type { ActionSpec } from "@/engine/actions/spec";
 import { parseMediaDropPayload, isImageAsset, resolveMediaDrop, MEDIA_DROP_MIME } from "@/lib/media-drop";
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
-import { loadMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
+import { loadMediaFrame, buildMediaFrameSlide, MEDIA_FRAME_CHANGED_EVENT } from "./mediaFrame";
 import { useRouter } from "next/navigation";
 import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal, ChevronRight, Check, Layers, Zap, Image as ImageIcon, Palette, Timer, MessageSquare, Sparkles, Captions, Workflow, Trash2 } from "lucide-react";
 import { describeSpec, specKey } from "@/engine/actions/describe";
@@ -188,6 +188,14 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   // (no wait for the server round-trip + router.refresh). Cleared automatically once
   // the real slide data catches up (the effect below), so it never masks a change.
   const [optimisticBg, setOptimisticBg] = useState<Record<number, string>>({});
+  // Bumped when the image editor saves/clears a frame, so the cards re-read the
+  // saved framing immediately (localStorage writes don't re-render anything).
+  const [frameVersion, setFrameVersion] = useState(0);
+  useEffect(() => {
+    const onChanged = () => setFrameVersion((v) => v + 1);
+    window.addEventListener(MEDIA_FRAME_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(MEDIA_FRAME_CHANGED_EVENT, onChanged);
+  }, []);
   const displaySlides: SlidePayload[] = useMemo(() => {
     return slides.map((s, i) => {
       let base = s;
@@ -210,7 +218,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     });
     // ctx.churchId + item identity drive this; slides is derived from item.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slides, item, ctx.churchId, optimisticBg]);
+  }, [slides, item, ctx.churchId, optimisticBg, frameVersion]);
   // Drop an optimistic override once the real slide reflects it (post-refresh).
   useEffect(() => {
     setOptimisticBg((prev) => {

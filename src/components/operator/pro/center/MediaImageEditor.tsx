@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Play, Image as ImageIcon, Move, Maximize2, RotateCcw, Save, Wand2, Square, Palette } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -12,7 +13,7 @@ import { AnimatedThemeBg, ThemeVideoBackground } from "@/components/live/ThemeLa
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { registerMediaAsset } from "@/lib/actions";
 import { removeFlatBackground } from "./logoKey";
-import { loadMediaFrame, saveMediaFrame, type MediaFrame } from "./mediaFrame";
+import { loadMediaFrame, saveMediaFrame, frameBox, type MediaFrame } from "./mediaFrame";
 import { LayoutDefaultControl } from "@/components/operator/layout/LayoutDefaultControl";
 
 /**
@@ -149,10 +150,13 @@ export function MediaImageEditor({
     const inBg = saved0?.bgMode === "background";
     const s = saved0?.logoSizePct ?? 60;
     const cx = saved0?.logoPosX ?? 50, cy = saved0?.logoPosY ?? 50;
-    const w = inBg ? Math.round(CANVAS_W * s / 100) : CANVAS_W;
-    const h = inBg ? Math.round(CANVAS_H * s / 100) : CANVAS_H;
-    const x = inBg ? Math.round(CANVAS_W * cx / 100 - w / 2) : 0;
-    const y = inBg ? Math.round(CANVAS_H * cy / 100 - h / 2) : 0;
+    // A saved box (handle crop/resize) wins; frames saved before boxes existed
+    // fall back to the old geometry (same as buildMediaFrameSlide).
+    const box = saved0 ? frameBox(saved0) : null;
+    const w = box ? box.w : inBg ? Math.round(CANVAS_W * s / 100) : CANVAS_W;
+    const h = box ? box.h : inBg ? Math.round(CANVAS_H * s / 100) : CANVAS_H;
+    const x = box ? box.x : inBg ? Math.round(CANVAS_W * cx / 100 - w / 2) : 0;
+    const y = box ? box.y : inBg ? Math.round(CANVAS_H * cy / 100 - h / 2) : 0;
     const logo: ImageObject = {
       id: imgId, kind: "image", x, y, w, h,
       url: asset.url,
@@ -248,7 +252,9 @@ export function MediaImageEditor({
       patchImg({ fit: "cover", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, posX: 50, posY: 50, zoom: 1 });
     } else {
       const w = Math.round(CANVAS_W * logoSizePct / 100), h = Math.round(CANVAS_H * logoSizePct / 100);
-      patchImg({ fit: "contain", x: Math.round((CANVAS_W - w) / 2), y: Math.round((CANVAS_H - h) / 2), w, h, posX: 50, posY: 50, zoom: 1 });
+      // blurFill is a full-screen-only effect — drop it so it doesn't linger
+      // inside the small logo box (Logo mode has its own "Blur fill" background).
+      patchImg({ fit: "contain", x: Math.round((CANVAS_W - w) / 2), y: Math.round((CANVAS_H - h) / 2), w, h, posX: 50, posY: 50, zoom: 1, blurFill: false });
     }
   }
 
@@ -277,7 +283,13 @@ export function MediaImageEditor({
   // Guard against setState / toast after the editor is closed mid-measure, and
   // against a hung image load leaving the button stuck on "Measuring…".
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; revokePreview(); }, [revokePreview]);
+  // Set true IN the effect body: under StrictMode (and any remount) the cleanup
+  // runs then the effect re-runs — a ref only initialised once would stay false
+  // forever and Auto-fill / Remove-background would never clear their busy state.
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; revokePreview(); };
+  }, [revokePreview]);
 
   // Remove-flat-background keying: (re)runs when enabled or the threshold moves.
   // Debounced so dragging the slider doesn't thrash the canvas. The result is a
@@ -451,7 +463,16 @@ export function MediaImageEditor({
     } else {
       frame.bgMode = "matte";
     }
+    // The exact box (handle crop / resize / drag) — so it survives Save + reopen
+    // and projects as edited (buildMediaFrameSlide reads it).
+    frame.boxX = Math.round(img.x); frame.boxY = Math.round(img.y);
+    frame.boxW = Math.round(img.w); frame.boxH = Math.round(img.h);
     saveMediaFrame(ctx.churchId, assetId, frame);
+    // "Remove flat background" saved the frame under the NEW transparent asset.
+    // Slides/playlist items still pointing at the ORIGINAL asset would lose the
+    // edit, so also save the same framing (box + background) under the original
+    // id — those slides project the original image framed identically.
+    if (assetId !== assetProp.id) saveMediaFrame(ctx.churchId, assetProp.id, frame);
   }
   async function save() {
     if (saving) return;
@@ -489,11 +510,16 @@ export function MediaImageEditor({
     } finally { setSaving(false); }
   }
 
+  // Size slider follows the actual box (a handle resize updates it too).
+  const shownLogoSize = bgMode === "background" && img
+    ? Math.max(10, Math.min(100, Math.round((img.w / CANVAS_W) * 100)))
+    : logoSizePct;
+
   const btn = "h-8 px-2 rounded-md text-xs border inline-flex items-center justify-center gap-1";
   const bstyle = { borderColor: "#2a3232", background: "#1a2020", color: "#e4e4e7" } as React.CSSProperties;
   const on = (active: boolean) => ({ ...bstyle, borderColor: active ? "#2dd4bf" : "#2a3232", color: active ? "#5eead4" : "#e4e4e7" });
 
-  return (
+  const overlay = (
     <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.78)" }}>
       <div className="flex flex-col rounded-xl border overflow-hidden" style={{ width: "min(1160px, 96vw)", height: "min(740px, 94vh)", borderColor: "#2a3232", background: "#1e2525" }}>
         {/* Header */}
@@ -615,7 +641,7 @@ export function MediaImageEditor({
                 </Section>
 
                 <Section label="Logo size">
-                  <Row label="Size"><div className="flex items-center gap-2"><input type="range" min={10} max={100} step={1} value={logoSizePct} onChange={(e) => setLogoSize(Number(e.target.value))} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{logoSizePct}%</span></div></Row>
+                  <Row label="Size"><div className="flex items-center gap-2"><input type="range" min={10} max={100} step={1} value={shownLogoSize} onChange={(e) => setLogoSize(Number(e.target.value))} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{shownLogoSize}%</span></div></Row>
                   <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500"><Move className="w-3 h-3" /> Drag the logo on the canvas to position it; handles resize it.</div>
                 </Section>
 
@@ -635,6 +661,11 @@ export function MediaImageEditor({
       </div>
     </div>
   );
+  // Portal to <body> so the editor is never trapped under a parent stacking
+  // context (e.g. the shell's `relative z-[1]` column) — it always sits on top
+  // and receives clicks, wherever it was opened from. SSR-safe.
+  if (typeof document === "undefined") return overlay;
+  return createPortal(overlay, document.body);
 }
 
 // <input type="color"> only accepts #rrggbb. Coerce a stored value (short hex /

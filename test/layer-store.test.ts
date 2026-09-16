@@ -81,6 +81,18 @@ check("contentKey: a theme/style restyle of the same words is NOT a content chan
   assert.notEqual(liveContentKey(a as never), liveContentKey({ kind: "empty" } as never));
 });
 
+check("contentKey: two DIFFERENT framed media images (empty text + objects) differ → re-arm after T", () => {
+  const img = (url: string, zoom = 1) => ({ kind: "text", text: "", bgColor: "#000000", objects: [{ id: "o", kind: "image", x: 0, y: 0, w: 1920, h: 1080, url, fit: "cover", posX: 50, posY: 50, zoom }] });
+  assert.notEqual(liveContentKey(img("https://x/a.png") as never), liveContentKey(img("https://x/b.png") as never));
+  assert.notEqual(liveContentKey(img("https://x/a.png") as never), liveContentKey(img("https://x/a.png", 2) as never));
+  // Same image, same framing, different object id → same content.
+  const b = img("https://x/a.png"); (b.objects[0] as { id: string }).id = "other";
+  assert.equal(liveContentKey(img("https://x/a.png") as never), liveContentKey(b as never));
+  // Worded slides with objects keep the style-independent key.
+  const worded = { kind: "text", text: "Amazing grace", objects: [{ id: "t", kind: "text", x: 0, y: 0, w: 10, h: 10 }] };
+  assert.equal(liveContentKey(worded as never), liveContentKey({ kind: "text", text: "Amazing grace" } as never));
+});
+
 // ── 3. End-to-end hide→show round-trip through the FULL wire pipeline ─────────
 // Replicates the hook's visibility-toggle patch build (buildPatch) so a SHOW
 // restores exactly the base content on the projector, for every layer.

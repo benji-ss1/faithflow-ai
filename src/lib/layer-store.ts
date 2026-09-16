@@ -29,7 +29,18 @@ import type { BackgroundSpec, LayerWire, SlidePayload } from "@/lib/broadcast";
 export function liveContentKey(s: SlidePayload | null | undefined): string {
   if (!s) return "e";
   switch (s.kind) {
-    case "text": return `t:${s.text}|${s.reference ?? ""}`;
+    case "text": {
+      // A framed media image is an EMPTY-text slide carrying image objects. Without
+      // the object identity every such slide keys "t:|", so after T (clear) a
+      // DIFFERENT edited image would never re-arm the slide layer. Only empty-text
+      // slides get this — worded slides keep their style-independent key.
+      if (!s.text && Array.isArray(s.objects) && s.objects.length > 0) {
+        const im = s.objects.find((o) => o.kind === "image") as { url?: string; fit?: string; zoom?: number; posX?: number; posY?: number; x?: number; y?: number; w?: number; h?: number; blurFill?: boolean } | undefined;
+        if (im) return `t:|${s.reference ?? ""}|img:${im.url ?? ""}|${im.fit ?? ""}|${im.zoom ?? ""}|${im.posX ?? ""},${im.posY ?? ""}|${im.x},${im.y},${im.w},${im.h}|${im.blurFill ? 1 : 0}`;
+        return `t:|${s.reference ?? ""}|objs:${s.objects.length}`;
+      }
+      return `t:${s.text}|${s.reference ?? ""}`;
+    }
     case "image": return `i:${s.url}`;
     case "video": return `v:${s.url}`;
     case "logo": return `l:${s.url ?? ""}`;

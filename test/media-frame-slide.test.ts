@@ -1,4 +1,4 @@
-import { buildMediaFrameSlide } from "../src/components/operator/pro/center/mediaFrame";
+import { buildMediaFrameSlide, saveMediaFrame, loadMediaFrame, clearMediaFrame, MEDIA_FRAME_CHANGED_EVENT } from "../src/components/operator/pro/center/mediaFrame";
 import { projectableTextSlide } from "../src/lib/broadcast";
 import assert from "node:assert";
 const URL = "https://s3.example.com/x.png?X-Amz-Signature=a";
@@ -37,5 +37,37 @@ const survives = (bgColor: string | undefined, objects: any[]) => (projectableTe
   check("blur backdrop uses the same image url", (objects[0] as any).url === URL);
   check("blur logo second: sharp contain, no blur", (objects[1] as any).kind === "image" && (objects[1] as any).fit === "contain" && !(objects[1] as any).blur && (objects[1] as any).w === 1056);
   check("blur payload survives (backdrop+logo)", survives(bgColor, objects));
+}
+{
+  // Saved box (handle crop/resize) is used in matte + background; legacy frames unchanged.
+  const m = buildMediaFrameSlide({ fit: "cover", posX: 50, posY: 50, zoom: 1, boxX: 100, boxY: 50, boxW: 800, boxH: 600 } as any, URL);
+  check("matte saved box used", (m.objects[0] as any).x === 100 && (m.objects[0] as any).y === 50 && (m.objects[0] as any).w === 800 && (m.objects[0] as any).h === 600);
+  check("matte box payload survives", survives(m.bgColor, m.objects));
+  const b = buildMediaFrameSlide({ fit: "contain", posX: 50, posY: 50, zoom: 1, bgMode: "background", bgKind: "solid", logoSizePct: 50, boxX: 10, boxY: 20, boxW: 900, boxH: 300 } as any, URL);
+  check("logo saved box (non-square %) used", (b.objects[0] as any).w === 900 && (b.objects[0] as any).h === 300 && (b.objects[0] as any).x === 10);
+  const partial = buildMediaFrameSlide({ fit: "cover", posX: 50, posY: 50, zoom: 1, boxX: 5 } as any, URL);
+  check("partial box ignored → full canvas", (partial.objects[0] as any).w === 1920 && (partial.objects[0] as any).x === 0);
+}
+{
+  // localStorage round-trip: box persisted, event fired, default→church migration.
+  const store = new Map<string, string>();
+  const events: any[] = [];
+  (globalThis as any).window = {
+    localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) },
+    dispatchEvent: (e: any) => { events.push(e); return true; },
+  };
+  if (typeof (globalThis as any).CustomEvent === "undefined") (globalThis as any).CustomEvent = class { type: string; detail: any; constructor(t: string, o: any) { this.type = t; this.detail = o?.detail; } };
+  saveMediaFrame("c1", "a1", { fit: "contain", posX: 40, posY: 60, zoom: 2, boxX: 100, boxY: 50, boxW: 800, boxH: 600 });
+  const f = loadMediaFrame("c1", "a1");
+  check("box round-trips", f?.boxX === 100 && f?.boxW === 800 && f?.boxH === 600);
+  check("save fires frame-changed event", events.length === 1 && events[0].type === MEDIA_FRAME_CHANGED_EVENT && events[0].detail.assetId === "a1" && events[0].detail.churchId === "c1");
+  clearMediaFrame("c1", "a1");
+  check("clear fires event", events.length === 2 && loadMediaFrame("c1", "a1") === null);
+  store.set("pf.mediaFrame.v1.default.a2", JSON.stringify({ fit: "cover", posX: 50, posY: 50, zoom: 3 }));
+  const mig = loadMediaFrame("c1", "a2");
+  check("default-key frame adopted by church", mig?.zoom === 3 && store.has("pf.mediaFrame.v1.c1.a2") && !store.has("pf.mediaFrame.v1.default.a2"));
+  const legacy = loadMediaFrame("c1", "nope");
+  check("missing frame → null", legacy === null);
+  delete (globalThis as any).window;
 }
 console.log(`\n${pass} passed, ${fail} failed`); assert.equal(fail, 0);
