@@ -11,6 +11,7 @@
  * Selecting a Songs/Bible/Media result switches the center mode so the
  * user can locate the item. Selecting a Playlist entry jumps preview to it.
  */
+import { modKeyLabel } from "@/lib/platform";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
@@ -379,7 +380,7 @@ export function SearchPalette({
             </Command.List>
             <div className="h-10 px-4 flex items-center justify-between text-[11px] text-[var(--color-muted-foreground)] border-t border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top)]">
               <span className="flex items-center gap-1.5">
-                <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-elevated)] shadow-[var(--shadow-sm)]">⌘K</kbd>
+                <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-elevated)] shadow-[var(--shadow-sm)]">{modKeyLabel()}K</kbd>
                 to toggle
               </span>
               <span className="flex items-center gap-1.5">

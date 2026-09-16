@@ -4803,26 +4803,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           onToggleMediaStrip={() => setMediaStripOpen((v) => !v)}
           mediaStripOpen={mediaStripOpen}
           ctx={ctx}
+          guardianAlert={guardianAlert}
         />
-        {/* Audio Guardian "needs human" chip — overlaid on the TopBar's
-            right cluster (near the audio/routing indicators) so it can't
-            be missed mid-service. Removed the moment the guardian reports
-            healthy again. Click → Settings › Audio in the right sidebar. */}
-        {guardianAlert && (
-          <button
-            type="button"
-            onClick={() => {
-              try {
-                window.dispatchEvent(new CustomEvent("presentflow:open-audio-settings"));
-              } catch { /* ignore */ }
-            }}
-            title={guardianAlert.detail}
-            aria-label={`Audio needs attention: ${guardianAlert.detail}`}
-            className="absolute top-1/2 -translate-y-1/2 right-2 z-40 flex items-center gap-1 h-7 px-2.5 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold tracking-wide shadow-lg animate-pulse"
-          >
-            ⚠ AUDIO
-          </button>
-        )}
       </div>
 
       <div className="flex-1 min-h-0 flex">

@@ -137,8 +137,10 @@ export async function openMultiChannelCapture(
     throw new Error("multiChannelCapture: navigator.mediaDevices is unavailable");
   }
 
-  // 1. Acquire the raw multi-channel stream. Disable all DSP so channels
-  //    stay independent and pristine for meter accuracy + downstream ASR.
+  // 1. Acquire the raw multi-channel stream. Browser DSP is deliberately ON
+  //    (commit d357516 "enable DSP for all audio sources"; a global DSP-off was
+  //    reverted in a54554f). On Windows the Electron shell stops AGC from moving
+  //    the OS input slider (electron/main.ts, WebRtcAllowInputVolumeAdjustment).
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       deviceId: { exact: deviceId },

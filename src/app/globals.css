@@ -666,3 +666,27 @@ button.bg-\[var\(--color-brand\)\]:active:not(:disabled),
   -webkit-background-clip: text; background-clip: text;
   color: transparent;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Windows polish (2026-09-16). Every rule is scoped to html[data-platform=win]
+ * (stamped pre-hydration by PLATFORM_ATTR_SCRIPT in layout.tsx) so macOS
+ * rendering is byte-identical. Why each exists:
+ *  - .pf-dotgrid animates background-position forever on an oversized masked
+ *    layer → full repaint every frame behind the slide grid; on Windows iGPUs
+ *    at 125-150% DPI this is the main source of UI sluggishness. Static dots.
+ *  - backdrop-filter blur is expensive on Windows compositors; the panels it
+ *    sits on already have tinted backgrounds.
+ *  - hover-lift / press-scale moves a button 1px/3% under the pointer between
+ *    mousedown and mouseup, so edge clicks land on the neighbour or nothing.
+ *    Colour/shadow hover feedback is kept.
+ *  - Windows scrollbars take layout width (Mac overlays), so panels spawned a
+ *    horizontal scrollbar and clipped rows.
+ * ───────────────────────────────────────────────────────────────────────────── */
+html[data-platform="win"] .pf-dotgrid { animation: none; }
+html[data-platform="win"] [class*="backdrop-blur"] { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+:is(html[data-platform="win"] button, html[data-platform="win"] a, html[data-platform="win"] [role="button"])[class*="hover:-translate-y"]:is(:hover, :active) { translate: none !important; }
+:is(html[data-platform="win"] button, html[data-platform="win"] a, html[data-platform="win"] [role="button"])[class*="active:scale"]:active { scale: none !important; }
+/* Operator shell side panels only — a bare `aside` clipped the admin Sidebar's
+   out-hanging collapse button. */
+html[data-platform="win"] aside[data-tour="left"],
+html[data-platform="win"] aside[data-tour="right"] { overflow-x: hidden; }
