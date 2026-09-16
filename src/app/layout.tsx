@@ -11,6 +11,7 @@ import { OfflineIndicator } from "@/components/system/OfflineIndicator";
 import "./globals.css";
 import "@/styles/openflow.css";
 import { openFlowFontVars } from "@/lib/openflow/fonts";
+import { PLATFORM_ATTR_SCRIPT } from "@/lib/platform";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://presentflow.org"),
@@ -65,6 +66,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={htmlClass} suppressHydrationWarning>
       <body suppressHydrationWarning className={openFlowFontVars}>
+        {/* Windows-only CSS scoping hook (html[data-platform=win]) — no-op on macOS. */}
+        <script dangerouslySetInnerHTML={{ __html: PLATFORM_ATTR_SCRIPT }} />
         {children}
         <PostHogProvider />
         <ServiceWorkerRegister />
