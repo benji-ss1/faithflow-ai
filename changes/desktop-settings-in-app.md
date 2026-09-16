@@ -1,7 +1,7 @@
 ---
 headline: More settings now work right inside the desktop app
 audience: operator
-version: 0.1.424
+version: 0.1.425
 date: 2026-09-16
 highlights:
   - Turn Layers on or off in Settings, under Screens & Outputs (church admins only).

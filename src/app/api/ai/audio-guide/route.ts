@@ -8,9 +8,16 @@
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
 import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
-import { audioGuideReply, MissingApiKeyError, GroqRateLimitedError } from "@/lib/ai-helpers";
-import { SARAH_KNOWLEDGE, SARAH_STEPS, CHECK_IDS, type SarahStep } from "@/lib/audio/sarahKnowledge";
+import { audioGuideReply, audioGuideSearch, MissingApiKeyError, GroqRateLimitedError } from "@/lib/ai-helpers";
+import { SARAH_KNOWLEDGE, SARAH_ASK_KNOWLEDGE, SARAH_STEPS, CHECK_IDS, knowledgeCovers, type SarahStep } from "@/lib/audio/sarahKnowledge";
 import { OS_VALUES, CONNECTION_VALUES, MIX_VALUES } from "@/lib/server/audio-setup";
+import { createLimiter } from "@/lib/rate-limit";
+import { curatedAnswer, relevantAnswers } from "@/lib/audio/sarahAnswers";
+
+// Web search costs real money per call. Daily caps per church and per person, on the
+// shared limiter (in-memory today; becomes durable when the Redis/pg backend is set).
+const searchPerChurchDay = createLimiter("sarah-search-church", 50, 24 * 60 * 60 * 1000);
+const searchPerUserDay = createLimiter("sarah-search-user", 30, 24 * 60 * 60 * 1000);
 
 export const runtime = "nodejs";
 
@@ -65,7 +72,52 @@ export async function POST(req: Request) {
     : [];
 
   try {
-    const data = await audioGuideReply({ message, history, context: { step, setup, diagnostics, knowledge: SARAH_KNOWLEDGE[step] } });
+    // Real questions ("my X32 USB shows nothing", "how do I send NDI from OBS?") get a
+    // grounded web search over manufacturer docs first. If search finds nothing solid,
+    // Sarah answers from the curated knowledge base instead — never an unsourced guess.
+    // 1) A common question with a hand-written, verified answer → return it exactly.
+    //    No model rewording, so no drift or invented details. Instant, and no Groq cost.
+    if (body.mode === "ask") {
+      const exact = curatedAnswer(message);
+      if (exact) {
+        console.info(`[audio-guide] ask answered from curated answer: ${exact.id}`);
+        return NextResponse.json({ ok: true, data: { reply: exact.answer, mood: "nod", suggestions: [] } });
+      }
+    }
+    // 2) Gear the knowledge covers but no exact answer → the model, grounded ONLY on the
+    //    few relevant entries (a big knowledge blob made it skip steps and invent details).
+    if (body.mode === "ask" && knowledgeCovers(message)) {
+      const grounding = relevantAnswers(message).map((e) => e.answer).join("\n") || SARAH_ASK_KNOWLEDGE;
+      try {
+        const data = await audioGuideReply({ message, history, context: { step, setup, diagnostics, knowledge: grounding } });
+        return NextResponse.json({ ok: true, data: { ...data, correction: undefined } });
+      } catch (e) {
+        if (e instanceof MissingApiKeyError) throw e;
+        // A model hiccup (e.g. Groq "Failed to validate JSON") shouldn't leave them with nothing.
+        const best = relevantAnswers(message, 1)[0];
+        if (best) return NextResponse.json({ ok: true, data: { reply: best.answer, mood: "nod", suggestions: [] } });
+        throw e;
+      }
+    }
+    if (body.mode === "ask") {
+      // Search is best-effort: a rate limit or an over-size request (common on lower Groq
+      // tiers — search runs on a larger model) falls back to the knowledge-base answer
+      // below instead of failing the question. Only a missing key is a hard stop.
+      // Only gear facts go to the search provider — never the device name (it can carry a
+      // church's name) or anything identifying.
+      const searchSetup: Record<string, string> = {};
+      for (const k of ["desk", "os", "connection", "mixType", "deviceKind"]) if (setup[k]) searchSetup[k] = setup[k];
+      const allowed = (await searchPerChurchDay(user.churchId)) && (await searchPerUserDay(user.id));
+      const found = !allowed ? null : await audioGuideSearch({ question: message, setup: searchSetup }).catch((e) => {
+        if (e instanceof MissingApiKeyError) throw e;
+        return null;
+      });
+      console.info(`[audio-guide] ask: ${!allowed ? "search capped" : found ? "answered by web search" : "search gave nothing — knowledge base"}`);
+      if (found) {
+        return NextResponse.json({ ok: true, data: { reply: found.reply, mood: "nod", suggestions: [], sources: found.sources } });
+      }
+    }
+    const data = await audioGuideReply({ message, history, context: { step, setup, diagnostics, knowledge: body.mode === "ask" ? SARAH_ASK_KNOWLEDGE : SARAH_KNOWLEDGE[step] } });
     // Corrections must map to known values (desk stays free text).
     if (data.correction) {
       const { field, to } = data.correction;
