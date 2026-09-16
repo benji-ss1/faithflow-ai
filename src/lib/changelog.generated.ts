@@ -4,6 +4,14 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.433",
+    "date": "2026-09-16",
+    "headline": "Clear Messages now clears timers too",
+    "highlights": [
+      "The Messages clear button (and Clear All) now also takes timers off the screen."
+    ]
+  },
+  {
     "version": "0.1.432",
     "date": "2026-09-16",
     "headline": "Drag files straight into the Media Bin",
