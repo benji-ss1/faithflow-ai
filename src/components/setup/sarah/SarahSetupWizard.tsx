@@ -22,6 +22,7 @@ import { SarahSuccess } from "./SarahSuccess";
 import { SarahSpotlight } from "./SarahSpotlight";
 import { topWatchNote } from "@/lib/audio/sarahWatchers";
 import { NATIVE_AUDIO_INPUT_CHANGED_EVENT, readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
+import { dispatchInternal } from "@/lib/internal-events";
 import { listSetupDevices, useLevelFeed, type SetupDevice } from "./useLevelFeed";
 import type { ApplicationMatch } from "@/lib/audio/applicationMatch";
 import { rankConnections, type Connection, type ConnectionOption, type Os } from "@/lib/audio/connectionPlans";
@@ -32,7 +33,7 @@ import { writeNativeDevicePref, type NativeDeviceMode } from "@/lib/audio/native
 type Phase = "loading" | "context" | "os" | "desk" | "connection" | "steps" | "input" | "quiet" | "speak" | "save" | "tryit";
 const PROGRESS: Phase[] = ["context", "os", "desk", "connection", "steps", "input", "quiet", "speak", "save", "tryit"];
 
-type Msg = { id: number; role: "sarah" | "user"; text: string };
+type Msg = { id: number; role: "sarah" | "user"; text: string; sources?: { title: string; url: string }[] };
 type Profile = {
   desk?: string; os?: Os; connection?: Connection; mixType?: "main" | "aux" | "unsure";
   failedRoutes?: { connection: string; reason: string; at: number }[];
@@ -64,6 +65,8 @@ const deviceToOs = (d?: string): Os | undefined => (/mac/i.test(d ?? "") ? "mac"
 const nextId = (() => { let i = 0; return () => ++i; })();
 const QUIET_MS = 8000;
 const SPEAK_MS = 10000;
+/** First-win projection bar — matches Bible auto-approve so the demo behaves like the real thing. */
+const FIRST_WIN_CONFIDENCE = 75;
 /** Enough clean speech to judge a level — we pass early rather than run the full timer. */
 const SPEAK_MIN_MS = 3500;
 const SPEAK_MIN_FRAMES = 60; // ≈3s at the native 20 Hz probe rate
@@ -76,7 +79,9 @@ export type SarahLive = {
   transcript?: string;
   interim?: string;
   /** Scripture detections from the live engine (shape kept loose on purpose). */
-  suggestions?: { id?: string; reference?: string }[];
+  suggestions?: { id?: string; reference?: string; ref?: { book: string; chapter: number; verseStart: number; verseEnd: number }; confidence?: number; fromInterim?: boolean; voiceCommand?: boolean }[];
+  /** Something (a song, a verse, a lower third) is already on the projector. */
+  liveHasContent?: boolean;
   onListen?: () => void;
   noAudioSignal?: boolean;
   clipping?: boolean;
@@ -221,7 +226,23 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
     if (p === "speak") saySoon("Now talk into the preacher's mic like it's a normal Sunday — try reading John 3:16. I'm watching the bar.", "listen", "Sarah is listening");
   }, [saySoon]);
 
-  const goTo = useCallback((p: Phase, prof?: Profile) => { go(p); enter(p, prof ?? profileRef.current); }, [go, enter]);
+  // The app already knows whether this is a Mac or Windows — don't make a volunteer
+  // answer it. The OS step is skipped whenever it can be detected (one step fewer to the win).
+  const goTo = useCallback((p: Phase, prof?: Profile) => {
+    let target = p;
+    let next = prof ?? profileRef.current;
+    if (p === "os") {
+      const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+      const detected: Os | undefined = /Mac OS X|Macintosh/i.test(ua) ? "mac" : /Windows/i.test(ua) ? "windows" : undefined;
+      if (detected) {
+        next = { ...next, os: detected };
+        setProfile((cur) => ({ ...cur, os: detected }));
+        target = "desk";
+      }
+    }
+    go(target);
+    enter(target, next);
+  }, [go, enter]);
 
   // ── load context ──
   useEffect(() => {
@@ -400,23 +421,45 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
       "listen", "Sarah is listening for your first verse");
   }, [feed, saveProfile, say]);
 
-  // First win — watch the REAL detection engine (read-only) and celebrate the
-  // moment it catches a verse. This is the moment a church realises what the app does.
+  // First win — watch the REAL detection engine and put the verse on the projector.
+  // Owner directive (2026-09-16): "the minute you say it, the AI should project the verse
+  // onto the screen." Guarded like Bible auto-fire so it can't misfire:
+  //   • only a CONFIDENT detection (>= FIRST_WIN_CONFIDENCE, the Bible auto bar);
+  //   • never an interim fragment or a relative voice command ("next verse");
+  //   • only detections that arrived AFTER this step began (baseline);
+  //   • if something is ALREADY live, Sarah asks before replacing it.
+  const [pendingWin, setPendingWin] = useState<{ reference: string; ref: { book: string; chapter: number; verseStart: number; verseEnd: number } } | null>(null);
+  useEffect(() => {
+    if (phase === "tryit") return;
+    baselineRef.current = null; heardRef.current = false; setPendingWin(null);
+  }, [phase]);
+  const projectWin = useCallback((w: { reference: string; ref: { book: string; chapter: number; verseStart: number; verseEnd: number } }) => {
+    dispatchInternal("presentflow:bible-goto", { ...w.ref, live: true });
+    setPendingWin(null);
+    say(`Putting ${w.reference} on your screen. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
+    setCoachWin(w.reference);
+    setExtraChips(["Finish"]);
+    setMood("celebrate");
+  }, [say]);
   useEffect(() => {
     if (phase !== "tryit" || heardRef.current) return;
     const current = live?.suggestions ?? [];
-    // Snapshot what the console had already detected BEFORE this step, so an old
-    // verse from earlier in the service can't be celebrated as "your first win".
     if (!baselineRef.current) { baselineRef.current = new Set(current.map((x, i) => x?.id ?? `${x?.reference ?? ""}#${i}`)); return; }
-    const hit = current.find((x) => typeof x?.reference === "string" && x.reference.trim()
-      && !baselineRef.current!.has(x?.id ?? `${x.reference}#${current.indexOf(x)}`));
-    if (!hit) return;
+    const hit = current.find((x, i) => typeof x?.reference === "string" && x.reference.trim() && !!x.ref
+      && !baselineRef.current!.has(x?.id ?? `${x.reference}#${i}`)
+      && (x.confidence ?? 0) >= FIRST_WIN_CONFIDENCE && !x.fromInterim && !x.voiceCommand);
+    if (!hit || !hit.ref || !hit.reference) return;
     heardRef.current = true;
-    say(`That's it — I heard ${hit.reference}. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
-    setCoachWin(hit.reference ?? "your verse");
-    setExtraChips(["Finish"]);
-    setMood("celebrate");
-  }, [phase, live?.suggestions, say]);
+    const win = { reference: hit.reference, ref: hit.ref };
+    if (live?.liveHasContent) {
+      setPendingWin(win);
+      say(`I heard ${hit.reference}! Something else is on your screen right now — shall I replace it with the verse?`, "ooh", "Sarah heard you");
+      setExtraChips([`Put ${hit.reference} on the screen`, "Not now"]);
+      setMood("ooh");
+      return;
+    }
+    projectWin(win);
+  }, [phase, live?.suggestions, live?.liveHasContent, say, projectWin]);
 
   useEffect(() => { onCoachChange?.(!!coach); }, [coach, onCoachChange]);
   // Keep the device list fresh while coaching (hotplug, NDI discovery) — quietly, with
@@ -517,7 +560,7 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
         const res = await fetch("/api/ai/audio-guide", {
           method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
           body: JSON.stringify({
-            message: t, history,
+            message: t, history, mode: "ask",
             context: {
               step: phaseRef.current,
               setup: {
@@ -531,9 +574,14 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
         const j = await res.json();
         if (j?.ok) {
           answered = true;
-          const d = j.data as { reply: string; mood: SarahMood; suggestions: string[]; correction?: { field: string; to: string } };
+          const d = j.data as { reply: string; mood: SarahMood; suggestions: string[]; correction?: { field: string; to: string }; sources?: { title: string; url: string }[] };
           setTyping(false);
-          say(d.reply, d.mood === "celebrate" ? "nod" : d.mood, "Sarah replied");
+          if (d.sources?.length) {
+            setMsgs((x) => [...x, { id: nextId(), role: "sarah", text: d.reply, sources: d.sources }]);
+            setMood("nod"); setStatus("Sarah looked it up");
+          } else {
+            say(d.reply, d.mood === "celebrate" ? "nod" : d.mood, "Sarah replied");
+          }
           if (d.suggestions?.length) setExtraChips(d.suggestions.slice(0, 3));
           if (d.correction) {
             const f = d.correction.field as keyof Profile;
@@ -685,6 +733,8 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
       void feed.stop(); goTo("connection", next);
       return;
     }
+    if (pendingWin && label === `Put ${pendingWin.reference} on the screen`) { userSays(label); projectWin(pendingWin); return; }
+    if (label === "Not now" && pendingWin) { userSays(label); setPendingWin(null); say("No problem — your setup works. You can put verses up any time from the AI chips.", "nod", "All set"); setExtraChips(["Finish"]); return; }
     if (label === "Finish") { userSays(label); if (onDone) { void feed.stop(); clearTimers(); onDone(); } else setShowSuccess(true); return; }
     if (label === "Turn off AI listening") { userSays(label); live?.onListen?.(); say("Thanks — pick your input again and I'll test it.", "nod", "Ready to test"); setExtraChips([]); return; }
     if (label === "Ask Sarah") { void ask("That check failed. What should I do?"); return; }
@@ -735,8 +785,12 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
   const pct = Math.max(0, Math.min(100, ((topDb + 60) / 60) * 100));
   const liveLevel = feed.running ? pct / 100 : 0;
   const band = levelBand(topDb);
-  const bandLabel = { silent: "No sound", quiet: "Too quiet", good: "Good", loud: "Too loud" }[band];
-  const bandClass = band === "good" ? s.bandGood : band === "silent" ? s.bandBad : s.bandWarn;
+  const liveBandLabel = { silent: "No sound", quiet: "Too quiet", good: "Good", loud: "Too loud" }[band];
+  // Once the voice check has finished, the meter reports the RESULT — the instantaneous
+  // level drops between words and read "Too quiet" right under "Voice check passed".
+  const speechResult = !measuring && phase === "speak" && band !== "silent" ? checks.find((c) => c.id === "speech-level") : undefined;
+  const bandLabel = speechResult?.status === "pass" ? "Good — check passed" : liveBandLabel;
+  const bandClass = speechResult?.status === "pass" || band === "good" ? s.bandGood : band === "silent" ? s.bandBad : s.bandWarn;
   const lastPct = useRef(0);
   useEffect(() => {
     if (!feed.running || phaseRef.current === "quiet") return;
@@ -846,7 +900,17 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
 
           <div className={s.log} ref={logRef} role="log" aria-live="polite">
             {msgs.map((m) => (
-              <div key={m.id} className={`${s.msg} ${m.role === "sarah" ? s.msgSarah : s.msgUser}`}>{m.text}</div>
+              <div key={m.id} className={`${s.msg} ${m.role === "sarah" ? s.msgSarah : s.msgUser}`}>
+                {m.text}
+                {m.sources && m.sources.length > 0 && (
+                  <div className={s.sources}>
+                    <span className={s.sourcesLabel}>Sources</span>
+                    {m.sources.map((src) => (
+                      <a key={src.url} href={src.url} target="_blank" rel="noreferrer" className={s.sourceLink}>{src.title}</a>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
             {phase === "context" && match && match.confidence !== "none" && useApp && (
               <div className={s.card}>
@@ -982,13 +1046,16 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
           <SarahSpotlight
             target="live-preview"
             mood={coachWin ? "celebrate" : "listen"}
-            title={coachWin ? `That's it — ${coachWin}` : "Now say the verse"}
+            title={coachWin ? `That's it — ${coachWin}` : pendingWin ? `I heard ${pendingWin.reference}` : "Now say the verse"}
             body={coachWin
               ? "Your sound, the AI and PresentFlow are working together. This screen is what your congregation sees."
               : "Into the mic your sound comes in on, say: “Let's turn to John chapter three, verse sixteen.” Watch this screen — it's what goes on the projector."}
             actions={coachWin
               ? [{ label: "I'm done", primary: true, onClick: endSetup }]
-              : [{ label: "Skip — finish setup later", onClick: endSetup }]}
+              : pendingWin
+                ? [{ label: "Not now", onClick: () => { setPendingWin(null); setCoachWin("your verse"); } },
+                   { label: `Put ${pendingWin.reference} up`, primary: true, onClick: () => projectWin(pendingWin) }]
+                : [{ label: "Skip — finish setup later", onClick: endSetup }]}
             onClose={() => setCoach(null)}
           >
             {!coachWin && (
