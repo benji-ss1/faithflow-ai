@@ -17,9 +17,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import {
   X, Search, SlidersHorizontal, Monitor, Volume2, Cast, Radio, Palette, BookOpen,
   Music, Users, CreditCard, Plug, RefreshCw, Wrench, HelpCircle, MessageSquare,
-  Languages, BarChart3, KeyRound, Download, Wand2, ExternalLink, Laptop,
+  Languages, BarChart3, KeyRound, Wand2, ExternalLink, Laptop,
 } from "lucide-react";
-import { DisplayTab } from "./tabs/DisplayTab";
 import { NdiTab } from "./tabs/NdiTab";
 import { AudioTab } from "./tabs/AudioTab";
 import { LanguageTab } from "./tabs/LanguageTab";
@@ -31,10 +30,12 @@ import { FeedbackTab } from "./tabs/FeedbackTab";
 import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 import { DeepReloadButton } from "../pro/DeepReloadButton";
 import { DiagnosticsPanel } from "@/components/setup/DiagnosticsPanel";
+import { shouldIgnore } from "@/hooks/useOperatorHotkeys";
+import { SAFE_MODE_KEY } from "../pro/operatorConstants";
 
 export const OPEN_SETTINGS_EVENT = "presentflow:open-settings";
 const SECTION_KEY = "presentflow.pro.settings.section.v1";
-const SAFE_MODE_KEY = "presentflow.operator.safeMode";
+const LEGACY_SAFE_MODE_KEY = "presentflow.safeMode";
 
 type SectionId =
   | "general" | "bible" | "songs"
@@ -90,7 +91,7 @@ function Card({ children }: { children: React.ReactNode }) {
 
 function Row({ label, help, children }: { label: string; help?: string; children?: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 px-4 py-3">
+    <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
       <div className="min-w-0">
         <div className="text-[14px] font-medium text-[var(--color-foreground)]">{label}</div>
         {help && <div className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--color-muted-foreground)] max-w-[52ch]">{help}</div>}
@@ -100,10 +101,13 @@ function Row({ label, help, children }: { label: string; help?: string; children
   );
 }
 
+/** Opens in a NEW window on purpose: navigating the current one would tear down the
+ *  live operator console (mic capture, output sync, the slide that is on screen). */
 function LinkRow({ label, help, href, cta = "Open" }: { label: string; help?: string; href: string; cta?: string }) {
   return (
     <Row label={label} help={help}>
-      <a href={href} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold bg-[var(--color-brand)] text-white hover:opacity-90">
+      <a href={href} target="_blank" rel="noreferrer"
+        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold bg-[var(--color-brand)] text-white hover:opacity-90">
         {cta} <ExternalLink className="w-3.5 h-3.5" />
       </a>
     </Row>
@@ -113,7 +117,7 @@ function LinkRow({ label, help, href, cta = "Open" }: { label: string; help?: st
 function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)}
-      className={`relative h-6 w-11 rounded-full transition-colors ${on ? "bg-[var(--color-brand)]" : "bg-white/15"}`}>
+      className={`relative h-6 w-11 rounded-full transition-colors ${on ? "bg-[var(--color-brand)]" : "bg-[var(--color-border)]"}`}>
       <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
     </button>
   );
@@ -125,7 +129,13 @@ function GeneralSection() {
   const [safeMode, setSafeMode] = useState(false);
   const [version, setVersion] = useState<string>("");
   useEffect(() => {
-    try { setSafeMode(localStorage.getItem(SAFE_MODE_KEY) === "1"); } catch { /* ignore */ }
+    try {
+      // Same migration the old modal does, so a legacy value isn't silently lost.
+      const legacy = localStorage.getItem(LEGACY_SAFE_MODE_KEY);
+      if (legacy !== null && localStorage.getItem(SAFE_MODE_KEY) === null) localStorage.setItem(SAFE_MODE_KEY, legacy);
+      if (legacy !== null) localStorage.removeItem(LEGACY_SAFE_MODE_KEY);
+      setSafeMode(localStorage.getItem(SAFE_MODE_KEY) === "1");
+    } catch { /* ignore */ }
     const api = (globalThis as unknown as { electronAPI?: { app?: { version: () => Promise<string> } } }).electronAPI;
     void api?.app?.version().then(setVersion).catch(() => {});
   }, []);
@@ -141,7 +151,7 @@ function GeneralSection() {
           <Toggle on={safeMode} onChange={setSafe} label="Safe Mode" />
         </Row>
         <Row label="Keyboard shortcuts" help="Press ? anywhere in the operator console for the full list, or see Help below.">
-          <kbd className="px-2 py-1 rounded-md text-[12px] font-mono border border-[var(--color-border)] bg-white/5">?</kbd>
+          <kbd className="px-2 py-1 rounded-md text-[12px] font-mono border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-foreground)_6%,transparent)]">?</kbd>
         </Row>
         <Row label="Version" help="The version of PresentFlow running on this computer.">
           <span className="text-[13px] font-mono text-[var(--color-muted-foreground)]">{version || "web"}</span>
@@ -152,7 +162,9 @@ function GeneralSection() {
 }
 
 function AudioSection() {
-  const openWizard = () => { window.location.href = "/setup/audio?sarah=1"; };
+  // New window: the operator console keeps running (and its live slide stays up)
+  // while the volunteer works through the wizard.
+  const openWizard = () => { window.open("/setup/audio?sarah=1", "_blank", "noopener"); };
   return (
     <>
       <SectionHead title="Audio Input" description="What PresentFlow listens to. A clean feed from your sound desk is what makes detection accurate." />
@@ -181,11 +193,11 @@ function ScreensSection() {
   return (
     <>
       <SectionHead title="Screens & Outputs" description="Which display shows the projector, the stage screen and the livestream overlay." />
-      <div className="mb-4"><Card>
-        <LinkRow label="Configure output screens" help="Assign each connected display to Projector, Stage or Livestream." href="/settings/screens" cta="Configure" />
+      <Card>
+        <LinkRow label="Configure output screens" help="Assign each connected display to Projector, Stage or Livestream. Needs the desktop app." href="/settings/screens" cta="Configure" />
         <LinkRow label="Paired devices" help="Phones, tablets and other computers showing your outputs." href="/settings/devices" />
-      </Card></div>
-      <DisplayTab />
+        <Row label="Aspect ratio & safe-area guides" help="These are set live from the operator toolbar and the output inspector, so they always match what's on the projector." />
+      </Card>
     </>
   );
 }
@@ -197,10 +209,10 @@ function LivestreamSection() {
       <Card>
         <Row label="OBS browser source" help="Add the livestream overlay to OBS as a browser source. It has a transparent background.">
           <button type="button" onClick={() => { void navigator.clipboard?.writeText(`${window.location.origin}/livestream`); }}
-            className="h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-white/5">Copy URL</button>
+            className="h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">Copy URL</button>
         </Row>
         <Row label="Open the overlay" help="Check what your stream audience sees.">
-          <a href="/livestream" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-white/5">
+          <a href="/livestream" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">
             Open <ExternalLink className="w-3.5 h-3.5" />
           </a>
         </Row>
@@ -209,13 +221,13 @@ function LivestreamSection() {
   );
 }
 
-function ThemesSection() {
+function ThemesSection({ close }: { close: () => void }) {
   return (
     <>
       <SectionHead title="Themes & Look" description="Fonts, colours and backgrounds for your slides." />
       <Card>
         <Row label="Theme editor" help="Open the themes panel in the operator console.">
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"))}
+          <button type="button" onClick={() => { close(); requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"))); }}
             className="h-8 px-3 rounded-lg text-[13px] font-semibold bg-[var(--color-brand)] text-white hover:opacity-90">Open themes</button>
         </Row>
       </Card>
@@ -241,7 +253,7 @@ function SongsSection() {
       <SectionHead title="Songs & Library" description="Your song library, imports and arrangements." />
       <Card>
         <LinkRow label="Song library" help="Browse, edit and organise every song." href="/library/songs" />
-        <LinkRow label="Import songs & slides" help="Bring in ProPresenter, EasyWorship, PowerPoint or text files." href="/library/import" cta="Import" />
+        <LinkRow label="Import songs & slides" help="Bring in ProPresenter, EasyWorship, PowerPoint or text files." href="/library/imports" cta="Import" />
       </Card>
     </>
   );
@@ -268,21 +280,21 @@ function OrgSection({ kind }: { kind: "team" | "billing" | "integrations" }) {
       <SectionHead title="Integrations" description="Connect PresentFlow to the other tools your church uses." />
       <Card>
         <Row label="Planning Center" help="Coming soon — import your service plan automatically." ><span className="text-[12px] text-[var(--color-muted-foreground)]">Coming soon</span></Row>
-        <LinkRow label="ProPresenter / EasyWorship import" help="Bring your existing library across." href="/library/import" cta="Import" />
+        <LinkRow label="ProPresenter / EasyWorship import" help="Bring your existing library across." href="/library/imports" cta="Import" />
       </Card>
     </>
   );
 }
 
-function UpdatesSection() {
+function UpdatesSection({ close }: { close: () => void }) {
   return (
     <>
       <SectionHead title="Updates & Desktop" description="Keep the desktop app current." />
       <div className="mb-4"><Card>
         <LinkRow label="Download the desktop app" help="The desktop app is what drives projectors, NDI and audio capture." href="/settings/download" cta="Download" />
         <Row label="What's new" help="See what changed in recent releases.">
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-whats-new"))}
-            className="h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-white/5">Open</button>
+          <button type="button" onClick={() => { close(); requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("presentflow:open-whats-new"))); }}
+            className="h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">Open</button>
         </Row>
       </Card></div>
     </>
@@ -301,10 +313,10 @@ function AdvancedSection() {
         <Row label="Forget this computer's audio device" help="Clears the remembered input so Sarah picks it again next time.">
           <button type="button"
             onClick={() => { try { localStorage.removeItem("presentflow.pro.savedAudioDevices.v1"); setCleared(true); } catch { /* ignore */ } }}
-            className="h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-white/5">{cleared ? "Forgotten" : "Forget"}</button>
+            className="h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">{cleared ? "Forgotten" : "Forget"}</button>
         </Row>
         <Row label="Sign out of all devices" help="Ends every signed-in session for your account.">
-          <a href="/settings" className="h-8 px-3 grid place-items-center rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-white/5">Open</a>
+          <a href="/settings" className="h-8 px-3 grid place-items-center rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">Open</a>
         </Row>
       </Card>
       <div className="mt-4">
@@ -334,8 +346,10 @@ export function SettingsWindow() {
     const onOpen = (e: Event) => openAt((e as CustomEvent<{ section?: SectionId }>).detail?.section);
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        const el = document.activeElement as HTMLElement | null;
-        if (el && /input|textarea/i.test(el.tagName)) return;
+        // Same predicate the operator hotkeys use (covers contenteditable, selects,
+        // Radix textboxes), and never stack on top of another open dialog.
+        if (shouldIgnore(e.target) || shouldIgnore(document.activeElement)) return;
+        if (document.querySelector('[role="dialog"][data-state="open"]')) return;
         e.preventDefault(); openAt();
       }
     };
@@ -344,12 +358,24 @@ export function SettingsWindow() {
     return () => { window.removeEventListener(OPEN_SETTINGS_EVENT, onOpen); window.removeEventListener("keydown", onKey); };
   }, [openAt]);
 
-  const select = (id: SectionId) => { setSection(id); try { localStorage.setItem(SECTION_KEY, id); } catch { /* ignore */ } };
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  const select = (id: SectionId) => {
+    setSection(id);
+    try { localStorage.setItem(SECTION_KEY, id); } catch { /* ignore */ }
+    // Move focus into the pane so screen-reader users hear the new section.
+    requestAnimationFrame(() => paneRef.current?.focus());
+  };
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return SECTIONS;
-    return SECTIONS.filter((s) => `${s.label} ${s.group} ${s.keywords}`.toLowerCase().includes(q));
+    if (!q) return SECTIONS.map((s) => ({ ...s, hit: undefined as string | undefined }));
+    return SECTIONS
+      .filter((s) => `${s.label} ${s.group} ${s.keywords}`.toLowerCase().includes(q))
+      .map((s) => ({
+        ...s,
+        // Show the matching term so "confidence" doesn't just silently reveal "Bible & Detection".
+        hit: s.label.toLowerCase().includes(q) ? undefined : s.keywords.split(/\s+/).find((w) => w.includes(q)),
+      }));
   }, [query]);
 
   const body = () => {
@@ -361,11 +387,11 @@ export function SettingsWindow() {
       case "audio": return <AudioSection />;
       case "ndi": return <><SectionHead title="NDI Output" description="Send your slides to OBS or another computer over the network." /><NdiTab /></>;
       case "livestream": return <LivestreamSection />;
-      case "themes": return <ThemesSection />;
+      case "themes": return <ThemesSection close={() => setOpen(false)} />;
       case "team": return <OrgSection kind="team" />;
       case "billing": return <OrgSection kind="billing" />;
       case "integrations": return <OrgSection kind="integrations" />;
-      case "updates": return <UpdatesSection />;
+      case "updates": return <UpdatesSection close={() => setOpen(false)} />;
       case "language": return <><SectionHead title="Language" /><LanguageTab /></>;
       case "usage": return <><SectionHead title="Usage" /><UsageTab onUpgrade={() => setShowUpgrade(true)} /></>;
       case "license": return <><SectionHead title="Bible licensing" /><LicenseTab /></>;
@@ -387,7 +413,7 @@ export function SettingsWindow() {
           <Dialog.Description className="sr-only">Every PresentFlow setting, grouped by area.</Dialog.Description>
 
           {/* sidebar */}
-          <nav aria-label="Settings sections" className="flex-none w-full sm:w-[248px] border-b sm:border-b-0 sm:border-r border-[var(--color-border)] bg-[var(--color-card)]/50 flex flex-col">
+          <div role="tablist" aria-orientation="vertical" aria-label="Settings sections" className="flex-none w-full sm:w-[248px] border-b sm:border-b-0 sm:border-r border-[var(--color-border)] bg-[var(--color-card)]/50 flex flex-col">
             <div className="p-3">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-muted-foreground)]" aria-hidden />
@@ -409,24 +435,28 @@ export function SettingsWindow() {
                       const Icon = s.icon;
                       const active = s.id === section;
                       return (
-                        <button key={s.id} type="button" onClick={() => select(s.id)} aria-current={active || undefined}
+                        <button key={s.id} type="button" role="tab" id={`pf-set-tab-${s.id}`} aria-selected={active}
+                          aria-controls="pf-settings-pane" tabIndex={active ? 0 : -1} onClick={() => select(s.id)}
                           className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13.5px] text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] ${
-                            active ? "bg-[var(--color-brand)]/15 text-[var(--color-foreground)] font-semibold" : "text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-[var(--color-foreground)]"}`}>
-                          <span className={`flex-none w-6 h-6 rounded-md grid place-items-center ${active ? "bg-[var(--color-brand)] text-white" : "bg-white/5"}`}>
+                            active ? "bg-[var(--color-brand)]/15 text-[var(--color-foreground)] font-semibold" : "text-[var(--color-muted-foreground)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)] hover:text-[var(--color-foreground)]"}`}>
+                          <span className={`flex-none w-6 h-6 rounded-md grid place-items-center ${active ? "bg-[var(--color-brand)] text-white" : "bg-[color-mix(in_srgb,var(--color-foreground)_6%,transparent)]"}`}>
                             <Icon className="w-3.5 h-3.5" />
                           </span>
-                          <span className="truncate">{s.label}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate">{s.label}</span>
+                            {s.hit && <span className="block truncate text-[11px] font-normal text-[var(--color-muted-foreground)]">matches “{s.hit}”</span>}
+                          </span>
                         </button>
                       );
                     })}
                   </div>
                 );
               })}
-              {matches.length === 0 && (
-                <p className="px-3 py-6 text-[13px] text-[var(--color-muted-foreground)]">Nothing matches “{query}”.</p>
-              )}
+              <p role="status" aria-live="polite" className={matches.length === 0 ? "px-3 py-6 text-[13px] text-[var(--color-muted-foreground)]" : "sr-only"}>
+                {matches.length === 0 ? `Nothing matches “${query}”.` : query ? `${matches.length} section${matches.length === 1 ? "" : "s"} match “${query}”.` : ""}
+              </p>
             </div>
-          </nav>
+          </div>
 
           {/* content */}
           <div className="flex-1 min-w-0 flex flex-col">
@@ -439,12 +469,14 @@ export function SettingsWindow() {
               </div>
               <Dialog.Close asChild>
                 <button type="button" aria-label="Close settings"
-                  className="w-8 h-8 grid place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">
+                  className="w-8 h-8 grid place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">
                   <X className="w-4 h-4" />
                 </button>
               </Dialog.Close>
             </div>
-            <div className="flex-1 overflow-y-auto p-5">{body()}</div>
+            <div ref={paneRef} id="pf-settings-pane" role="tabpanel" tabIndex={-1}
+              aria-labelledby={`pf-set-tab-${section}`}
+              className="flex-1 overflow-y-auto p-5 focus-visible:outline-none">{body()}</div>
           </div>
 
           {showUpgrade && (
@@ -452,7 +484,7 @@ export function SettingsWindow() {
               <div className="max-w-md w-full">
                 <MaxUpgradePrompt feature="unlimited access" variant="card" />
                 <button type="button" onClick={() => setShowUpgrade(false)}
-                  className="mt-3 w-full h-9 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-white/5">Not now</button>
+                  className="mt-3 w-full h-9 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">Not now</button>
               </div>
             </div>
           )}
@@ -472,7 +504,6 @@ export function SettingsButton({ className }: { className?: string }) {
       aria-label="Open settings"
       className={className ?? "ml-1 w-[26px] h-[26px] grid place-items-center rounded-md text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"}
     >
-      <Download className="hidden" aria-hidden />
       <SlidersHorizontal className="w-4 h-4" aria-hidden />
     </button>
   );
