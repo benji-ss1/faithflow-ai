@@ -11,8 +11,8 @@ import { getEffect, ensureEffectKeyframes, type EffectId } from "@/lib/effects";
 import { TRANSITION_NAME_TO_EFFECT_ID, TRANSITION_PREVIEW_EVENT } from "../BottomBar";
 import type { SlidePayload } from "@/lib/broadcast";
 import { LayoutGrid } from "lucide-react";
-import { MultiViewOverlay, PreviewOtherScreen } from "./MultiView";
-import { MULTIVIEW_SCREENS, MULTIVIEW_LABELS, MULTIVIEW_TITLES, multiviewEnabled, type MultiViewScreen } from "@/lib/multiview";
+import { MultiViewGrid, PreviewOtherScreen } from "./MultiView";
+import { PREVIEW_SELECTIONS, MULTIVIEW_LABELS, MULTIVIEW_TITLES, multiviewEnabled, type MultiViewScreen, type PreviewSelection } from "@/lib/multiview";
 import { sceneHidesLayer } from "@/lib/scenes";
 
 /** Preview-box screen switcher + "All screens" entry. Main keeps the original
@@ -21,10 +21,12 @@ import { sceneHidesLayer } from "@/lib/scenes";
  *  an operator never walks into a service watching a non-projector screen. */
 function useMultiViewControls() {
   const [enabled, setEnabled] = useState(false);
-  const [screen, setScreen] = useState<MultiViewScreen>("main");
-  const [allOpen, setAllOpen] = useState(false);
+  // "all" is a FIFTH selection, not a modal: it renders the four screens as a
+  // 2x2 grid inside this same box, so the console stays usable and there is
+  // nothing to dismiss mid-service.
+  const [screen, setScreen] = useState<PreviewSelection>("main");
   useEffect(() => { setEnabled(multiviewEnabled()); }, []);
-  return { enabled, screen: enabled ? screen : ("main" as MultiViewScreen), setScreen, allOpen, setAllOpen };
+  return { enabled, screen: enabled ? screen : ("main" as PreviewSelection), setScreen };
 }
 
 // The live slide's text carries its reference/translation as a trailing
@@ -125,49 +127,37 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
       {mv.enabled && (
         <div className="flex items-center gap-1">
           <div className="flex flex-1 min-w-0 rounded-md border border-[var(--color-border)] p-0.5" role="radiogroup" aria-label="Screen to preview">
-            {MULTIVIEW_SCREENS.map((s) => (
+            {PREVIEW_SELECTIONS.map((s) => (
               <button
                 key={s}
                 type="button"
                 role="radio"
                 aria-checked={mv.screen === s}
                 tabIndex={mv.screen === s ? 0 : -1}
-                title={MULTIVIEW_TITLES[s]}
+                title={s === "all" ? "Show all four screens at once, here in this box" : MULTIVIEW_TITLES[s]}
                 onClick={() => mv.setScreen(s)}
                 onKeyDown={(e) => {
                   if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
                   e.preventDefault();
-                  const i = MULTIVIEW_SCREENS.indexOf(mv.screen);
-                  const n = MULTIVIEW_SCREENS[(i + (e.key === "ArrowRight" ? 1 : MULTIVIEW_SCREENS.length - 1)) % MULTIVIEW_SCREENS.length];
+                  const i = PREVIEW_SELECTIONS.indexOf(mv.screen);
+                  const n = PREVIEW_SELECTIONS[(i + (e.key === "ArrowRight" ? 1 : PREVIEW_SELECTIONS.length - 1)) % PREVIEW_SELECTIONS.length];
                   mv.setScreen(n);
                   (e.currentTarget.parentElement?.querySelector(`[data-mv-screen="${n}"]`) as HTMLElement | null)?.focus();
                 }}
                 data-mv-screen={s}
-                className={`flex-1 min-w-0 truncate h-7 px-1 rounded text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)] ${mv.screen === s ? "bg-[var(--color-brand)] text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
+                className={`min-w-0 truncate h-7 px-1 rounded text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)] ${s === "all" ? "shrink-0 inline-flex items-center gap-1" : "flex-1"} ${mv.screen === s ? "bg-[var(--color-brand)] text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
               >
-                {MULTIVIEW_LABELS[s]}
+                {s === "all" ? (<><LayoutGrid className="w-3.5 h-3.5" aria-hidden /> All</>) : MULTIVIEW_LABELS[s]}
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => mv.setAllOpen(true)}
-            className="shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] text-[11px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)]"
-            title="See all screens at once"
-            aria-label="See all screens at once"
-          >
-            <LayoutGrid className="w-3.5 h-3.5" aria-hidden /> All
-          </button>
         </div>
-      )}
-      {mv.allOpen && (
-        <MultiViewOverlay layerOverrides={ctx.liveLayers.overrides} onClose={() => mv.setAllOpen(false)} />
       )}
       {mv.screen !== "main" && (
         <>
           {/* Design review 🔴: make it impossible to mistake this box for the projector. */}
           <div className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200 [html.light_&]:bg-amber-100 [html.light_&]:border-amber-400 [html.light_&]:text-amber-900" role="status">
-            <span className="truncate">Showing {MULTIVIEW_TITLES[mv.screen]}, not the projector</span>
+            <span className="truncate">{mv.screen === "all" ? "Showing all four screens — the projector is Main" : `Showing ${MULTIVIEW_TITLES[mv.screen as MultiViewScreen]}, not the projector`}</span>
             <button
               type="button"
               onClick={() => mv.setScreen("main")}
@@ -176,7 +166,9 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
               Back to Main
             </button>
           </div>
-          <PreviewOtherScreen screen={mv.screen} layerOverrides={ctx.liveLayers.overrides} />
+          {mv.screen === "all"
+            ? <MultiViewGrid layerOverrides={ctx.liveLayers.overrides} />
+            : <PreviewOtherScreen screen={mv.screen as MultiViewScreen} layerOverrides={ctx.liveLayers.overrides} />}
         </>
       )}
       {/* 2026-08-13 — restored true 16:9 (aspect-video) + projectorFit sizing so
