@@ -114,7 +114,7 @@ function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.C
   return Object.keys(s).length ? s : undefined;
 }
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput, obsOverlay }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput, obsOverlay, fitBandFraction }: {
   slide: SlidePayload;
   className?: string;
   // Phase 2a: rendering as an overlay ON TOP of a live video layer. Makes
@@ -172,6 +172,13 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   // /livestream (and the OBS editor preview) pass it, and it only acts together
   // with transparentBg. Undefined ⇒ byte-identical legacy render.
   obsOverlay?: { textColor?: string; textShadow?: string; verticalAlign?: "top" | "center" | "bottom"; scrim?: number };
+  /**
+   * The fraction of the canvas HEIGHT this slide is actually drawn into, when a
+   * caller renders it inside a band (the camera lower-third is 38%). The text fit
+   * sizes against the fixed canvas, so without this it sized lower-third lyrics for
+   * ~93% of the frame and they clipped out of the band. Undefined ⇒ full frame.
+   */
+  fitBandFraction?: number;
 }) {
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
   // OBS overlay hints apply ONLY in transparent (OBS-key) mode.
@@ -184,6 +191,9 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     ? { background: `rgba(0,0,0,${Math.min(0.9, obsHints.scrim)})` }
     : { background: "transparent" };
   const obsVAlign = obsHints?.verticalAlign && obsHints.verticalAlign !== "center" ? obsHints.verticalAlign : undefined;
+  // A band can only ever make the fit smaller: take whichever reserve is larger.
+  const bandReserve = typeof fitBandFraction === "number" && fitBandFraction > 0 && fitBandFraction < 1 ? 1 - fitBandFraction : 0;
+  const withBand = (r: number) => Math.max(r, bandReserve);
   // Effective per-slide background: the DEFAULT black ("#000000") counts as
   // "unset" so the theme/template can show through (see isDefaultSlideBg). A
   // colour the operator actually customised still wins. Used by the song/
@@ -430,7 +440,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
               // can't grow edge-to-edge and clip. When the operator moves the
               // lyrics off-centre, reserve MORE (smaller text) so there's room to
               // sit in the top/bottom portion over the camera.
-              reserveVerticalRatio={obsVAlign ? 0.42 : overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0}
+              reserveVerticalRatio={withBand(obsVAlign ? 0.42 : overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0)}
               verticalAlign={obsVAlign ?? (overVideo ? verticalAlign : "center")}
               className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
               textStyle={{ ...themeTextStyle(appearance), ...objStyle }}
@@ -516,7 +526,11 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           // padding, which the canvas fit ignores) so a long verse body shrinks
           // to sit ABOVE the footer instead of overlapping it — on the normal
           // projector path too, not only over a camera (2026-08-29 R2 fix).
-          reserveVerticalRatio={obsVAlign ? 0.42 : refText ? (overVideo ? 0.16 : 0.12) : (overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0)}
+          // Scripture footer reserve 0.12 → 0.15 (2026-09-16): the footer's padding is
+          // CSS "8%", which is relative to WIDTH (0.08 × 1920 = 154px ≈ 0.142 of the
+          // 1080 height), but the fit only reserved 0.12 (130px) — long verses
+          // overshot by ~24px and lost their last line. 0.15 covers 16:9 and 4:3.
+          reserveVerticalRatio={withBand(obsVAlign ? 0.42 : refText ? (overVideo ? 0.16 : 0.15) : (overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0))}
           verticalAlign={obsVAlign ?? (overVideo && !refText ? verticalAlign : "center")}
           className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
           textStyle={transparentBg ? { ...themeTextStyle(appearance), textShadow: OBS_OVERLAY_TEXT_SHADOW, ...obsTextOverride } : themeTextStyle(appearance)}

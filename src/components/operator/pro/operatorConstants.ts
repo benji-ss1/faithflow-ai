@@ -50,10 +50,15 @@ export const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1";
 /** Hold auto-approve while a song is live */
 export const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1";
 
-/** B3 manual projector text-size multiplier (1.0 = AUTO). A−/A+ nudge it. */
+/** B3 manual projector text-size multiplier (1.0 = AUTO). A−/A+ nudge it.
+ *  2026-09-16: range widened 0.6–1.6 → 0.3–2.5 so operators have real room for
+ *  different projectors and rooms. Text is NEVER cut off at any value: bigger grows
+ *  text only as far as it still fits the screen; smaller shrinks freely. Key stays
+ *  v1 because bigger keeps its existing never-clip meaning — saved settings carry
+ *  over unchanged. */
 export const FONT_SCALE_KEY = "presentflow.pro.fontScale.v1";
-export const FONT_SCALE_MIN = 0.6;
-export const FONT_SCALE_MAX = 1.6;
+export const FONT_SCALE_MIN = 0.3;
+export const FONT_SCALE_MAX = 2.5;
 export const FONT_SCALE_STEP = 0.1;
 /** Read the persisted font-scale (clamped), defaulting to 1.0 (AUTO). */
 export function readFontScale(): number {
