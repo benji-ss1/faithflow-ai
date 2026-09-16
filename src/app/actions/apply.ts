@@ -1,5 +1,6 @@
 "use server";
 
+import { createHmac } from "node:crypto";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import {
@@ -21,6 +22,89 @@ const applyLimiter = createLimiter("apply", 5, 10 * 60 * 1000);
 export type ApplyResult = { ok: true } | { ok: false; error: string };
 
 const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+
+type Answer = { question: string; answer: string };
+
+/**
+ * Church name, contact email, name and phone from the raw answer set — the
+ * one thing guaranteed correct, unlike a stored `beta_applications` column.
+ * Before 2026-08-23 the church-name derivation also matched the
+ * soundboard/mixer question ("...does your church use?"), so several early
+ * rows have a mixer model (e.g. "behringer X32") sitting in their
+ * `church_name` column. Re-deriving from `answers` here — rather than
+ * trusting a caller-supplied name — fixes that for any historical replay and
+ * adds defense-in-depth for the live path too.
+ */
+function deriveIdentity(answers: Answer[]) {
+  const answerMap = Object.fromEntries(answers.map(({ question, answer }) => [question, answer]));
+  const all = answers.map((a) => a.answer).join(" — ");
+  const contactEmail = EMAIL_RE.exec(all)?.[0] ?? null;
+  const churchNameRaw =
+    answers.find((a) => /church name\s*:/i.test(a.answer))?.answer ??
+    answers.find((a) => /church/i.test(a.question) && !/mixer|soundboard|\buse\b/i.test(a.question))?.answer ??
+    null;
+  const churchName = churchNameRaw
+    ? (/church name\s*:\s*([^·—\n|]+)/i.exec(churchNameRaw)?.[1]?.trim() || churchNameRaw.trim())
+    : null;
+  // The name/phone answers are shaped "First name: X · Last name: Y" and
+  // "Phone: X" — strip the labels so the CRM's contact_name/contact_phone
+  // columns hold the value a person would actually want to see, not the
+  // question's own label text.
+  const nameRaw = (answerMap["What's your name?"] ?? "").trim();
+  const first = /first name\s*:\s*([^·—\n|]+)/i.exec(nameRaw)?.[1]?.trim();
+  const last = /last name\s*:\s*([^·—\n|]+)/i.exec(nameRaw)?.[1]?.trim();
+  const contactName = [first, last].filter(Boolean).join(" ").trim() || nameRaw || null;
+  const phoneRaw = (answerMap["What's the best number to reach you?"] ?? "").trim();
+  const contactPhone = (/phone\s*:\s*([^·—\n|]+)/i.exec(phoneRaw)?.[1]?.trim()) || phoneRaw || null;
+  return { churchName, contactEmail, contactName, contactPhone };
+}
+
+/**
+ * Copies a durably stored marketing application to Ops. This is deliberately
+ * server-to-server: the shared signing secret never reaches the public form.
+ * The application UUID is the delivery idempotency key, so retries and a
+ * historical backfill cannot make duplicate CRM applications. Identity is
+ * derived from `answers`, not caller-supplied fields — see `deriveIdentity`.
+ */
+export async function deliverApplicationToOps(input: {
+  id: string;
+  answers: Answer[];
+}): Promise<void> {
+  const url = process.env.PRESENTFLOW_OPS_BETA_WEBHOOK_URL;
+  const secret = process.env.BETA_FORM_WEBHOOK_SECRET;
+  if (!url || !secret) {
+    console.warn("[apply] Ops beta webhook is not configured");
+    return;
+  }
+
+  const identity = deriveIdentity(input.answers);
+  const answerMap = Object.fromEntries(input.answers.map(({ question, answer }) => [question, answer]));
+  const body = JSON.stringify({
+    church_name: identity.churchName?.trim() || "Beta application",
+    contact_name: identity.contactName,
+    contact_email: identity.contactEmail,
+    contact_phone: identity.contactPhone,
+    category: "beta",
+    answers: answerMap,
+  });
+  const signature = createHmac("sha256", secret).update(body).digest("hex");
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-presentflow-event-id": input.id,
+        "x-presentflow-signature": signature,
+      },
+      body,
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) console.error(`[apply] Ops beta webhook returned ${response.status}`);
+  } catch (error) {
+    console.error("[apply] Ops beta webhook failed:", error instanceof Error ? error.message : error);
+  }
+}
 
 function cleanAnswers(raw: unknown): { question: string; answer: string }[] {
   if (!Array.isArray(raw)) return [];
@@ -118,6 +202,14 @@ export async function submitApplication(raw: unknown): Promise<ApplyResult> {
     console.error("[apply] DB insert failed:", e instanceof Error ? e.message : e);
     return { ok: false, error: "Something went wrong saving your application. Please try again." };
   }
+
+  // Ops is a second system of record for sales work. Delivery does not alter
+  // the applicant result: this database row is already durable, and the UUID
+  // lets the backfill script safely replay a temporarily failed delivery.
+  await deliverApplicationToOps({
+    id: applicationId,
+    answers: answered,
+  });
 
   // Notify the team. The application is already saved, so an email failure no
   // longer loses the lead — record the outcome on the row and keep going.
