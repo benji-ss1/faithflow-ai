@@ -26,7 +26,8 @@
  * `planOutput()` is exported and unit-tested (test/output-compositor.test.ts) as
  * the golden record of the precedence rules.
  */
-import { useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { readPp7LayersFlag } from "@/lib/pp7-layers-flag";
 import { SlideRenderer } from "./SlideRenderer";
 import { OutputSlide } from "./OutputSlide";
 import { TransitionWrapper } from "./TransitionWrapper";
@@ -169,7 +170,12 @@ export function OutputCompositor(props: OutputCompositorProps) {
   const resolvedInput: PlanInput = layersEnabled || sceneActive
     ? resolveLayeredInput(baseInput, layersEnabled ? layerOverrides : undefined, mask)
     : baseInput;
-  const plan = planOutput(resolvedInput);
+  // ProPresenter 7 layer order (Media above a live camera). Read after mount so
+  // server and first client render match; the flag lives in the same origin's
+  // localStorage/env as the operator.
+  const [pp7Order, setPp7Order] = useState(false);
+  useEffect(() => { setPp7Order(readPp7LayersFlag()); }, []);
+  const plan = planOutput(pp7Order ? { ...resolvedInput, mediaOverCamera: true } : resolvedInput);
   const slide = resolvedInput.slide;
   const opacities = layersEnabled || sceneActive
     ? layerOpacities(layersEnabled ? layerOverrides : undefined, mask)
@@ -216,13 +222,14 @@ export function OutputCompositor(props: OutputCompositorProps) {
         );
       }
       case "slide": {
-        const { renderMode, overVideo, transparentBg, videoInput } = layer.props;
+        const { renderMode, overVideo, transparentBg, videoInput, mediaOverCamera } = layer.props;
         if (renderMode === "over-video") {
           return (
             <OutputSlide
               key="slide"
               slide={effectiveSlide}
               videoInput={videoInput}
+              mediaNode={mediaOverCamera ? <BackgroundLayer key={mediaOverCamera.shaderPreset ?? mediaOverCamera.type} background={mediaOverCamera} frozen={previewFrozen} /> : undefined}
               appearance={appearance}
               fontScale={fontScale}
               referenceScale={referenceScale}

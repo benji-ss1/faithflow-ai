@@ -73,6 +73,9 @@ export interface SlideLayerPlan extends OutputLayerBase {
     /** The camera fused into the over-video render (stage-nulled here, once).
      *  null for the transition/plain branches. */
     videoInput: VideoInputState | null;
+    /** ProPresenter 7 layer order: Media draws ABOVE a live camera (below the
+     *  words). Present only when enabled and both are live; absent otherwise. */
+    mediaOverCamera?: BackgroundSpec;
   };
 }
 
@@ -113,6 +116,9 @@ export interface PlanInput {
   appearance?: ThemeAppearance | null;
   background?: BackgroundSpec | null;
   videoInput?: VideoInputState | null;
+  /** ProPresenter 7 order (Video Input below Media). Undefined/false ⇒ the
+   *  legacy "camera hides the background" rule, byte-identical. */
+  mediaOverCamera?: boolean;
   transparent?: boolean;
   transitionsEnabled?: boolean;
   aspectRatio?: "16:9" | "4:3" | "custom";
@@ -170,6 +176,8 @@ export function planOutput(input: PlanInput): OutputPlan {
   // The camera is FUSED into the over-video render (OutputSlide owns the video
   // sibling + slide overlay). It only rides the slide layer in that branch.
   const slideVideoInput = renderMode === "over-video" ? videoInput : null;
+  // PP7: with a camera live, media sits between the camera and the words.
+  const mediaOverCamera = !!input.mediaOverCamera && bgActive && !transparent && !!slideVideoInput && background ? background : null;
 
   // Theme logo: on for everything except transparent keying modes. A Phase 3
   // `logo` layer-patch can additionally force it off (undefined ⇒ unchanged, so
@@ -194,7 +202,7 @@ export function planOutput(input: PlanInput): OutputPlan {
     { id: "background", kind: "background", z: 0, enabled: showBackground, props: { background } },
     {
       id: "slide", kind: "slide", z: 10, enabled: true,
-      props: { renderMode, overVideo, transparentBg: transparent, videoInput: slideVideoInput },
+      props: { renderMode, overVideo, transparentBg: transparent, videoInput: slideVideoInput, ...(mediaOverCamera ? { mediaOverCamera } : {}) },
     },
     { id: "theme-logo", kind: "theme-logo", z: 20, enabled: showThemeLogo, props: {} },
   ];

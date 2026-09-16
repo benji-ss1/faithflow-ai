@@ -60,9 +60,11 @@ export function Pp7ClearRail({
     props: !!row("logo")?.active,
     announcements: !!ctx.announcement,
     slide: !isEmptySlideKind(kind) && !isMediaSlideKind(kind) && !!row("slide")?.active,
-    media: !!row("background")?.active || (isMediaSlideKind(kind) && !!row("slide")?.active),
+    // Background row is off while a camera is live (legacy plan), but under PP7
+    // order the media still paints over the camera — read the base too.
+    media: !!row("background")?.active || (!!ctx.background && ctx.background.type !== "none" && !!ctx.videoInput) || (isMediaSlideKind(kind) && !!row("slide")?.active),
     videoInput: !!ctx.videoInput && !!row("camera")?.active,
-  }), [messagesActive, row, ctx.announcement, kind]);
+  }), [messagesActive, row, ctx.announcement, ctx.background, ctx.videoInput, kind]);
 
   const available: Record<Pp7ClearLayer, boolean> = {
     audio: false, messages: true, props: true, announcements: true, slide: true, media: true, videoInput: true,

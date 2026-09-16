@@ -1,10 +1,10 @@
 "use client";
 /**
  * Feature flag for the ProPresenter 7 layer UI (clear rail beside the preview,
- * F-key clears, Media Bin clicks go behind the words). Off by default.
+ * F-key clears, Media Bin clicks go behind the words). On by default.
  *
- * On when NEXT_PUBLIC_PP7_LAYERS=1, or on this machine when localStorage
- * `presentflow.pp7Layers.v1` = "1" (set "0" to force off). Read after mount so
+ * Kill switches: NEXT_PUBLIC_PP7_LAYERS=0 (everyone) or localStorage
+ * `presentflow.pp7Layers.v1` = "0" (this machine). Read after mount so
  * server and first client render match.
  */
 import { useEffect, useState } from "react";
@@ -17,7 +17,9 @@ export function readPp7LayersFlag(): boolean {
     if (local === "1") return true;
     if (local === "0") return false;
   } catch { /* storage unavailable */ }
-  return process.env.NEXT_PUBLIC_PP7_LAYERS === "1";
+  // Default ON (2026-09-16, user-directed). NEXT_PUBLIC_PP7_LAYERS=0 turns it
+  // off everywhere; localStorage "0" turns it off on one machine.
+  return process.env.NEXT_PUBLIC_PP7_LAYERS !== "0";
 }
 
 export function usePp7Layers(): boolean {
