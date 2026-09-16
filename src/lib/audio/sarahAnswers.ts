@@ -26,13 +26,13 @@ export const SARAH_ANSWERS: SarahAnswer[] = [
     any: [/\bx32\b|\bm32\b|midas/i],
     all: [/usb|mac|computer|laptop|route|routing|card/i],
     answer:
-      "On the X32 (or M32) with the X-USB card: 1) Plug the card's USB port straight into this computer — no hub. 2) Go to Routing → Out 1-16 and put your mix for the computer on Out 15/16 — a spare aux that follows the faders, or Main LR if you have none spare. 3) Go to Routing → Card Out and choose the block Out 9-16. That sends outputs 9-16 to USB channels 9-16, so your mix arrives on USB 15/16. 4) In PresentFlow, pick the X-USB input and channels 15 & 16. A Mac needs no driver; Windows needs Behringer's X-USB driver.",
+      "On the X32 with the X-USB card (or a Midas M32 with the DN32-USB card): 1) Plug the card's USB port straight into this computer — no hub. 2) Go to Routing → Out 1-16 and put your mix for the computer on Out 15/16 — a spare aux that follows the faders, or Main LR if you have none spare. 3) Go to Routing → Card Out and choose the block Out 9-16. That sends outputs 9-16 to USB channels 9-16, so your mix arrives on USB 15/16. 4) In PresentFlow, pick the X-USB input and channels 15 & 16. A Mac needs no driver; Windows needs the X-USB driver from Behringer (or the DN32-USB driver from Midas for an M32).",
   },
   {
     id: "wing-usb",
     any: [/\bwing\b/i],
     answer:
-      "On a Behringer Wing: plug its USB-B port straight into this computer (no hub). In the Wing's routing, open the USB outputs and assign the mix you want the computer to hear — a spare aux that follows the faders, or the main mix — to a USB pair. Then pick that pair in PresentFlow. Menu names vary a little between Wing firmware versions, so if you can't see the USB output page, update the firmware or check Behringer's Wing manual.",
+      "On a Behringer Wing: plug its USB-B port straight into this computer (no hub). In the Wing's routing, open the USB outputs and assign the mix you want the computer to hear — a spare aux that follows the faders, or the main mix — to a USB pair. Then pick that pair in PresentFlow. A Mac needs no driver; on Windows install Behringer's WING USB driver first. Menu names vary a little between Wing firmware versions, so if you can't see the USB output page, update the firmware or check Behringer's Wing manual.",
   },
   {
     id: "tf-usb",
@@ -44,13 +44,13 @@ export const SARAH_ANSWERS: SarahAnswer[] = [
     id: "sq-qu-usb",
     any: [/allen|heath|\bsq\b|sq-?\d|\bqu\b|qu-?\d/i],
     answer:
-      "On an Allen & Heath SQ or Qu: connect the desk's USB-B audio port to this computer. On a Mac it works straight away; on Windows, first install the Allen & Heath USB audio driver from allen-heath.com. Then on the desk open the I/O patch screen and send the mix you want the computer to hear — a spare aux or matrix that follows the faders, or the main mix — to a USB output. In PresentFlow, pick the desk's USB input and the channels you patched.",
+      "On an Allen & Heath SQ or Qu: connect the desk's USB-B audio port to this computer. On a Mac it works straight away; on Windows, first install the Allen & Heath USB audio driver from allen-heath.com. Then on the desk open the I/O Patch screen (on a Qu: Setup → I/O Patch → USB Audio) and send the mix you want the computer to hear — a spare aux or matrix that follows the faders, or the main mix — to a USB output. In PresentFlow, pick the desk's USB input and the channels you patched. On a Qu, the main LR mix is already on USB 17 & 18 by default.",
   },
   {
     id: "scarlett-no-signal",
     any: [/scarlett|focusrite/i],
     answer:
-      "If your Focusrite Scarlett shows no signal, check in this order: 1) The cable from the desk goes into the jack part of the input (not a mic XLR), using a balanced TRS jack cable. 2) The INST button is OFF and 48V is OFF — 48V is only for condenser microphones. 3) Turn the gain up: on newer Scarletts the ring around the knob glows green with sound and red if it's too loud. 4) Plug the Scarlett straight into the computer, not a hub. 5) In PresentFlow, pick the Scarlett as the input. On a Mac, also allow PresentFlow under System Settings → Privacy & Security → Microphone.",
+      "If your Focusrite Scarlett shows no signal, check in this order: 1) The cable from the desk goes into the jack part of a combo input (on a Scarlett Solo, use input 2 — input 1 is mic-only), using a balanced TRS jack cable. 2) The INST button is OFF and 48V is OFF — 48V is only for condenser microphones. 3) Turn the gain up: on newer Scarletts the ring around the knob glows green with sound and red if it's too loud. 4) Plug the Scarlett straight into the computer, not a hub. 5) In PresentFlow, pick the Scarlett as the input. On Windows, install the Focusrite driver first. On a Mac, also allow PresentFlow under System Settings → Privacy & Security → Microphone.",
   },
   {
     id: "umc-setup",
@@ -62,19 +62,19 @@ export const SARAH_ANSWERS: SarahAnswer[] = [
     id: "hum",
     any: [/\bhum\b|\bbuzz|ground loop|humming/i],
     answer:
-      "A hum when the laptop is connected is almost always a ground loop, and the laptop's charger is the usual cause. Test it: unplug the laptop's charger — if the hum stops, that's it. Fixes, easiest first: run the laptop on battery during the service; plug the laptop and the desk into the same power strip; add a USB ground-loop isolator between the laptop and the interface; or use a DI box with a ground-lift switch on the audio cable. Never remove or tape over the earth pin on a power plug.",
+      "A hum when the laptop is connected is almost always a ground loop, and the laptop's charger is the usual cause. Test it: unplug the laptop's charger — if the hum stops, that's it. Fixes, easiest first: run the laptop on battery during the service; plug the laptop and the desk into the same power strip; add a high-speed (USB 2.0) ground-loop isolator between the laptop and the interface — cheaper low-speed ones often won't work with audio interfaces; or use a DI box with a ground-lift switch on the audio cable. Never remove or tape over the earth pin on a power plug.",
   },
   {
     id: "ndi-obs",
     any: [/\bndi\b/i],
     answer:
-      "To send NDI from OBS so another computer can see it: 1) On the OBS computer, install the DistroAV plugin (it used to be called obs-ndi) and the NDI Runtime it asks for. 2) In OBS, open Tools → DistroAV NDI Settings and switch on Main Output. 3) Put both computers on the same network and subnet — wired is far more reliable than Wi-Fi. 4) Allow NDI through the firewall on both computers rather than turning the firewall off. If it still doesn't appear, your network may block NDI discovery — ask whoever runs the network, or add the OBS computer's IP address in NDI Access Manager.",
+      "To send NDI from OBS so another computer can see it: 1) On the OBS computer, install the DistroAV plugin (it used to be called obs-ndi) and the NDI Runtime it asks for. 2) In OBS, open Tools → DistroAV NDI Settings and switch on Main Output. 3) Put both computers on the same network and subnet — wired is far more reliable than Wi-Fi. 4) Allow NDI through the firewall on both computers rather than turning the firewall off. If it still doesn't appear, your network may block NDI discovery — ask whoever runs the network, or, on the computer that is receiving, open NDI Access Manager → Remote Sources and add the OBS computer's IP address.",
   },
   {
     id: "dante-silent",
     any: [/dante/i],
     answer:
-      "If Dante Virtual Soundcard is running but PresentFlow hears nothing: 1) Check DVS is licensed and started. 2) Make sure DVS is using the wired network port that's connected to your Dante network, not Wi-Fi. 3) In Dante Controller, route the desk's output channels to this computer's DVS inputs — nothing flows until you do. 4) Set the sample rate to match the network (usually 48 kHz). 5) In PresentFlow, pick Dante Virtual Soundcard and the channels you routed. If the sound drops out, raise DVS latency to 10 ms.",
+      "If Dante Virtual Soundcard is running but PresentFlow hears nothing: 1) Check DVS is licensed and started. 2) Make sure DVS is using the wired network port that's connected to your Dante network, not Wi-Fi. 3) In Dante Controller, route the desk's output channels to this computer's DVS inputs — nothing flows until you do. 4) Set the sample rate to match the network (usually 48 kHz). 5) In PresentFlow, pick Dante Virtual Soundcard and the channels you routed. If the sound drops out, raise DVS latency to 10 ms. On Windows, if PresentFlow only sees 2 channels, raise the channel count in DVS's settings.",
   },
   {
     id: "blackmagic-no-audio",
@@ -86,7 +86,7 @@ export const SARAH_ANSWERS: SarahAnswer[] = [
     id: "youtube-obs",
     any: [/youtube/i],
     answer:
-      "To stream your service to YouTube with OBS: 1) In YouTube Studio, click Create → Go live, choose Stream, and copy the stream key (or skip this and connect your account in OBS). 2) In OBS, open Settings → Stream, set Service to YouTube, then click Connect Account or paste the stream key. 3) In Settings → Output, a good start is a video bitrate around 4500-6000 kbps, and in Settings → Video, 1080p at 30 fps. 4) Add your sound desk feed as an audio input source. 5) Click Start Streaming — and do a test stream set to Unlisted before Sunday.",
+      "To stream your service to YouTube with OBS: 1) If your channel has never gone live, turn on live streaming in YouTube Studio first — it can take up to 24 hours, so don't leave it until Sunday. 2) In OBS, open Settings → Stream, set Service to YouTube, and click Connect Account (or paste the stream key from YouTube Studio → Create → Go live). 3) In Settings → Output, start around 6000 kbps for 1080p at 30 fps if your upload speed allows. 4) Add your sound desk feed as an audio input. 5) Click Start Streaming — and do an Unlisted test before Sunday.",
   },
   {
     id: "facebook-obs",
@@ -98,7 +98,7 @@ export const SARAH_ANSWERS: SarahAnswer[] = [
     id: "main-vs-aux",
     any: [/main mix|\baux\b|matrix|which mix|what mix/i],
     answer:
-      "Use a spare aux (or matrix) if you have one. An aux is an extra mix on the desk that you can send somewhere on its own — here, to this computer. Set it to follow the faders (post-fader), turn the preacher's and singers' mics up in it, keep the band a little lower, and leave out reverb and effects, so PresentFlow hears the words clearly. If there's no spare aux, the main mix works too — it's just shaped for the room, not for listening.",
+      "Use a spare aux (or matrix) if you have one — make sure it isn't already feeding stage monitors or in-ear mixes, or you'll change what the musicians hear. An aux is an extra mix on the desk that you can send somewhere on its own — here, to this computer. Set it to follow the faders (post-fader), turn the preacher's and singers' mics up in it, keep the band a little lower, and leave out reverb and effects, so PresentFlow hears the words clearly. If there's no spare aux, the main mix works too — it's just shaped for the room, not for listening.",
   },
   {
     id: "phantom",

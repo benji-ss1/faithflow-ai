@@ -40,7 +40,7 @@ for (const [q, expected] of cases) check(`"${q}" → ${expected}`, id(q) === exp
 // answer hygiene
 for (const a of SARAH_ANSWERS) {
   check(`${a.id}: no 'the reference' meta-talk`, !/the reference|the knowledge base|the context/i.test(a.answer));
-  check(`${a.id}: plain length (under ~110 words)`, a.answer.split(/\s+/).length <= 110);
+  check(`${a.id}: plain length (under ~140 words)`, a.answer.split(/\s+/).length <= 140);
   check(`${a.id}: never advises removing a power earth`, !/(remove|lift|cut|tape).{0,20}(earth|ground) pin/i.test(a.answer) || /never/i.test(a.answer));
 }
 check("phantom answer says OFF for a desk feed", /OFF/.test(SARAH_ANSWERS.find((a) => a.id === "phantom")!.answer));
@@ -51,6 +51,17 @@ check("SQ answer covers the Windows driver", /Windows/.test(SARAH_ANSWERS.find((
 check("NDI answer names DistroAV + Main Output", /DistroAV/.test(SARAH_ANSWERS.find((a) => a.id === "ndi-obs")!.answer) && /Main Output/.test(SARAH_ANSWERS.find((a) => a.id === "ndi-obs")!.answer));
 check("hum answer leads with the charger test", /charger/.test(SARAH_ANSWERS.find((a) => a.id === "hum")!.answer));
 check("YouTube answer includes Settings → Stream + key", /Settings → Stream/.test(SARAH_ANSWERS.find((a) => a.id === "youtube-obs")!.answer) && /stream key/.test(SARAH_ANSWERS.find((a) => a.id === "youtube-obs")!.answer));
+
+// fact-check corrections (2026-09-16) must stay in
+const ans = (i: string) => SARAH_ANSWERS.find((a) => a.id === i)!.answer;
+check("M32 uses the DN32-USB card", /DN32-USB/.test(ans("x32-usb")));
+check("Wing covers the Windows driver", /Windows/.test(ans("wing-usb")));
+check("Qu main LR already on USB 17 & 18", /17 & 18/.test(ans("sq-qu-usb")));
+check("Scarlett Solo input 1 is mic-only", /Solo/.test(ans("scarlett-no-signal")));
+check("isolator must be high-speed", /USB 2\.0/.test(ans("hum")));
+check("Access Manager on the RECEIVING computer", /receiving/.test(ans("ndi-obs")));
+check("YouTube first-stream 24h activation", /24 hours/.test(ans("youtube-obs")));
+check("aux warns about stage monitors", /monitors/.test(ans("main-vs-aux")));
 
 console.log(`sarah-answers: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
