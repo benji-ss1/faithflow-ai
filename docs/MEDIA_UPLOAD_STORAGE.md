@@ -7,7 +7,7 @@ Bucket config is NOT in this repo. Apply these on the S3-compatible bucket
 
 Multipart uploads read each part's `ETag` response header in the browser. If it
 isn't exposed the client stops with: "Large uploads aren't set up on the
-storage server yet…" (files ≤100 MB keep using the single-PUT path and are
+storage server yet…" (files ≤500 MB keep using the single-PUT path and are
 unaffected).
 
 ```json
@@ -23,7 +23,7 @@ unaffected).
 ```
 
 Keep the existing `AllowedOrigins` list — only ADD `"ETag"` to `ExposeHeaders`
-(and `HEAD` if missing). Verify with a browser upload of a >100 MB video.
+(and `HEAD` if missing). Verify with a browser upload of a >500 MB video.
 
 ## 2. Lifecycle — abort incomplete multipart uploads
 

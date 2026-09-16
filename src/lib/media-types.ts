@@ -30,8 +30,10 @@ export const MAX_BYTES = {
 } as const;
 /** Large videos go through S3 multipart; this is the hard ceiling. */
 export const MEDIA_MULTIPART_MAX_BYTES = 5 * 1024 * MB;
-/** Client switches to multipart above this size (videos only). */
-export const MEDIA_MULTIPART_THRESHOLD_BYTES = 100 * MB;
+/** Client switches to multipart above this size (videos only). Set to the
+ *  pre-existing 500 MB single-PUT cap so EVERY upload that works today keeps its
+ *  exact path; only new >500 MB videos depend on multipart + bucket CORS ETag. */
+export const MEDIA_MULTIPART_THRESHOLD_BYTES = 500 * MB;
 /** Part size for multipart uploads (S3 minimum is 5 MB; 10,000 parts max). */
 export const MEDIA_MULTIPART_PART_BYTES = 16 * MB;
 /** Server thumbnails are skipped for images above this (avoids buffering huge originals in a function). */
