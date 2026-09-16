@@ -6,8 +6,8 @@
  *   - reconcileBackgroundOnBaseChange: a HIDDEN background override is never
  *     clobbered when the base store resets to none (the reported one-way toggle);
  *     a real new pick shows; a clear is followed only while actively showing.
- *   - shouldRearmSlideOnSend: an EYE-hide persists across advances; a CLEAR-style
- *     block re-arms; an enabled/absent override is a no-op.
+ *   - shouldRearmSlideOnSend: any disabled slide override (T hide or CLEAR)
+ *     re-arms on send (2026-09-16); an enabled/absent override is a no-op.
  *
  * ALSO an end-to-end hide→show round-trip through the FULL wire pipeline
  * (operator patch build → projector applyLayerPatchBounded → heartbeat rebuild →
@@ -16,7 +16,7 @@
  * Run: npx tsx test/layer-store.test.ts
  */
 import assert from "node:assert/strict";
-import { reconcileBackgroundOnBaseChange, shouldRearmSlideOnSend } from "../src/lib/layer-store";
+import { reconcileBackgroundOnBaseChange, shouldRearmSlideOnSend, liveContentKey } from "../src/lib/layer-store";
 import { resolveLayeredInput } from "../src/lib/output-layers-render";
 import { outputStateToLayers, applyLayerPatchBounded, rebuildOverridesFromSnapshot, type EpochRef } from "../src/lib/output-layers";
 import { projectableTextSlide, type BackgroundSpec, type LayerWire, type OutputState, type VideoInputState } from "../src/lib/broadcast";
@@ -65,17 +65,20 @@ check("reconcile: base cleared to none while SHOWING → follow the clear", () =
 
 // ── 2. shouldRearmSlideOnSend ────────────────────────────────────────────────
 check("rearm: no override / enabled override → no-op", () => {
-  assert.equal(shouldRearmSlideOnSend(undefined, false), false);
-  assert.equal(shouldRearmSlideOnSend(slideOverride(true), false), false);
-  assert.equal(shouldRearmSlideOnSend(slideOverride(true), true), false);
+  assert.equal(shouldRearmSlideOnSend(undefined), false);
+  assert.equal(shouldRearmSlideOnSend(slideOverride(true)), false);
 });
 
-check("rearm: EYE-hidden disabled slide PERSISTS across advances (no re-arm)", () => {
-  assert.equal(shouldRearmSlideOnSend(slideOverride(false), true), false);
+check("rearm: T/Clear-Lyrics (eye-hidden) slide RE-ARMS on the next send (2026-09-16)", () => {
+  assert.equal(shouldRearmSlideOnSend(slideOverride(false)), true);
 });
 
-check("rearm: CLEAR-style disabled slide re-arms on send", () => {
-  assert.equal(shouldRearmSlideOnSend(slideOverride(false), false), true);
+check("contentKey: a theme/style restyle of the same words is NOT a content change (Victor 2026-09-16)", () => {
+  const a = { kind: "text", text: "Amazing grace", reference: "Hymn" } as const;
+  const styled = { ...a, bgColor: "#123456", bgImageUrl: "https://x/bg.jpg" };
+  assert.equal(liveContentKey(styled as never), liveContentKey(a as never));
+  assert.notEqual(liveContentKey({ kind: "text", text: "How sweet the sound" } as never), liveContentKey(a as never));
+  assert.notEqual(liveContentKey(a as never), liveContentKey({ kind: "empty" } as never));
 });
 
 // ── 3. End-to-end hide→show round-trip through the FULL wire pipeline ─────────

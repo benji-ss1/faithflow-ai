@@ -1,7 +1,7 @@
 ---
 headline: Lyrics and verses no longer get cut off on the projector or stage screen
 audience: operator
-version: 0.1.420
+version: 0.1.423
 date: 2026-09-16
 highlights:
   - Fixed a bug where some slides lost their last line on the main projector and stage screen, while the NDI feed showed them in full. Every slide now fits the screen on every output.

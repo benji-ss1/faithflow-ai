@@ -61,7 +61,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
   // Decoupling Phase 3: per-church opt-in for the layers engine. Defaults false
   // (no row, absent column, or read failure) → nothing changes until the flag is
   // deliberately enabled AND the global NEXT_PUBLIC_LAYERS_V2 kill-switch is on.
-  const layersV2 = prefs?.layersV2 ?? false;
+  const layersV2 = prefs?.layersV2 ?? true;
 
   return (
     <>

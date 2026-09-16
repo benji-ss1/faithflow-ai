@@ -19,6 +19,9 @@ import s from "./sarah.module.css";
 import { SarahAvatar, type SarahMood } from "./SarahAvatar";
 import { SarahShader } from "./SarahShader";
 import { SarahSuccess } from "./SarahSuccess";
+import { SarahSpotlight } from "./SarahSpotlight";
+import { topWatchNote } from "@/lib/audio/sarahWatchers";
+import { NATIVE_AUDIO_INPUT_CHANGED_EVENT, readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
 import { listSetupDevices, useLevelFeed, type SetupDevice } from "./useLevelFeed";
 import type { ApplicationMatch } from "@/lib/audio/applicationMatch";
 import { rankConnections, type Connection, type ConnectionOption, type Os } from "@/lib/audio/connectionPlans";
@@ -75,9 +78,16 @@ export type SarahLive = {
   /** Scripture detections from the live engine (shape kept loose on purpose). */
   suggestions?: { id?: string; reference?: string }[];
   onListen?: () => void;
+  noAudioSignal?: boolean;
+  clipping?: boolean;
+  reconnectAttempts?: number;
+  reconnectFailed?: boolean;
+  audioQuality?: "good" | "ok" | "low";
 };
 
-export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?: SarahLive } = {}) {
+type Coach = "audio-panel" | "ai-pill" | "live-preview";
+
+export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () => void; live?: SarahLive; onCoachChange?: (coaching: boolean) => void } = {}) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("loading");
   const [trail, setTrail] = useState<Phase[]>([]);
@@ -102,6 +112,11 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
   const [busy, setBusy] = useState(false);
   const [aiOffline, setAiOffline] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  // Coach mode: Sarah steps out of her panel and spotlights the REAL app.
+  const [coach, setCoach] = useState<Coach | null>(null);
+  const [coachPick, setCoachPick] = useState<string | null>(null);
+  const [coachWin, setCoachWin] = useState<string | null>(null);
+  const inputEnteredAt = useRef<number>(0);
   const [lastDevice, setLastDevice] = useState<string | null>(null);
   // Returning operator re-checking a known-good setup: skip the quiet-room step.
   const [quickCheck, setQuickCheck] = useState(false);
@@ -190,7 +205,18 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
       const n = rankConnections({ desk: prof.desk, os: prof.os, failedRoutes: prof.failedRoutes }).filter((o) => o.connection !== "builtin").length;
       saySoon(`For ${prof.desk || "your setup"}${prof.os ? ` on ${OS_LABEL[prof.os]}` : ""}, churches usually connect one of these ${n} ways. Pick the one you have — you can always come back and try another.`, "think", "Sarah is thinking");
     }
-    if (p === "input") saySoon("Now pick where the sound comes in — the most likely one is first. This is the same list you'll find any time in Settings › Audio Input.", "focus", "Sarah is checking your inputs");
+    if (p === "input") {
+      inputEnteredAt.current = Date.now();
+      if (onDone) {
+        // Inside the desktop app: open the real Audio panel and coach them through it,
+        // so they learn where it lives — not a Sarah-only copy of it.
+        setCoachPick(null);
+        window.dispatchEvent(new CustomEvent("presentflow:open-hardware", { detail: { panel: "audio" } }));
+        setCoach("audio-panel");
+      } else {
+        saySoon("Now pick where the sound comes in — the most likely one is first.", "focus", "Sarah is checking your inputs");
+      }
+    }
     if (p === "quiet") saySoon("Quick quiet check. Ask everyone to stop talking and stop the music, then start it — I'll listen for 8 seconds for hum.", "listen", "Sarah is listening");
     if (p === "speak") saySoon("Now talk into the preacher's mic like it's a normal Sunday — try reading John 3:16. I'm watching the bar.", "listen", "Sarah is listening");
   }, [saySoon]);
@@ -230,9 +256,9 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
   }, [say]);
 
   // ── device list when entering input ──
-  const loadDevices = useCallback(async () => {
-    setLoadingDevices(true);
-    const list = await listSetupDevices();
+  const loadDevices = useCallback(async (quiet = false) => {
+    if (!quiet) setLoadingDevices(true);
+    const list = await listSetupDevices({ probe: !quiet });
     const want: Record<string, string[]> = {
       "usb-desk": ["desk", "interface"], interface: ["interface", "desk"], ndi: ["ndi"], dante: ["dante"],
       "sdi-capture": ["sdi-capture", "usb-switcher", "hdmi-capture"],
@@ -240,8 +266,8 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
     const pref = want[profileRef.current.connection ?? ""] ?? [];
     const rank = (d: SetupDevice) => { const i = pref.indexOf(d.kind.kind); return i === -1 ? (d.kind.recommended ? 10 : 20) : i; };
     setDevices([...list].sort((a, b) => rank(a) - rank(b)));
-    setLoadingDevices(false);
-    if (list.length === 0) {
+    if (!quiet) setLoadingDevices(false);
+    if (list.length === 0 && !quiet) {
       say("I can't see any audio inputs at all. Check the cable, then tap “Look again”.", "focus", "Sarah can't find inputs");
       setExtraChips(["Look again", "Try another way"]);
     }
@@ -366,6 +392,7 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
     setMood("celebrate"); setStatus("Saved");
     // First win: prove the whole thing works end to end before we let them go.
     go("tryit");
+    if (onDone) { setCoachWin(null); setCoach(live?.listening ? "live-preview" : "ai-pill"); }
     saySoon(
       live?.listening
         ? "Saved. Now the fun bit — say this out loud, just like on a Sunday: “Let's turn to John chapter three, verse sixteen.”"
@@ -386,9 +413,96 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
     if (!hit) return;
     heardRef.current = true;
     say(`That's it — I heard ${hit.reference}. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
+    setCoachWin(hit.reference ?? "your verse");
     setExtraChips(["Finish"]);
     setMood("celebrate");
   }, [phase, live?.suggestions, say]);
+
+  useEffect(() => { onCoachChange?.(!!coach); }, [coach, onCoachChange]);
+  // Keep the device list fresh while coaching (hotplug, NDI discovery) — quietly, with
+  // no mic-permission probe and no repeated "can't see inputs" messages.
+  useEffect(() => {
+    if (!coach) return;
+    const iv = setInterval(() => { void loadDevices(true); }, 3000);
+    return () => clearInterval(iv);
+  }, [coach, loadDevices]);
+
+  // Held level + how long it has stayed silent: a gap between words is not "broken gear".
+  const levelHist = useRef<{ t: number; db: number }[]>([]);
+  const silentSince = useRef<number | null>(null);
+  // An input must be missing on TWO polls in a row before Sarah calls it unplugged.
+  const missingPolls = useRef(0);
+  const coachStartedAt = useRef<number>(0);
+  useEffect(() => { if (coach) coachStartedAt.current = coachStartedAt.current || Date.now(); else coachStartedAt.current = 0; }, [coach]);
+  // Held level over ~6s + how long it has stayed silent.
+  useEffect(() => {
+    if (!coach) { levelHist.current = []; silentSince.current = null; return; }
+    if (!feed.running) { levelHist.current = []; silentSince.current = null; return; }
+    const now = Date.now();
+    const peak = feed.levels.reduce((m, l) => Math.max(m, Math.abs(l.peak) || 0), 0);
+    const db = peak > 0 ? 20 * Math.log10(peak) : -120;
+    levelHist.current = [...levelHist.current, { t: now, db }].filter((x) => now - x.t < 6000);
+    const held = Math.max(...levelHist.current.map((x) => x.db));
+    silentSince.current = held <= -60 ? (silentSince.current ?? now) : null;
+  }, [coach, feed.running, feed.levels]);
+  // Count consecutive device polls where the chosen input is absent. An EMPTY list
+  // counts as absent too (unplugging the only device).
+  useEffect(() => {
+    if (!coach) { missingPolls.current = 0; return; }
+    const pref = readNativeDevicePref() as { name?: string; uid?: string } | null;
+    const name = coachPick ?? device?.name ?? null;
+    if (!name) { missingPolls.current = 0; return; }
+    const found = (pref?.uid ? devices.some((d) => d.uid === pref.uid) : false) || devices.some((d) => d.name === name);
+    missingPolls.current = found ? 0 : missingPolls.current + 1;
+  }, [coach, devices, coachPick, device]);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!coach) return;
+    const iv = setInterval(() => setTick((n) => n + 1), 1000); // lets time-based watchers advance
+    return () => clearInterval(iv);
+  }, [coach]);
+
+  // While coaching the Audio panel, notice the moment they pick an input there.
+  const [coachPickId, setCoachPickId] = useState<string | null>(null);
+  useEffect(() => {
+    if (coach !== "audio-panel") return;
+    const onChanged = (e: Event) => {
+      const detail = (e as CustomEvent<{ name?: string; deviceId?: string; label?: string } | null>).detail;
+      const pref = readNativeDevicePref();
+      const name = pref?.name ?? detail?.label ?? detail?.name ?? null;
+      if (name) setCoachPick(name);
+      setCoachPickId(detail?.deviceId ?? null);
+    };
+    window.addEventListener(NATIVE_AUDIO_INPUT_CHANGED_EVENT, onChanged);
+    window.addEventListener("presentflow:audio-input-changed", onChanged);
+    return () => {
+      window.removeEventListener(NATIVE_AUDIO_INPUT_CHANGED_EVENT, onChanged);
+      window.removeEventListener("presentflow:audio-input-changed", onChanged);
+    };
+  }, [coach]);
+
+  // First win: once listening is on, glide from the AI switch to the live preview.
+  useEffect(() => {
+    if (coach === "ai-pill" && live?.listening) setCoach("live-preview");
+    else if (coach === "live-preview" && !live?.listening && !coachWin) setCoach("ai-pill");
+  }, [coach, live?.listening, coachWin]);
+
+  const endSetup = useCallback(() => {
+    setCoach(null); void feed.stop(); clearTimers(); if (onDone) onDone();
+  }, [feed, clearTimers, onDone]);
+  const [audioPanelShown, setAudioPanelShown] = useState(true);
+
+  const coachDone = useCallback(() => {
+    // They picked in the real panel — match it (uid first, then deviceId, then name) and run the checks.
+    const pref = readNativeDevicePref() as { name?: string; uid?: string } | null;
+    const name = coachPick ?? null;
+    setCoach(null);
+    const d = (pref?.uid ? devices.find((x) => x.uid === pref.uid) : undefined)
+      ?? (coachPickId ? devices.find((x) => x.deviceId === coachPickId) : undefined)
+      ?? (name ? devices.find((x) => x.name === name) : undefined);
+    if (d) { void pickDevice(d); return; }
+    say("I couldn't tell which input you picked — choose it from my list here instead.", "focus", "Sarah is checking your inputs");
+  }, [coachPick, coachPickId, devices, pickDevice, say]);
 
   // ── chat ──
   const ask = useCallback(async (text: string) => {
@@ -792,6 +906,101 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
           </div>
         </section>
       </div>
+
+      {coach && (() => {
+        const now = Date.now();
+        // Read-only here: level history and unplug counting are maintained in effects
+        // (render can run twice in development and must not double-count).
+        const held = levelHist.current.length ? Math.max(...levelHist.current.map((x) => x.db)) : undefined;
+        const silentSeconds = silentSince.current ? (now - silentSince.current) / 1000 : 0;
+        const pref = readNativeDevicePref() as { name?: string; uid?: string } | null;
+        const selName = coachPick ?? device?.name ?? null;
+        const selDev = (pref?.uid ? devices.find((d) => d.uid === pref.uid) : undefined) ?? (selName ? devices.find((d) => d.name === selName) : undefined);
+
+        const note = topWatchNote({
+          listening: !!live?.listening,
+          ready: live?.ready,
+          online: typeof navigator === "undefined" ? true : navigator.onLine,
+          noAudioSignal: live?.noAudioSignal,
+          clipping: live?.clipping,
+          reconnectAttempts: live?.reconnectAttempts,
+          reconnectFailed: live?.reconnectFailed,
+          audioQuality: live?.audioQuality,
+          selected: selName ? { name: selName, kind: selDev?.kind.kind, transport: selDev?.transport } : null,
+          selectedMissing: !!selName && missingPolls.current >= 2,
+          levelDb: held,
+          silentSeconds,
+          route: profile.connection,
+          ndiSources: devices.filter((d) => d.transport === "ndi").map((d) => d.name.replace(/^NDI:\s*/, "")),
+          // Only the macOS helper (which reports device uids) can list NDI sources.
+          ndiDiscoveryAvailable: devices.some((d) => d.source === "native" && !!d.uid),
+          ndiScanSeconds: coachStartedAt.current ? (now - coachStartedAt.current) / 1000 : 0,
+        });
+        const noteEl = note ? (
+          <div className={`rounded-lg px-3 py-2 text-[13px] leading-relaxed border ${
+            note.severity === "problem" ? "border-red-400/45 bg-red-500/12 text-red-50"
+              : note.severity === "warn" ? "border-[#e8501a]/45 bg-[#e8501a]/12 text-[#ffe2d4]"
+              : "border-[#8fd6a8]/40 bg-[#8fd6a8]/10 text-[#e6f7ec]"}`}>
+            <div className="font-semibold">{note.message}</div>
+            {note.fix && <div className="mt-0.5">{note.fix}</div>}
+          </div>
+        ) : null;
+
+        if (coach === "audio-panel") return (
+          <SarahSpotlight
+            target="hardware-audio"
+            mood={coachPick ? "nod" : "listen"}
+            title={!audioPanelShown ? "The Audio panel closed" : coachPick ? `Got it — ${coachPick}` : "Pick your input here"}
+            body={!audioPanelShown
+              ? "No problem — tap “Show me again” and I'll open it back up."
+              : coachPick
+                ? "That's where your sound comes in. Tap Done and I'll check the level."
+                : "This is your Audio panel — you'll use it every Sunday. Click the device your sound comes in on."}
+            onTargetChange={setAudioPanelShown}
+            actions={[
+              !audioPanelShown
+                ? { label: "Show me again", onClick: () => window.dispatchEvent(new CustomEvent("presentflow:open-hardware", { detail: { panel: "audio" } })) }
+                : { label: "Show me a simple list", onClick: () => setCoach(null) },
+              { label: "Done", primary: true, disabled: !coachPick, onClick: coachDone },
+            ]}
+            onClose={() => setCoach(null)}
+          >{noteEl}</SarahSpotlight>
+        );
+
+        if (coach === "ai-pill") return (
+          <SarahSpotlight
+            target="ai-pill"
+            mood="listen"
+            title="Switch AI listening on"
+            body="Click the AI switch in the top bar to turn listening on. I'll wait."
+            actions={[{ label: "Skip — finish setup later", onClick: endSetup }]}
+            onClose={() => setCoach(null)}
+          >{noteEl}</SarahSpotlight>
+        );
+
+        return (
+          <SarahSpotlight
+            target="live-preview"
+            mood={coachWin ? "celebrate" : "listen"}
+            title={coachWin ? `That's it — ${coachWin}` : "Now say the verse"}
+            body={coachWin
+              ? "Your sound, the AI and PresentFlow are working together. This screen is what your congregation sees."
+              : "Into the mic your sound comes in on, say: “Let's turn to John chapter three, verse sixteen.” Watch this screen — it's what goes on the projector."}
+            actions={coachWin
+              ? [{ label: "I'm done", primary: true, onClick: endSetup }]
+              : [{ label: "Skip — finish setup later", onClick: endSetup }]}
+            onClose={() => setCoach(null)}
+          >
+            {!coachWin && (
+              // Not a live region: interim words update constantly and would flood a screen reader.
+              <div aria-live="off" className="rounded-lg px-3 py-2 text-[13px] border border-white/10 bg-white/5 min-h-[2.6em]">
+                {live?.interim || live?.transcript || "Listening…"}
+              </div>
+            )}
+            {!coachWin && noteEl && <div className="mt-2">{noteEl}</div>}
+          </SarahSpotlight>
+        );
+      })()}
 
       {showSuccess && (
         <SarahSuccess

@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.420",
+    "version": "0.1.423",
     "date": "2026-09-16",
     "headline": "Lyrics and verses no longer get cut off on the projector or stage screen",
     "highlights": [
@@ -14,6 +14,38 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Long Bible verses no longer run into the reference line at the bottom.",
       "The text size control now goes from 30% up to 250%, so you have more room to suit your projector and room.",
       "Making text bigger never pushes it off the screen - short lines grow, and a slide that already fills the screen stays fitted. Making it smaller has no limit."
+    ]
+  },
+  {
+    "version": "0.1.422",
+    "date": "2026-09-16",
+    "headline": "Layers is now on for every church",
+    "highlights": [
+      "The strip on the right of the operator screen is now on for everyone, so you can hide the words, background, camera or logo one at a time.",
+      "Church admins can turn Layers off in Settings if they don't want it."
+    ]
+  },
+  {
+    "version": "0.1.421",
+    "date": "2026-09-16",
+    "headline": "Sarah now shows you around the real app",
+    "highlights": [
+      "When it's time to pick your input, Sarah lights up the real Audio panel and coaches you through it, so you learn where it lives.",
+      "For your first verse, the spotlight glides to the AI switch and then to the live preview, so you watch it land exactly where your congregation will see it.",
+      "Sarah notices what's going on as you work, for example \"I can see your NDI source\", or \"no NDI sources, so check both computers are on the same wired network\".",
+      "She spots common problems too, including a Blackmagic card with no picture, a silent Dante soundcard, an unplugged interface, sound coming in too loud, or being offline.",
+      "The rest of the app stays fully usable while she's coaching."
+    ]
+  },
+  {
+    "version": "0.1.420",
+    "date": "2026-09-16",
+    "headline": "The X on your live preview now clears the whole screen",
+    "highlights": [
+      "Tap the X on the live preview to clear everything on the screen - words, Bible verses, background, camera and logo - in one tap.",
+      "Send your next slide and everything comes back on its own.",
+      "The T on the right-hand strip now hides the words only until the next slide is sent, whether you click a slide or a verse is put up for you. You never have to turn the words back on yourself.",
+      "Hiding the background, camera or logo from the strip still keeps them hidden until you show them again."
     ]
   },
   {
