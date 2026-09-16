@@ -1773,6 +1773,33 @@ export async function setLayersEngineEnabled(enabled: boolean): Promise<Result> 
   return { ok: true };
 }
 
+/** Team members + pending invites for the desktop Settings window (same data as
+ *  /settings/team). Admin-only, returns an error instead of redirecting so the
+ *  live operator is never navigated away. Church-scoped. */
+export async function getTeamData(): Promise<Result<{
+  currentUserId: string;
+  members: { id: string; email: string; name: string; role: "admin" | "operator" | "volunteer" | "pastor" | "viewer"; jobTitle: string | null; emailVerified: boolean; lastActiveAt: string | null }[];
+  pendingInvites: { id: string; email: string; role: "admin" | "operator" | "volunteer" | "pastor" | "viewer"; expiresAt: string }[];
+}>> {
+  const user = await requireUser();
+  if (user.role !== "admin") return { ok: false, error: "Only a church admin can manage the team." };
+  const db = getDb();
+  const { users, invitations } = await import("./db/schema");
+  const { isNull, gte } = await import("drizzle-orm");
+  const members = await db.select({
+    id: users.id, email: users.email, name: users.name, role: users.role, jobTitle: users.jobTitle,
+    emailVerifiedAt: users.emailVerifiedAt, lastActiveAt: users.lastActiveAt,
+  }).from(users).where(eq(users.churchId, user.churchId));
+  const pending = await db.select({ id: invitations.id, email: invitations.email, role: invitations.role, expiresAt: invitations.expiresAt }).from(invitations).where(and(
+    eq(invitations.churchId, user.churchId), isNull(invitations.acceptedAt), gte(invitations.expiresAt, new Date()),
+  ));
+  return { ok: true, data: {
+    currentUserId: user.id,
+    members: members.map((m) => ({ id: m.id, email: m.email, name: m.name, role: m.role as "admin", jobTitle: m.jobTitle, emailVerified: !!m.emailVerifiedAt, lastActiveAt: m.lastActiveAt ? m.lastActiveAt.toISOString() : null })),
+    pendingInvites: pending.map((p) => ({ id: p.id, email: p.email, role: p.role as "admin", expiresAt: p.expiresAt.toISOString() })),
+  } };
+}
+
 /** Everything the church preferences form needs, for the desktop Settings window
  *  (same values the /settings page reads). Church-scoped, read-only. */
 export async function getDesktopPreferences(): Promise<Result<{
