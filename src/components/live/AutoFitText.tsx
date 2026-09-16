@@ -348,7 +348,10 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // one moment; the fonts, the styling or the box can differ now. Verifying it
       // costs one layout read; trusting it blindly clipped the bottom line and the
       // later refits (font-ready, timers) all hit the same bad cache entry.
-      if (cachedProj !== undefined && !fitsAt(cachedProj)) {
+      // A cached 8px is the accepted last-resort result for a slide that cannot fit
+      // at all — re-verifying it would discard it and redo the full search on every
+      // refit (~30 forced layouts × 7 refits × every screen).
+      if (cachedProj !== undefined && cachedProj > 8 && !fitsAt(cachedProj)) {
         fitCacheDelete(projKey);
         cachedProj = undefined;
       }
@@ -375,10 +378,12 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // only ever runs when the normal floor has already failed, so no ordinary
       // slide changes size.
       if (!fitsAt(best)) {
-        for (let px = best - 1; px >= 8; px--) {
-          if (fitsAt(px)) { best = px; break; }
-          if (px === 8) best = 8;
+        let lo = 8, hi = best - 1, found = 8;
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
         }
+        best = found;
         if (!editingRef.current) fitCacheSet(projKey, best);
       }
       const belowPref = best < prefFloorPx;
@@ -531,11 +536,22 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   // line reflows/overflows on swap. Refit ONCE when the webfonts are actually
   // ready. One-shot: later slides fit correctly because the font is already
   // loaded by then. No artificial delay — a real "font is ready" signal.
+  // 2026-09-16: ALSO refit on every later font load. `fonts.ready` resolves once;
+  // a font whose download starts AFTER the slide is already showing (a later
+  // weight/style, a theme font swapped mid-service) fired no refit at all, so the
+  // slide stayed sized for the fallback font and was cut off on every surface —
+  // reproduced in a browser (Arial Narrow fallback, Sora arriving post-mount).
   useEffect(() => {
-    if (typeof document === "undefined" || !document.fonts?.ready) return;
+    if (typeof document === "undefined" || !document.fonts) return;
     let cancelled = false;
-    document.fonts.ready.then(() => { if (!cancelled) fitRef.current(); });
-    return () => { cancelled = true; };
+    const refit = () => { if (!cancelled) fitRef.current(); };
+    document.fonts.ready?.then(refit);
+    const fonts = document.fonts as FontFaceSet & EventTarget;
+    try { fonts.addEventListener("loadingdone", refit); } catch { /* older engines: ready-only */ }
+    return () => {
+      cancelled = true;
+      try { fonts.removeEventListener("loadingdone", refit); } catch { /* ignore */ }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -610,7 +626,9 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
           // Sized in CANVAS pixels: this lives inside the 1920x1080 canvas, which the
           // operator preview scales to ~18%, so 44px renders at a readable ~8px.
           className="absolute z-30 rounded-lg font-semibold text-white bg-[color:var(--color-destructive,#e11d48)] pointer-events-none"
-          style={{ top: 16, right: 16, fontSize: 44, lineHeight: 1.1, padding: "8px 18px" }}
+          // Bottom-left: the operator preview's Clear (X) button sits top-right and
+          // was hiding it. Canvas px, so ~10px once the preview scales it down.
+          style={{ bottom: 20, left: 20, fontSize: 56, lineHeight: 1.1, padding: "10px 22px" }}
           role="status"
         >
           Text cut off at this size
