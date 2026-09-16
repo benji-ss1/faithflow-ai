@@ -14,11 +14,11 @@
  * (theme logo) = liveLayers.clearLayer, announcements = onSetAnnouncement(null),
  * messages = legacy composer + message board.
  */
-import { useCallback, useEffect, useMemo } from "react";
-import { Music, Send, Layers, Megaphone, Captions, Image as ImageIcon, Video, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Music, Send, Layers, Megaphone, SquareMenu, Image as ImageIcon, Video, X } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
-import { shouldIgnore } from "@/hooks/useOperatorHotkeys";
+import { shouldIgnore, anyOverlayOpen } from "@/hooks/useOperatorHotkeys";
 import {
   PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, PP7_CLEAR_KEY, decodePp7ClearKey,
   isMediaSlideKind, isEmptySlideKind, type Pp7ClearLayer,
@@ -29,15 +29,14 @@ const ICONS: Record<Pp7ClearLayer, React.ComponentType<{ className?: string }>> 
   messages: Send,
   props: Layers,
   announcements: Megaphone,
-  slide: Captions,
+  slide: SquareMenu,
   media: ImageIcon,
   videoInput: Video,
 };
 
 // PP7 rail colours (from screenshots).
 const COLUMN_IDLE = "#1c1c1e";
-const COLUMN_LIVE = "#3b1212";
-const CELL_ACTIVE = "#7a1f1f";
+const COLUMN_LIVE = "#4a1515";
 
 export function Pp7ClearRail({
   ctx,
@@ -75,6 +74,9 @@ export function Pp7ClearRail({
         return;
       case "media":
         setActiveBackgroundId("none");
+        // A background override can show while the base store is already none
+        // (e.g. a Layers-panel swap) — clear the layer too so it really goes.
+        if (row("background")?.active) ctx.liveLayers.clearLayer("background");
         if (isMediaSlideKind(ctx.liveSlide?.kind)) ctx.onKill();
         return;
       case "videoInput":
@@ -102,26 +104,29 @@ export function Pp7ClearRail({
     ctx.onKill();
   }, [ctx, onClearMessages]);
 
-  // F1–F7 (PP7 shortcuts). Ignored while typing or with modifiers; blocks the
-  // browser default (F5 reload, F1 help, F3 find, F6/F7) only when handled.
+  // F1–F7 (PP7 shortcuts). Ignored while typing, with modifiers, or while a
+  // dialog/menu is open (same guard as the operator hotkeys). Audio (F5) has no
+  // layer yet, so F5 is left alone (browser reload keeps working).
+  const handlersRef = useRef({ clear, clearAll });
+  handlersRef.current = { clear, clearAll };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || shouldIgnore(e.target)) return;
+      if (e.repeat || e.defaultPrevented || shouldIgnore(e.target) || anyOverlayOpen()) return;
       const target = decodePp7ClearKey(e);
-      if (!target) return;
+      if (!target || target === "audio") return;
       e.preventDefault();
-      if (target === "all") clearAll();
-      else clear(target);
+      if (target === "all") handlersRef.current.clearAll();
+      else handlersRef.current.clear(target);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [clear, clearAll]);
+  }, []);
 
   const anyLive = PP7_CLEAR_ORDER.some((l) => active[l]);
 
   return (
     <div
-      className="relative shrink-0 w-9 flex flex-col"
+      className="relative shrink-0 w-10 flex flex-col"
       style={{ background: anyLive ? COLUMN_LIVE : COLUMN_IDLE }}
       role="toolbar"
       aria-orientation="vertical"
@@ -131,19 +136,18 @@ export function Pp7ClearRail({
         const Icon = ICONS[layer];
         const key = PP7_CLEAR_KEY[layer];
         const label = available[layer]
-          ? `Clear ${PP7_CLEAR_LABEL[layer]}${key ? ` (${key})` : ""}`
+          ? `Clear ${PP7_CLEAR_LABEL[layer]}${key ? ` (${key})` : ""}${active[layer] ? " — live" : ""}`
           : `${PP7_CLEAR_LABEL[layer]} (coming soon)`;
         return (
           <button
             key={layer}
             type="button"
-            disabled={!available[layer]}
-            onClick={() => clear(layer)}
+            aria-disabled={!available[layer]}
+            onClick={() => { if (available[layer]) clear(layer); }}
             title={label}
             aria-label={label}
             data-active={active[layer] ? "true" : "false"}
-            className={`flex-1 min-h-0 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 disabled:cursor-default ${i > 0 ? "border-t border-black/40" : ""} ${available[layer] ? "hover:bg-white/10" : ""}`}
-            style={{ background: active[layer] ? CELL_ACTIVE : "transparent" }}
+            className={`flex-1 min-h-0 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 ${i > 0 ? "border-t border-black/40" : ""} ${!available[layer] ? "cursor-default" : active[layer] ? "bg-[#7a1f1f] hover:bg-[#8f2626]" : "hover:bg-white/10"}`}
           >
             <Icon className={`w-4 h-4 ${available[layer] ? "text-white/85" : "text-white/25"}`} />
           </button>
@@ -156,7 +160,7 @@ export function Pp7ClearRail({
         onClick={clearAll}
         title="Clear All (F1)"
         aria-label="Clear All (F1)"
-        className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 w-6 h-6 rounded-full bg-white text-[#1c1c1e] flex items-center justify-center shadow hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+        className="absolute top-1/2 -left-3 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-white text-[#1c1c1e] flex items-center justify-center shadow hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
       >
         <X className="w-4 h-4" strokeWidth={3} />
       </button>

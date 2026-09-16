@@ -308,7 +308,7 @@ export function MediaBrowser({
     if (pp7Layers && ctx.layersEngineOn) {
       setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: normalizeMediaKind(a.kind), mediaKey: a.mediaKey });
       setSelectedId(a.id);
-      toast.success(`“${a.fileName || "Media"}” is on the Media layer`, { id: "pf-media-layer", description: "Clear Media (F3) removes it. Your words stay." });
+      toast.success(`“${a.fileName || "Media"}” is on the Media layer`, { id: "pf-media-layer", description: ctx && ctx.liveLayers.rows.some((r) => r.id === "camera" && r.active) ? "The camera is live, so the media stays hidden until the camera is cleared." : "Clear Media (F3) removes it. Your words stay." });
       return;
     }
     // Was something already on the projector? (a blank slide = nothing live).

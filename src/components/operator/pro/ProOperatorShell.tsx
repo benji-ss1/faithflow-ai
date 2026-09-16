@@ -2500,10 +2500,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // preview + F-key clears + Media Bin clicks go behind the words.
   const pp7Layers = usePp7Layers() && ctx.layersEngineOn;
   const pp7MessagesActive = messages.state.showing || messagesBoard.active.some((m) => !m.hidden);
+  const pp7MsgRef = useRef({ messages, messagesBoard });
+  pp7MsgRef.current = { messages, messagesBoard };
   const pp7ClearMessages = useCallback(() => {
-    if (messages.state.showing) messages.toggleShow();
-    messagesBoard.clearAll();
-  }, [messages, messagesBoard]);
+    const { messages: m, messagesBoard: b } = pp7MsgRef.current;
+    if (m.state.showing) m.toggleShow();
+    b.clearAll();
+  }, []);
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
   // Always-current handle to the session so the callback below (captured by
   // effects that don't re-subscribe on every grid change) never reads a stale
@@ -4957,12 +4960,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           )}
           <OperatorErrorBoundary fallbackLabel="Live preview panel error">
             {pp7Layers ? (
-              <div className="flex items-stretch">
-                <div className="flex-1 min-w-0">
-                  <LivePreviewPanel ctx={ctx} onVideoRef={(el) => { previewVideoRef.current = el; }} hideClearButton />
-                </div>
-                <Pp7ClearRail ctx={ctx} messagesActive={pp7MessagesActive} onClearMessages={pp7ClearMessages} />
-              </div>
+              <LivePreviewPanel
+                ctx={ctx}
+                onVideoRef={(el) => { previewVideoRef.current = el; }}
+                hideClearButton
+                rail={<Pp7ClearRail ctx={ctx} messagesActive={pp7MessagesActive} onClearMessages={pp7ClearMessages} />}
+              />
             ) : (
               <LivePreviewPanel ctx={ctx} onVideoRef={(el) => { previewVideoRef.current = el; }} />
             )}

@@ -47,7 +47,7 @@ function splitBodyAndReference(text: string): { body: string; reference: string 
   return { body: text.slice(0, idx), reference };
 }
 
-export function LivePreviewPanel({ ctx, onVideoRef, hideClearButton = false }: { ctx: OperatorShellCtx; onVideoRef?: (el: HTMLVideoElement | null) => void; /** PP7 layers: the clear rail beside the preview replaces the corner X. */ hideClearButton?: boolean }) {
+export function LivePreviewPanel({ ctx, onVideoRef, hideClearButton = false, rail }: { ctx: OperatorShellCtx; onVideoRef?: (el: HTMLVideoElement | null) => void; /** PP7 layers: the clear rail beside the preview replaces the corner X. */ hideClearButton?: boolean; /** PP7 layers: clear rail rendered flush right of the main canvas, same height. */ rail?: React.ReactNode }) {
   const isLive = ctx.liveSlide.kind !== "empty";
   // Anything on the projector at all (slide OR a background/camera/logo layer) —
   // drives the X visibility (2026-09-16: X clears everything).
@@ -184,6 +184,8 @@ export function LivePreviewPanel({ ctx, onVideoRef, hideClearButton = false }: {
       {/* Main stays MOUNTED when another screen is picked (hidden only) so the
           preview video ref that drives VideoControlBar is never dropped. */}
       <div hidden={mv.screen !== "main"}>
+      <div className={rail ? "flex items-stretch" : "contents"}>
+      <div className={rail ? "flex-1 min-w-0" : "contents"}>
       <div
         data-tour="live-preview"
         className={
@@ -278,6 +280,9 @@ export function LivePreviewPanel({ ctx, onVideoRef, hideClearButton = false }: {
             </div>
           </div>
         )}
+      </div>
+      </div>
+      {rail}
       </div>
       </div>
       {/* Always-legible reference strip — book, chapter:verse, translation —
