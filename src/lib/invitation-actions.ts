@@ -4,7 +4,15 @@ import { and, eq, isNull, gte } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { getDb } from "./db/client";
 import { invitations, users, churches } from "./db/schema";
-import { requireRole } from "./session";
+import { requireUser } from "./session";
+
+/** Admin gate that RETURNS an error instead of redirecting (2026-09-16): these
+ *  actions now also run inside the live desktop operator (Settings → Team), where
+ *  a redirect would navigate the console away mid-service. */
+async function adminOrError() {
+  const user = await requireUser();
+  return user.role === "admin" ? user : null;
+}
 import { mintToken, hashToken } from "./auth-tokens";
 import { sendInvitationEmail } from "./email";
 
@@ -14,7 +22,8 @@ const VALID_ROLES = ["admin", "operator", "volunteer", "pastor", "viewer"] as co
 type ValidRole = typeof VALID_ROLES[number];
 
 export async function inviteTeammate(input: { email: string; role: ValidRole }): Promise<Result<string>> {
-  const admin = await requireRole("admin");
+  const admin = await adminOrError();
+  if (!admin) return { ok: false, error: "Only a church admin can manage the team." };
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "Invalid email" };
   // F5 defense-in-depth: TypeScript types are compile-time-only; a caller
@@ -60,7 +69,8 @@ export async function inviteTeammate(input: { email: string; role: ValidRole }):
 }
 
 export async function revokeInvitation(id: string): Promise<Result> {
-  const admin = await requireRole("admin");
+  const admin = await adminOrError();
+  if (!admin) return { ok: false, error: "Only a church admin can manage the team." };
   const db = getDb();
   await db.delete(invitations).where(and(eq(invitations.id, id), eq(invitations.churchId, admin.churchId)));
   revalidatePath("/settings/team");
@@ -69,7 +79,8 @@ export async function revokeInvitation(id: string): Promise<Result> {
 
 export async function updateTeammateRole(userId: string, role: ValidRole): Promise<Result> {
   if (!VALID_ROLES.includes(role)) return { ok: false, error: "Invalid role" };
-  const admin = await requireRole("admin");
+  const admin = await adminOrError();
+  if (!admin) return { ok: false, error: "Only a church admin can manage the team." };
   const db = getDb();
   const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.churchId, admin.churchId))).limit(1);
   if (!target) return { ok: false, error: "User not found" };
@@ -88,7 +99,8 @@ export async function updateTeammateRole(userId: string, role: ValidRole): Promi
 }
 
 export async function removeTeammate(userId: string): Promise<Result> {
-  const admin = await requireRole("admin");
+  const admin = await adminOrError();
+  if (!admin) return { ok: false, error: "Only a church admin can manage the team." };
   if (userId === admin.id) return { ok: false, error: "You cannot remove yourself" };
   const db = getDb();
   const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.churchId, admin.churchId))).limit(1);
