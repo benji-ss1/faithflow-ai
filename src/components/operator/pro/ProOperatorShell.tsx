@@ -2582,7 +2582,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       if (messagePostedRef.current) {
         // Only broadcast clear:true after at least one show — otherwise every
         // slide navigation on a fresh operator would spam `{clear:true}`.
-        safePost(ch, { type: "message", overlay: { clear: true } });
+        // `messages: []` so outputs drop board (extra) messages immediately —
+        // without it they only reconcile when the array is present and linger
+        // until the 5s stale sweep.
+        safePost(ch, { type: "message", overlay: { clear: true }, messages: [] });
         messagePostedRef.current = false;
       }
       return;
