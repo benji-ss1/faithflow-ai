@@ -172,7 +172,26 @@ function isDesktopShell(req: NextRequest): boolean {
 // /operator. (Browsers already reach these — they're not in the desktop-only
 // list — so this only relaxes the desktop-block branch.)
 const UNIVERSAL_ALLOWED_PAGE_PREFIXES = ["/onboarding", "/verify-email"];
+
+// 2026-09-16 — APIs that BOTH the web app and the desktop shell legitimately
+// call. They are deliberately NOT in DESKTOP_ALLOWED_API_EXACT: that set is
+// also the "web browsers may NOT reach this" list (see desktopPathAllowed's
+// comment), and these run on ordinary web pages too — UpdatePrompt (build-id)
+// mounts from the root layout, tier gates premium content everywhere, the
+// Bible/import/thumbnail helpers back both the web library and the operator.
+// Listing them here relaxes ONLY the desktop-block branch, so web behaviour is
+// byte-identical. EXACT match only (never a prefix) so no sibling admin route
+// leaks in. Each route keeps its own auth / entitlement / rate limiting.
+const UNIVERSAL_ALLOWED_API_EXACT = new Set<string>([
+  "/api/build-id",                    // UpdatePrompt "new version, reload"
+  "/api/tier",                        // plan tier → Pro routing + premium themes
+  "/api/bible/full",                  // offline whole-Bible hydration (public-domain only, rate-limited)
+  "/api/imports/parse",               // ProPresenter import
+  "/api/media/backfill-thumbnails",   // thumbnails for older media
+]);
+
 function isUniversalAllowedPath(pathname: string): boolean {
+  if (UNIVERSAL_ALLOWED_API_EXACT.has(pathname)) return true;
   return UNIVERSAL_ALLOWED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 

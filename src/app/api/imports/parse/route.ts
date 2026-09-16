@@ -31,7 +31,7 @@
 //     admins exactly which titles will be skipped (not just a count)
 
 import { NextResponse } from "next/server";
-import { apiUser } from "@/lib/session";
+import { apiUser, hasCap } from "@/lib/session";
 import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
 import { createLimiter } from "@/lib/rate-limit";
 import { getDb } from "@/lib/db/client";
@@ -72,6 +72,14 @@ function ev(encoder: TextEncoder, event: Record<string, unknown>): Uint8Array {
 export async function POST(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Role gate (2026-09-16 security review): parsing an import writes a
+  // migration_jobs row and uploads to S3 under imports/<churchId>/ — a library
+  // WRITE. Auth alone let volunteer / pastor / viewer (none of which hold
+  // edit_library, src/lib/session.ts ROLE_CAPS) POST up to 250 MB. Mirrors the
+  // requireCap("edit_library") gate on every library-writing server action.
+  if (!hasCap(user.role, "edit_library")) {
+    return NextResponse.json({ error: "Not permitted" }, { status: 403 });
+  }
   const ent = await getEntitlement(user.churchId);
   if (!canUseAI(ent)) return NextResponse.json({ error: "Import parsing requires an active subscription" }, { status: 402 });
   if (!(await importsLimiter(user.churchId))) {
