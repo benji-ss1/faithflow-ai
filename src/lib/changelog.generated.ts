@@ -4,6 +4,15 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.424",
+    "date": "2026-09-16",
+    "headline": "Clear Messages now clears straight away",
+    "highlights": [
+      "Pressing Clear Messages removes every message from the projector and livestream immediately.",
+      "Before, some messages could stay on screen for up to 5 seconds after you cleared them."
+    ]
+  },
+  {
     "version": "0.1.423",
     "date": "2026-09-16",
     "headline": "Lyrics and verses no longer get cut off on the projector or stage screen",
