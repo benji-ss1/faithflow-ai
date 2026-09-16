@@ -11,7 +11,7 @@
  * Selecting a Songs/Bible/Media result switches the center mode so the
  * user can locate the item. Selecting a Playlist entry jumps preview to it.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import { Music, BookOpen, Image as ImageIcon, ListOrdered, Quote, Search } from "lucide-react";
@@ -19,9 +19,18 @@ import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { phraseSearch } from "@/services/bible/phraseSearch";
 import { dispatchInternal } from "@/lib/internal-events";
+import { defaultFilter } from "cmdk";
 import { parseTypedReference } from "@/lib/bible-parser";
 import { requestSongOpen } from "@/lib/song-selection";
 import { useSongLyricSearch } from "@/lib/song-lyric-search-store";
+import {
+  createBiblePaletteSearcher,
+  fastPathShownKeys,
+  dedupeAgainstShown,
+  isConfirmedBibleReference,
+  refKey,
+  type BiblePaletteHit,
+} from "@/lib/bible-palette-search";
 
 type SongLite = { id: string; title: string; artist?: string | null };
 type MediaLite = { id: string; fileName?: string; name?: string };
@@ -43,25 +52,64 @@ export function SearchPalette({
   const [media, setMedia] = useState<MediaLite[]>([]);
   const [query, setQuery] = useState("");
 
-  // Reference-shaped queries win over phrase results (mirrors COMMON_REFS
-  // matching path). Skip phrase section for those to avoid noise.
-  const REF_SHAPE = /\b(?:[1-3]\s*)?[a-z]{3,}\s*\d+(?::\d+(?:\s*-\s*\d+)?)?\b/i;
+  const [bibleHits, setBibleHits] = useState<BiblePaletteHit[]>([]);
+  const [bibleSearching, setBibleSearching] = useState(false);
+  // Review fix 🔴4: a rate-limited/failed Bible search is NOT "no verses found".
+  const [bibleBusy, setBibleBusy] = useState(false);
+
+  // ONE predicate gates BOTH the Bible/phrase group and the lyric group
+  // (2026-09-16 symmetry fix). It used to be asymmetric: the loose REF_SHAPE
+  // regex suppressed Bible/phrase results while lyrics were only suppressed on
+  // a PARSER-CONFIRMED reference — so "bless the lord 10000 reasons" lost its
+  // Bible group for no reason. Now a real reference ("John 3:16") suppresses
+  // lyrics exactly as before, and a digit-bearing lyric keeps both groups.
+  const looksLikeBibleRef = useMemo(() => isConfirmedBibleReference(query), [query]);
+
   const phraseHits = useMemo(() => {
     const q = query.trim();
     if (q.length < 2) return [];
-    if (REF_SHAPE.test(q)) return [];
+    if (looksLikeBibleRef) return [];
     return phraseSearch(q).slice(0, 5);
-  }, [query]);
+  }, [query, looksLikeBibleRef]);
+
+  // Real Bible verse search (hybrid FTS ⊕ pgvector) — debounced, min 3 chars,
+  // aborted when superseded, cached per session. See bible-palette-search.ts
+  // for the rate-limit contract (shared 20/min bucket with BibleMode).
+  const searcherRef = useRef<ReturnType<typeof createBiblePaletteSearcher> | null>(null);
+  if (!searcherRef.current) {
+    searcherRef.current = createBiblePaletteSearcher({
+      onResults: (_q, hits, status) => { setBibleHits(hits); setBibleBusy(status === "busy"); },
+      onPending: setBibleSearching,
+    });
+  }
+  useEffect(() => {
+    // Only runs while the palette is OPEN — nothing is added to the operator's
+    // audio/detection loop.
+    if (!open) { searcherRef.current?.cancel(); setBibleHits([]); setBibleBusy(false); return; }
+    searcherRef.current?.search(query);
+  }, [open, query]);
+  useEffect(() => () => { searcherRef.current?.cancel(); }, []);
+
+  // Never show the same reference twice: the fast path (COMMON_REFS + curated
+  // phrase corpus) wins, the server group fills in what it didn't have.
+  // A common ref only suppresses a server hit when its own item is actually
+  // VISIBLE under cmdk's filter — see fastPathShownKeys (review fix 🟡2).
+  const shownRefKeys = useMemo(
+    () => fastPathShownKeys(
+      query,
+      COMMON_REFS,
+      phraseHits.map((h) => refKey({ book: h.entry.book, chapter: h.entry.chapter, verse: h.entry.verse })),
+      (value, search) => defaultFilter!(value, search, []),
+    ),
+    [query, phraseHits],
+  );
+  const bibleVerseHits = useMemo(
+    () => dedupeAgainstShown(bibleHits, shownRefKeys),
+    [bibleHits, shownRefKeys],
+  );
 
   // Lyric search over the shared song library (built lazily on first keystroke).
   // Needs ≥2 words so a single typed word stays a quick title/playlist lookup.
-  // Only a REAL Bible reference (known book + chapter, via the parser) hides
-  // lyrics — "bless the lord 10000 reasons" is a lyric, not a reference.
-  const looksLikeBibleRef = useMemo(() => {
-    const q = query.trim();
-    if (!REF_SHAPE.test(q)) return false;
-    try { return parseTypedReference(q).length > 0; } catch { return false; }
-  }, [query]);
   const lyricEnabled = open && query.trim().split(/\s+/).filter(Boolean).length >= 2 && !looksLikeBibleRef;
   const { hits: lyricHits, indexing: lyricIndexing } = useSongLyricSearch(query, lyricEnabled, 8);
 
@@ -108,9 +156,16 @@ export function SearchPalette({
               />
             </div>
             <Command.List className="flex-1 min-h-0 overflow-y-auto p-1.5 text-[13px]">
-              <Command.Empty className="px-4 py-6 text-center text-[var(--color-muted-foreground)]">
-                No results.
-              </Command.Empty>
+              {/* Review fix 🟡1: the Bible Verses group is forceMounted, and
+                  forceMounted items don't increment cmdk's filtered.count — so
+                  Command.Empty rendered "No results." directly ABOVE five listed
+                  verses. Gate it on that group being empty too. Any future
+                  forceMounted group must be added here. */}
+              {bibleVerseHits.length === 0 && (
+                <Command.Empty className="px-4 py-6 text-center text-[var(--color-muted-foreground)]">
+                  No results.
+                </Command.Empty>
+              )}
 
               <Command.Group heading={<span className="eyebrow">Playlist</span>} className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5">
                 {ctx.plan.items.map((it, idx) => (
@@ -246,6 +301,58 @@ export function SearchPalette({
                           slide {h.slideOrder + 1}
                         </span>
                       )}
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+
+              {bibleSearching && bibleVerseHits.length === 0 && !bibleBusy && (
+                <div className="px-4 py-2 text-[11px] italic text-[var(--color-muted-foreground)]">Searching the Bible…</div>
+              )}
+              {bibleBusy && bibleVerseHits.length === 0 && (
+                <div className="px-4 py-2 text-[11px] italic text-[var(--color-muted-foreground)]">Bible search is busy — try again in a moment</div>
+              )}
+              {bibleVerseHits.length > 0 && (
+                <Command.Group forceMount heading={<span className="eyebrow">Bible Verses</span>} className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5">
+                  {bibleVerseHits.map((h) => (
+                    <Command.Item
+                      key={`verse-${h.book}-${h.chapter}-${h.verse}`}
+                      forceMount
+                      // Review fix 🔴1 (2026-09-16). This value used to inject the
+                      // RAW QUERY (`verse ${query} …`) purely so cmdk's filter
+                      // couldn't hide a semantic hit whose text doesn't contain the
+                      // typed words. Side effect: every verse item then scored
+                      // ~0.891 against ANY query — beating the song it was meant to
+                      // sit under ("way maker" → song 0.890822), and because cmdk
+                      // sorts GROUPS by their max item score, the Bible group jumped
+                      // above Songs and Enter loaded Proverbs 30:19 instead of the
+                      // song. `forceMount` gets the same "never filtered out"
+                      // guarantee WITHOUT manufacturing a score, so these
+                      // server-ranked hits sit below Songs/Lyrics (which is also
+                      // their DOM order now) and only win when nothing else matches.
+                      value={`verse ${h.book} ${h.chapter}:${h.verse}`}
+                      onSelect={() => {
+                        onCenterMode("bible");
+                        // Same as the existing Bible entries: LOAD into preview,
+                        // never project.
+                        dispatchInternal("presentflow:bible-goto", {
+                          book: h.book,
+                          chapter: h.chapter,
+                          verseStart: h.verse,
+                          verseEnd: h.verse,
+                          live: false,
+                        });
+                        onOpenChange(false);
+                      }}
+                      className="px-3 py-2.5 rounded-lg flex items-center gap-3 cursor-pointer text-[var(--color-foreground)] border-l-[3px] border-transparent transition-all duration-150 [transition-timing-function:var(--ease-house)] data-[selected=true]:bg-[var(--color-elevated)] data-[selected=true]:border-[var(--color-brand)] data-[selected=true]:shadow-[var(--edge-top),var(--shadow-sm)]"
+                    >
+                      <BookOpen className="w-4 h-4 shrink-0 text-[var(--color-muted-foreground)]" />
+                      <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-muted-foreground)] shrink-0">
+                        {h.book} {h.chapter}:{h.verse}
+                      </span>
+                      <span className="truncate text-[var(--color-muted-foreground)]">
+                        {h.text.length > 90 ? `${h.text.slice(0, 90)}…` : h.text}
+                      </span>
                     </Command.Item>
                   ))}
                 </Command.Group>

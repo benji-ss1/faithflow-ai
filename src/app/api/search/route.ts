@@ -1,11 +1,24 @@
 import { NextResponse } from "next/server";
 import { and, eq, ilike, or, sql } from "drizzle-orm";
 import { apiUser } from "@/lib/session";
+import { createLimiter } from "@/lib/rate-limit";
 import { getDb } from "@/lib/db/client";
 import { songs, servicePlans } from "@/lib/db/schema";
 import { parseReferences } from "@/lib/bible-parser";
+import { ftsIndexReady, hybridSearch, publicDomainFallbackTranslationId } from "@/lib/server/bible";
+import { gateByLexical } from "@/lib/bible-palette-search";
 
 export const runtime = "nodejs";
+// This route now runs embed() + pgvector + FTS (hybridSearch) per call, not the
+// old KJV ILIKE — cold ~720ms, warm ~100-170ms. Give it the same ceiling as
+// /api/bible/search so a cold embed can't be cut off mid-flight.
+export const maxDuration = 30;
+
+// …and the same 20/min/user budget, for the same reason: the caller is a
+// debounced search box, so one operator typing normally stays far under it
+// while a runaway client can't melt pgvector. Separate bucket from
+// /api/bible/search (different surface, different debounce).
+const searchLimiter = createLimiter("global-search", 20, 60_000);
 
 type Hit = { id: string; title: string; subtitle?: string; href: string };
 
@@ -13,6 +26,9 @@ export async function GET(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const q = new URL(req.url).searchParams.get("q")?.trim() || "";
+  if (!(await searchLimiter(user.id))) {
+    return NextResponse.json({ error: "Too many searches — try again in a minute" }, { status: 429 });
+  }
   const empty = { songs: [] as Hit[], bible: [] as Hit[], services: [] as Hit[], archive: [] as Hit[] };
   if (q.length < 2) return NextResponse.json(empty);
 
@@ -82,18 +98,31 @@ export async function GET(req: Request) {
       href: `/library/bible?book=${encodeURIComponent(ref.book)}&chapter=${ref.chapter}&verse=${ref.verseStart}`,
     });
   }
-  if (bibleHits.length < 4) {
+  // Words → verse. Was a KJV-only ILIKE (limit 4), which returned NOTHING for
+  // a remembered phrase whose wording differs from the KJV ("love is patient"
+  // — KJV reads "charity suffereth long") while songs still matched, so the
+  // whole surface looked song-only. Now the same hybrid engine BibleMode uses:
+  // FTS (KJV + WEB, classic + modern wording) ⊕ pgvector paraphrase recall,
+  // RRF-fused. Public-domain translation only — no licensed text is searched
+  // or returned; ≥3 chars, matching /api/bible/search's floor and pgvector cost.
+  // Only when the query ISN'T a structured reference: "John 3:16" already has
+  // its exact answer, and padding it with semantic near-misses (John 1:6,
+  // Mark 8:34…) would be noise the old ILIKE never produced.
+  if (bibleHits.length === 0 && q.length >= 3) {
     try {
       const remaining = 4 - bibleHits.length;
-      const verseRows = (
-        await db.execute(sql`
-          SELECT bv.book, bv.chapter, bv.verse, bv.text
-          FROM bible_verses bv
-          JOIN bible_translations t ON t.id = bv.translation_id
-          WHERE t.code = 'KJV' AND bv.text ILIKE ${pattern}
-          LIMIT ${remaining}
-        `)
-      ).rows as { book: string; chapter: number; verse: number; text: string }[];
+      const pdId = await publicDomainFallbackTranslationId();
+      // RELEVANCE GATE — parity with the ⌘K palette (2026-09-16 follow-up).
+      // RRF scores every query's top hit at 1/(60+1), gibberish included, so
+      // this arm used to answer "asdfgh qwerty zxcv" with Mark 4:3. Reuse the
+      // SAME pure helper the palette uses (one rule, one place): keep only
+      // FTS-anchored hits, lexical first — and ONLY when the lexical arm
+      // actually ran (`ftsIndexReady`), otherwise hybridSearch never sets
+      // `lexical` and gating would hide the Bible arm everywhere.
+      // Over-fetch before gating so a gated-out near-miss doesn't cost a slot.
+      const lexicalAvailable = await ftsIndexReady();
+      const pool = pdId ? await hybridSearch(pdId, q, remaining * 2) : [];
+      const verseRows = gateByLexical(pool, lexicalAvailable).slice(0, remaining);
       for (const r of verseRows) {
         bibleHits.push({
           id: `v-${r.book}-${r.chapter}-${r.verse}`,
