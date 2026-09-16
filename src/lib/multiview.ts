@@ -39,6 +39,12 @@ export const MULTIVIEW_TITLES: Record<MultiViewScreen, string> = {
   ndi: "NDI video mixer feed",
 };
 
+/** What the operator's preview box is showing: one screen, or all four at once
+ *  (rendered as a 2x2 grid INSIDE the box — never a modal, so the console stays
+ *  usable and there is nothing to dismiss mid-service). */
+export type PreviewSelection = MultiViewScreen | "all";
+export const PREVIEW_SELECTIONS: PreviewSelection[] = [...MULTIVIEW_SCREENS, "all"];
+
 export const MULTIVIEW_KILL_KEY = "presentflow.pro.multiview.v1";
 
 /** Default ON; kill-switch = localStorage "0" or NEXT_PUBLIC_MULTIVIEW="0". */

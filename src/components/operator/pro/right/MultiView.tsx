@@ -17,7 +17,7 @@
  * preview and the bottom bar.
  */
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X, Camera, Film } from "lucide-react";
+import { Camera, Film } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
@@ -81,13 +81,18 @@ const CHECKER = "repeating-conic-gradient(var(--color-elevated, #2a2a2e) 0% 25%,
 
 type TileProps = {
   screen: MultiViewScreen;
+  /** Quarter-size tile inside the 2x2 grid: smaller labels, no wasted chrome. */
+  compact?: boolean;
+  /** In the grid, clicking a tile switches the box to that screen full-size —
+   *  the 2x2 wall answers "is every screen right?", this is how you then READ it. */
+  onZoom?: (screen: MultiViewScreen) => void;
   state: OutputState | null;
   received: boolean;
   layerOverrides: LayerWire[] | Map<string, LayerWire> | null | undefined;
   obsStore: ObsEditorStore | null;
 };
 
-export const OutputTile = memo(function OutputTile({ screen, state, received, layerOverrides, obsStore }: TileProps) {
+export const OutputTile = memo(function OutputTile({ screen, state, received, layerOverrides, obsStore, compact = false, onZoom }: TileProps) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0);
   useLayoutEffect(() => {
@@ -114,8 +119,18 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
       className={`relative w-full overflow-hidden rounded-md ${isLive ? "border-2 border-[color:var(--color-destructive,#e11d48)]" : "border border-[var(--color-border)]"}`}
       style={{ aspectRatio: "16 / 9", background: view.transparent ? CHECKER : "#000" }}
       data-multiview-screen={screen}
-      title={view.transparent ? `${MULTIVIEW_TITLES[screen]} — checkerboard means see-through (your video shows behind)` : MULTIVIEW_TITLES[screen]}
+      title={onZoom
+        ? `${MULTIVIEW_TITLES[screen]} — click to see this screen full size`
+        : (view.transparent ? `${MULTIVIEW_TITLES[screen]} — checkerboard means see-through (your video shows behind)` : MULTIVIEW_TITLES[screen])}
     >
+      {onZoom && (
+        <button
+          type="button"
+          onClick={() => onZoom(screen)}
+          aria-label={`Show ${MULTIVIEW_TITLES[screen]} full size`}
+          className="absolute inset-0 z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)]"
+        />
+      )}
       {scale > 0 && (
         <div className="absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${scale})` }}>
           <div className={stage ? "absolute inset-x-0 top-0 h-[72%]" : "absolute inset-0"}>
@@ -149,104 +164,59 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
       )}
       {view.empty && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <span className="text-[11px] text-white/60 bg-black/50 px-2 py-0.5 rounded">
+          <span className={`${compact ? "text-[9px] px-1" : "text-[11px] px-2"} text-white/60 bg-black/50 py-0.5 rounded text-center`}>
             {received ? "Nothing on this screen" : "Waiting for output…"}
           </span>
         </div>
       )}
       {view.videoHidden && !view.empty && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <span className="inline-flex items-center gap-1 text-[11px] text-white/80 bg-black/60 px-2 py-0.5 rounded">
-            <Film className="w-3.5 h-3.5" aria-hidden /> Video playing (not previewed)
+          <span className={`inline-flex items-center gap-1 ${compact ? "text-[9px] px-1" : "text-[11px] px-2"} text-white/80 bg-black/60 py-0.5 rounded`}>
+            <Film className="w-3 h-3" aria-hidden /> {compact ? "Video" : "Video playing (not previewed)"}
           </span>
         </div>
       )}
       <div className="absolute top-1 left-1 z-10 flex items-center gap-1 pointer-events-none">
         {isLive && (
-          <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider text-white bg-[color:var(--color-destructive,#e11d48)] px-1.5 py-0.5 rounded">
-            <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-white pf-ai-live-dot" /> Live
+          <span className={`inline-flex items-center gap-1 ${compact ? "text-[8px] px-1" : "text-[10px] px-1.5"} font-mono uppercase tracking-wider text-white bg-[color:var(--color-destructive,#e11d48)] py-0.5 rounded`}>
+            <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-white pf-ai-live-dot" />{compact ? "" : " Live"}
           </span>
         )}
-        <span className="text-[10px] font-mono uppercase tracking-wider text-white bg-black/70 px-1.5 py-0.5 rounded">
-          {MULTIVIEW_LABELS[screen]}{view.detail ? ` · ${view.detail}` : ""}
+        <span className={`${compact ? "text-[8px] px-1" : "text-[10px] px-1.5"} font-mono uppercase tracking-wider text-white bg-black/70 py-0.5 rounded`}>
+          {MULTIVIEW_LABELS[screen]}{!compact && view.detail ? ` · ${view.detail}` : ""}
         </span>
       </div>
       {view.cameraHidden && (
-        <span className="absolute bottom-1 right-1 z-10 inline-flex items-center gap-1 text-[10px] text-white/90 bg-black/70 px-1.5 py-0.5 rounded pointer-events-none">
-          <Camera className="w-3 h-3" aria-hidden /> Camera not previewed
+        <span className={`absolute bottom-1 right-1 z-10 inline-flex items-center gap-1 ${compact ? "text-[8px] px-1" : "text-[10px] px-1.5"} text-white/90 bg-black/70 py-0.5 rounded pointer-events-none`}>
+          <Camera className="w-3 h-3" aria-hidden /> {compact ? "Cam" : "Camera not previewed"}
         </span>
       )}
     </div>
   );
 });
 
-export function MultiViewOverlay({
-  layerOverrides, onClose,
-}: {
-  layerOverrides: TileProps["layerOverrides"];
-  onClose: () => void;
-}) {
+/**
+ * All four screens as a 2x2 grid, rendered INSIDE the operator's preview box.
+ *
+ * Deliberately not a modal (2026-09-16 operator directive): a full-screen
+ * takeover meant you couldn't touch anything else and had to dismiss it before
+ * making a change. Here the wall sits in the box, the rest of the console stays
+ * live, and every tile follows the output automatically — one subscription
+ * shared by all four, coalesced to <=4 updates/s.
+ */
+export function MultiViewGrid({ layerOverrides, onZoom }: { layerOverrides: TileProps["layerOverrides"]; onZoom: (screen: MultiViewScreen) => void }) {
   const { state, received } = useLocalOutputState();
   const obsStore = useObsEditorStore();
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const closeRef = useRef<HTMLButtonElement | null>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.stopImmediatePropagation(); e.preventDefault(); onCloseRef.current(); return; }
-      // aria-modal focus trap: the only focusable control is Close, so Tab /
-      // Shift+Tab stay on it and never reach console hotkeys/buttons behind.
-      if (e.key === "Tab" && rootRef.current) {
-        e.preventDefault();
-        closeRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      try { if (opener && document.contains(opener)) opener.focus(); } catch { /* ignore */ }
-    };
-  }, []);
-  const isLive = !!state && state.live.kind !== "empty";
   return (
-    <div
-      ref={rootRef}
-      className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-sm flex flex-col px-4 py-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="All screens"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="mx-auto w-full max-w-[1600px] flex items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <h2 className="text-sm font-semibold text-white">All screens</h2>
-          <span className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${isLive ? "bg-[color:var(--color-destructive,#e11d48)] text-white" : "bg-white/10 text-white/70"}`}>
-            {isLive ? "Live" : "Idle"}
-          </span>
-          <span className="text-[11px] text-white/70">Preview only — looking here never changes your screens.</span>
-        </div>
-        <button
-          ref={closeRef}
-          type="button"
-          onClick={onClose}
-          className="shrink-0 h-9 w-9 inline-flex items-center justify-center rounded-md text-white/80 hover:text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
-          aria-label="Close all screens"
-          title="Close (Esc)"
-        >
-          <X className="w-5 h-5" />
-        </button>
+    <div className="space-y-1">
+      <div className="grid grid-cols-2 gap-1">
+        {MULTIVIEW_SCREENS.map((screen) => (
+          <OutputTile key={screen} screen={screen} state={state} received={received} layerOverrides={layerOverrides} obsStore={obsStore} compact onZoom={onZoom} />
+        ))}
       </div>
-      <div className="mx-auto w-full max-w-[1600px] flex-1 min-h-0 overflow-y-auto">
-        <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
-          {MULTIVIEW_SCREENS.map((screen) => (
-            <OutputTile key={screen} screen={screen} state={state} received={received} layerOverrides={layerOverrides} obsStore={obsStore} />
-          ))}
-        </div>
-        <p className="mt-3 text-[11px] text-white/60">Timers, pop-up messages and stage countdowns aren&apos;t shown in these previews. Videos and cameras show a label instead of playing.</p>
-      </div>
+      <p className="text-[10px] leading-snug text-[var(--color-muted-foreground)]">
+        Click a screen to see it full size. Timers, pop-up messages and stage countdowns aren&apos;t shown here; videos and cameras show a label instead of playing.
+      </p>
     </div>
   );
 }
