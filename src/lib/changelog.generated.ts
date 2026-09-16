@@ -4,6 +4,24 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.427",
+    "date": "2026-09-16",
+    "headline": "Only people who run services can change the default theme",
+    "highlights": [
+      "Applying a theme as the church default now needs a role that can run services (admin, operator or volunteer).",
+      "Pastor and viewer accounts can still see themes but can no longer change the default."
+    ]
+  },
+  {
+    "version": "0.1.426",
+    "date": "2026-09-16",
+    "headline": "Clear Messages now clears straight away",
+    "highlights": [
+      "Pressing Clear Messages removes every message from the projector and livestream immediately.",
+      "Before, some messages could stay on screen for up to 5 seconds after you cleared them."
+    ]
+  },
+  {
     "version": "0.1.425",
     "date": "2026-09-16",
     "headline": "More settings now work right inside the desktop app",
@@ -11,18 +29,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Turn Layers on or off in Settings, under Screens & Outputs (church admins only).",
       "Your Bible translation, detection and auto-approve settings, and how long transcripts are kept, can now be changed right in the Settings window.",
       "Setting up your screens now opens the Screens panel in the app instead of your web browser.",
-      "Signing out of all devices now works from Settings without leaving the app first.",
-      "Applying a theme as the church default now needs a role that can run services (admin, operator or volunteer).",
-      "Pastor and viewer accounts can still see themes but can no longer change the default."
+      "Signing out of all devices now works from Settings without leaving the app first."
     ]
   },
   {
     "version": "0.1.424",
     "date": "2026-09-16",
-    "headline": "Clear Messages now clears straight away",
+    "headline": "Your first verse goes live on the projector",
     "highlights": [
-      "Pressing Clear Messages removes every message from the projector and livestream immediately.",
-      "Before, some messages could stay on screen for up to 5 seconds after you cleared them.",
       "At the end of setup, say \"Let's turn to John chapter three, verse sixteen\" and Sarah puts it straight onto your live screen while the spotlight is on it.",
       "Sarah now looks things up on the web for questions she doesn't already know, using official sound-desk and streaming docs, and shows you where the answer came from.",
       "She tells you when your sound is coming in too quiet for her to follow the words.",
