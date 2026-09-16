@@ -176,7 +176,11 @@ export function SceneRail({ ctx }: { ctx: OperatorShellCtx }) {
       e.preventDefault();
       e.stopPropagation();
       if (e.repeat) return;
-      const target = focusId === "none" ? null : (options.find((o) => o?.id === focusId) ?? null);
+      // Read the LIVE focus, not just our roving state: a direct .focus() from
+      // assistive tech / automation would otherwise commit the previous chip.
+      const domId = (document.activeElement as HTMLElement | null)?.dataset?.sceneId;
+      const id = domId ?? focusId;
+      const target = id === "none" ? null : (options.find((o) => o?.id === id) ?? null);
       pick(target);
       return;
     }

@@ -597,7 +597,7 @@ export default function LivePage() {
               layersEnabled={LAYERS_V2}
               layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
               scene={scene}
-        scenesPossible={scenesPossible}
+              scenesPossible={scenesPossible}
               screen="main"
             />
           </div>
