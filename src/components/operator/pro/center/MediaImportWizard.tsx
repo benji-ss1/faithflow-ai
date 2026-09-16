@@ -38,12 +38,21 @@ function isProFile(file: File): boolean {
  * normal media path and each rendered deck page (B2), so there is one upload
  * path, not two divergent copies. Throws on any failure.
  */
-async function uploadMediaFile(file: File, signal?: AbortSignal, libraryId?: string | null): Promise<void> {
+export async function uploadMediaFile(
+  file: File,
+  signal?: AbortSignal,
+  libraryId?: string | null,
+  // Media Bin OS drop: `contentType` overrides an empty/unreliable OS file.type
+  // (Windows .mov); `onProgress` switches the PUT to XHR for byte progress.
+  // Both optional — existing wizard callers are byte-identical.
+  opts?: { contentType?: string; onProgress?: (fraction: number) => void },
+): Promise<void> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  const contentType = opts?.contentType || file.type;
   const presignRes = await fetch("/api/media/presign", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }),
+    body: JSON.stringify({ fileName: file.name, contentType, size: file.size, purpose: "media" }),
     signal,
   });
   if (!presignRes.ok) {
@@ -51,11 +60,33 @@ async function uploadMediaFile(file: File, signal?: AbortSignal, libraryId?: str
     throw new Error(err.error ?? `Presign failed (${presignRes.status})`);
   }
   const { url: uploadUrl, key } = (await presignRes.json()) as { url: string; key: string };
-  const uploadRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file, signal });
-  if (!uploadRes.ok) throw new Error("Storage upload failed");
-  const kind = file.type.startsWith("video") ? ("video" as const) : ("image" as const);
-  const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: file.type, sizeBytes: file.size, libraryId });
+  if (opts?.onProgress) {
+    await putWithProgress(uploadUrl, file, contentType, opts.onProgress, signal);
+  } else {
+    const uploadRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: file, signal });
+    if (!uploadRes.ok) throw new Error("Storage upload failed");
+  }
+  const kind = contentType.startsWith("video") ? ("video" as const) : ("image" as const);
+  const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: contentType, sizeBytes: file.size, libraryId });
   if (!result?.ok) throw new Error((result as { error?: string } | undefined)?.error ?? "Registration failed");
+}
+
+/** PUT via XHR so upload byte progress is observable (fetch can't report it). */
+function putWithProgress(url: string, file: File, contentType: string, onProgress: (f: number) => void, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("Storage upload failed")));
+    xhr.onerror = () => reject(new Error("Storage upload failed — check your connection"));
+    xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"));
+    if (signal) {
+      if (signal.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
+      signal.addEventListener("abort", () => xhr.abort(), { once: true });
+    }
+    xhr.send(file);
+  });
 }
 
 /** True if the file is a PowerPoint we convert (server-side) to a PDF, then
