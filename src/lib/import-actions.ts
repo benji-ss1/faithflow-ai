@@ -1,7 +1,7 @@
 "use server";
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { requireUser } from "./session";
+import { requireUser, requireCap } from "./session";
 import { getDb } from "./db/client";
 import { mediaAssets, settings, migrationJobs, songs } from "./db/schema";
 import { runImportPipeline, type PipelineOutput } from "./importers/pipeline";
@@ -111,7 +111,10 @@ export async function importDrop(input: {
   warnings: { file: string; warnings: string[] }[];
   perParser: Record<string, { examined: number; imported: number; skipped: number }>;
 }>> {
-  const user = await requireUser();
+  // 2026-09-16 security review: INSERTs songs + media into the church library,
+  // so it takes the same capability gate as every other library write
+  // (createSong / renameSong / … in actions.ts). Was requireUser() — any role.
+  const user = await requireCap("edit_library");
 
   const total = input.drop.reduce((sum, f) => sum + Math.ceil(f.b64.length * 0.75), 0);
   if (total > MAX_TOTAL_BYTES) {
@@ -283,7 +286,11 @@ export async function finalizeImport(migrationJobId: string): Promise<Result<{
   added: { songs: number; media: number };
   skipped: number;
 }>> {
-  const user = await requireUser();
+  // 2026-09-16 security review: COMMITTING a parsed import lands songs + media
+  // in the library — the write half of /api/imports/parse, which now gates on
+  // edit_library too. Was requireUser(), so any role could finish an import
+  // someone else started. Church scoping below is unchanged.
+  const user = await requireCap("edit_library");
   const db = getDb();
 
   const [job] = await db.select().from(migrationJobs)
@@ -380,7 +387,9 @@ export async function extractThemeBackgrounds(input: { drop: FileDrop[] }): Prom
   }[];
   warnings: { file: string; warnings: string[] }[];
 }>> {
-  const user = await requireUser();
+  // 2026-09-16 security review: uploads the extracted backgrounds to S3 under
+  // the church prefix (a library/media write), so same edit_library gate.
+  const user = await requireCap("edit_library");
 
   const total = input.drop.reduce((sum, f) => sum + Math.ceil(f.b64.length * 0.75), 0);
   if (total > MAX_TOTAL_BYTES) {
