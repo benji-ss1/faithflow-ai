@@ -51,15 +51,12 @@ export const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1";
 export const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1";
 
 /** B3 manual projector text-size multiplier (1.0 = AUTO). A−/A+ nudge it.
- *  2026-09-16: range widened 0.6–1.6 → 0.3–2.5. 1.0 (AUTO) is the fit-the-screen
- *  default and never cuts text off; operators get real room either way because
- *  every projector and room is different. Going bigger than fits is their choice
- *  and the preview flags it ("Text cut off at this size"). */
-// Key bumped v1 → v2 (2026-09-16): A+ used to only raise the ceiling, so a saved
-// value above 1.0 never enlarged long lyrics. It now honours bigger-than-fits, so
-// carrying an old saved value forward would suddenly push lyrics off the screen on
-// deploy. A fresh key starts every operator on AUTO (fit the screen, never clipped).
-export const FONT_SCALE_KEY = "presentflow.pro.fontScale.v2";
+ *  2026-09-16: range widened 0.6–1.6 → 0.3–2.5 so operators have real room for
+ *  different projectors and rooms. Text is NEVER cut off at any value: bigger grows
+ *  text only as far as it still fits the screen; smaller shrinks freely. Key stays
+ *  v1 because bigger keeps its existing never-clip meaning — saved settings carry
+ *  over unchanged. */
+export const FONT_SCALE_KEY = "presentflow.pro.fontScale.v1";
 export const FONT_SCALE_MIN = 0.3;
 export const FONT_SCALE_MAX = 2.5;
 export const FONT_SCALE_STEP = 0.1;
