@@ -182,7 +182,13 @@ export class NDIReceiveService {
     }
     this.stop(); // idempotent — tear down any prior session
     try {
-      const receiver = new this.mod.NdiReceiver();
+      // Prefer the persistent discovery receiver: its finder has already been
+      // dwelling (it populated the picker the operator just clicked), so connect()
+      // resolves the source immediately and the wait below is skipped. Only a cold
+      // start (e.g. app launch with a remembered source) actually waits — keeping
+      // overlapping start()s, which the renderer handles poorly, rare.
+      const receiver = this.discovery ?? new this.mod.NdiReceiver();
+      this.discovery = null;
       this.receiver = receiver;
       this.resampler = null; // (lazily created when we learn the source rate)
       this.lastAudioAt = Date.now(); // grace period before the stall watchdog trips
