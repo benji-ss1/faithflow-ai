@@ -1,12 +1,23 @@
 import { NextResponse } from "next/server";
 import { and, eq, ilike, or, sql } from "drizzle-orm";
 import { apiUser } from "@/lib/session";
+import { createLimiter } from "@/lib/rate-limit";
 import { getDb } from "@/lib/db/client";
 import { songs, servicePlans } from "@/lib/db/schema";
 import { parseReferences } from "@/lib/bible-parser";
 import { hybridSearch, publicDomainFallbackTranslationId } from "@/lib/server/bible";
 
 export const runtime = "nodejs";
+// This route now runs embed() + pgvector + FTS (hybridSearch) per call, not the
+// old KJV ILIKE — cold ~720ms, warm ~100-170ms. Give it the same ceiling as
+// /api/bible/search so a cold embed can't be cut off mid-flight.
+export const maxDuration = 30;
+
+// …and the same 20/min/user budget, for the same reason: the caller is a
+// debounced search box, so one operator typing normally stays far under it
+// while a runaway client can't melt pgvector. Separate bucket from
+// /api/bible/search (different surface, different debounce).
+const searchLimiter = createLimiter("global-search", 20, 60_000);
 
 type Hit = { id: string; title: string; subtitle?: string; href: string };
 
@@ -14,6 +25,9 @@ export async function GET(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const q = new URL(req.url).searchParams.get("q")?.trim() || "";
+  if (!(await searchLimiter(user.id))) {
+    return NextResponse.json({ error: "Too many searches — try again in a minute" }, { status: 429 });
+  }
   const empty = { songs: [] as Hit[], bible: [] as Hit[], services: [] as Hit[], archive: [] as Hit[] };
   if (q.length < 2) return NextResponse.json(empty);
 

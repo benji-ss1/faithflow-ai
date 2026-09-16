@@ -9,8 +9,11 @@
  * `bibleVerseHits` / `phraseHits` / `lyricEnabled`. Fetch is mocked; no DB.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { defaultFilter } from "cmdk";
 import {
   createBiblePaletteSearcher,
+  gateByLexical,
   dedupeAgainstShown,
   isConfirmedBibleReference,
   shouldRunBiblePaletteSearch,
@@ -176,6 +179,77 @@ async function main() {
   await check("book-name casing does not defeat the dedupe", () => {
     const out = dedupeAgainstShown([{ ...HIT_JOHN, book: "JOHN" }], new Set([refKey({ book: "John", chapter: 3, verse: 16 })]));
     assert.equal(out.length, 0);
+  });
+
+
+  // ── Review fix 1: group order + tie resolution ─────────────────────────────
+  console.log("Palette group order (songs before Bible verses):");
+  const paletteSrc = readFileSync(new URL("../src/components/operator/pro/SearchPalette.tsx", import.meta.url), "utf8");
+  await check("Bible Verses group is rendered AFTER Songs and Lyrics", () => {
+    const iSongs = paletteSrc.indexOf('>Songs</span>');
+    const iLyrics = paletteSrc.indexOf('>Lyrics</span>');
+    const iVerses = paletteSrc.indexOf('>Bible Verses</span>');
+    assert.ok(iSongs > 0 && iLyrics > 0 && iVerses > 0, "all three groups present");
+    assert.ok(iSongs < iVerses, "Songs before Bible Verses");
+    assert.ok(iLyrics < iVerses, "Lyrics before Bible Verses");
+  });
+  await check("verse items no longer inject the raw query into their cmdk value", () => {
+    assert.ok(!/value=\{`verse \$\{query\}/.test(paletteSrc), "raw-query injection removed");
+    assert.ok(/forceMount/.test(paletteSrc), "forceMount keeps semantic hits from being filtered out");
+  });
+  await check('"way maker": cmdk selects the SONG, not a verse', () => {
+    // cmdk sorts groups by their max item score, ties by DOM order, and
+    // auto-selects the first item. Reproduce that with cmdk's real filter.
+    const songScore = defaultFilter!("song Way Maker Sinach", "way maker", []);
+    const verseScore = defaultFilter!("verse Proverbs 30:19", "way maker", []);
+    assert.ok(songScore > verseScore, `song ${songScore} must outrank verse ${verseScore}`);
+    // ...and the old value shape is exactly what broke it:
+    const oldVerseScore = defaultFilter!("verse way maker Proverbs 30:19", "way maker", []);
+    assert.ok(oldVerseScore > songScore, "regression guard: the old injected value DID outrank the song");
+  });
+
+  // ── Review fix 2: lexical relevance gate ───────────────────────────────────
+  console.log("Lexical relevance gate:");
+  const LEX: BiblePaletteHit = { ...HIT_1COR, lexical: true, semantic: false };
+  const SEM: BiblePaletteHit = { ...HIT_JOHN, lexical: false, semantic: true };
+  await check("lexicalAvailable + a lexical hit → group renders, lexical first", () => {
+    const out = gateByLexical([SEM, LEX], true);
+    assert.equal(out.length, 2);
+    assert.equal(out[0].book, "1 Corinthians");
+  });
+  await check("lexicalAvailable + NO lexical hit (gibberish) → group hidden", () => {
+    assert.deepEqual(gateByLexical([SEM], true), []);
+  });
+  await check("FTS index down (lexicalAvailable false) → ungated fallback, group still shows", () => {
+    const out = gateByLexical([SEM], false);
+    assert.equal(out.length, 1, "must NOT silently hide the Bible group everywhere");
+  });
+  await check("searcher applies the gate off the server flag", async () => {
+    _clearBibleSearchCache();
+    let got: BiblePaletteHit[] = [];
+    const fetchGibberish = async () => ({ ok: true, json: async () => ({ hits: [SEM], lexicalAvailable: true }) });
+    const s1 = createBiblePaletteSearcher({ onResults: (_q, h) => { got = h; }, fetchImpl: fetchGibberish, debounceMs: 10 });
+    s1.search("asdfgh qwerty zxcv"); await sleep(60);
+    assert.deepEqual(got, [], "gibberish renders no Bible group");
+    _clearBibleSearchCache();
+    const fetchNoFts = async () => ({ ok: true, json: async () => ({ hits: [SEM], lexicalAvailable: false }) });
+    const s2 = createBiblePaletteSearcher({ onResults: (_q, h) => { got = h; }, fetchImpl: fetchNoFts, debounceMs: 10 });
+    s2.search("asdfgh qwerty zxcv"); await sleep(60);
+    assert.equal(got.length, 1, "no FTS index → fall back to previous behaviour");
+  });
+
+  // ── Review fix 4: 429 is not "no verses found" ─────────────────────────────
+  console.log("Rate-limited / failed search:");
+  await check("a 429 reports busy and is NOT cached as an empty result", async () => {
+    _clearBibleSearchCache();
+    let calls = 0;
+    let status: string | undefined;
+    const fetch429 = async () => { calls++; return { ok: false, json: async () => ({ error: "Too many searches" }) }; };
+    const s = createBiblePaletteSearcher({ onResults: (_q, _h, st) => { status = st; }, fetchImpl: fetch429, debounceMs: 10 });
+    s.search("love is patient"); await sleep(60);
+    assert.equal(status, "busy", "palette can show 'Bible search is busy'");
+    s.search("love is patient"); await sleep(60);
+    assert.equal(calls, 2, "an error must never be cached as a result");
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

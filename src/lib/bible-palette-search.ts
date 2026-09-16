@@ -32,7 +32,18 @@ import {
   type BibleSearchHit,
 } from "@/lib/bible-search-cache";
 
-export type BiblePaletteHit = BibleSearchHit;
+/**
+ * A palette hit. `lexical` / `semantic` come straight from `HybridHit` — the
+ * relevance GATE below reads `lexical` (see `gateByLexical`).
+ */
+export type BiblePaletteHit = BibleSearchHit & { lexical?: boolean; semantic?: boolean };
+
+/**
+ * Why a render is empty. The palette must distinguish "the engine answered and
+ * had nothing" from "the engine refused us" (429 / 5xx / network) — the latter
+ * gets a one-line message and is NEVER cached, so a retype can succeed.
+ */
+export type BiblePaletteStatus = "ok" | "busy";
 
 /** Server enforces the same floor; keep them in sync. */
 export const BIBLE_PALETTE_MIN_CHARS = 3;
@@ -41,8 +52,14 @@ export const BIBLE_PALETTE_DEBOUNCE_MS = 250;
 export const BIBLE_PALETTE_LIMIT = 5;
 /**
  * The palette sends no `translation`, so the server searches the public-domain
- * default (KJV). Cache under that code so keys mean what they say — and so a
- * repeat of the same phrase in BibleMode can reuse it when limits match.
+ * default (KJV). Cache under that code so the key means what it says.
+ *
+ * NOTE (review fix, 2026-09-16): this is a PALETTE-LOCAL cache in practice, not
+ * a shared one. The key is `KJV:<BIBLE_PALETTE_LIMIT>:<query>` while BibleMode
+ * keys on the operator's own translation code and its own Results limit
+ * (10/20/50/100), so the two surfaces essentially never collide. Cross-surface
+ * reuse is a theoretical bonus if both ever land on KJV at the same limit — do
+ * not rely on it.
  */
 const PALETTE_TRANSLATION = "KJV";
 
@@ -104,10 +121,35 @@ export function dedupeAgainstShown(hits: BiblePaletteHit[], shownKeys: Iterable<
   return out;
 }
 
+/**
+ * RELEVANCE GATE (review fix 🔴2, 2026-09-16).
+ *
+ * RRF gives the top hit `1/(60+1)` = 0.016393 for EVERY query — including
+ * gibberish ("asdfgh qwerty zxcv" → Mark 4:3) — so a numeric score floor can
+ * never be a relevance gate. The only honest signal is whether the LEXICAL arm
+ * (FTS over the KJV+WEB corpus) actually matched: real words from a real verse
+ * match lexically, noise does not.
+ *
+ * CAVEAT that shapes the contract: `hybridSearch` SKIPS the lexical arm
+ * entirely when the FTS index isn't valid (`ftsIndexReady`, bible.ts) — in that
+ * state NO hit is ever `lexical`, and a naive gate would silently hide the
+ * Bible group everywhere. So the server reports `lexicalAvailable` and the gate
+ * is applied ONLY when it is true; otherwise we fall back to the ungated
+ * behaviour (semantic-only results, exactly as before this fix).
+ *
+ * When gating: require at least one lexical hit (else render nothing), and
+ * order lexical hits first so the anchored match is what Enter would take.
+ */
+export function gateByLexical(hits: BiblePaletteHit[], lexicalAvailable: boolean): BiblePaletteHit[] {
+  if (!lexicalAvailable) return hits;
+  if (!hits.some((h) => h.lexical === true)) return [];
+  return [...hits.filter((h) => h.lexical === true), ...hits.filter((h) => h.lexical !== true)];
+}
+
 type FetchLike = (input: string, init?: RequestInit) => Promise<{ ok?: boolean; json: () => Promise<unknown> }>;
 
 export type BiblePaletteSearcherOptions = {
-  onResults: (query: string, hits: BiblePaletteHit[]) => void;
+  onResults: (query: string, hits: BiblePaletteHit[], status?: BiblePaletteStatus) => void;
   onPending?: (pending: boolean) => void;
   fetchImpl?: FetchLike;
   debounceMs?: number;
@@ -149,7 +191,7 @@ export function createBiblePaletteSearcher(opts: BiblePaletteSearcherOptions): B
     const key = bibleSearchCacheKey(PALETTE_TRANSLATION, q, limit);
     const cached = getBibleSearchCached(key);
     if (cached) {
-      if (gen === generation) opts.onResults(q, cached.hits);
+      if (gen === generation) opts.onResults(q, cached.hits, "ok");
       return;
     }
     // Supersede: a newer query aborts the older request so a slow stale
@@ -165,12 +207,23 @@ export function createBiblePaletteSearcher(opts: BiblePaletteSearcherOptions): B
         body: JSON.stringify({ query: q, limit }),
         signal: c.signal,
       });
-      const json = (await res.json()) as { hits?: BiblePaletteHit[]; results?: BiblePaletteHit[]; error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        hits?: BiblePaletteHit[];
+        results?: BiblePaletteHit[];
+        error?: string;
+        lexicalAvailable?: boolean;
+      };
       if (c.signal.aborted || gen !== generation) return;
-      if (json?.error) { opts.onResults(q, []); return; } // incl. 429 — fail quiet, songs still show
-      const hits = (json?.hits || json?.results || []).slice(0, limit);
-      if (hits.length > 0) setBibleSearchCached(key, hits, PALETTE_TRANSLATION);
-      opts.onResults(q, hits);
+      // Review fix 🔴4 (2026-09-16): a 429 / 5xx used to look EXACTLY like "no
+      // verses found" — empty group, no message — and because the empty result
+      // wasn't cached, retyping kept hammering the same exhausted bucket. Now
+      // it renders one explanatory line and is never cached as a result.
+      if (res.ok === false || json?.error) { opts.onResults(q, [], "busy"); return; }
+      const raw = (json?.hits || json?.results || []).slice(0, limit);
+      const hits = gateByLexical(raw, json?.lexicalAvailable === true);
+      // Cache the GATED list: it is what we render, so a repeat is identical.
+      setBibleSearchCached(key, hits, PALETTE_TRANSLATION);
+      opts.onResults(q, hits, "ok");
     } catch {
       // AbortError (superseded) or network — never surface noise in the palette.
     } finally {
@@ -187,7 +240,7 @@ export function createBiblePaletteSearcher(opts: BiblePaletteSearcherOptions): B
       generation++;
       abortInFlight();
       opts.onPending?.(false);
-      opts.onResults(q, []);
+      opts.onResults(q, [], "ok");
       return;
     }
     const gen = ++generation;

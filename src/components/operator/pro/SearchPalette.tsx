@@ -52,6 +52,8 @@ export function SearchPalette({
 
   const [bibleHits, setBibleHits] = useState<BiblePaletteHit[]>([]);
   const [bibleSearching, setBibleSearching] = useState(false);
+  // Review fix 🔴4: a rate-limited/failed Bible search is NOT "no verses found".
+  const [bibleBusy, setBibleBusy] = useState(false);
 
   // ONE predicate gates BOTH the Bible/phrase group and the lyric group
   // (2026-09-16 symmetry fix). It used to be asymmetric: the loose REF_SHAPE
@@ -74,14 +76,14 @@ export function SearchPalette({
   const searcherRef = useRef<ReturnType<typeof createBiblePaletteSearcher> | null>(null);
   if (!searcherRef.current) {
     searcherRef.current = createBiblePaletteSearcher({
-      onResults: (_q, hits) => setBibleHits(hits),
+      onResults: (_q, hits, status) => { setBibleHits(hits); setBibleBusy(status === "busy"); },
       onPending: setBibleSearching,
     });
   }
   useEffect(() => {
     // Only runs while the palette is OPEN — nothing is added to the operator's
     // audio/detection loop.
-    if (!open) { searcherRef.current?.cancel(); setBibleHits([]); return; }
+    if (!open) { searcherRef.current?.cancel(); setBibleHits([]); setBibleBusy(false); return; }
     searcherRef.current?.search(query);
   }, [open, query]);
   useEffect(() => () => { searcherRef.current?.cancel(); }, []);
@@ -233,44 +235,6 @@ export function SearchPalette({
                 </Command.Group>
               )}
 
-              {bibleSearching && bibleVerseHits.length === 0 && (
-                <div className="px-4 py-2 text-[11px] italic text-[var(--color-muted-foreground)]">Searching the Bible…</div>
-              )}
-              {bibleVerseHits.length > 0 && (
-                <Command.Group heading={<span className="eyebrow">Bible Verses</span>} className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5">
-                  {bibleVerseHits.map((h) => (
-                    <Command.Item
-                      key={`verse-${h.book}-${h.chapter}-${h.verse}`}
-                      // Include the typed query so cmdk's own filter never hides a
-                      // semantic hit whose text doesn't literally contain the words.
-                      value={`verse ${query} ${h.book} ${h.chapter}:${h.verse}`}
-                      onSelect={() => {
-                        onCenterMode("bible");
-                        // Same as the existing Bible entries: LOAD into preview,
-                        // never project.
-                        dispatchInternal("presentflow:bible-goto", {
-                          book: h.book,
-                          chapter: h.chapter,
-                          verseStart: h.verse,
-                          verseEnd: h.verse,
-                          live: false,
-                        });
-                        onOpenChange(false);
-                      }}
-                      className="px-3 py-2.5 rounded-lg flex items-center gap-3 cursor-pointer text-[var(--color-foreground)] border-l-[3px] border-transparent transition-all duration-150 [transition-timing-function:var(--ease-house)] data-[selected=true]:bg-[var(--color-elevated)] data-[selected=true]:border-[var(--color-brand)] data-[selected=true]:shadow-[var(--edge-top),var(--shadow-sm)]"
-                    >
-                      <BookOpen className="w-4 h-4 shrink-0 text-[var(--color-muted-foreground)]" />
-                      <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-muted-foreground)] shrink-0">
-                        {h.book} {h.chapter}:{h.verse}
-                      </span>
-                      <span className="truncate text-[var(--color-muted-foreground)]">
-                        {h.text.length > 90 ? `${h.text.slice(0, 90)}…` : h.text}
-                      </span>
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              )}
-
               {songs.length > 0 && (
                 <Command.Group heading={<span className="eyebrow">Songs</span>} className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5">
                   {songs.slice(0, 20).map((s) => (
@@ -328,6 +292,58 @@ export function SearchPalette({
                           slide {h.slideOrder + 1}
                         </span>
                       )}
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+
+              {bibleSearching && bibleVerseHits.length === 0 && !bibleBusy && (
+                <div className="px-4 py-2 text-[11px] italic text-[var(--color-muted-foreground)]">Searching the Bible…</div>
+              )}
+              {bibleBusy && bibleVerseHits.length === 0 && (
+                <div className="px-4 py-2 text-[11px] italic text-[var(--color-muted-foreground)]">Bible search is busy — try again in a moment</div>
+              )}
+              {bibleVerseHits.length > 0 && (
+                <Command.Group forceMount heading={<span className="eyebrow">Bible Verses</span>} className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5">
+                  {bibleVerseHits.map((h) => (
+                    <Command.Item
+                      key={`verse-${h.book}-${h.chapter}-${h.verse}`}
+                      forceMount
+                      // Review fix 🔴1 (2026-09-16). This value used to inject the
+                      // RAW QUERY (`verse ${query} …`) purely so cmdk's filter
+                      // couldn't hide a semantic hit whose text doesn't contain the
+                      // typed words. Side effect: every verse item then scored
+                      // ~0.891 against ANY query — beating the song it was meant to
+                      // sit under ("way maker" → song 0.890822), and because cmdk
+                      // sorts GROUPS by their max item score, the Bible group jumped
+                      // above Songs and Enter loaded Proverbs 30:19 instead of the
+                      // song. `forceMount` gets the same "never filtered out"
+                      // guarantee WITHOUT manufacturing a score, so these
+                      // server-ranked hits sit below Songs/Lyrics (which is also
+                      // their DOM order now) and only win when nothing else matches.
+                      value={`verse ${h.book} ${h.chapter}:${h.verse}`}
+                      onSelect={() => {
+                        onCenterMode("bible");
+                        // Same as the existing Bible entries: LOAD into preview,
+                        // never project.
+                        dispatchInternal("presentflow:bible-goto", {
+                          book: h.book,
+                          chapter: h.chapter,
+                          verseStart: h.verse,
+                          verseEnd: h.verse,
+                          live: false,
+                        });
+                        onOpenChange(false);
+                      }}
+                      className="px-3 py-2.5 rounded-lg flex items-center gap-3 cursor-pointer text-[var(--color-foreground)] border-l-[3px] border-transparent transition-all duration-150 [transition-timing-function:var(--ease-house)] data-[selected=true]:bg-[var(--color-elevated)] data-[selected=true]:border-[var(--color-brand)] data-[selected=true]:shadow-[var(--edge-top),var(--shadow-sm)]"
+                    >
+                      <BookOpen className="w-4 h-4 shrink-0 text-[var(--color-muted-foreground)]" />
+                      <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-muted-foreground)] shrink-0">
+                        {h.book} {h.chapter}:{h.verse}
+                      </span>
+                      <span className="truncate text-[var(--color-muted-foreground)]">
+                        {h.text.length > 90 ? `${h.text.slice(0, 90)}…` : h.text}
+                      </span>
                     </Command.Item>
                   ))}
                 </Command.Group>
