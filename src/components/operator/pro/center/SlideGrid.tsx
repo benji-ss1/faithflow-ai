@@ -1,4 +1,5 @@
 "use client";
+import { useShortcutLabel } from "@/lib/usePlatformLabel";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
@@ -173,6 +174,7 @@ function fireLive(key: string, fn: () => void) {
 }
 
 export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShellCtx; slideSize: number; onOpenEditor?: () => void }) {
+  const saveKey = useShortcutLabel({ mod: true, key: "↵" });
   const router = useRouter();
   const item = ctx.plan.items[ctx.previewItemIdx];
   const slides: SlidePayload[] = item?.slides ?? [];
@@ -1261,7 +1263,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
               >
                 {qeSaving ? "Saving…" : "Save"}
               </button>
-              <span className="ml-1 text-[11px] text-white/60">⌘↵ Save · Esc Close · other slides stay live-clickable</span>
+              <span className="ml-1 text-[11px] text-white/60">{saveKey} Save · Esc Close · other slides stay live-clickable</span>
             </div>
           </div>
         );

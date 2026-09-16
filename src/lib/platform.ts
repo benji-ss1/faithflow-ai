@@ -19,3 +19,26 @@ export function modKeyLabel(ua?: string): string {
  */
 export const PLATFORM_ATTR_SCRIPT =
   "try{if(/Windows/i.test(navigator.userAgent))document.documentElement.setAttribute('data-platform','win')}catch(e){}";
+
+/**
+ * Keyboard-shortcut label for the viewer's platform. On Mac the output is the
+ * exact legacy glyph string (e.g. "⌘Z", "⌘⇧Z", "⌘↵") so existing Mac UI text is
+ * unchanged; elsewhere it's "Ctrl+Shift+Z" / "Ctrl+Enter".
+ */
+export function shortcutLabel(
+  keys: { mod?: boolean; shift?: boolean; alt?: boolean; key: string },
+  ua?: string,
+): string {
+  const s = ua ?? (typeof navigator !== "undefined" ? navigator.userAgent : "");
+  if (/Mac|iPhone|iPad/i.test(s)) {
+    return (keys.mod ? "⌘" : "") + (keys.shift ? "⇧" : "") + (keys.alt ? "⌥" : "") + keys.key;
+  }
+  const key = keys.key === "↵" ? "Enter" : keys.key;
+  return [keys.mod && "Ctrl", keys.alt && "Alt", keys.shift && "Shift", key].filter(Boolean).join("+");
+}
+
+/** Operator right-panel width (px). Mac/other: always 360 (unchanged). Windows: compacts on small screens. */
+export function rightPanelWidthFor(viewportW: number, win: boolean): number {
+  if (!win) return 360;
+  return viewportW < 960 ? 280 : viewportW < 1240 ? 300 : 360;
+}
