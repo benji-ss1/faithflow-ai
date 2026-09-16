@@ -17,7 +17,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import {
   X, Search, SlidersHorizontal, Monitor, Volume2, Cast, Radio, Palette, BookOpen,
   Music, Users, CreditCard, Plug, RefreshCw, Wrench, HelpCircle, MessageSquare,
-  Languages, BarChart3, KeyRound, Wand2, ExternalLink, Laptop,
+  Languages, BarChart3, Wand2, ExternalLink, Laptop, Shield, MonitorSpeaker, Image, Download, Upload, RotateCcw, ChevronDown,
 } from "lucide-react";
 import { NdiTab } from "./tabs/NdiTab";
 import { AudioTab } from "./tabs/AudioTab";
@@ -38,10 +38,10 @@ const SECTION_KEY = "presentflow.pro.settings.section.v1";
 const LEGACY_SAFE_MODE_KEY = "presentflow.safeMode";
 
 type SectionId =
-  | "general" | "bible" | "songs"
-  | "screens" | "audio" | "ndi" | "livestream" | "themes"
+  | "general" | "bible" | "songs" | "privacy"
+  | "screens" | "stage" | "audio" | "ndi" | "livestream" | "themes" | "media"
   | "team" | "billing" | "integrations"
-  | "updates" | "language" | "usage" | "license" | "advanced" | "help" | "feedback";
+  | "updates" | "language" | "usage" | "advanced" | "help" | "feedback";
 
 type Section = {
   id: SectionId;
@@ -54,24 +54,61 @@ type Section = {
 
 const SECTIONS: Section[] = [
   { id: "general", label: "General", group: "Service", icon: SlidersHorizontal, keywords: "safe mode click confirm startup shortcuts version app" },
-  { id: "bible", label: "Bible & Detection", group: "Service", icon: BookOpen, keywords: "scripture translation verse confidence auto approve detection kjv niv esv" },
+  { id: "bible", label: "Bible & Detection", group: "Service", icon: BookOpen, keywords: "scripture translation verse confidence auto approve detection kjv niv esv licence license store purchase" },
   { id: "songs", label: "Songs & Library", group: "Service", icon: Music, keywords: "lyrics library import propresenter easyworship ccli arrangement" },
-  { id: "screens", label: "Screens & Outputs", group: "Output", icon: Monitor, keywords: "display projector stage audience resolution monitor blank" },
+  { id: "privacy", label: "Privacy & Transcripts", group: "Service", icon: Shield, keywords: "recording retention delete data sermon transcript gdpr storage" },
+  { id: "screens", label: "Screens & Outputs", group: "Output", icon: Monitor, keywords: "display projector stage audience resolution monitor blank identify" },
+  { id: "stage", label: "Stage Display & Transitions", group: "Output", icon: MonitorSpeaker, keywords: "confidence monitor clock notes next slide fade dissolve cut speed" },
   { id: "audio", label: "Audio Input", group: "Output", icon: Volume2, keywords: "microphone mixer desk channel sarah wizard setup level meter interface dante blackmagic" },
   { id: "ndi", label: "NDI Output", group: "Output", icon: Cast, keywords: "network video obs stream send receive" },
   { id: "livestream", label: "Livestream & Overlay", group: "Output", icon: Radio, keywords: "obs overlay lower third browser source lan" },
   { id: "themes", label: "Themes & Look", group: "Output", icon: Palette, keywords: "font background colour color look slide design" },
+  { id: "media", label: "Media & Backgrounds", group: "Output", icon: Image, keywords: "video image loop motion background bin upload storage" },
   { id: "team", label: "Team & Church", group: "Organisation", icon: Users, keywords: "members invite roles permissions admin operator volunteer church profile" },
   { id: "billing", label: "Billing & Plan", group: "Organisation", icon: CreditCard, keywords: "subscription invoice payment upgrade tier plan stripe" },
   { id: "integrations", label: "Integrations", group: "Organisation", icon: Plug, keywords: "planning center ccli songselect webhook api connect" },
   { id: "updates", label: "Updates & Desktop", group: "System", icon: RefreshCw, keywords: "version download dmg install release notes what's new" },
   { id: "language", label: "Language", group: "System", icon: Languages, keywords: "locale translate interface english" },
   { id: "usage", label: "Usage", group: "System", icon: BarChart3, keywords: "minutes quota limits ai transcription" },
-  { id: "license", label: "Bible licensing", group: "System", icon: KeyRound, keywords: "license key translation rights esv niv purchase" },
   { id: "advanced", label: "Advanced & Diagnostics", group: "System", icon: Wrench, keywords: "reset cache reload logs diagnostics developer troubleshoot" },
   { id: "help", label: "Help", group: "System", icon: HelpCircle, keywords: "support docs guide shortcuts contact" },
   { id: "feedback", label: "Send Feedback", group: "System", icon: MessageSquare, keywords: "bug report suggestion contact" },
 ];
+
+/** Row-level search index — reference apps only match section names; matching the
+ *  actual setting is what people are looking for. */
+const ROW_INDEX: { section: SectionId; label: string }[] = [
+  { section: "general", label: "Safe Mode (double-click to go live)" },
+  { section: "general", label: "Keyboard shortcuts" },
+  { section: "general", label: "App version" },
+  { section: "bible", label: "Default Bible translation" },
+  { section: "bible", label: "Detection confidence & auto-approve" },
+  { section: "bible", label: "Bible licences" },
+  { section: "songs", label: "Song library" },
+  { section: "songs", label: "Import songs & slides" },
+  { section: "privacy", label: "Transcript retention" },
+  { section: "privacy", label: "Sermon archive" },
+  { section: "screens", label: "Configure output screens" },
+  { section: "screens", label: "Paired devices" },
+  { section: "stage", label: "Stage display (clock, notes, next slide)" },
+  { section: "stage", label: "Slide transitions" },
+  { section: "audio", label: "Run Sarah's audio setup" },
+  { section: "audio", label: "Audio input device & channel" },
+  { section: "ndi", label: "NDI output" },
+  { section: "livestream", label: "OBS browser source URL" },
+  { section: "themes", label: "Theme editor" },
+  { section: "media", label: "Media library" },
+  { section: "team", label: "Team members & roles" },
+  { section: "billing", label: "Billing portal" },
+  { section: "updates", label: "Download the desktop app" },
+  { section: "updates", label: "What's new" },
+  { section: "advanced", label: "Export settings" },
+  { section: "advanced", label: "Import settings" },
+  { section: "advanced", label: "Reset this computer's settings" },
+  { section: "advanced", label: "Reload and clear cache" },
+  { section: "advanced", label: "AI listener diagnostic" },
+];
+
 const GROUPS: Section["group"][] = ["Service", "Output", "Organisation", "System"];
 
 /* ── shared bits ─────────────────────────────────────────────────────────── */
@@ -243,6 +280,10 @@ function BibleSection({ onUpgrade }: { onUpgrade: () => void }) {
         <LinkRow label="Detection & translation settings" help="Default translation, confidence, auto-approve and transcript retention." href="/settings" cta="Open" />
       </Card></div>
       <BibleStoreTab onUpgrade={onUpgrade} />
+      <div className="mt-6">
+        <SectionHead title="Bible licences" description="Licensed translations your church has activated." />
+        <LicenseTab />
+      </div>
     </>
   );
 }
@@ -303,6 +344,7 @@ function UpdatesSection({ close }: { close: () => void }) {
 
 function AdvancedSection() {
   const [cleared, setCleared] = useState(false);
+  const [showRare, setShowRare] = useState(false);
   return (
     <>
       <SectionHead title="Advanced & Diagnostics" description="Troubleshooting tools. Everything here is safe to use during a service unless it says otherwise." />
@@ -319,11 +361,143 @@ function AdvancedSection() {
           <a href="/settings" className="h-8 px-3 grid place-items-center rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">Open</a>
         </Row>
       </Card>
-      <div className="mt-4">
+      <div className="mt-6">
+        <SectionHead title="Settings file" description="Move this computer's setup to another machine, or start over." />
+        <SettingsPortability />
+      </div>
+      <div className="mt-6">
+        <button type="button" onClick={() => setShowRare((v) => !v)} aria-expanded={showRare}
+          className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-brand-hi,#ff8a52)]">
+          <ChevronDown className={`w-4 h-4 transition-transform ${showRare ? "rotate-180" : ""}`} /> {showRare ? "Hide" : "Show"} diagnostic tools
+        </button>
+      </div>
+      <div className="mt-4" hidden={!showRare}>
         <SectionHead title="AI listener diagnostic" description="Traces each step of the listening pipeline and shows exactly where it stops." />
         <DiagnosticsPanel />
       </div>
     </>
+  );
+}
+
+
+function StageSection({ close }: { close: () => void }) {
+  return (
+    <>
+      <SectionHead title="Stage Display & Transitions" description="What the people on stage see, and how slides change on the projector." />
+      <Card>
+        <Row label="Stage display" help="Clock, current and next slide, and speaker notes for the preacher's monitor.">
+          <button type="button" onClick={() => { close(); requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("presentflow:open-panel", { detail: { panel: "settings" } }))); }}
+            className="h-8 px-3 rounded-lg text-[13px] font-semibold bg-[var(--color-brand)] text-white hover:opacity-90">Open stage panel</button>
+        </Row>
+        <LinkRow label="Assign the stage screen" help="Choose which physical display shows the stage view." href="/settings/screens" cta="Configure" />
+        <Row label="Slide transitions" help="Transitions are chosen per slide from the slide menu in the operator console, so what you set is what you see on the projector." />
+      </Card>
+    </>
+  );
+}
+
+function MediaSection() {
+  return (
+    <>
+      <SectionHead title="Media & Backgrounds" description="Videos, images and motion backgrounds for your slides." />
+      <Card>
+        <LinkRow label="Media library" help="Upload and organise videos, images and motion backgrounds." href="/library/media" cta="Open" />
+        <Row label="Backgrounds" help="Set a background for one slide, a whole song, or every screen from the slide menu's Background option in the operator console." />
+      </Card>
+    </>
+  );
+}
+
+function PrivacySection() {
+  return (
+    <>
+      <SectionHead title="Privacy & Transcripts" description="What PresentFlow keeps from your services, and for how long." />
+      <Card>
+        <Row label="What is recorded" help="PresentFlow transcribes speech to find scripture and songs. Audio itself is never stored — only the text, and only for your church." />
+        <LinkRow label="Transcript retention" help="Choose how long transcripts are kept before they're deleted automatically." href="/settings" cta="Change" />
+        <LinkRow label="Sermon archive" help="Past transcripts and summaries your church has kept." href="/archive" />
+      </Card>
+    </>
+  );
+}
+
+/** Keys we own. Used by export / import / reset so nothing outside PresentFlow is touched. */
+const SETTINGS_PREFIX = "presentflow.";
+
+function collectSettings(): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(SETTINGS_PREFIX)) out[k] = localStorage.getItem(k) ?? "";
+    }
+  } catch { /* ignore */ }
+  return out;
+}
+
+function SettingsPortability() {
+  const [status, setStatus] = useState<string>("");
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const doExport = () => {
+    const data = collectSettings();
+    const blob = new Blob([JSON.stringify({ app: "presentflow", exportedAt: new Date().toISOString(), settings: data }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `presentflow-settings-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    setStatus(`Exported ${Object.keys(data).length} settings.`);
+  };
+
+  const doImport = async (file: File) => {
+    try {
+      const parsed = JSON.parse(await file.text()) as { app?: string; settings?: Record<string, unknown> };
+      if (parsed?.app !== "presentflow" || !parsed.settings || typeof parsed.settings !== "object") {
+        setStatus("That doesn't look like a PresentFlow settings file."); return;
+      }
+      let n = 0;
+      for (const [k, v] of Object.entries(parsed.settings)) {
+        // Only ever write OUR keys, and only strings.
+        if (!k.startsWith(SETTINGS_PREFIX) || typeof v !== "string") continue;
+        try { localStorage.setItem(k, v); n++; } catch { /* quota */ }
+      }
+      setStatus(`Imported ${n} settings. Reload PresentFlow to use them.`);
+    } catch { setStatus("Couldn't read that file."); }
+  };
+
+  const doReset = () => {
+    if (!window.confirm("Reset this computer's PresentFlow settings? Your songs, services and church data are not touched — only this computer's preferences (audio device, safe mode, panel layout).")) return;
+    let n = 0;
+    try {
+      for (const k of Object.keys(collectSettings())) { localStorage.removeItem(k); n++; }
+    } catch { /* ignore */ }
+    setStatus(`Reset ${n} settings. Reload PresentFlow to start fresh.`);
+  };
+
+  return (
+    <Card>
+      <Row label="Export settings" help="Save this computer's setup as a file — useful for setting up a second machine or a multi-campus church.">
+        <button type="button" onClick={doExport} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">
+          <Download className="w-3.5 h-3.5" /> Export
+        </button>
+      </Row>
+      <Row label="Import settings" help="Load a settings file exported from another PresentFlow computer.">
+        <>
+          <input ref={fileRef} type="file" accept="application/json,.json" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void doImport(f); e.target.value = ""; }} />
+          <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)]">
+            <Upload className="w-3.5 h-3.5" /> Import
+          </button>
+        </>
+      </Row>
+      <Row label="Reset this computer's settings" help="Puts every preference on this computer back to its default. Your church's songs, services and settings on the server are untouched.">
+        <button type="button" onClick={doReset} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold border border-amber-500/50 text-amber-200 hover:bg-amber-500/10">
+          <RotateCcw className="w-3.5 h-3.5" /> Reset
+        </button>
+      </Row>
+      {status && <Row label="" help={status} />}
+    </Card>
   );
 }
 
@@ -358,6 +532,11 @@ export function SettingsWindow() {
     return () => { window.removeEventListener(OPEN_SETTINGS_EVENT, onOpen); window.removeEventListener("keydown", onKey); };
   }, [openAt]);
 
+  const rowHits = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return ROW_INDEX.filter((r) => r.label.toLowerCase().includes(q)).slice(0, 6);
+  }, [query]);
   const paneRef = useRef<HTMLDivElement | null>(null);
   const select = (id: SectionId) => {
     setSection(id);
@@ -388,13 +567,15 @@ export function SettingsWindow() {
       case "ndi": return <><SectionHead title="NDI Output" description="Send your slides to OBS or another computer over the network." /><NdiTab /></>;
       case "livestream": return <LivestreamSection />;
       case "themes": return <ThemesSection close={() => setOpen(false)} />;
+      case "stage": return <StageSection close={() => setOpen(false)} />;
+      case "media": return <MediaSection />;
+      case "privacy": return <PrivacySection />;
       case "team": return <OrgSection kind="team" />;
       case "billing": return <OrgSection kind="billing" />;
       case "integrations": return <OrgSection kind="integrations" />;
       case "updates": return <UpdatesSection close={() => setOpen(false)} />;
       case "language": return <><SectionHead title="Language" /><LanguageTab /></>;
       case "usage": return <><SectionHead title="Usage" /><UsageTab onUpgrade={() => setShowUpgrade(true)} /></>;
-      case "license": return <><SectionHead title="Bible licensing" /><LicenseTab /></>;
       case "advanced": return <AdvancedSection />;
       case "help": return <><SectionHead title="Help" /><HelpTab /></>;
       case "feedback": return <><SectionHead title="Send Feedback" /><FeedbackTab /></>;
@@ -425,6 +606,18 @@ export function SettingsWindow() {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-2 pb-3 max-h-[28vh] sm:max-h-none">
+              {rowHits.length > 0 && (
+                <div className="mb-2">
+                  <div className="px-2 pt-2 pb-1 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">Settings</div>
+                  {rowHits.map((r) => (
+                    <button key={`${r.section}-${r.label}`} type="button" onClick={() => select(r.section)}
+                      className="w-full text-left px-2 py-2 rounded-lg text-[13px] text-[var(--color-muted-foreground)] hover:bg-[color-mix(in_srgb,var(--color-foreground)_8%,transparent)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">
+                      <span className="block truncate text-[var(--color-foreground)]">{r.label}</span>
+                      <span className="block truncate text-[11px]">in {SECTIONS.find((x) => x.id === r.section)?.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {GROUPS.map((g) => {
                 const items = matches.filter((s) => s.group === g);
                 if (!items.length) return null;
