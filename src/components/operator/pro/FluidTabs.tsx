@@ -1,5 +1,6 @@
 "use client";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { isWindowsUA } from "@/lib/platform";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,24 @@ export function FluidTabs({
     else setInd(null);
   }, [activeId, tabs.length]);
 
+  // Windows: tab labels hide/show across a width breakpoint on window resize
+  // (globals/TopBar compaction), which changes tab widths without changing
+  // activeId — re-measure so the indicator never covers neighbouring tabs.
+  // Equality-guarded; not attached on macOS (no label breakpoint there).
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined" || !isWindowsUA()) return;
+    const el = activeId ? tabRefs.current[activeId] : null;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setInd((prev) =>
+        prev && prev.left === el.offsetLeft && prev.width === el.offsetWidth
+          ? prev
+          : { left: el.offsetLeft, width: el.offsetWidth });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [activeId, tabs.length]);
+
   return (
     <div className="relative flex items-center gap-0.5 p-0.5 rounded-full border border-[var(--color-border)] bg-[var(--color-panel)]">
       {/* Sliding indicator */}
@@ -56,13 +75,14 @@ export function FluidTabs({
             type="button"
             onClick={() => onSelect(t.id)}
             aria-pressed={active}
+            aria-label={t.label}
             className={cn(
               "relative z-10 flex items-center gap-1.5 h-[30px] px-3 rounded-full text-[12px] font-medium transition-colors",
               active ? "text-[var(--color-foreground)] font-semibold" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
             )}
           >
             <Icon className="w-3.5 h-3.5 shrink-0" />
-            <span>{t.label}</span>
+            <span className="[html[data-platform=win]_&]:max-[1180px]:hidden">{t.label}</span>
           </button>
         );
       })}
@@ -70,10 +90,11 @@ export function FluidTabs({
         <button
           type="button"
           onClick={action.onClick}
+          aria-label={action.label}
           className="relative z-10 flex items-center gap-1.5 h-[30px] px-3 rounded-full text-[12px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors"
         >
           <action.icon className="w-3.5 h-3.5 shrink-0" />
-          <span>{action.label}</span>
+          <span className="[html[data-platform=win]_&]:max-[1180px]:hidden">{action.label}</span>
         </button>
       )}
     </div>

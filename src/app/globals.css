@@ -690,3 +690,8 @@ html[data-platform="win"] [class*="backdrop-blur"] { -webkit-backdrop-filter: no
    out-hanging collapse button. */
 html[data-platform="win"] aside[data-tour="left"],
 html[data-platform="win"] aside[data-tour="right"] { overflow-x: hidden; }
+/* Small Windows screens (e.g. 1366x768 @125% ≈ 1093 CSS px): narrower right
+   panel so the slide grid keeps room. Mirrors rightPanelWidthFor() in
+   src/lib/platform.ts. Outranks the Tailwind w-[360px] class by specificity. */
+@media (max-width: 1239.98px) { html[data-platform="win"] aside[data-tour="right"] { width: 300px; } }
+@media (max-width: 959.98px) { html[data-platform="win"] aside[data-tour="right"] { width: 280px; } }
