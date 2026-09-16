@@ -167,7 +167,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             </button>
           </div>
           {mv.screen === "all"
-            ? <MultiViewGrid layerOverrides={ctx.liveLayers.overrides} />
+            ? <MultiViewGrid layerOverrides={ctx.liveLayers.overrides} onZoom={(s) => mv.setScreen(s)} />
             : <PreviewOtherScreen screen={mv.screen as MultiViewScreen} layerOverrides={ctx.liveLayers.overrides} />}
         </>
       )}

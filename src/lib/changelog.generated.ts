@@ -23,6 +23,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "highlights": [
       "Above the live preview you can now pick which screen it shows - Main, Stage, Livestream or NDI.",
       "Press All to see all four screens together inside the same box, updating live as you go - nothing to close, and the rest of the console stays usable.",
+      "In the All view, click any screen to see that one full size.",
       "This is preview only. Picking a screen never changes what your projector, stage or stream shows.",
       "It always opens on Main, so you never walk into a service watching the wrong screen."
     ]

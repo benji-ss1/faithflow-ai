@@ -83,13 +83,16 @@ type TileProps = {
   screen: MultiViewScreen;
   /** Quarter-size tile inside the 2x2 grid: smaller labels, no wasted chrome. */
   compact?: boolean;
+  /** In the grid, clicking a tile switches the box to that screen full-size —
+   *  the 2x2 wall answers "is every screen right?", this is how you then READ it. */
+  onZoom?: (screen: MultiViewScreen) => void;
   state: OutputState | null;
   received: boolean;
   layerOverrides: LayerWire[] | Map<string, LayerWire> | null | undefined;
   obsStore: ObsEditorStore | null;
 };
 
-export const OutputTile = memo(function OutputTile({ screen, state, received, layerOverrides, obsStore, compact = false }: TileProps) {
+export const OutputTile = memo(function OutputTile({ screen, state, received, layerOverrides, obsStore, compact = false, onZoom }: TileProps) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0);
   useLayoutEffect(() => {
@@ -116,8 +119,18 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
       className={`relative w-full overflow-hidden rounded-md ${isLive ? "border-2 border-[color:var(--color-destructive,#e11d48)]" : "border border-[var(--color-border)]"}`}
       style={{ aspectRatio: "16 / 9", background: view.transparent ? CHECKER : "#000" }}
       data-multiview-screen={screen}
-      title={view.transparent ? `${MULTIVIEW_TITLES[screen]} — checkerboard means see-through (your video shows behind)` : MULTIVIEW_TITLES[screen]}
+      title={onZoom
+        ? `${MULTIVIEW_TITLES[screen]} — click to see this screen full size`
+        : (view.transparent ? `${MULTIVIEW_TITLES[screen]} — checkerboard means see-through (your video shows behind)` : MULTIVIEW_TITLES[screen])}
     >
+      {onZoom && (
+        <button
+          type="button"
+          onClick={() => onZoom(screen)}
+          aria-label={`Show ${MULTIVIEW_TITLES[screen]} full size`}
+          className="absolute inset-0 z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)]"
+        />
+      )}
       {scale > 0 && (
         <div className="absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${scale})` }}>
           <div className={stage ? "absolute inset-x-0 top-0 h-[72%]" : "absolute inset-0"}>
@@ -191,18 +204,18 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
  * live, and every tile follows the output automatically — one subscription
  * shared by all four, coalesced to <=4 updates/s.
  */
-export function MultiViewGrid({ layerOverrides }: { layerOverrides: TileProps["layerOverrides"] }) {
+export function MultiViewGrid({ layerOverrides, onZoom }: { layerOverrides: TileProps["layerOverrides"]; onZoom: (screen: MultiViewScreen) => void }) {
   const { state, received } = useLocalOutputState();
   const obsStore = useObsEditorStore();
   return (
     <div className="space-y-1">
       <div className="grid grid-cols-2 gap-1">
         {MULTIVIEW_SCREENS.map((screen) => (
-          <OutputTile key={screen} screen={screen} state={state} received={received} layerOverrides={layerOverrides} obsStore={obsStore} compact />
+          <OutputTile key={screen} screen={screen} state={state} received={received} layerOverrides={layerOverrides} obsStore={obsStore} compact onZoom={onZoom} />
         ))}
       </div>
       <p className="text-[10px] leading-snug text-[var(--color-muted-foreground)]">
-        Timers, pop-up messages and stage countdowns aren&apos;t shown here. Videos and cameras show a label instead of playing.
+        Click a screen to see it full size. Timers, pop-up messages and stage countdowns aren&apos;t shown here; videos and cameras show a label instead of playing.
       </p>
     </div>
   );
