@@ -328,6 +328,7 @@ export type MessagesApi = {
   setScrollDir: (v: "ltr" | "rtl") => void;
   setScrollSec: (v: number) => void;
   toggleShow: () => void;
+  hide: () => void;
 };
 
 // Auto-dismiss durations. Owned here (not in MessagesTab) so the countdown
@@ -379,6 +380,7 @@ export function useMessagesSession(): MessagesApi {
     setScrollDir: (v) => setState((s) => ({ ...s, scrollDir: v })),
     setScrollSec: (v) => setState((s) => ({ ...s, scrollSec: Math.max(4, Math.min(120, Math.round(v) || 18)) })),
     toggleShow: () => setState((s) => ({ ...s, showing: !s.showing })),
+    hide: () => setState((s) => (s.showing ? { ...s, showing: false } : s)),
   };
 }
 
