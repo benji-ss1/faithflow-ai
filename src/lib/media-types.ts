@@ -34,6 +34,8 @@ export const MEDIA_MULTIPART_MAX_BYTES = 5 * 1024 * MB;
 export const MEDIA_MULTIPART_THRESHOLD_BYTES = 100 * MB;
 /** Part size for multipart uploads (S3 minimum is 5 MB; 10,000 parts max). */
 export const MEDIA_MULTIPART_PART_BYTES = 16 * MB;
+/** Server thumbnails are skipped for images above this (avoids buffering huge originals in a function). */
+export const THUMBNAIL_MAX_SOURCE_BYTES = 25 * MB;
 export const MEDIA_MULTIPART_MAX_PARTS = Math.ceil(MEDIA_MULTIPART_MAX_BYTES / MEDIA_MULTIPART_PART_BYTES);
 
 export const EXT_BY_TYPE: Record<string, string> = {
@@ -113,12 +115,34 @@ export function validateMediaRegistration(input: RegistrationInput, churchId: st
 // ── Magic-byte sniffing ───────────────────────────────────────────────────────
 
 const ascii = (b: Uint8Array, start: number, len: number) =>
-  String.fromCharCode(...Array.from(b.subarray(start, start + len)));
+  String.fromCharCode(...Array.from(b.subarray(start, Math.min(b.length, start + len))));
+
+/** How many leading bytes the server reads for sniffing (covers ID3-less MP3 padding). */
+export const SNIFF_BYTES = 4096;
+
+const HEIC_BRANDS = ["heic", "heix", "hevc", "hevx", "heim", "heis"];
+
+/** ISO-BMFF `ftyp`: major brand + every compatible brand (offset 16+). */
+function ftypBrands(b: Uint8Array): string[] {
+  const size = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
+  const end = Math.min(b.length, size >= 16 && size <= 4096 ? size : 64);
+  const brands = [ascii(b, 8, 4)];
+  for (let o = 16; o + 4 <= end; o += 4) brands.push(ascii(b, o, 4));
+  return brands;
+}
+
+/** MPEG audio frame sync (0xFFE, layer != 00) or ADTS at offset i. */
+function mpegSyncAt(b: Uint8Array, i: number): "audio/mpeg" | "audio/aac" | null {
+  if (i + 1 >= b.length || b[i] !== 0xff) return null;
+  if ((b[i + 1] & 0xf6) === 0xf0) return "audio/aac";
+  if ((b[i + 1] & 0xe0) === 0xe0 && (b[i + 1] & 0x06) !== 0) return "audio/mpeg";
+  return null;
+}
 
 /**
  * Identify a file family from its first bytes. Returns a canonical MIME, or
  * null when unrecognised. ISO-BMFF containers (mp4/mov/m4a/avif) are resolved
- * by brand where possible.
+ * by major + compatible brands.
  */
 export function sniffMediaMime(head: Uint8Array): string | null {
   const b = head;
@@ -126,82 +150,132 @@ export function sniffMediaMime(head: Uint8Array): string | null {
   if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
   if (b[0] === 0x89 && ascii(b, 1, 3) === "PNG") return "image/png";
   if (ascii(b, 0, 4) === "GIF8") return "image/gif";
-  if (ascii(b, 0, 4) === "RIFF" && b.length >= 12) {
+  const riff = ascii(b, 0, 4);
+  if ((riff === "RIFF" || riff === "RF64" || riff === "BW64") && b.length >= 12) {
     const f = ascii(b, 8, 4);
-    if (f === "WEBP") return "image/webp";
+    if (f === "WEBP" && riff === "RIFF") return "image/webp";
     if (f === "WAVE") return "audio/wav";
   }
   if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return "video/webm";
-  if (ascii(b, 0, 3) === "ID3") return "audio/mpeg";
-  // ADTS AAC: 12-bit sync 0xFFF, layer bits 00.
-  if (b[0] === 0xff && (b[1] & 0xf6) === 0xf0) return "audio/aac";
-  // MPEG audio frame sync (0xFFE) with layer != 00.
-  if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0 && (b[1] & 0x06) !== 0) return "audio/mpeg";
+  if (ascii(b, 0, 3) === "ID3" || ascii(b, 0, 8) === "APETAGEX") return "audio/mpeg";
+  const sync = mpegSyncAt(b, 0);
+  if (sync) return sync;
   if (b.length >= 8) {
     const box = ascii(b, 4, 4);
     if (box === "ftyp" && b.length >= 12) {
-      const brand = ascii(b, 8, 4);
-      if (brand === "avif" || brand === "avis") return "image/avif";
-      if (brand === "qt  ") return "video/quicktime";
-      if (brand === "M4A " || brand === "M4B " || brand === "M4P ") return "audio/mp4";
-      if (["heic", "heix", "hevc", "mif1", "msf1"].includes(brand)) return "image/heic";
+      const brands = ftypBrands(b);
+      const major = brands[0];
+      if (major === "avif" || major === "avis" || ((major === "mif1" || major === "msf1") && brands.some((x) => x === "avif" || x === "avis"))) return "image/avif";
+      if (HEIC_BRANDS.includes(major) || major === "mif1" || major === "msf1") return "image/heic";
+      if (major === "qt  ") return "video/quicktime";
+      if (major === "M4A " || major === "M4B " || major === "M4P ") return "audio/mp4";
       return "video/mp4";
     }
-    // Older QuickTime files open with a non-ftyp atom.
-    if (["moov", "mdat", "wide", "free", "skip", "pnot"].includes(box)) return "video/quicktime";
+    // MP4/MOV whose first box isn't ftyp (older QuickTime, some encoders).
+    if (["moov", "mdat", "wide", "free", "skip", "pnot", "uuid"].includes(box)) return "video/quicktime";
   }
+  // MP3 with leading zero padding before the first frame.
+  let i = 0;
+  while (i < b.length && i < 2048 && b[i] === 0) i++;
+  if (i > 0 && mpegSyncAt(b, i) === "audio/mpeg") return "audio/mpeg";
   return null;
 }
 
-/** Families whose containers legitimately overlap (browsers label them loosely). */
-const COMPATIBLE: Record<string, readonly string[]> = {
-  "video/mp4": ["video/mp4", "video/quicktime"],
-  "video/quicktime": ["video/quicktime", "video/mp4"],
-  "audio/mp4": ["audio/mp4", "video/mp4"],
-  "audio/mpeg": ["audio/mpeg"],
-  "audio/aac": ["audio/aac", "audio/mpeg"],
-};
+/** Bytes that must never be stored as media, whatever the claim (XSS / archives / executables). */
+export function looksDangerous(head: Uint8Array): boolean {
+  if (head.length === 0) return false;
+  let s = ascii(head, 0, 512);
+  if (s.charCodeAt(0) === 0xef && s.charCodeAt(1) === 0xbb && s.charCodeAt(2) === 0xbf) s = s.slice(3);
+  const t = s.replace(/^[\s\u0000]+/, "").toLowerCase();
+  if (t.startsWith("<")) return true; // html / svg / xml / script
+  if (t.startsWith("#!")) return true;
+  if (s.startsWith("%PDF") || s.startsWith("PK\u0003\u0004") || s.startsWith("MZ") || s.startsWith("\u007fELF")) return true;
+  return false;
+}
 
-/** Do the stored bytes plausibly match the claimed MIME? */
-export function magicMatchesMime(head: Uint8Array, claimed: string): boolean {
+const ISO_BMFF = new Set(["video/mp4", "video/quicktime", "audio/mp4"]);
+
+export type StoredBytesCheck = { ok: true; mimeType: string } | { ok: false };
+
+/**
+ * Do the stored bytes plausibly belong to the claimed KIND? Tolerant of the
+ * renames real users do (PNG saved as .jpg, webm↔mp4, .m4a named .aac …):
+ * any allowed type of the SAME kind passes and the SNIFFED mime is recorded.
+ * Rejected: a different kind, non-media/dangerous bytes, HEIC (should have been
+ * converted), or unrecognised bytes claimed as an image.
+ */
+export function checkStoredBytes(head: Uint8Array, claimed: string): StoredBytesCheck {
+  const claimedKind = kindForMime(claimed);
+  if (!claimedKind || head.length === 0) return { ok: false };
+  if (looksDangerous(head)) return { ok: false };
   const sniffed = sniffMediaMime(head);
-  if (!sniffed) return false;
-  return (COMPATIBLE[claimed] ?? [claimed]).includes(sniffed);
+  if (!sniffed) return claimedKind === "image" ? { ok: false } : { ok: true, mimeType: claimed };
+  // ISO-BMFF brands are loose: an m4a can carry an mp4 brand and vice versa.
+  if (ISO_BMFF.has(sniffed) && (claimedKind === "video" || claimedKind === "audio")) {
+    if (ISO_BMFF.has(claimed)) return { ok: true, mimeType: claimed };
+    return claimedKind === "video" ? { ok: true, mimeType: sniffed === "audio/mp4" ? "video/mp4" : sniffed } : { ok: true, mimeType: "audio/mp4" };
+  }
+  const sniffedKind = kindForMime(sniffed);
+  if (!sniffedKind || sniffedKind !== claimedKind) return { ok: false };
+  return { ok: true, mimeType: sniffed };
+}
+
+/** Do the stored bytes plausibly match the claimed MIME (same kind)? */
+export function magicMatchesMime(head: Uint8Array, claimed: string): boolean {
+  return checkStoredBytes(head, claimed).ok;
 }
 
 // ── Post-upload verification (S3 layer injected so it's testable) ─────────────
 
 export type ObjectProbe = {
+  /** Resolves null ONLY when the object does not exist; THROWS on any other error. */
   head: (key: string) => Promise<{ size: number; contentType?: string } | null>;
+  /** THROWS (or resolves null) when the bytes could not be read. */
   readHead: (key: string, bytes: number) => Promise<Uint8Array | null>;
   remove: (key: string) => Promise<void>;
+  /** True when any media row already references the key — such an object is never deleted. */
+  isReferenced?: (key: string) => Promise<boolean>;
 };
 
-export type VerifyResult = { ok: true; sizeBytes: number } | { ok: false; error: string };
+export type VerifyResult =
+  | { ok: true; sizeBytes: number; mimeType: string }
+  | { ok: false; error: string; retryable?: boolean };
+
+const RETRY_ERROR = "Couldn't check the upload just now — please try again";
 
 /**
  * Confirm the uploaded object exists, is within the per-kind cap and really is
- * the claimed type. On a size/type failure the object is DELETED (best-effort)
- * so a rejected upload never lingers in storage.
+ * the claimed kind. The object is DELETED (best-effort) only on a DEFINITE
+ * failure (bytes were read and are wrong, or the real size is out of bounds) and
+ * never when a row references it. A storage/read error keeps the object and
+ * returns a retryable error.
  */
 export async function verifyUploadedObject(key: string, mimeType: string, kind: MediaKind, probe: ObjectProbe): Promise<VerifyResult> {
-  const meta = await probe.head(key).catch(() => null);
+  const reject = async (error: string): Promise<VerifyResult> => {
+    const referenced = probe.isReferenced ? await probe.isReferenced(key).catch(() => true) : false;
+    if (!referenced) await probe.remove(key).catch(() => {});
+    return { ok: false, error };
+  };
+  let meta: { size: number; contentType?: string } | null;
+  try {
+    meta = await probe.head(key);
+  } catch {
+    return { ok: false, error: RETRY_ERROR, retryable: true };
+  }
   if (!meta) return { ok: false, error: "Upload not found — please try again" };
   const cap = maxBytesForKind(kind);
-  if (meta.size <= 0) {
-    await probe.remove(key).catch(() => {});
-    return { ok: false, error: "The uploaded file is empty" };
+  if (meta.size <= 0) return reject("The uploaded file is empty");
+  if (meta.size > cap) return reject(`File too large — max ${Math.round(cap / MB)} MB`);
+  let head: Uint8Array | null;
+  try {
+    head = await probe.readHead(key, SNIFF_BYTES);
+  } catch {
+    head = null;
   }
-  if (meta.size > cap) {
-    await probe.remove(key).catch(() => {});
-    return { ok: false, error: `File too large — max ${Math.round(cap / MB)} MB` };
-  }
-  const head = await probe.readHead(key, 64).catch(() => null);
-  if (!head || !magicMatchesMime(head, mimeType)) {
-    await probe.remove(key).catch(() => {});
-    return { ok: false, error: "That file isn't really the type it says it is — it wasn't added" };
-  }
-  return { ok: true, sizeBytes: meta.size };
+  if (!head || head.length === 0) return { ok: false, error: RETRY_ERROR, retryable: true };
+  const check = checkStoredBytes(head, mimeType);
+  if (!check.ok) return reject("That file isn't really the type it says it is — it wasn't added");
+  return { ok: true, sizeBytes: meta.size, mimeType: check.mimeType };
 }
 
 // ── Multipart request validation ──────────────────────────────────────────────

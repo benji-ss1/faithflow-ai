@@ -6,6 +6,7 @@ import { mediaAssets } from "@/lib/db/schema";
 import { createLimiter } from "@/lib/rate-limit";
 import { getBuffer, putBuffer } from "@/lib/s3";
 import { generateImageThumbnail } from "@/lib/media-thumbnail";
+import { THUMBNAIL_MAX_SOURCE_BYTES } from "@/lib/media-types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,7 +49,9 @@ export async function POST() {
     try {
       // Defence in depth: never read an object outside this church's prefix
       // (a row written before key validation existed could point elsewhere).
-      const original = m.s3Key.startsWith(`${user.churchId}/`) ? await getBuffer(m.s3Key) : null;
+      // Very large originals are never pulled into memory — sentinel, serve original.
+      const tooBig = Number(m.sizeBytes ?? 0) > THUMBNAIL_MAX_SOURCE_BYTES;
+      const original = !tooBig && m.s3Key.startsWith(`${user.churchId}/`) ? await getBuffer(m.s3Key) : null;
       if (original) {
         const thumb = await generateImageThumbnail(original, m.mimeType);
         if (thumb) {

@@ -12,8 +12,23 @@ export function isHeicFile(file: { name: string; type: string }): boolean {
   return /\.(heic|heif)$/i.test(file.name) || file.type === "image/heic" || file.type === "image/heif";
 }
 
+// heic2any decodes on the MAIN thread (it needs DOM canvas, so it can't move to
+// a Worker without a different decoder). Serialise conversions so a drop of 20
+// iPhone photos never decodes several at once, and yield between files so the
+// operator UI (and live output controls) stay responsive.
+let heicChain: Promise<unknown> = Promise.resolve();
+
 /** Convert an iPhone HEIC/HEIF photo to a JPEG File. Throws a friendly error. */
-export async function convertHeicToJpeg(file: File): Promise<File> {
+export function convertHeicToJpeg(file: File): Promise<File> {
+  const run = heicChain.then(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    return convertOne(file);
+  });
+  heicChain = run.catch(() => {});
+  return run;
+}
+
+async function convertOne(file: File): Promise<File> {
   let blob: Blob | Blob[];
   try {
     const { default: heic2any } = await import("heic2any");
@@ -30,7 +45,14 @@ export function shouldUseMultipart(contentType: string, size: number): boolean {
   return (ALLOWED_VIDEO_MIME as readonly string[]).includes(contentType) && size > MEDIA_MULTIPART_THRESHOLD_BYTES;
 }
 
+/** Parallel part PUTs normally; ONE at a time while something is live, so a
+ *  16 MB × 3 upload never starves the audio-detection websocket or a livestream
+ *  on a church uplink (CLAUDE.md rule 10). Re-read before every part. */
 const PART_CONCURRENCY = 3;
+const PART_CONCURRENCY_LIVE = 1;
+export function partConcurrency(live: boolean): number {
+  return live ? PART_CONCURRENCY_LIVE : PART_CONCURRENCY;
+}
 const PART_RETRIES = 3;
 const SIGN_BATCH = 50;
 
@@ -71,6 +93,7 @@ export async function uploadMultipart(
   contentType: string,
   signal?: AbortSignal,
   onProgress?: (fraction: number) => void,
+  isLive?: () => boolean,
 ): Promise<string> {
   const { key, uploadId, partSize, parts } = await postJson<{ key: string; uploadId: string; partSize: number; parts: number }>(
     "/api/media/multipart/create", { fileName: file.name, contentType, size: file.size }, signal,
@@ -102,10 +125,26 @@ export async function uploadMultipart(
     if (!url) throw new Error("Upload failed — couldn't prepare part");
     return url;
   };
+  // Tab closed / navigated mid-upload → release the stored parts via a beacon
+  // (survives unload; same-origin so the session cookie rides along). The
+  // bucket lifecycle rule / cleanup job stays the backstop.
+  const onPageHide = () => {
+    try {
+      navigator.sendBeacon?.("/api/media/multipart/abort", new Blob([JSON.stringify({ key, uploadId })], { type: "text/plain" }));
+    } catch { /* best-effort */ }
+  };
+  if (typeof window !== "undefined") window.addEventListener("pagehide", onPageHide);
+  let completed = false;
   try {
     let next = 1;
-    const worker = async () => {
+    const worker = async (idx: number) => {
       while (next <= parts) {
+        // Workers above the current limit idle (live toggles mid-upload).
+        if (idx >= partConcurrency(!!isLive?.())) {
+          await new Promise((r) => setTimeout(r, 500));
+          if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+          continue;
+        }
         const n = next++;
         const start = (n - 1) * partSize;
         const blob = file.slice(start, Math.min(file.size, start + partSize));
@@ -123,18 +162,58 @@ export async function uploadMultipart(
         }
       }
     };
-    await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, parts) }, worker));
-    await postJson("/api/media/multipart/complete", {
-      key, uploadId, parts: etags.map((etag, i) => ({ partNumber: i + 1, etag })),
-    }, signal);
+    await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, parts) }, (_, i) => worker(i)));
+    const partsBody = { key, uploadId, parts: etags.map((etag, i) => ({ partNumber: i + 1, etag })) };
+    // Retry complete: if the first call succeeded but its response was lost,
+    // the server confirms via HEAD and returns the key — never abort a
+    // finished upload.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await postJson("/api/media/multipart/complete", partsBody, signal);
+        completed = true;
+        break;
+      } catch (e) {
+        if ((e as { name?: string }).name === "AbortError" || attempt >= 3) throw e;
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+    }
     onProgress?.(1);
     return key;
   } catch (e) {
     inner.abort();
+    if (completed) throw e;
     // Release stored parts (fire-and-forget; not tied to the aborted signal).
     void fetch("/api/media/multipart/abort", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, uploadId }),
     }).catch(() => {});
     throw e;
+  } finally {
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", onPageHide);
   }
+}
+
+// ── Capabilities (cached) ─────────────────────────────────────────────────────
+let audioSupport: boolean | null = null;
+let capsInflight: Promise<boolean | null> | null = null;
+let capsAt = 0;
+
+/** Last known answer: true / false, or null when not fetched yet. */
+export function cachedAudioSupport(): boolean | null {
+  return audioSupport;
+}
+
+/** Fetch (at most once a minute) whether audio uploads are enabled. Never throws. */
+export function loadMediaCapabilities(): Promise<boolean | null> {
+  if (audioSupport === true) return Promise.resolve(true); // can't be disabled once on
+  if (capsInflight) return capsInflight;
+  if (audioSupport !== null && Date.now() - capsAt < 60_000) return Promise.resolve(audioSupport);
+  capsInflight = fetch("/api/media/capabilities", { cache: "no-store" })
+    .then(async (r) => (r.ok ? ((await r.json()) as { audio?: unknown }) : null))
+    .then((j) => {
+      if (j && typeof j.audio === "boolean") { audioSupport = j.audio; capsAt = Date.now(); }
+      return audioSupport;
+    })
+    .catch(() => audioSupport)
+    .finally(() => { capsInflight = null; });
+  return capsInflight;
 }

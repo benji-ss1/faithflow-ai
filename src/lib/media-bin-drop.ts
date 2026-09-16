@@ -116,6 +116,7 @@ export function skippedSummary(skipped: Array<{ name: string; route: DroppedFile
   const by = (r: string) => skipped.filter((s) => s.route === r);
   const parts: string[] = [];
   const list = (xs: typeof skipped) => (xs.length === 1 ? `“${xs[0].name}”` : `${xs.length} files`);
+  if (by("audio").length) parts.push(`${list(by("audio"))}: audio in the Media Bin is coming soon`);
   if (by("audio-format").length) parts.push(`${list(by("audio-format"))}: that audio format isn't supported — use MP3, WAV, M4A or AAC`);
   if (by("too-large").length) parts.push(`${list(by("too-large"))}: too large (video 5 GB, images and audio 500 MB, PowerPoint 150 MB)`);
   if (by("empty").length) parts.push(`${list(by("empty"))}: empty file`);

@@ -15,8 +15,8 @@ import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
 import { OVERLAY_POSITIONS } from "./broadcast";
 import { requireUser, requireRole, requireCap, hasCap } from "./session";
-import { deleteObject, getBuffer, putBuffer, headObject, getObjectHead } from "./s3";
-import { validateMediaRegistration, verifyUploadedObject, isChurchUploadKey } from "./media-types";
+import { deleteObject, getBuffer, putBuffer, statObject, readObjectHead } from "./s3";
+import { validateMediaRegistration, verifyUploadedObject, isChurchUploadKey, THUMBNAIL_MAX_SOURCE_BYTES } from "./media-types";
 import { isAudioMediaSupported, AUDIO_NOT_READY_ERROR } from "./server/media-audio-support";
 import { after } from "next/server";
 import { generateImageThumbnail } from "./media-thumbnail";
@@ -1460,20 +1460,32 @@ export async function registerMediaAsset(data: { kind: "image" | "video" | "audi
   const check = validateMediaRegistration(data, user.churchId);
   if (!check.ok) return { ok: false, error: check.error };
   if (check.kind === "audio" && !(await isAudioMediaSupported())) return { ok: false, error: AUDIO_NOT_READY_ERROR };
-  // Verify the stored object: real size within cap + magic bytes match the MIME.
-  // A mismatch deletes the object so a rejected upload never lingers.
+  const db = getDb();
+  // A key that already backs a media row is never re-registered (duplicate
+  // rows / delete-one-breaks-the-other) — and never deleted below.
+  const [existing] = await db.select({ id: mediaAssets.id }).from(mediaAssets)
+    .where(and(eq(mediaAssets.churchId, user.churchId), eq(mediaAssets.s3Key, check.s3Key))).limit(1);
+  if (existing) return { ok: false, error: "This upload is already in your library" };
+  // Verify the stored object: real size within cap + magic bytes match the kind.
+  // Only a DEFINITE mismatch deletes the object (and never one a row references);
+  // a storage/read hiccup keeps it and returns a retryable error.
   const verified = await verifyUploadedObject(check.s3Key, check.mimeType, check.kind, {
-    head: headObject,
-    readHead: getObjectHead,
+    head: statObject,
+    readHead: readObjectHead,
     remove: deleteObject,
+    isReferenced: async (k) => {
+      const [r] = await db.select({ id: mediaAssets.id }).from(mediaAssets)
+        .where(sql`${mediaAssets.s3Key} = ${k} OR ${mediaAssets.thumbS3Key} = ${k}`).limit(1);
+      return !!r;
+    },
   });
   if (!verified.ok) return { ok: false, error: verified.error };
-  const db = getDb();
   // Wave 3 (item 4c): an OS-file drop onto a Library row files the upload into
   // that library. Validate ownership; a bad/foreign id falls back to Default
   // (NULL) rather than failing the whole upload.
   const { libraryId } = data;
-  const { kind, fileName, s3Key, mimeType } = check;
+  const { kind, fileName, s3Key } = check;
+  const mimeType = verified.mimeType; // SNIFFED type when known (e.g. a PNG saved as .jpg)
   const sizeBytes = verified.sizeBytes; // the REAL stored size, not the client's claim
   const resolvedLibraryId = libraryId && (await assertOwnLibrary(db, user.churchId, libraryId)) ? libraryId : null;
   // Explicit whitelist of the columns we persist — never spread caller input
@@ -1492,7 +1504,13 @@ export async function registerMediaAsset(data: { kind: "image" | "video" | "audi
   // thumb can't be made, the row keeps thumbS3Key=null and the read path falls
   // back to the original. Videos are skipped (generateImageThumbnail returns
   // null for non-raster types).
-  if (kind === "image") {
+  if (kind === "image" && sizeBytes > THUMBNAIL_MAX_SOURCE_BYTES) {
+    // Huge originals (>25 MB) aren't buffered in a function just for a grid
+    // thumb: stamp the sentinel so the read path serves the original and the
+    // backfill doesn't keep re-selecting it.
+    await db.update(mediaAssets).set({ thumbS3Key: s3Key })
+      .where(and(eq(mediaAssets.id, row.id), eq(mediaAssets.churchId, user.churchId))).catch(() => {});
+  } else if (kind === "image") {
     const churchId = user.churchId;
     after(async () => {
       try {

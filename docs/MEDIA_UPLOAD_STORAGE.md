@@ -34,13 +34,66 @@ Parts from a closed tab / crashed upload are billable until aborted. Add:
   "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 } }] }
 ```
 
+The browser also sends a `navigator.sendBeacon` to `/api/media/multipart/abort`
+when the tab is closed mid-upload (`pagehide`), so most orphans are released
+immediately. The lifecycle rule (or cleanup job, below) is the backstop for
+crashes / power loss.
+
 ## 3. Server credentials
 
 `registerMediaAsset` now HEADs the object and does a ranged GET of the first
-64 bytes. The server IAM key needs `s3:GetObject` (already used for thumbnails),
+4 KB. The server IAM key needs `s3:GetObject` (already used for thumbnails),
 `s3:DeleteObject`, and for multipart `s3:PutObject` (covers
-CreateMultipartUpload/UploadPart/CompleteMultipartUpload) plus
-`s3:AbortMultipartUpload`.
+CreateMultipartUpload/UploadPart/CompleteMultipartUpload),
+`s3:AbortMultipartUpload`, `s3:ListBucketMultipartUploads` (per-church
+concurrency cap, below) and — for any future resume support —
+`s3:ListMultipartUploadParts`.
+
+A HEAD / ranged-GET *error* (network, 5xx, throttling) never deletes an upload:
+the user gets "Couldn't check the upload just now — please try again" and the
+object is kept. Only bytes that were actually read and are the wrong kind
+(or an out-of-bounds real size) delete the object, and never one a
+`media_assets` row references.
+
+## Provider caveats (Supabase Storage S3-compat)
+
+- **File-size limit:** Supabase caps object size per project (Free: 50 MB;
+  paid plans: configurable global limit, up to 500 GB on Pro+, set in
+  Storage → Settings, and optionally per bucket). A 5 GB video fails at
+  complete/PUT unless the project + bucket limit is raised. Check before
+  announcing large uploads.
+- **Lifecycle rules are NOT supported** by Supabase's S3-compat API. The
+  `AbortIncompleteMultipartUpload` rule in §2 only applies to AWS/R2/MinIO.
+  On Supabase a cleanup cron is required: ListMultipartUploads (prefix per
+  church or bucket-wide) → AbortMultipartUpload for anything initiated > 24 h
+  ago. (Follow-up — not built in this change.)
+- **ListMultipartUploads / ListParts** support varies by provider; if listing
+  fails, the per-church cap fails OPEN (see below).
+
+## Upload limits & permissions
+
+- `/api/media/multipart/*` require `edit_library` (same as `registerMediaAsset`).
+- `/api/media/presign`: `media` → `edit_library` or `operate_services`
+  (operator background uploads), `pptx` → `edit_library`, `logo` →
+  `manage_church`.
+- At most **5 in-progress large uploads per church** (initiated in the last
+  24 h, counted via ListMultipartUploads under `${churchId}/media/`). Fails
+  open if the provider can't list.
+- While a slide is live, the Media Bin sends large-video parts **one at a time**
+  (3 otherwise) so uploads don't starve the detection websocket / livestream.
+- Deck imports register pages 4 at a time (`DECK_UPLOAD_CONCURRENCY`); each
+  registration adds one indexed row lookup + HEAD + 4 KB ranged GET — no
+  sequential step was added.
+- Images > 25 MB skip server thumbnail generation (the original is served).
+
+## Serving & `nosniff`
+
+Media is not proxied through the app: `/api/media/url` returns presigned S3 GET
+URLs, so `X-Content-Type-Options: nosniff` can't be set by the app on those
+responses (presigned `ResponseContentType` can pin the type, not add headers).
+Mitigation is upstream: SVG/HTML/script bytes are refused at registration, and
+the stored Content-Type is the validated media type. If a CDN/proxy is added in
+front of storage, set `nosniff` there.
 
 ## 4. Audio
 

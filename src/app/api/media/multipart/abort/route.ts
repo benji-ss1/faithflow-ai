@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createLimiter } from "@/lib/rate-limit";
 import { abortMultipart } from "@/lib/s3";
-import { multipartAuth, parseKeyAndUpload } from "../_shared";
+import { multipartAuth, parseKeyAndUpload, trackMultipartEnd } from "../_shared";
 
 export const runtime = "nodejs";
 
@@ -16,5 +16,6 @@ export async function POST(req: Request) {
   // Best-effort: releases the stored parts. A bucket lifecycle rule
   // (AbortIncompleteMultipartUpload) is the backstop for tabs closed mid-upload.
   await abortMultipart(ref.key, ref.uploadId).catch(() => {});
+  trackMultipartEnd(user.churchId, ref.uploadId);
   return NextResponse.json({ ok: true });
 }

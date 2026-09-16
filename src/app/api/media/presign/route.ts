@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { apiUser } from "@/lib/session";
+import { apiUser, hasCap } from "@/lib/session";
 import { createLimiter } from "@/lib/rate-limit";
 import { presignPut } from "@/lib/s3";
 import { MAX_BYTES, allowedMimesForPurpose, buildUploadKey, kindForMime } from "@/lib/media-types";
@@ -30,6 +30,17 @@ export async function POST(req: Request) {
   if (!fileName || !contentType || typeof size !== "number") return NextResponse.json({ error: "Bad request" }, { status: 400 });
 
   const safePurpose = purpose === "pptx" || purpose === "media" || purpose === "logo" ? purpose : "media";
+
+  // Capability gate per purpose, mirroring what each upload is used for:
+  //   pptx  → edit_library (createPptxImport / deck import)
+  //   logo  → manage_church (updateSettings logo is admin-only)
+  //   media → edit_library OR operate_services (operators/volunteers upload
+  //           backgrounds from the operator console via lib/media-upload.ts)
+  const allowedRole =
+    safePurpose === "pptx" ? hasCap(user.role, "edit_library")
+    : safePurpose === "logo" ? hasCap(user.role, "manage_church")
+    : hasCap(user.role, "edit_library") || hasCap(user.role, "operate_services");
+  if (!allowedRole) return NextResponse.json({ error: "You don't have permission to upload this" }, { status: 403 });
 
   // Purpose-aware max size (defaults to media cap for any unknown purpose).
   const maxBytes = MAX_BYTES[safePurpose];

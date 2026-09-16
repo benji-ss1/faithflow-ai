@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  validateMediaRegistration, isChurchUploadKey, verifyUploadedObject, sniffMediaMime, magicMatchesMime,
+  validateMediaRegistration, isChurchUploadKey, verifyUploadedObject, sniffMediaMime, magicMatchesMime, checkStoredBytes,
   validateMultipartCreate, validateCompletedParts, validatePartNumbers, isPlausibleUploadId, buildUploadKey,
   MEDIA_MULTIPART_MAX_BYTES, MAX_BYTES, allowedMimesForPurpose, type ObjectProbe,
 } from "../../src/lib/media-types";
@@ -102,12 +102,47 @@ t("sniffs the supported families", () => {
   assert.equal(sniffMediaMime(bytes(0, 0, 0, 0x18, "ftypheic")), "image/heic");
   assert.equal(sniffMediaMime(HTML), null);
 });
-t("mismatch detection (html as jpeg, png as jpeg, mp4↔mov tolerated)", () => {
+t("mismatch detection (html as jpeg rejected, same-kind renames tolerated)", () => {
   assert.equal(magicMatchesMime(HTML, "image/jpeg"), false);
-  assert.equal(magicMatchesMime(PNG, "image/jpeg"), false);
   assert.equal(magicMatchesMime(MOV, "video/mp4"), true);
   assert.equal(magicMatchesMime(MP4, "video/quicktime"), true);
   assert.equal(magicMatchesMime(MP4, "image/jpeg"), false);
+});
+
+t("sniff-compat: same-kind renames accepted and the SNIFFED mime is recorded", () => {
+  assert.deepEqual(checkStoredBytes(PNG, "image/jpeg"), { ok: true, mimeType: "image/png" }); // png saved as .jpg
+  assert.deepEqual(checkStoredBytes(JPEG, "image/png"), { ok: true, mimeType: "image/jpeg" });
+  assert.deepEqual(checkStoredBytes(M4A, "audio/aac"), { ok: true, mimeType: "audio/mp4" }); // .m4a named .aac
+  assert.equal(checkStoredBytes(WEBM, "video/mp4").ok, true); // webm↔mp4
+  assert.equal(checkStoredBytes(MP4, "video/webm").ok, true);
+  assert.deepEqual(checkStoredBytes(MP4, "audio/mp4"), { ok: true, mimeType: "audio/mp4" }); // m4a with mp4 brand
+});
+t("sniff-compat: AVIF with mif1/msf1 major brand (avif in compatible brands) accepted", () => {
+  const avifMif1 = bytes(0, 0, 0, 0x1c, "ftypmif1", 0, 0, 0, 0, "mif1avifmiaf");
+  assert.equal(sniffMediaMime(avifMif1), "image/avif");
+  assert.equal(checkStoredBytes(avifMif1, "image/avif").ok, true);
+  const heicMif1 = bytes(0, 0, 0, 0x18, "ftypmif1", 0, 0, 0, 0, "mif1heic");
+  assert.equal(checkStoredBytes(heicMif1, "image/avif").ok, false); // unconverted HEIC stays out
+});
+t("sniff-compat: MP4 without leading ftyp, MP3 with APE tag / zero padding, RF64/BW64 WAV", () => {
+  assert.equal(checkStoredBytes(bytes(0, 0, 0, 8, "free", 0, 0, 0, 8, "mdat"), "video/mp4").ok, true);
+  assert.equal(checkStoredBytes(bytes("APETAGEX"), "audio/mpeg").ok, true);
+  const padded = new Uint8Array(64); padded[20] = 0xff; padded[21] = 0xfb; padded[22] = 0x90;
+  assert.equal(checkStoredBytes(padded, "audio/mpeg").ok, true);
+  assert.equal(checkStoredBytes(bytes("RF64", 0, 0, 0, 0, "WAVE"), "audio/wav").ok, true);
+  assert.equal(checkStoredBytes(bytes("BW64", 0, 0, 0, 0, "WAVE"), "audio/wav").ok, true);
+});
+t("sniff-compat: cross-kind, dangerous and unknown-image bytes rejected", () => {
+  assert.equal(checkStoredBytes(HTML, "image/png").ok, false); // html-in-png
+  assert.equal(checkStoredBytes(bytes("  <svg onload=x>"), "image/png").ok, false);
+  assert.equal(checkStoredBytes(bytes("<!doctype html>"), "video/mp4").ok, false);
+  assert.equal(checkStoredBytes(bytes("%PDF-1.7"), "audio/mpeg").ok, false);
+  assert.equal(checkStoredBytes(bytes("PK", 3, 4), "video/mp4").ok, false);
+  assert.equal(checkStoredBytes(bytes("#!/bin/sh"), "audio/wav").ok, false);
+  assert.equal(checkStoredBytes(MP4, "image/jpeg").ok, false); // video bytes as image
+  assert.equal(checkStoredBytes(JPEG, "video/mp4").ok, false); // image bytes as video
+  assert.equal(checkStoredBytes(bytes(1, 2, 3, 4, 5), "image/png").ok, false); // unknown image
+  assert.equal(checkStoredBytes(bytes(1, 2, 3, 4, 5), "video/mp4").ok, true); // unknown video tolerated
 });
 
 function probe(o: { size?: number | null; head?: Uint8Array | null }) {
@@ -121,7 +156,7 @@ function probe(o: { size?: number | null; head?: Uint8Array | null }) {
 }
 t("verify: good object passes and reports REAL size", async () => {
   const { p, removed } = probe({ size: 1234, head: JPEG });
-  assert.deepEqual(await verifyUploadedObject(key(A), "image/jpeg", "image", p), { ok: true, sizeBytes: 1234 });
+  assert.deepEqual(await verifyUploadedObject(key(A), "image/jpeg", "image", p), { ok: true, sizeBytes: 1234, mimeType: "image/jpeg" });
   assert.equal(removed.length, 0);
 });
 t("verify: missing object → error, nothing deleted", async () => {
@@ -148,6 +183,34 @@ t("verify: empty object deleted", async () => {
   const { p, removed } = probe({ size: 0, head: JPEG });
   assert.equal((await verifyUploadedObject(key(A), "image/jpeg", "image", p)).ok, false);
   assert.equal(removed.length, 1);
+});
+
+t("verify: transient HEAD error keeps the object (retryable)", async () => {
+  const removed: string[] = [];
+  const r = await verifyUploadedObject(key(A), "image/jpeg", "image", {
+    head: async () => { throw new Error("ECONNRESET"); }, readHead: async () => JPEG, remove: async (k) => { removed.push(k); },
+  });
+  assert.equal(r.ok, false); assert.equal(!r.ok && r.retryable, true); assert.equal(removed.length, 0);
+});
+t("verify: transient read error (throw or null) keeps a good object", async () => {
+  for (const readHead of [async () => { throw new Error("503"); }, async () => null]) {
+    const removed: string[] = [];
+    const r = await verifyUploadedObject(key(A), "image/jpeg", "image", {
+      head: async () => ({ size: 99 }), readHead, remove: async (k) => { removed.push(k); },
+    });
+    assert.equal(r.ok, false); assert.equal(!r.ok && r.retryable, true); assert.equal(removed.length, 0);
+  }
+});
+t("verify: a referenced object is never deleted, even on mismatch", async () => {
+  const removed: string[] = [];
+  const r = await verifyUploadedObject(key(A), "image/jpeg", "image", {
+    head: async () => ({ size: 50 }), readHead: async () => HTML, remove: async (k) => { removed.push(k); }, isReferenced: async () => true,
+  });
+  assert.equal(r.ok, false); assert.equal(removed.length, 0);
+});
+t("verify: png bytes under a .jpg claim pass and report image/png", async () => {
+  const { p } = probe({ size: 10, head: PNG });
+  assert.deepEqual(await verifyUploadedObject(key(A), "image/jpeg", "image", p), { ok: true, sizeBytes: 10, mimeType: "image/png" });
 });
 
 // ── multipart validators ──
@@ -188,7 +251,7 @@ t("createPptxImport checks the church pptx key", () => {
   assert.ok(body.indexOf("isChurchUploadKey(s3Key, user.churchId, \"pptx\")") < body.indexOf("db.insert"));
 });
 t("to-pdf route + pptx converter + thumbnail backfill check the church prefix", () => {
-  assert.ok(src("src/app/api/pptx/to-pdf/route.ts").includes("key.startsWith(`${user.churchId}/`)"));
+  assert.ok(src("src/app/api/pptx/to-pdf/route.ts").includes("isChurchUploadKey(key, user.churchId, \"pptx\")"));
   assert.ok(src("src/lib/pptx.ts").includes("imp.sourceS3Key.startsWith(`${imp.churchId}/`)"));
   assert.ok(src("src/app/api/media/backfill-thumbnails/route.ts").includes("m.s3Key.startsWith(`${user.churchId}/`)"));
 });

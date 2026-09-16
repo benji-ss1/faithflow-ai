@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { CheckCircle2, Film, Music, RotateCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { uploadMediaFile } from "../center/MediaImportWizard";
+import { cachedAudioSupport, loadMediaCapabilities } from "@/lib/media-upload-client";
 import {
   classifyDroppedFile, skippedSummary, MEDIA_BIN_UPLOAD_CONCURRENCY, type DroppedFileRoute,
 } from "@/lib/media-bin-drop";
@@ -122,6 +123,7 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
       let lastPaint = 0;
       void uploadMediaFile(next.file, abort.current.signal, undefined, {
         contentType: next.contentType,
+        isLive: () => !!liveRef.current,
         onProgress: (fr) => {
           const now = performance.now();
           if (now - lastPaint < 100 && fr < 1) return; // ≤10 paints/s per tile
@@ -199,6 +201,10 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
     };
   }, []);
 
+  // Know up front whether audio is enabled, so an MP3 dropped before the
+  // media_kind migration gets the grouped "coming soon" toast, not a failed tile.
+  useEffect(() => { void loadMediaCapabilities(); }, []);
+
   useImperativeHandle(ref, () => ({
     importFiles(files, opts) {
       const add: Item[] = [];
@@ -209,6 +215,10 @@ export const MediaBinUploadQueue = forwardRef<MediaBinUploadQueueHandle, {
       const known = new Map(itemsRef.current.map((i) => [i.fingerprint, i] as const));
       for (const file of files) {
         const r = classifyDroppedFile(file);
+        if (r.route === "audio" && cachedAudioSupport() === false) {
+          skipped.push({ name: file.name, route: "audio" });
+          continue;
+        }
         if (r.route === "image" || r.route === "video" || r.route === "audio") {
           const fingerprint = `${file.name}:${file.size}:${file.lastModified}`;
           const dup = known.get(fingerprint);

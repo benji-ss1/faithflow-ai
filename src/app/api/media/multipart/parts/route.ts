@@ -6,8 +6,9 @@ import { multipartAuth, parseKeyAndUpload } from "../_shared";
 
 export const runtime = "nodejs";
 
-// Parts are signed in batches (≤100 per call); a 5 GB upload needs ≤4 calls,
-// retries included 120/min leaves plenty of headroom.
+// Parts are signed in batches (the client asks for 50 per call, the server
+// allows ≤100); a 5 GB upload (320 × 16 MB parts) needs ~7 calls, re-signs every
+// 45 min on slow links — 120/min leaves plenty of headroom.
 const limiter = createLimiter("media-multipart-parts", 120, 60_000);
 
 export async function POST(req: Request) {

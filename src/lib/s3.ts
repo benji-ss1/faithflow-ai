@@ -1,6 +1,6 @@
 import {
   S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand,
-  CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand,
+  CreateMultipartUploadCommand, UploadPartCommand, ListMultipartUploadsCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -126,6 +126,42 @@ export async function getObjectHead(key: string, bytes = 64): Promise<Uint8Array
   } catch {
     return null;
   }
+}
+
+function isNotFound(e: unknown): boolean {
+  const err = e as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number } };
+  return err?.name === "NotFound" || err?.name === "NoSuchKey" || err?.Code === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404;
+}
+
+/**
+ * Strict HEAD for verification: null ONLY when the object doesn't exist; any
+ * other failure (network, 5xx, throttling) THROWS so callers never mistake a
+ * transient error for "missing" and delete a good upload.
+ */
+export async function statObject(key: string): Promise<{ size: number; contentType?: string } | null> {
+  if (!isS3Configured()) throw new Error("Storage not configured");
+  try {
+    const res = await s3().send(new HeadObjectCommand({ Bucket: BUCKET(), Key: key }));
+    return { size: Number(res.ContentLength ?? 0), contentType: res.ContentType };
+  } catch (e) {
+    if (isNotFound(e)) return null;
+    throw e;
+  }
+}
+
+/** Strict ranged GET of the first `bytes` bytes — THROWS on any failure. */
+export async function readObjectHead(key: string, bytes: number): Promise<Uint8Array> {
+  if (!isS3Configured()) throw new Error("Storage not configured");
+  const res = await s3().send(new GetObjectCommand({ Bucket: BUCKET(), Key: key, Range: `bytes=0-${bytes - 1}` }));
+  const arr = await res.Body?.transformToByteArray();
+  if (!arr) throw new Error("Empty body");
+  return arr.subarray(0, bytes);
+}
+
+/** In-progress multipart uploads under a prefix initiated after `sinceMs`. */
+export async function countRecentMultipartUploads(prefix: string, sinceMs: number): Promise<number> {
+  const res = await s3().send(new ListMultipartUploadsCommand({ Bucket: BUCKET(), Prefix: prefix, MaxUploads: 100 }));
+  return (res.Uploads ?? []).filter((u) => !u.Initiated || u.Initiated.getTime() >= sinceMs).length;
 }
 
 // ── Multipart (large video uploads) ────────────────────────────────────────────

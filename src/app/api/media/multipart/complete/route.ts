@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createLimiter } from "@/lib/rate-limit";
 import { completeMultipart, headObject, deleteObject } from "@/lib/s3";
 import { validateCompletedParts, MEDIA_MULTIPART_MAX_BYTES } from "@/lib/media-types";
-import { multipartAuth, parseKeyAndUpload } from "../_shared";
+import { multipartAuth, parseKeyAndUpload, trackMultipartEnd } from "../_shared";
 
 export const runtime = "nodejs";
 
@@ -18,8 +18,12 @@ export async function POST(req: Request) {
   try {
     await completeMultipart(ref.key, ref.uploadId, parts);
   } catch {
-    return NextResponse.json({ error: "Couldn't finish the upload — try again" }, { status: 502 });
+    // A retried complete (the first one succeeded but its response was lost)
+    // fails with NoSuchUpload — if the assembled object exists, it's done.
+    const done = await headObject(ref.key).catch(() => null);
+    if (!done || done.size <= 0) return NextResponse.json({ error: "Couldn't finish the upload — try again" }, { status: 502 });
   }
+  trackMultipartEnd(user.churchId, ref.uploadId);
   // Presigned part URLs can't cap bytes — enforce the ceiling on the assembled
   // object. (registerMediaAsset re-checks size + magic bytes too.)
   const meta = await headObject(ref.key);

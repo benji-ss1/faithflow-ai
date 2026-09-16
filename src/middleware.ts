@@ -192,6 +192,7 @@ const UNIVERSAL_ALLOWED_API_EXACT = new Set<string>([
   "/api/media/multipart/parts",
   "/api/media/multipart/complete",
   "/api/media/multipart/abort",
+  "/api/media/capabilities",          // audio-enabled check before uploading
 ]);
 
 function isUniversalAllowedPath(pathname: string): boolean {

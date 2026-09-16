@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isChurchUploadKey } from "@/lib/media-types";
 import { apiUser } from "@/lib/session";
 import { createLimiter } from "@/lib/rate-limit";
 import { presignGet, deleteObject } from "@/lib/s3";
@@ -38,7 +39,9 @@ export async function POST(req: Request) {
   // Church-scope the key: an uploaded pptx lives at `${churchId}/pptx/...`
   // (see /api/media/presign). Reject anything outside this church's prefix so a
   // caller can't have us convert (and leak) another tenant's object.
-  if (!key || !key.startsWith(`${user.churchId}/`)) {
+  // Must be exactly a pptx key issued to this church — never e.g. its media
+  // objects (the source is deleted after conversion below).
+  if (!isChurchUploadKey(key, user.churchId, "pptx")) {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
   const ext = body.ext === ".ppt" ? ".ppt" : ".pptx";

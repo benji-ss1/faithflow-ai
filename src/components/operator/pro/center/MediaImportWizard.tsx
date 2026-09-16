@@ -18,7 +18,7 @@ import { registerMediaAsset } from "@/lib/actions";
 import { isPdfFile, renderPdfToImages } from "@/lib/pdf-to-images";
 import { finalizeImport } from "@/lib/import-actions";
 import { classifyDroppedFile, MEDIA_BIN_MAX_BYTES, type DroppedFileRoute } from "@/lib/media-bin-drop";
-import { convertHeicToJpeg, isHeicFile, shouldUseMultipart, uploadMultipart } from "@/lib/media-upload-client";
+import { cachedAudioSupport, convertHeicToJpeg, isHeicFile, loadMediaCapabilities, shouldUseMultipart, uploadMultipart } from "@/lib/media-upload-client";
 
 // Re-export Pencil for MediaBrowser without a separate import
 export { Pencil } from "lucide-react";
@@ -49,7 +49,7 @@ export async function uploadMediaFile(
   // Media Bin OS drop: `contentType` overrides an empty/unreliable OS file.type
   // (Windows .mov); `onProgress` switches the PUT to XHR for byte progress.
   // Both optional — existing wizard callers are byte-identical.
-  opts?: { contentType?: string; onProgress?: (fraction: number) => void },
+  opts?: { contentType?: string; onProgress?: (fraction: number) => void; /** true while a slide is live → large uploads send one part at a time */ isLive?: () => boolean },
 ): Promise<void> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   // iPhone HEIC/HEIF → JPEG in the browser first (converter lazy-loaded only here).
@@ -62,7 +62,7 @@ export async function uploadMediaFile(
   let key: string;
   if (shouldUseMultipart(contentType, file.size)) {
     // Large video (>100 MB): S3 multipart with progress + abort.
-    key = await uploadMultipart(file, contentType, signal, opts?.onProgress);
+    key = await uploadMultipart(file, contentType, signal, opts?.onProgress, opts?.isLive);
   } else {
     // Small-file path — unchanged.
     const presignRes = await fetch("/api/media/presign", {
@@ -246,6 +246,9 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
   const [errorCount, setErrorCount] = useState(0);
   const deckAbortRef = useRef<AbortController | null>(null); // cancels an in-flight deck render on close
 
+  // Audio-enabled check (cached) so audio is routed before any upload.
+  useEffect(() => { if (open) void loadMediaCapabilities(); }, [open]);
+
   // Reset on close
   useEffect(() => {
     if (!open) {
@@ -310,7 +313,10 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
         valid.push({ tag: "media", key, file, previewUrl: URL.createObjectURL(file), status: "pending" });
       } else if (ALLOWED_VIDEO_TYPES.includes(file.type)) {
         valid.push({ tag: "media", key, file, previewUrl: null, status: "pending" });
-      } else if ((routed = classifyDroppedFile(file)).route === "image" || routed.route === "video" || routed.route === "audio") {
+      } else if ((routed = classifyDroppedFile(file)).route === "audio" && cachedAudioSupport() === false) {
+        toast.info(`"${file.name}": audio in the Media Bin is coming soon.`);
+        continue;
+      } else if (routed.route === "image" || routed.route === "video" || routed.route === "audio") {
         // Extension-first fallback: iPhone HEIC (converted to JPEG on upload),
         // audio, and files whose OS type is empty (Windows).
         if (routed.route === "image" && file.size > MEDIA_BIN_MAX_BYTES) { toast.error(`"${file.name}" exceeds ${MAX_NON_VIDEO_SIZE_MB} MB — skipped.`); continue; }
