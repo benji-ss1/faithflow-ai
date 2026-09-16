@@ -72,6 +72,7 @@ import { CONFIDENCE_THRESHOLD, BIBLE_AUTOFIRE_CONFIDENCE, BIBLE_SUGGEST_CONFIDEN
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
 import { SettingsWindow } from "../settings/SettingsWindow";
+import { SarahOverlay } from "@/components/setup/sarah/SarahOverlay";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
 import { matchNextSlide, isLikelyEndOfSong, scoreCoverage, slideWords, matchBestSlide } from "@/lib/ai-detection/lyric-position";
 import { parseContextCommand, navCommandWordCount } from "@/lib/context-parser";
@@ -4747,6 +4748,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Read-only slice of the live audio state for the Sarah setup overlay. Memoized so
+  // the overlay isn't handed a fresh object on every ASR frame; the overlay itself
+  // renders nothing while closed.
+  const sarahLive = useMemo(() => ({
+    listening: !!ctx.audio?.listening,
+    ready: !!ctx.audio?.ready,
+    transcript: (ctx.audio?.transcript ?? []).slice(-2).map((t) => t.text).join(" ").trim() || undefined,
+    interim: ctx.audio?.interim,
+    suggestions: ctx.audio?.suggestions as { id?: string; reference?: string }[] | undefined,
+    onListen: ctx.onListenToggle,
+  }), [ctx.audio?.listening, ctx.audio?.ready, ctx.audio?.transcript, ctx.audio?.interim, ctx.audio?.suggestions, ctx.onListenToggle]);
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
       <AnnouncementBar />
@@ -4972,6 +4985,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
       <WhatsNewModal />
       <SettingsWindow />
+      <SarahOverlay live={sarahLive} />
     </div>
   );
 }

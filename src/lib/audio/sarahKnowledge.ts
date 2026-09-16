@@ -9,11 +9,12 @@ export const SARAH_STEPS = ["context", "os", "desk", "connection", "steps", "inp
 export type SarahStep = (typeof SARAH_STEPS)[number];
 
 export const GOLDEN_RULE =
-  "Send a dedicated post-fader aux or matrix to the computer: pulpit and vocal mics forward, band tucked underneath, no reverb or effects. Use the Main L/R mix only if there's no spare aux.";
+  "Send the computer its own mix: preacher and vocal mics clear and up front, band underneath, no reverb or effects. Use a spare aux or matrix that follows the faders. If there is no spare, the main mix works too.";
 
 const ROUTING = [
   GOLDEN_RULE,
   "PresentFlow LISTENS: the desk, interface, Dante or capture device is an INPUT on the computer (never an output).",
+  "Never suggest the computer's built-in microphone — it hears the room and the PA, which makes detection much worse.",
   "Behringer X32 / Midas M32 with X-USB card: Routing → Out 1-16, put the aux/matrix (or Main LR) on Out 15/16, then Routing → Card Out → block Out 9-16; the computer hears it on USB 15/16.",
   "Behringer Wing: plug USB straight in (no hub); in the Routing USB output page assign the mix to a USB pair. Menu names vary by firmware.",
   "Yamaha TF: the Stereo mix is fixed on USB 33/34 (Stereo only — use it if no aux is spare).",

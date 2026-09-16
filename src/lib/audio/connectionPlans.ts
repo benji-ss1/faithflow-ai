@@ -94,12 +94,13 @@ function build(connection: Connection, fam: DeskFamily, desk: string, os: Os | u
     }
     case "interface":
       return { connection, title: "Audio interface", subtitle: "Focusrite, Behringer UMC…", verified: false, recommended: true, steps: [
-        "Take a spare post-fader aux (or matrix) output from the desk.",
-        "Cable it into a LINE input on the interface. Turn 48V phantom power OFF on that input.",
+        "Find a spare aux (or matrix) output on the desk — one that follows the faders.",
+        "Plug that into a LINE input on the interface. Switch 48V phantom power OFF on that input.",
         "Plug the interface into this computer by USB.",
         "Set the interface gain so talking lands in the green “Good” part of Sarah's meter. If it distorts, use the pad.",
-        fam === "analog" ? "Small desks: a post-fader aux is safer than the record/tape out (often quieter and pre-fader)." : "If you hear hum, use a DI box with ground lift on the audio cable — never remove a power earth.",
+        fam === "analog" ? "On a small desk, use an aux output rather than the record or tape out — those are quieter and don't follow the faders." : "If you hear a hum, put a DI box with a ground lift on the audio cable. Never cut the earth pin on a power plug.",
         GOLDEN_RULE,
+        "Don't have an interface? A simple 2-input USB one is enough — e.g. Behringer U-PHORIA UMC202HD or Focusrite Scarlett Solo. You need one cable from the desk's aux output to its line input.",
       ] };
     case "ndi":
       return { connection, title: "NDI over the network", subtitle: "Another computer sends the audio", verified: false, recommended: true, steps: [
@@ -122,9 +123,10 @@ function build(connection: Connection, fam: DeskFamily, desk: string, os: Os | u
         "Pick the Blackmagic device in Sarah's list.",
       ] };
     case "builtin":
-      return { connection, title: "This computer's microphone", subtitle: "Backup only — less accurate", verified: true, recommended: false, steps: [
-        "Place the computer near a speaker, away from the stage monitors.",
-        "Expect lower accuracy: it hears the room and the echo. Use a desk feed when you can.",
+      return { connection, title: "This computer's own microphone", subtitle: "Works, but a desk feed is better", verified: true, recommended: false, steps: [
+        "Put the computer where it can hear the preacher clearly — near a speaker, away from stage monitors and fans.",
+        "Keep the room reasonably quiet. This picks up everything, including echo and the congregation.",
+        "This is fine for a laptop-only setup. When you can, send a feed from the sound desk instead — detection gets noticeably better.",
       ] };
   }
 }
@@ -149,6 +151,9 @@ export function rankConnections(input: {
     const why = failed.get(c);
     return why ? { ...o, previouslyFailed: why } : o;
   });
+  // The computer's own microphone stays available (it's genuinely fine for a laptop-only
+  // setup) but is always LAST and never presented as the recommended path — it hears the
+  // room, the PA and the echo, so a desk feed beats it every time.
   const main = opts.filter((o) => o.connection !== "builtin");
   const ranked = [...main.filter((o) => !o.previouslyFailed), ...main.filter((o) => o.previouslyFailed)].slice(0, 3);
   return [...ranked, ...opts.filter((o) => o.connection === "builtin")];
