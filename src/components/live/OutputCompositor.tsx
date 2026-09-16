@@ -174,7 +174,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // server and first client render match; the flag lives in the same origin's
   // localStorage/env as the operator.
   const [pp7Order, setPp7Order] = useState(false);
-  useEffect(() => { setPp7Order(readPp7LayersFlag()); }, []);
+  useEffect(() => { setPp7Order(!!layersEnabled && readPp7LayersFlag()); }, [layersEnabled]);
   const plan = planOutput(pp7Order ? { ...resolvedInput, mediaOverCamera: true } : resolvedInput);
   const slide = resolvedInput.slide;
   const opacities = layersEnabled || sceneActive
