@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
 import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
 import { audioGuideReply, audioGuideSearch, MissingApiKeyError, GroqRateLimitedError } from "@/lib/ai-helpers";
-import { SARAH_KNOWLEDGE, SARAH_STEPS, CHECK_IDS, type SarahStep } from "@/lib/audio/sarahKnowledge";
+import { SARAH_KNOWLEDGE, SARAH_ASK_KNOWLEDGE, SARAH_STEPS, CHECK_IDS, knowledgeCovers, type SarahStep } from "@/lib/audio/sarahKnowledge";
 import { OS_VALUES, CONNECTION_VALUES, MIX_VALUES } from "@/lib/server/audio-setup";
 import { createLimiter } from "@/lib/rate-limit";
 
@@ -74,6 +74,12 @@ export async function POST(req: Request) {
     // Real questions ("my X32 USB shows nothing", "how do I send NDI from OBS?") get a
     // grounded web search over manufacturer docs first. If search finds nothing solid,
     // Sarah answers from the curated knowledge base instead — never an unsourced guess.
+    // Gear the curated knowledge covers → answer from verified knowledge, never search.
+    if (body.mode === "ask" && knowledgeCovers(message)) {
+      const data = await audioGuideReply({ message, history, context: { step, setup, diagnostics, knowledge: SARAH_ASK_KNOWLEDGE } });
+      console.info("[audio-guide] ask answered from knowledge base");
+      return NextResponse.json({ ok: true, data: { ...data, correction: undefined } });
+    }
     if (body.mode === "ask") {
       // Search is best-effort: a rate limit or an over-size request (common on lower Groq
       // tiers — search runs on a larger model) falls back to the knowledge-base answer
@@ -87,11 +93,12 @@ export async function POST(req: Request) {
         if (e instanceof MissingApiKeyError) throw e;
         return null;
       });
+      console.info(`[audio-guide] ask: ${!allowed ? "search capped" : found ? "answered by web search" : "search gave nothing — knowledge base"}`);
       if (found) {
         return NextResponse.json({ ok: true, data: { reply: found.reply, mood: "nod", suggestions: [], sources: found.sources } });
       }
     }
-    const data = await audioGuideReply({ message, history, context: { step, setup, diagnostics, knowledge: SARAH_KNOWLEDGE[step] } });
+    const data = await audioGuideReply({ message, history, context: { step, setup, diagnostics, knowledge: body.mode === "ask" ? SARAH_ASK_KNOWLEDGE : SARAH_KNOWLEDGE[step] } });
     // Corrections must map to known values (desk stays free text).
     if (data.correction) {
       const { field, to } = data.correction;
