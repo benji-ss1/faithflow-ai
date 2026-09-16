@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain, shell, safeStorage, systemPreferences } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain, shell, safeStorage, systemPreferences, screen } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { registerScreenIpc, closeAllOutputWindows, openOutputForRole } from "./ipc/screens";
@@ -311,11 +311,23 @@ function openScreenConfig() {
 }
 
 async function createMainWindow() {
+  // 2026-09-16 Windows polish — Windows display scaling (125-150%) leaves a work
+  // area smaller than 1400x900, so the fixed window overflowed the screen and
+  // minHeight 700 stopped it fitting. On win32 only: clamp to the work area,
+  // maximize when it can't fit, hide the in-window menu bar (Alt reveals it —
+  // accelerators keep working) and paint a dark ground (no white flash).
+  // macOS keeps the literal 1400/900/1100/700 options, untouched.
+  const isWin = process.platform === "win32";
+  // Size against the display the operator is on (cursor), NOT the primary —
+  // on church rigs the projector is often Windows' primary display.
+  const wa = isWin ? screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workAreaSize : null;
+  const winTooSmall = !!wa && (wa.width < 1400 || wa.height < 900);
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 1100,
-    minHeight: 700,
+    width: wa ? Math.min(1400, wa.width) : 1400,
+    height: wa ? Math.min(900, wa.height) : 900,
+    minWidth: wa ? Math.min(1100, wa.width) : 1100,
+    minHeight: wa ? Math.min(700, wa.height) : 700,
+    ...(isWin ? { backgroundColor: "#0C0B0A", center: true } : {}),
     show: false,
     webPreferences: {
       contextIsolation: true,
@@ -344,7 +356,15 @@ async function createMainWindow() {
     try { Menu.buildFromTemplate(template).popup({ window: mainWindow ?? undefined }); } catch { /* window torn down */ }
   });
 
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  // Hide the in-window File/Edit/View/Help bar on Windows. NOT autoHideMenuBar:
+  // that makes a stray Alt tap focus the menu, so arrow/G hotkeys go to the
+  // menu instead of advancing slides mid-service. Menu accelerators (reload,
+  // zoom, copy/paste) keep working via the application menu.
+  if (isWin) mainWindow.setMenuBarVisibility(false);
+  mainWindow.once("ready-to-show", () => {
+    if (winTooSmall) mainWindow?.maximize();
+    mainWindow?.show();
+  });
   mainWindow.on("closed", () => {
     mainWindow = null;
     // Kill any ffmpeg subprocesses tied to this window's audio session so
@@ -536,6 +556,18 @@ if (!app.requestSingleInstanceLock()) {
       mainWindow.focus();
     }
   });
+}
+
+// 2026-09-16 Windows "mic too hot" — Chromium's WebRTC AGC on Windows raises
+// the REAL OS input-volume slider (and it stays raised after the app closes),
+// stacking with the app's boost until the feed clips. This stops AGC from
+// moving the OS slider ONLY; echo cancellation, noise suppression and digital
+// AGC stay ON (preserves the deliberate d357516 DSP-on fix). win32-only;
+// escape hatch: set PRESENTFLOW_WIN_AGC_OS_VOLUME=1. Unknown feature → no-op.
+// NOTE: Chromium honours only the LAST disable-features switch — if another is
+// ever added, join the values into this one comma-separated switch.
+if (process.platform === "win32" && process.env.PRESENTFLOW_WIN_AGC_OS_VOLUME !== "1") {
+  app.commandLine.appendSwitch("disable-features", "WebRtcAllowInputVolumeAdjustment");
 }
 
 app.whenReady().then(async () => {
