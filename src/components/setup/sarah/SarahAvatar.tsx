@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Check, Ear, Lightbulb, PartyPopper, Search, Smile, Sparkles } from "lucide-react";
 import s from "./sarah.module.css";
 
 export type SarahMood = "neutral" | "think" | "nod" | "listen" | "ooh" | "focus" | "celebrate";
@@ -16,8 +17,11 @@ const IMAGE: Record<SarahMood, string> = {
   celebrate: "/sarah/sarah-celebrate.png",
 };
 const LABEL: Record<SarahMood, string> = {
-  neutral: "🙂 Ready", think: "🤔 Thinking", nod: "👍 Got it", listen: "👂 Listening",
-  ooh: "😮 Ooh!", focus: "🧐 Checking", celebrate: "🎉 Yay!",
+  neutral: "Ready", think: "Thinking", nod: "Got it", listen: "Listening",
+  ooh: "I can hear you", focus: "Checking", celebrate: "All set",
+};
+const ICON: Record<SarahMood, React.ComponentType<{ className?: string }>> = {
+  neutral: Smile, think: Lightbulb, nod: Check, listen: Ear, ooh: Sparkles, focus: Search, celebrate: PartyPopper,
 };
 
 /**
@@ -73,7 +77,10 @@ export function SarahAvatar({ mood, level = 0 }: { mood: SarahMood; level?: numb
           </svg>
         )}
       </div>
-      <div key={mood} className={s.moodChip} aria-hidden>{LABEL[mood]}</div>
+      <div key={mood} className={s.moodChip} aria-hidden>
+        {(() => { const Icon = ICON[mood]; return <Icon className="w-3.5 h-3.5" />; })()}
+        <span>{LABEL[mood]}</span>
+      </div>
     </div>
   );
 }

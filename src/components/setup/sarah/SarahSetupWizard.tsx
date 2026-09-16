@@ -105,6 +105,9 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
   const [lastDevice, setLastDevice] = useState<string | null>(null);
   // Returning operator re-checking a known-good setup: skip the quiet-room step.
   const [quickCheck, setQuickCheck] = useState(false);
+  // Typing is the exception, not the default: most steps are a straight choice, so the
+  // box only appears where an answer must be typed (desk model) or they ask for it.
+  const [forceType, setForceType] = useState(false);
   const feed = useLevelFeed();
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -153,7 +156,7 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
 
   /** Any phase change cancels in-flight timers and invalidates their run id. */
   const go = useCallback((next: Phase) => {
-    clearTimers(); runId.current += 1; setMeasuring(false); setBusy(false);
+    clearTimers(); runId.current += 1; setMeasuring(false); setBusy(false); setForceType(false);
     setTrail((t) => [...t, phaseRef.current]);
     setPhase(next); setExtraChips([]);
   }, [clearTimers]);
@@ -187,7 +190,7 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
       const n = rankConnections({ desk: prof.desk, os: prof.os, failedRoutes: prof.failedRoutes }).filter((o) => o.connection !== "builtin").length;
       saySoon(`For ${prof.desk || "your setup"}${prof.os ? ` on ${OS_LABEL[prof.os]}` : ""}, churches usually connect one of these ${n} ways. Pick the one you have — you can always come back and try another.`, "think", "Sarah is thinking");
     }
-    if (p === "input") saySoon("Now pick where the sound comes in. The most likely one is first.", "focus", "Sarah is checking your inputs");
+    if (p === "input") saySoon("Now pick where the sound comes in — the most likely one is first. This is the same list you'll find any time in Settings › Audio Input.", "focus", "Sarah is checking your inputs");
     if (p === "quiet") saySoon("Quick quiet check. Ask everyone to stop talking and stop the music, then start it — I'll listen for 8 seconds for hum.", "listen", "Sarah is listening");
     if (p === "speak") saySoon("Now talk into the preacher's mic like it's a normal Sunday — try reading John 3:16. I'm watching the bar.", "listen", "Sarah is listening");
   }, [saySoon]);
@@ -278,7 +281,7 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
         setMeasuring(false);
         if (found.length) {
           setChannels(found); feed.setChannels(found);
-          say(`Ooh — I can see it on channel${found.length > 1 ? "s" : ""} ${found.map((c) => c + 1).join(" & ")}!`, "ooh", "Sarah found your channel");
+          say(`Found it — channel${found.length > 1 ? "s" : ""} ${found.map((c) => c + 1).join(" & ")}.`, "ooh", "Sarah found your channel");
           setExtraChips(["Continue"]);
         } else {
           say("I didn't see any channel move. Is someone talking into the mic, and is the desk sending to USB? Tap “Try again” when you're ready, or tap the channel yourself below.", "focus", "Sarah is checking");
@@ -306,8 +309,8 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
       setChecks(result);
       const overall = overallStatus(result);
       if (overall === "pass") {
-        if (kind === "quiet") { say("Nice and quiet — no hum. 👌", "nod", "Quiet check passed"); setExtraChips(["Continue"]); }
-        else { say("Ooh, I can hear you clearly — good level, no crackle. That's your sound sorted.", "ooh", "Voice check passed"); setExtraChips(["Save my setup"]); }
+        if (kind === "quiet") { say("Nice and quiet — no hum.", "nod", "Quiet check passed"); setExtraChips(["Continue"]); }
+        else { say("I can hear you clearly — good level, no crackle. That's your sound sorted.", "ooh", "Voice check passed"); setExtraChips(["Save my setup"]); }
         return;
       }
       const worst = result.find((c) => c.status === "fail") ?? result.find((c) => c.status === "warn")!;
@@ -382,7 +385,7 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
       && !baselineRef.current!.has(x?.id ?? `${x.reference}#${current.indexOf(x)}`));
     if (!hit) return;
     heardRef.current = true;
-    say(`🎉 That's it — I heard ${hit.reference}. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
+    say(`That's it — I heard ${hit.reference}. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
     setExtraChips(["Finish"]);
     setMood("celebrate");
   }, [phase, live?.suggestions, say]);
@@ -631,6 +634,7 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
     lastPct.current = pct;
   }, [pct, feed.running, mood]);
 
+  const canType = forceType || phase === "desk" || phase === "steps";
   const idx = PROGRESS.indexOf(phase);
   const title: Record<Phase, string> = {
     loading: "Getting ready", context: "Welcome", os: "Your computer", desk: "Your sound desk", connection: "Ways to connect",
@@ -639,7 +643,7 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
   };
 
   return (
-    <div className={s.root}>
+    <div className={`${s.root} ${onDone ? s.spotlight : ""}`}>
       <SarahShader energy={liveLevel} paused={showSuccess} />
       <div className={s.bar}>
         <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
@@ -769,12 +773,19 @@ export function SarahSetupWizard({ onDone, live }: { onDone?: () => void; live?:
             ))}
           </div>
 
+          {canType && (
           <form className={s.compose} onSubmit={onSubmit}>
             <label htmlFor="sarah-say" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Message Sarah</label>
             <input id="sarah-say" className={s.input} value={draft} onChange={(e) => setDraft(e.target.value)} autoComplete="off"
               placeholder={phase === "desk" ? "Type your desk model, e.g. X32" : "Type to Sarah — e.g. “we actually have a Yamaha now”"} />
             <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={!draft.trim() || typing}>Send</button>
           </form>
+          )}
+          {!canType && (
+            <div className={s.askRow}>
+              <button type="button" className={s.link} onClick={() => setForceType(true)}>Something else? Ask Sarah</button>
+            </div>
+          )}
           <div className={s.nav}>
             <button type="button" className={s.btn} onClick={back} disabled={trail.length === 0}>Back</button>
             <button type="button" className={s.btn} onClick={() => { clearTimers(); void feed.stop(); if (onDone) onDone(); else router.push("/dashboard"); }}>Close</button>
