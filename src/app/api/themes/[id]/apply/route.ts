@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { and, eq, ne } from "drizzle-orm";
-import { requireUser } from "@/lib/session";
+import { requireUser, hasCap } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { themes } from "@/lib/db/schema";
 
@@ -12,12 +12,18 @@ export const runtime = "nodejs";
  * isDefault on all other themes for the same church — done in a transaction
  * to prevent the race where two concurrent applies briefly show two defaults.
  * Church-scoped: 404 if the theme doesn't belong to this church.
+ * Requires `operate_services` — volunteers switch the projector theme from the
+ * operator console, but read-only roles (pastor, viewer) must not change the
+ * church's default theme.
  */
 export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const user = await requireUser();
+  if (!hasCap(user.role, "operate_services")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const { id } = await params;
 
   const db = getDb();

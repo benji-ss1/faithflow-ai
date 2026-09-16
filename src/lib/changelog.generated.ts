@@ -11,7 +11,9 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Turn Layers on or off in Settings, under Screens & Outputs (church admins only).",
       "Your Bible translation, detection and auto-approve settings, and how long transcripts are kept, can now be changed right in the Settings window.",
       "Setting up your screens now opens the Screens panel in the app instead of your web browser.",
-      "Signing out of all devices now works from Settings without leaving the app first."
+      "Signing out of all devices now works from Settings without leaving the app first.",
+      "Applying a theme as the church default now needs a role that can run services (admin, operator or volunteer).",
+      "Pastor and viewer accounts can still see themes but can no longer change the default."
     ]
   },
   {
