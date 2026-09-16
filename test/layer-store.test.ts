@@ -16,7 +16,7 @@
  * Run: npx tsx test/layer-store.test.ts
  */
 import assert from "node:assert/strict";
-import { reconcileBackgroundOnBaseChange, shouldRearmSlideOnSend, liveContentKey } from "../src/lib/layer-store";
+import { reconcileBackgroundOnBaseChange, shouldRearmSlideOnSend, liveContentKey, slidePayloadActive } from "../src/lib/layer-store";
 import { resolveLayeredInput } from "../src/lib/output-layers-render";
 import { outputStateToLayers, applyLayerPatchBounded, rebuildOverridesFromSnapshot, type EpochRef } from "../src/lib/output-layers";
 import { projectableTextSlide, type BackgroundSpec, type LayerWire, type OutputState, type VideoInputState } from "../src/lib/broadcast";
@@ -91,6 +91,28 @@ check("contentKey: two DIFFERENT framed media images (empty text + objects) diff
   // Worded slides with objects keep the style-independent key.
   const worded = { kind: "text", text: "Amazing grace", objects: [{ id: "t", kind: "text", x: 0, y: 0, w: 10, h: 10 }] };
   assert.equal(liveContentKey(worded as never), liveContentKey({ kind: "text", text: "Amazing grace" } as never));
+});
+
+check("slidePayloadActive: empty-text counts only with an IMAGE object", () => {
+  assert.equal(slidePayloadActive({ kind: "text", text: "Hi" } as never), true);
+  assert.equal(slidePayloadActive({ kind: "text", text: "  " } as never), false);
+  assert.equal(slidePayloadActive({ kind: "text", text: "", objects: [{ id: "s", kind: "shape", x: 0, y: 0, w: 1, h: 1 }] } as never), false, "shapes-only blank slide stays inactive");
+  assert.equal(slidePayloadActive({ kind: "text", text: "", objects: [{ id: "i", kind: "image", x: 0, y: 0, w: 1, h: 1, url: "https://x/a.png" }] } as never), true);
+  assert.equal(slidePayloadActive({ kind: "empty" } as never), false);
+  assert.equal(slidePayloadActive({ kind: "image", url: "https://x/a.png" } as never), true);
+  assert.equal(slidePayloadActive(null), false);
+});
+
+check("contentKey: empty-text designed slide — background change or added object re-arms", () => {
+  const base = () => ({ kind: "text", text: "", bgColor: "#000000", objects: [{ id: "o", kind: "image", x: 0, y: 0, w: 1920, h: 1080, url: "https://x/a.png", fit: "cover", posX: 50, posY: 50, zoom: 1 }] as unknown[] });
+  const k = liveContentKey(base() as never);
+  assert.notEqual(liveContentKey({ ...base(), bgColor: "#112233" } as never), k, "bg colour change");
+  assert.notEqual(liveContentKey({ ...base(), bgImageUrl: "https://x/bg.png" } as never), k, "bg image change");
+  const more = base(); more.objects.push({ id: "p", kind: "image", x: 10, y: 10, w: 100, h: 100, url: "https://x/logo.png", fit: "contain" });
+  assert.notEqual(liveContentKey(more as never), k, "added image object");
+  const second = base(); second.objects.push({ id: "p", kind: "image", x: 10, y: 10, w: 100, h: 100, url: "https://x/logo2.png", fit: "contain" });
+  assert.notEqual(liveContentKey(more as never), liveContentKey(second as never), "second image differs");
+  assert.equal(liveContentKey(base() as never), k, "deterministic");
 });
 
 // ── 3. End-to-end hide→show round-trip through the FULL wire pipeline ─────────

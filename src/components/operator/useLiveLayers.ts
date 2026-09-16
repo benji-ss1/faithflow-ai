@@ -18,6 +18,7 @@
  * `layersV2` opt-in). Disabled ⇒ no patches are ever emitted and `overrides` is
  * always empty ⇒ the projector output is byte-identical to the legacy path.
  */
+import { slidePayloadActive } from "@/lib/layer-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** Stable EMPTY singletons for the disabled path. Returning a fresh `[]` per
@@ -135,11 +136,7 @@ function computeActive(kind: LayerWire["kind"], enabled: boolean, payload: unkno
     case "media": {
       const s = payload as SlidePayload | undefined;
       if (!s) return false;
-      if (s.kind === "empty") return false;
-      // An empty-text slide with objects (a framed media image / designed slide)
-      // genuinely paints — count its objects.
-      if (s.kind === "text") return (!!s.text && s.text.trim().length > 0) || (Array.isArray(s.objects) && s.objects.length > 0);
-      return true; // image/video/etc.
+      return slidePayloadActive(s);
     }
     case "logo":
       // A theme logo is only genuinely LIVE when it actually paints — the

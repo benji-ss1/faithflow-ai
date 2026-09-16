@@ -34,7 +34,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImportWizard } from "./MediaImportWizard";
 import { takePendingImport, onOsDropImport, type PendingImport } from "./pendingImport";
 import { MediaImageEditor } from "./MediaImageEditor";
-import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
+import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide, shouldSendFramedSlide } from "./mediaFrame";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
 import { usePp7Layers } from "@/lib/pp7-layers-flag";
 
@@ -305,7 +305,10 @@ export function MediaBrowser({
   const pp7Layers = usePp7Layers();
   const sendLive = (a: Asset) => {
     // PP7 layers flag: media goes on the Media layer behind the words.
-    if (pp7Layers && ctx.layersEngineOn) {
+    // A saved frame can't ride the Media layer (plain full-screen) — project it
+    // framed when no words are live (same rule as the Media Bin).
+    const framed = shouldSendFramedSlide(!!loadMediaFrame(ctx.churchId, a.id), a.kind.startsWith("video"), ctx.liveSlide as { kind: string; text?: string } | null);
+    if (pp7Layers && ctx.layersEngineOn && !framed) {
       setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: normalizeMediaKind(a.kind), mediaKey: a.mediaKey });
       setSelectedId(a.id);
       toast.success(`“${a.fileName || "Media"}” is on the Media layer`, { id: "pf-media-layer", description: ctx && ctx.liveLayers.rows.some((r) => r.id === "camera" && r.active) ? "It covers the live camera. Clear Media (F3) shows the camera again." : "Clear Media (F3) removes it. Your words stay." });
@@ -811,7 +814,7 @@ export function MediaBrowser({
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); startRename(a); }
                             }}
-                            className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-white/20 text-white/70 hover:text-white shrink-0"
+                            className="cursor-pointer opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8501a] transition-opacity p-0.5 rounded hover:bg-white/20 text-white/70 hover:text-white shrink-0"
                           >
                             <Pencil className="h-3 w-3" />
                           </span>

@@ -3,6 +3,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Play, Image as ImageIcon, Move, Maximize2, RotateCcw, Save, Wand2, Square, Palette } from "lucide-react";
 import { toast } from "sonner";
+
+// Editor toasts sit top-CENTRE so they never cover the editor's top-right Close
+// button (the app's global toaster is top-right).
+type ToastOpts = Parameters<typeof toast>[1];
+const TOP_CENTER = { position: "top-center" } as const;
+const etoast = Object.assign(
+  (msg: string, o?: ToastOpts) => toast(msg, { ...TOP_CENTER, ...o }),
+  {
+    success: (msg: string, o?: ToastOpts) => toast.success(msg, { ...TOP_CENTER, ...o }),
+    error: (msg: string, o?: ToastOpts) => toast.error(msg, { ...TOP_CENTER, ...o }),
+  },
+);
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide } from "@/lib/broadcast";
@@ -309,11 +321,11 @@ export function MediaImageEditor({
           const objUrl = URL.createObjectURL(blob);
           previewObjUrlRef.current = objUrl;
           updateObject(imgId, { url: objUrl } as Partial<SlideObject>);
-          if (!flat) toast("No flat background detected — keying may look off. Lower the threshold or turn it off.", { icon: "⚠️" });
+          if (!flat) etoast("No flat background detected — keying may look off. Lower the threshold or turn it off.", { icon: "⚠️" });
         })
         .catch(() => {
           if (cancelled || !mounted.current) return;
-          toast.error("Couldn't remove the background (the image may block cross-origin reads).");
+          etoast.error("Couldn't remove the background (the image may block cross-origin reads).");
           setRemoveBg(false);
         })
         .finally(() => { if (!cancelled && mounted.current) setKeying(false); });
@@ -337,6 +349,68 @@ export function MediaImageEditor({
   // and retarget editing to it. Returns the URL + asset id to persist/project, or
   // null on failure. A no-op (returns the current asset) when keying isn't active.
   const [saving, setSaving] = useState(false);
+  // Frames are keyed per church. Until the church id has loaded, saving would
+  // write under a shared "default" key, so Save stays disabled.
+  const churchReady = !!ctx.churchId;
+
+  // ── Dialog behaviour: Escape closes, Tab is trapped, focus is restored, and NO
+  // key reaches the operator's global hotkeys (T/G/X/arrows) while it's open.
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const busyRef = useRef(false);
+  const selectedRef = useRef(selectedIds);
+  selectedRef.current = selectedIds;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const opener = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+    const focusables = () => Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? []).filter((el) => el.offsetParent !== null || el === document.activeElement);
+    const raf = window.requestAnimationFrame(() => { focusables()[0]?.focus(); });
+    const onKey = (e: KeyboardEvent) => {
+      if (!dialogRef.current) return;
+      // Stop the event reaching the operator's window-level hotkey listeners
+      // (T/G/X/arrows). Listening on DOCUMENT in the bubble phase means the
+      // editor's own inputs + React handlers still get the key first, and not
+      // calling preventDefault keeps typing working.
+      e.stopPropagation();
+      // SlideCanvas's arrow-key nudge also lives on window, so it's blocked above —
+      // re-implement it here for the image (Shift = 1px, else 10px).
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+      if (!typing && e.key.startsWith("Arrow") && selectedRef.current.includes(imgId)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 1 : 10;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        setSlide((sl) => ({ ...sl, objects: sl.objects.map((o) => (o.id === imgId && !o.locked ? ({ ...o, x: o.x + dx, y: o.y + dy } as SlideObject) : o)) }));
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (!busyRef.current) onCloseRef.current();
+        return;
+      }
+      if (e.key === "Tab") {
+        const els = focusables();
+        if (els.length === 0) { e.preventDefault(); return; }
+        const first = els[0], last = els[els.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        const inside = !!active && dialogRef.current.contains(active);
+        if (e.shiftKey && (active === first || !inside)) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (active === last || !inside)) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    const onKeyUp = (e: KeyboardEvent) => { if (dialogRef.current) e.stopPropagation(); };
+    document.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keyup", onKeyUp);
+      try { if (opener && document.contains(opener)) opener.focus(); } catch { /* non-fatal */ }
+    };
+  }, [imgId]);
   async function ensureCommitted(): Promise<{ url: string; assetId: string } | null> {
     if (!removeBg) return { url: asset.url, assetId: asset.id };
     if (committedRef.current) return { url: committedRef.current.url, assetId: committedRef.current.id };
@@ -354,7 +428,7 @@ export function MediaImageEditor({
       onAssetReplaced?.(newAsset);
       return { url: up.url, assetId: up.id };
     } catch {
-      toast.error("Couldn't save the background-removed image.");
+      etoast.error("Couldn't save the background-removed image.");
       return null;
     }
   }
@@ -367,7 +441,7 @@ export function MediaImageEditor({
     // the button after 8s so the operator isn't stuck.
     const watchdog = window.setTimeout(() => {
       im.onload = null; im.onerror = null;
-      if (mounted.current) { toast("Auto-fill timed out — use the Zoom slider.", { icon: "🔍" }); setAutofitting(false); }
+      if (mounted.current) { etoast("Auto-fill timed out — use the Zoom slider.", { icon: "🔍" }); setAutofitting(false); }
     }, 8000);
     im.onload = () => {
       window.clearTimeout(watchdog);
@@ -406,15 +480,15 @@ export function MediaImageEditor({
             // Wide banner (e.g. 3:1 logo lockup): contain fills the WIDTH; it can't
             // fill height without cropping the sides off the logo.
             applyFit("contain");
-            toast(`Wide logo (${contentAspect.toFixed(1)}:1) — filled the width. Zoom in to crop-fill the height.`, { icon: "↔️" });
+            etoast(`Wide logo (${contentAspect.toFixed(1)}:1) — filled the width. Zoom in to crop-fill the height.`, { icon: "↔️" });
           } else if (contentAspect < BOX_ASPECT / 1.15) {
             // Tall image: contain fills the HEIGHT.
             applyFit("contain");
-            toast(`Tall image — filled the height. Zoom in to crop-fill the width.`, { icon: "↕️" });
+            etoast(`Tall image — filled the height. Zoom in to crop-fill the width.`, { icon: "↕️" });
           } else {
             // Roughly 16:9 already → cover genuinely fills the whole screen.
             applyFit("cover");
-            toast.success("Filled the screen", { icon: "✨" });
+            etoast.success("Filled the screen", { icon: "✨" });
           }
           setAutofitting(false);
           return;
@@ -423,14 +497,14 @@ export function MediaImageEditor({
         // contain keeps the whole logo visible; zoom = 1/largest content dimension.
         const zoom = Math.max(1, Math.min(8, 0.98 / Math.max(cw, ch)));
         patchImg({ fit: "contain", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, zoom, posX: Math.round(cx * 100), posY: Math.round(cy * 100) });
-        toast.success("Filled the screen with the logo", { icon: "✨" });
+        etoast.success("Filled the screen with the logo", { icon: "✨" });
       } catch {
-        toast("Couldn't auto-measure this image — use the Zoom slider to fill the screen.", { icon: "🔍" });
+        etoast("Couldn't auto-measure this image — use the Zoom slider to fill the screen.", { icon: "🔍" });
       } finally {
         setAutofitting(false);
       }
     };
-    im.onerror = () => { window.clearTimeout(watchdog); if (mounted.current) { toast.error("Couldn't load this image to measure it."); setAutofitting(false); } };
+    im.onerror = () => { window.clearTimeout(watchdog); if (mounted.current) { etoast.error("Couldn't load this image to measure it."); setAutofitting(false); } };
     im.src = asset.url;
   }
 
@@ -467,25 +541,23 @@ export function MediaImageEditor({
     // and projects as edited (buildMediaFrameSlide reads it).
     frame.boxX = Math.round(img.x); frame.boxY = Math.round(img.y);
     frame.boxW = Math.round(img.w); frame.boxH = Math.round(img.h);
+    // Saved ONLY under the asset being projected. (A keyed "remove flat background"
+    // copy is a NEW asset; its frame is never copied onto the original — that put a
+    // backdrop frame on the opaque original and projected it as a solid rectangle.)
     saveMediaFrame(ctx.churchId, assetId, frame);
-    // "Remove flat background" saved the frame under the NEW transparent asset.
-    // Slides/playlist items still pointing at the ORIGINAL asset would lose the
-    // edit, so also save the same framing (box + background) under the original
-    // id — those slides project the original image framed identically.
-    if (assetId !== assetProp.id) saveMediaFrame(ctx.churchId, assetProp.id, frame);
   }
   async function save() {
-    if (saving) return;
+    if (saving || !churchReady) return;
     setSaving(true);
     try {
       const c = await ensureCommitted();
       if (!c) return; // upload failed — ensureCommitted already toasted
       persist(c.assetId);
-      toast.success("Framing saved — this image will project framed", { icon: "💾" });
+      etoast.success("Framing saved — this image will project framed", { icon: "💾" });
     } finally { setSaving(false); }
   }
   async function saveAndShow() {
-    if (saving) return;
+    if (saving || !churchReady) return;
     setSaving(true);
     try {
       // Commit any "remove flat background" keying to a real, wire-valid asset
@@ -499,16 +571,27 @@ export function MediaImageEditor({
       // projector would show a black matte — never toast success in that case (the
       // editor still shows the image, so a silent black screen would be a lie).
       const hasImage = payload.kind === "text" && Array.isArray(payload.objects) && payload.objects.some((o) => o.kind === "image");
-      if (!hasImage) { toast.error("Couldn't project this image — try re-uploading it."); return; }
+      if (!hasImage) { etoast.error("Couldn't project this image — try re-uploading it."); return; }
       persist(c.assetId);
       // Normal media send path (ctx.onSendSlideToLive → the shell's layers
       // engine) — Save & Show never bypasses it. The object payload carries
       // blurFill on its image object, so the projector (SlideObjectsLayer)
       // paints identically to this canvas.
       ctx.onSendSlideToLive(payload, undefined, { instant: true, force: true });
-      toast.success("Saved & on the projector");
+      etoast.success("Saved & on the projector");
     } finally { setSaving(false); }
   }
+
+  busyRef.current = saving || keying || autofitting;
+
+  // Portal drags still BUBBLE through the React tree into the opener (e.g. the
+  // Media Bin's drop zone) — swallow them here so dragging in the editor never
+  // lights the bin overlay or imports a file. preventDefault on OS file drags so
+  // the browser doesn't navigate to the dropped file.
+  const stopDrag = (e: React.DragEvent) => {
+    e.stopPropagation();
+    if (Array.from(e.dataTransfer?.types ?? []).includes("Files")) e.preventDefault();
+  };
 
   // Size slider follows the actual box (a handle resize updates it too).
   const shownLogoSize = bgMode === "background" && img
@@ -520,18 +603,29 @@ export function MediaImageEditor({
   const on = (active: boolean) => ({ ...bstyle, borderColor: active ? "#2dd4bf" : "#2a3232", color: active ? "#5eead4" : "#e4e4e7" });
 
   const overlay = (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.78)" }}>
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="media-image-editor-title"
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.78)" }}
+      onDragEnter={stopDrag}
+      onDragOver={stopDrag}
+      onDragLeave={stopDrag}
+      onDrop={stopDrag}
+    >
       <div className="flex flex-col rounded-xl border overflow-hidden" style={{ width: "min(1160px, 96vw)", height: "min(740px, 94vh)", borderColor: "#2a3232", background: "#1e2525" }}>
         {/* Header */}
         <div className="h-12 shrink-0 flex items-center gap-2 px-4 border-b" style={{ borderColor: "#2a3232" }}>
           <ImageIcon className="w-4 h-4 text-teal-300" />
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-semibold text-zinc-100 leading-none truncate">Edit image</div>
-            <div className="text-[10px] text-zinc-500 leading-none mt-1 truncate">{asset.fileName} — drag to move, handles to crop, pan/zoom on the right</div>
+            <div id="media-image-editor-title" className="text-[13px] font-semibold text-zinc-100 leading-none truncate">Edit image</div>
+            <div className="text-[10px] text-zinc-500 leading-none mt-1 truncate">{churchReady ? `${asset.fileName} — drag to move, handles to crop, pan/zoom on the right` : "Loading your church… Save will be available in a moment."}</div>
           </div>
-          <button onClick={() => void save()} disabled={autofitting || keying || saving} title="Save this framing for the image" className="h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 border border-[#2a3232] bg-[#1a2020] text-zinc-200 hover:border-teal-500/60 disabled:opacity-50"><Save className="w-3.5 h-3.5" /> {saving ? "Saving…" : "Save"}</button>
-          <button onClick={() => void saveAndShow()} disabled={autofitting || keying || saving} className="h-8 px-3 rounded-md text-xs font-bold inline-flex items-center gap-1.5 bg-teal-500 text-[#08110f] hover:bg-teal-400 disabled:opacity-50"><Play className="w-3.5 h-3.5" /> {saving ? "Saving…" : "Save & Show"}</button>
-          <button onClick={onClose} title="Close" className="h-8 w-8 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/5"><X className="w-4 h-4" /></button>
+          <button onClick={() => void save()} disabled={autofitting || keying || saving || !churchReady} title={churchReady ? "Save this framing for the image" : "Loading your church…"} className="h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 border border-[#2a3232] bg-[#1a2020] text-zinc-200 hover:border-teal-500/60 disabled:opacity-50"><Save className="w-3.5 h-3.5" /> {saving ? "Saving…" : "Save"}</button>
+          <button onClick={() => void saveAndShow()} disabled={autofitting || keying || saving || !churchReady} title={churchReady ? undefined : "Loading your church…"} className="h-8 px-3 rounded-md text-xs font-bold inline-flex items-center gap-1.5 bg-teal-500 text-[#08110f] hover:bg-teal-400 disabled:opacity-50"><Play className="w-3.5 h-3.5" /> {saving ? "Saving…" : "Save & Show"}</button>
+          <button onClick={onClose} title="Close" aria-label="Close" className="h-8 w-8 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/5"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="flex-1 min-h-0 flex">

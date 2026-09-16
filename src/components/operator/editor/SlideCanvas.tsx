@@ -546,7 +546,7 @@ function ObjectView({
           {/* Resize handles only for an unlocked sole selection — a group moves
               as a unit and locked objects can't be resized. */}
           {soleSelected && !locked && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as HandleKey[]).map((k) => (
-            <Handle key={k} k={k} onBegin={(e) => beginDrag(e, obj, k)} />
+            <Handle key={k} k={k} onBegin={(e) => beginDrag(e, obj, k)} edges={{ l: obj.x <= 0, t: obj.y <= 0, r: obj.x + obj.w >= CANVAS_W, b: obj.y + obj.h >= CANVAS_H }} />
           ))}
         </>
       )}
@@ -554,7 +554,7 @@ function ObjectView({
   );
 }
 
-function Handle({ k, onBegin }: { k: HandleKey; onBegin: (e: React.MouseEvent) => void }) {
+function Handle({ k, onBegin, edges }: { k: HandleKey; onBegin: (e: React.MouseEvent) => void; edges?: { l: boolean; t: boolean; r: boolean; b: boolean } }) {
   // zIndex 2: an image object's <img> is `position:relative; zIndex:1` (blur-fill
   // layering), which otherwise painted OVER the handles and swallowed every
   // resize drag (turning it into a move).
@@ -569,9 +569,20 @@ function Handle({ k, onBegin }: { k: HandleKey; onBegin: (e: React.MouseEvent) =
     sw: { left: -5, bottom: -5, cursor: "nesw-resize" },
     w:  { left: -5, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" },
   };
+  // The canvas clips (overflow:hidden). When the object sits flush with a canvas
+  // edge, pull that side's handles INWARD (offset 0 instead of -5) so the whole
+  // square is visible + grabbable. Objects inside the canvas are unaffected.
+  const m = { ...map[k] };
+  if (edges) {
+    if (edges.l && m.left === -5) m.left = 0;
+    if (edges.t && m.top === -5) m.top = 0;
+    if (edges.r && m.right === -5) m.right = 0;
+    if (edges.b && m.bottom === -5) m.bottom = 0;
+  }
   return (
     <div
-      style={{ ...pos, ...map[k] }}
+      data-handle={k}
+      style={{ ...pos, ...m }}
       onMouseDown={(e) => { e.stopPropagation(); onBegin(e); }}
     />
   );

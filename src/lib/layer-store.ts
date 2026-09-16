@@ -20,6 +20,7 @@
  *      temporary hide; see the function doc).
  */
 import type { BackgroundSpec, LayerWire, SlidePayload } from "@/lib/broadcast";
+import { slideDesignSig } from "@/lib/broadcast";
 
 /**
  * CONTENT-only key for a live slide (2026-09-16, Victor): what the audience reads
@@ -35,9 +36,9 @@ export function liveContentKey(s: SlidePayload | null | undefined): string {
       // DIFFERENT edited image would never re-arm the slide layer. Only empty-text
       // slides get this — worded slides keep their style-independent key.
       if (!s.text && Array.isArray(s.objects) && s.objects.length > 0) {
-        const im = s.objects.find((o) => o.kind === "image") as { url?: string; fit?: string; zoom?: number; posX?: number; posY?: number; x?: number; y?: number; w?: number; h?: number; blurFill?: boolean } | undefined;
-        if (im) return `t:|${s.reference ?? ""}|img:${im.url ?? ""}|${im.fit ?? ""}|${im.zoom ?? ""}|${im.posX ?? ""},${im.posY ?? ""}|${im.x},${im.y},${im.w},${im.h}|${im.blurFill ? 1 : 0}`;
-        return `t:|${s.reference ?? ""}|objs:${s.objects.length}`;
+        // Full design signature (bg colour/image + EVERY object incl. all images'
+        // url/fit/crop/box) so a background change or added objects also re-arm.
+        return `t:|${s.reference ?? ""}|d:${slideDesignSig(s)}`;
       }
       return `t:${s.text}|${s.reference ?? ""}`;
     }
@@ -46,6 +47,22 @@ export function liveContentKey(s: SlidePayload | null | undefined): string {
     case "logo": return `l:${s.url ?? ""}`;
     default: return s.kind;
   }
+}
+
+/**
+ * Does a slide/media layer payload genuinely paint (drives the layer "active"
+ * indicator)? Worded text slides and image/video slides do. An EMPTY-text slide
+ * counts only when it carries an IMAGE object (a framed media picture) — a blank
+ * designed slide with only decorative shapes stays inactive, as before.
+ */
+export function slidePayloadActive(s: SlidePayload | null | undefined): boolean {
+  if (!s) return false;
+  if (s.kind === "empty") return false;
+  if (s.kind === "text") {
+    if (!!s.text && s.text.trim().length > 0) return true;
+    return Array.isArray(s.objects) && s.objects.some((o) => o.kind === "image");
+  }
+  return true; // image/video/etc.
 }
 
 /** Decision for the background reconcile effect. */

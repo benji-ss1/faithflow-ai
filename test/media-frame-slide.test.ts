@@ -1,4 +1,4 @@
-import { buildMediaFrameSlide, saveMediaFrame, loadMediaFrame, clearMediaFrame, MEDIA_FRAME_CHANGED_EVENT } from "../src/components/operator/pro/center/mediaFrame";
+import { buildMediaFrameSlide, shouldSendFramedSlide, saveMediaFrame, loadMediaFrame, clearMediaFrame, MEDIA_FRAME_CHANGED_EVENT } from "../src/components/operator/pro/center/mediaFrame";
 import { projectableTextSlide } from "../src/lib/broadcast";
 import assert from "node:assert";
 const URL = "https://s3.example.com/x.png?X-Amz-Signature=a";
@@ -65,9 +65,24 @@ const survives = (bgColor: string | undefined, objects: any[]) => (projectableTe
   check("clear fires event", events.length === 2 && loadMediaFrame("c1", "a1") === null);
   store.set("pf.mediaFrame.v1.default.a2", JSON.stringify({ fit: "cover", posX: 50, posY: 50, zoom: 3 }));
   const mig = loadMediaFrame("c1", "a2");
-  check("default-key frame adopted by church", mig?.zoom === 3 && store.has("pf.mediaFrame.v1.c1.a2") && !store.has("pf.mediaFrame.v1.default.a2"));
+  check("default-key frame NOT adopted by a church (no cross-church leak)", mig === null && !store.has("pf.mediaFrame.v1.c1.a2") && store.has("pf.mediaFrame.v1.default.a2"));
+  check("no church id reads only the default key (pre-existing behaviour)", loadMediaFrame(undefined, "a2")?.zoom === 3 && loadMediaFrame(undefined, "a1") === null);
   const legacy = loadMediaFrame("c1", "nope");
   check("missing frame → null", legacy === null);
   delete (globalThis as any).window;
+}
+{
+  // Logo-mode frame WITHOUT a saved box (legacy) → centred size% box, not full screen.
+  const l = buildMediaFrameSlide({ fit: "contain", posX: 50, posY: 50, zoom: 1, bgMode: "background", bgKind: "solid", bgSolid: "#112233", logoSizePct: 50 } as any, URL);
+  const lg = l.objects.find((o: any) => o.kind === "image") as any;
+  check("logo legacy box is 50% centred (not full screen)", lg.w === 960 && lg.h === 540 && lg.x === 480 && lg.y === 270 && lg.fit === "contain");
+  check("logo legacy payload survives", survives(l.bgColor, l.objects));
+  // Click routing: framed image with nothing live → framed slide; words live → media layer.
+  check("framed + nothing live → framed slide", shouldSendFramedSlide(true, false, null) === true);
+  check("framed + blank live → framed slide", shouldSendFramedSlide(true, false, { kind: "blank" }) === true);
+  check("framed + empty-text image live → framed slide", shouldSendFramedSlide(true, false, { kind: "text", text: "" }) === true);
+  check("framed + words live → media layer", shouldSendFramedSlide(true, false, { kind: "text", text: "Amazing grace" }) === false);
+  check("unframed → media layer", shouldSendFramedSlide(false, false, null) === false);
+  check("video → media layer", shouldSendFramedSlide(true, true, null) === false);
 }
 console.log(`\n${pass} passed, ${fail} failed`); assert.equal(fail, 0);

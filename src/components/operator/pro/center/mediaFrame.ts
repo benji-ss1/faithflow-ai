@@ -66,17 +66,10 @@ const key = (churchId: string | undefined, assetId: string) =>
 export function loadMediaFrame(churchId: string | undefined, assetId: string): MediaFrame | null {
   if (typeof window === "undefined") return null;
   try {
-    let raw = window.localStorage.getItem(key(churchId, assetId));
-    if (!raw && churchId) {
-      // A frame saved while the church id was still loading lands under the
-      // "default" key — adopt it for this church (one-time migration) so the
-      // operator's edit isn't silently lost.
-      const legacy = window.localStorage.getItem(key(undefined, assetId));
-      if (legacy) {
-        raw = legacy;
-        try { window.localStorage.setItem(key(churchId, assetId), legacy); window.localStorage.removeItem(key(undefined, assetId)); } catch { /* read-only is fine */ }
-      }
-    }
+    // Reads ONLY this church's key. A frame under the shared "default" key is never
+    // adopted by a church (a device can switch churches → cross-church leak), and
+    // the editor won't save until the church id has loaded, so none are written.
+    const raw = window.localStorage.getItem(key(churchId, assetId));
     if (!raw) return null;
     const p = JSON.parse(raw) as Partial<MediaFrame>;
     const fit = p.fit === "contain" || p.fit === "cover" || p.fit === "fill" ? p.fit : "cover";
@@ -184,4 +177,21 @@ export function buildMediaFrameSlide(frame: MediaFrame, url: string): { bgColor?
     ...(frame.blurFill && frame.fit === "contain" ? { blurFill: true } : {}),
   };
   return { bgColor: "#000000", objects: [logo] };
+}
+
+/**
+ * PP7 layers: a Media-bin/library click normally puts media on the Media LAYER
+ * (a plain full-screen background — no framing). A SAVED frame (crop / logo on
+ * background) can only project as an object slide, so when the image is framed
+ * and no WORDS are live (nothing to keep on screen), send the framed slide
+ * instead. With words live the Media-layer behaviour is unchanged (words stay).
+ */
+export function shouldSendFramedSlide(
+  hasFrame: boolean,
+  isVideo: boolean,
+  live: { kind: string; text?: string } | null | undefined,
+): boolean {
+  if (!hasFrame || isVideo) return false;
+  const wordsLive = !!live && live.kind === "text" && typeof live.text === "string" && live.text.trim().length > 0;
+  return !wordsLive;
 }
