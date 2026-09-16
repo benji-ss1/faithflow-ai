@@ -1,3 +1,6 @@
+-- APPLIED 2026-09-16 (user-directed: all churches now). At apply time all 7 churches
+-- already had layers_v2=true, so only the column DEFAULT was changed (migration
+-- layers_v2_default_on). Rollback: ALTER ... SET DEFAULT false.
 -- Layers default-on rollout — STEP 2: EVERY CHURCH (user-directed 2026-09-16).
 -- Run ONLY after the pilot church has run real services on Layers without issue.
 -- Ship WITH the app change that flips the no-row fallback `prefs?.layersV2 ?? false`

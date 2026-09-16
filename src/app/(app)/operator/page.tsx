@@ -145,7 +145,7 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
       defaultTranslationCode={translationCode}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
-      layersV2={prefs?.layersV2 ?? false}
+      layersV2={prefs?.layersV2 ?? true}
       scenesEnabled={prefs?.scenesEnabled ?? false}
       initialShell={initialShell}
     />

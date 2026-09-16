@@ -54,7 +54,7 @@ export default async function SettingsPage() {
             }}
             translations={translations.filter((t) => !t.licenseRequired)}
           />
-          {user.role === "admin" && <LayersEngineToggle enabled={prefs?.layersV2 ?? false} globalOn={LAYERS_V2} />}
+          {user.role === "admin" && <LayersEngineToggle enabled={prefs?.layersV2 ?? true} globalOn={LAYERS_V2} />}
           <div className="mt-6 rounded-md border border-border bg-card p-4">
             <Link
               href="/settings/screens"

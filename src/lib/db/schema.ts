@@ -500,7 +500,7 @@ export const churchPreferences = pgTable("church_preferences", {
   // matching migration MUST be applied to the DB BEFORE this code deploys, or
   // those pages error on the missing column. Migration-first is REQUIRED (the
   // app-code `?? false` only covers the no-row case, not an absent column).
-  layersV2: boolean("layers_v2").notNull().default(false),
+  layersV2: boolean("layers_v2").notNull().default(true),
   // Scenes (2026-09-16): per-church opt-in for the Scenes UI (Scene Rail +
   // Scene Builder). Gated ALSO by the NEXT_PUBLIC_SCENES_V1 kill-switch.
   // Default false ⇒ applying the migration changes nothing for any church.
