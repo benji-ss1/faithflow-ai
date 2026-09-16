@@ -4761,14 +4761,26 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     ready: !!ctx.audio?.ready,
     transcript: (ctx.audio?.transcript ?? []).slice(-2).map((t) => t.text).join(" ").trim() || undefined,
     interim: ctx.audio?.interim,
-    suggestions: ctx.audio?.suggestions as { id?: string; reference?: string }[] | undefined,
+    // Scripture detections only, with a human reference. The engine's suggestions carry
+    // ref:{book,chapter,verseStart,verseEnd} — there is no ready-made "reference" string.
+    suggestions: (ctx.audio?.suggestions ?? [])
+      .filter((x) => x.type === "scripture" && !x.isPhraseMatch)
+      .map((x) => {
+        const sc = x as { ref: { book: string; chapter: number; verseStart: number; verseEnd: number }; confidence: number; fromInterim?: boolean; voiceCommand?: boolean };
+        const r = sc.ref;
+        return {
+          id: x.id, ref: r, confidence: sc.confidence, fromInterim: !!sc.fromInterim, voiceCommand: !!sc.voiceCommand,
+          reference: `${r.book} ${r.chapter}:${r.verseStart}${r.verseEnd !== r.verseStart ? `-${r.verseEnd}` : ""}`,
+        };
+      }),
+    liveHasContent: !!ctx.liveSlide && (ctx.liveSlide as { kind?: string }).kind !== "empty",
     onListen: ctx.onListenToggle,
     noAudioSignal: ctx.audio?.noAudioSignal,
     clipping: ctx.audio?.clipping,
     reconnectAttempts: ctx.audio?.reconnectAttempts,
     reconnectFailed: !!ctx.audio?.reconnectFailed,
   }), [ctx.audio?.listening, ctx.audio?.ready, ctx.audio?.transcript, ctx.audio?.interim, ctx.audio?.suggestions, ctx.onListenToggle,
-       ctx.audio?.noAudioSignal, ctx.audio?.clipping, ctx.audio?.reconnectAttempts, ctx.audio?.reconnectFailed]);
+       ctx.audio?.noAudioSignal, ctx.audio?.clipping, ctx.audio?.reconnectAttempts, ctx.audio?.reconnectFailed, ctx.liveSlide]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
