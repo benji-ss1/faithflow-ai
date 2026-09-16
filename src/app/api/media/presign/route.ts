@@ -33,12 +33,14 @@ export async function POST(req: Request) {
 
   // Capability gate per purpose, mirroring what each upload is used for:
   //   pptx  → edit_library (createPptxImport / deck import)
-  //   logo  → manage_church (updateSettings logo is admin-only)
+  //   logo  → manage_church OR edit_library (Layers panel theme-logo swap)
   //   media → edit_library OR operate_services (operators/volunteers upload
   //           backgrounds from the operator console via lib/media-upload.ts)
   const allowedRole =
     safePurpose === "pptx" ? hasCap(user.role, "edit_library")
-    : safePurpose === "logo" ? hasCap(user.role, "manage_church")
+    // logo: admins (church branding) AND library editors — operators swap the
+    // theme logo from the Layers panel (LayersPanel → uploadImageFile "logo").
+    : safePurpose === "logo" ? hasCap(user.role, "manage_church") || hasCap(user.role, "edit_library")
     : hasCap(user.role, "edit_library") || hasCap(user.role, "operate_services");
   if (!allowedRole) return NextResponse.json({ error: "You don't have permission to upload this" }, { status: 403 });
 

@@ -113,6 +113,11 @@ t("sniff-compat: same-kind renames accepted and the SNIFFED mime is recorded", (
   assert.deepEqual(checkStoredBytes(PNG, "image/jpeg"), { ok: true, mimeType: "image/png" }); // png saved as .jpg
   assert.deepEqual(checkStoredBytes(JPEG, "image/png"), { ok: true, mimeType: "image/jpeg" });
   assert.deepEqual(checkStoredBytes(M4A, "audio/aac"), { ok: true, mimeType: "audio/mp4" }); // .m4a named .aac
+  // Markup hidden behind a media-looking prefix is refused; a normal ID3 mp3 still passes.
+  const id3Html = new Uint8Array([...Buffer.from("ID3\u0004\u0000\u0000\u0000\u0000\u0000\u0000"), ...Buffer.from("<html><script>alert(1)</script>")]);
+  assert.deepEqual(checkStoredBytes(id3Html, "audio/mpeg"), { ok: false });
+  const id3Mp3 = new Uint8Array([...Buffer.from("ID3\u0004\u0000\u0000\u0000\u0000\u0000\u0000"), 0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0]);
+  assert.equal(checkStoredBytes(id3Mp3, "audio/mpeg").ok, true);
   assert.equal(checkStoredBytes(WEBM, "video/mp4").ok, true); // webm↔mp4
   assert.equal(checkStoredBytes(MP4, "video/webm").ok, true);
   assert.deepEqual(checkStoredBytes(MP4, "audio/mp4"), { ok: true, mimeType: "audio/mp4" }); // m4a with mp4 brand

@@ -190,6 +190,10 @@ export function looksDangerous(head: Uint8Array): boolean {
   if (t.startsWith("<")) return true; // html / svg / xml / script
   if (t.startsWith("#!")) return true;
   if (s.startsWith("%PDF") || s.startsWith("PK\u0003\u0004") || s.startsWith("MZ") || s.startsWith("\u007fELF")) return true;
+  // Markup hidden after a media-looking prefix (e.g. "ID3" + HTML): scan the
+  // whole sniffed head for document/script markers.
+  const all = ascii(head, 0, head.length).toLowerCase();
+  if (/<(?:!doctype|html|script|svg|body|iframe|object|embed)[\s>/]/.test(all)) return true;
   return false;
 }
 
