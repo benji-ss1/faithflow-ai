@@ -1,7 +1,7 @@
 ---
 headline: Slide actions now work on more than songs
 audience: operator
-version: 0.1.408
+version: 0.1.415
 date: 2026-09-16
 highlights:
   - Attach actions to media, sermon, blank and logo slides, not just song slides.

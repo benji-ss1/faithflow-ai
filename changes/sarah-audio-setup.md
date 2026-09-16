@@ -1,7 +1,7 @@
 ---
 headline: Sarah walks you through connecting your sound
 audience: operator
-version: 0.1.408
+version: 0.1.415
 date: 2026-09-16
 highlights:
   - Meet Sarah, your audio setup assistant. She asks what desk you use, shows the exact steps for your setup, then listens to check it actually works.
