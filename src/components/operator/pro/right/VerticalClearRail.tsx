@@ -90,7 +90,9 @@ function LayerCue({
   const label = cleared
     ? `${meta.label} cleared — restore from the Layers panel`
     : row.active
-      ? `Hide ${meta.label} — ${desc}`
+      ? row.id === "slide"
+        ? `Hide ${meta.label} until the next slide — ${desc}`
+        : `Hide ${meta.label} — ${desc}`
       : `Show ${meta.label}`;
   return (
     <button

@@ -99,9 +99,15 @@ export interface UseLiveLayers {
   /** Disable every layer (per-layer patches). The caller ALSO fires the legacy
    *  clear so pre-layers projectors blank too. */
   clearAll: () => void;
-  /** Re-arm the slide layer after a new slide is sent live (R1b): drop a stale
-   *  disabled slide override, preserving any lower-third zone. No-op otherwise. */
+  /** Re-arm after a slide is sent live (R1b): drop a stale disabled slide
+   *  override (T/"Clear Lyrics" hide included — 2026-09-16), preserving any
+   *  lower-third zone, AND restore every layer hidden by `blackout()`. No-op
+   *  otherwise. */
   rearmSlide: () => void;
+  /** Live-screen X (2026-09-16): NON-DESTRUCTIVELY hide every layer that is
+   *  currently showing (payload preserved). The caller ALSO clears the slide.
+   *  The next slide sent live restores all of them via `rearmSlide`. */
+  blackout: () => void;
   /** Drop all overrides (return to the pure derived stack). */
   reset: () => void;
   /** True when a DISABLED layer is disabled because of an EYE-hide (non-
@@ -223,6 +229,13 @@ export function useLiveLayers(
   // to know WHY a layer is disabled, only that it is.
   const eyeHiddenRef = useRef<Set<string>>(new Set());
 
+  // 2026-09-16: layers hidden by the Live-screen X (`blackout`), keyed by id →
+  // whether an override existed before the blackout. The next send restores
+  // exactly these (a layer the operator had ALREADY hidden stays hidden). Any
+  // explicit operator action on a layer (toggle/clear/swap/clear-all/reset)
+  // removes it from this set so a restore never fights the operator.
+  const blackoutRef = useRef<Map<string, boolean>>(new Map());
+
   // Derived base stack from the live OutputState (adapter is pure).
   const base = useMemo<LayerWire[]>(() => {
     const state: OutputState = {
@@ -304,6 +317,7 @@ export function useLiveLayers(
     const cur = overrideMap.get(id) ?? baseLayerById(base, id);
     if (!cur) return;
     const newEnabled = !cur.enabled;
+    blackoutRef.current.delete(id);
     if (newEnabled) eyeHiddenRef.current.delete(id);
     else eyeHiddenRef.current.add(id);
     applyPatch(buildPatch(cur, { enabled: newEnabled }));
@@ -317,6 +331,7 @@ export function useLiveLayers(
     // destructive (NOT an eye-hide), so drop any eye-hidden mark → the slide
     // re-arm on the next send applies again.
     eyeHiddenRef.current.delete(id);
+    blackoutRef.current.delete(id);
     patchFromBase(id, (b) => buildPatch(b, { enabled: false, clearPayload: true }));
   }, [patchFromBase]);
 
@@ -335,6 +350,7 @@ export function useLiveLayers(
     // layer — drop it so a later slide re-arm / hide↔show reads clean state.
     // (Inert today: buildBackgroundSwap sets enabled from the spec directly.)
     eyeHiddenRef.current.delete("background");
+    blackoutRef.current.delete("background");
     patchFromBase("background", (b) => buildBackgroundSwap(b, spec));
   }, [patchFromBase]);
 
@@ -371,6 +387,7 @@ export function useLiveLayers(
     // call a state updater more than once (StrictMode / batching) and emitting
     // inside would double-fire the wire.
     eyeHiddenRef.current = new Set(); // Clear All is destructive — no eye-hides survive
+    blackoutRef.current = new Map();  // …and nothing comes back on the next send
     const patches = base.map((b) => ({ ...buildPatch(b, { enabled: false, clearPayload: true }), rev: nextRev() }));
     setOverrideMap(() => {
       const next = new Map<string, LayerWire>();
@@ -388,29 +405,99 @@ export function useLiveLayers(
   // or when the slide layer is already enabled. Emits the convergence patch.
   const rearmSlide = useCallback(() => {
     if (!enabled) return;
+    const patches: LayerWire[] = [];
+    const commits: Array<{ id: string; keep: LayerWire | null }> = [];
+
+    // (1) Slide layer. 2026-09-16: T/"Clear Lyrics" (eye/rail hide) is TEMPORARY
+    // — the next send re-arms it just like a CLEAR-style block (user-directed,
+    // supersedes the Wave 5A eye-hide-persists rule for the slide layer only).
     const o = overrideMap.get("slide");
-    // Wave 5A: an EYE-hide persists across advances (user-directed) — only a
-    // CLEAR-style block re-arms so it can't permanently swallow the next slide.
-    if (!shouldRearmSlideOnSend(o, eyeHiddenRef.current.has("slide"))) return;
-    if (!o) return; // (narrows for TS — shouldRearmSlideOnSend already returned false)
-    const zone = o.zone;
-    const sticky = zone && zone.kind !== "full";
-    // The convergence patch (re-enable, preserve any sticky zone, no payload/R1a).
-    const rearmed: LayerWire = { ...buildPatch(o, { enabled: true, zone: sticky ? zone : { kind: "full" } }), rev: nextRev() };
-    setOverrideMap((prev) => {
-      const cur = prev.get("slide");
-      if (!cur || cur.enabled) return prev;
-      const next = new Map(prev);
+    if (o && shouldRearmSlideOnSend(o)) {
+      eyeHiddenRef.current.delete("slide");
+      blackoutRef.current.delete("slide");
+      const zone = o.zone;
+      const sticky = zone && zone.kind !== "full";
+      // The convergence patch (re-enable, preserve any sticky zone, no payload/R1a).
+      const rearmed: LayerWire = { ...buildPatch(o, { enabled: true, zone: sticky ? zone : { kind: "full" } }), rev: nextRev() };
+      patches.push(rearmed);
       // Sticky zone → keep a zone-only override; else drop entirely so the base
       // (enabled) slide flows and the heartbeat snapshot converges to no override.
-      if (sticky) next.set("slide", rearmed);
-      else next.delete("slide");
+      commits.push({ id: "slide", keep: sticky ? rearmed : null });
+    }
+
+    // (2) Restore every layer the Live-screen X hid (blackout). Only layers still
+    // disabled are touched — one the operator re-showed/swapped meanwhile was
+    // already removed from blackoutRef by that action.
+    for (const [id, hadOverride] of Array.from(blackoutRef.current)) {
+      const cur = overrideMap.get(id);
+      // Not (yet) disabled in THIS render's map — e.g. a send in the same tick as
+      // the X, before React committed the blackout. Keep the entry so the next
+      // send still restores it (never strand a layer hidden).
+      if (!cur || cur.enabled) continue;
+      blackoutRef.current.delete(id);
+      eyeHiddenRef.current.delete(id);
+      // No prior override → the restore carries NO content payload (null for
+      // background/camera), so every projector renders its CURRENT derived base
+      // (a camera/background changed during the blackout shows correctly) rather
+      // than the snapshot captured at X time. The projector map keeps this entry
+      // (the heartbeat can't remove it), which is harmless: enabled + null payload
+      // = "use base" in resolveLayeredInput.
+      const restored: LayerWire = { ...buildPatch(cur, { enabled: true, clearPayload: !hadOverride }), rev: nextRev() };
+      patches.push(restored);
+      // No override before the blackout → drop it so the live derived base flows
+      // (e.g. a camera/background picked meanwhile); else keep the prior override
+      // (a layer swap payload / zone / opacity survives the blackout).
+      commits.push({ id, keep: hadOverride ? restored : null });
+    }
+
+    if (patches.length === 0) return;
+    setOverrideMap((prev) => {
+      const next = new Map(prev);
+      for (const c of commits) {
+        const cur = prev.get(c.id);
+        if (!cur || cur.enabled) continue;
+        if (c.keep) next.set(c.id, c.keep);
+        else next.delete(c.id);
+      }
       return next;
     });
-    emit({ type: "layer-patch", layer: rearmed });
+    for (const p of patches) emit({ type: "layer-patch", layer: p });
   }, [enabled, overrideMap, emit]);
 
-  const reset = useCallback(() => { eyeHiddenRef.current = new Set(); setOverrideMap(new Map()); }, []);
+  // Live-screen X (2026-09-16): hide EVERYTHING currently showing — background,
+  // camera, logo, slide — NON-destructively (payloads preserved, eye-hide marks
+  // so the rail offers "Show"), and remember what was hidden so the next send
+  // (`rearmSlide`) brings it all back. Same build-then-commit-then-emit shape as
+  // clearAll (Y2) so a double-invoked updater can't double-fire the wire.
+  const blackout = useCallback(() => {
+    if (!enabled) return;
+    const patches: LayerWire[] = [];
+    for (const row of rows) {
+      // A background template that is only dark because a live camera wins over it
+      // (derived enabled=false, no operator override) must ALSO be blacked out —
+      // otherwise hiding the camera un-suppresses it and X shows the template.
+      const cameraSuppressedBg = row.kind === "background" && !overrideMap.has(row.id)
+        && !!input.background && input.background.type !== "none";
+      if (!row.active && !cameraSuppressedBg) continue; // idle or already hidden/cleared → leave it as the operator set it
+      // The slide itself is cleared by the caller (onKill) — hiding its layer too
+      // would leave a dead "Show Slide" cue on the rail with nothing to show.
+      if (row.id === "slide") continue;
+      const cur = overrideMap.get(row.id) ?? baseLayerById(base, row.id);
+      if (!cur) continue;
+      blackoutRef.current.set(row.id, overrideMap.has(row.id));
+      eyeHiddenRef.current.add(row.id);
+      patches.push({ ...buildPatch(cur, { enabled: false }), rev: nextRev() });
+    }
+    if (patches.length === 0) return;
+    setOverrideMap((prev) => {
+      const next = new Map(prev);
+      for (const p of patches) next.set(p.id, p);
+      return next;
+    });
+    for (const p of patches) emit({ type: "layer-patch", layer: p });
+  }, [enabled, rows, overrideMap, base, input.background, emit]);
+
+  const reset = useCallback(() => { eyeHiddenRef.current = new Set(); blackoutRef.current = new Map(); setOverrideMap(new Map()); }, []);
 
   // Read-only view of the off-wire eye-hidden set (see eyeHiddenRef). Depends on
   // overrideMap so it re-evaluates alongside the rows it annotates.
@@ -432,7 +519,8 @@ export function useLiveLayers(
     swapBackground,
     clearAll,
     rearmSlide,
+    blackout,
     reset,
     isEyeHidden,
-  }), [enabled, rows, overrides, toggleLayer, clearLayer, setZone, setOpacity, swapBackground, clearAll, rearmSlide, reset, isEyeHidden]);
+  }), [enabled, rows, overrides, toggleLayer, clearLayer, setZone, setOpacity, swapBackground, clearAll, rearmSlide, blackout, reset, isEyeHidden]);
 }

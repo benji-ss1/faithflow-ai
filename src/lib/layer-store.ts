@@ -15,16 +15,27 @@
  *      SHOW restore nothing — the reported one-way toggle. A HIDDEN override is
  *      left untouched so its captured payload survives for a faithful SHOW.
  *
- *   2. `shouldRearmSlideOnSend` — the R1b re-arm decision. The shipped rule
- *      re-armed ANY disabled slide override on a new send so a forgotten block
- *      couldn't swallow the next slide. Wave 5A refines it (user-directed): an
- *      EYE-hide PERSISTS across slide advances (the operator asked for hide to
- *      survive advances), while a CLEAR-style block (trash) still re-arms so it
- *      can't permanently swallow output. The two are otherwise indistinguishable
- *      (slide patches carry no payload, R1a), so the hook tracks which layers were
- *      eye-hidden and passes that in here.
+ *   2. `shouldRearmSlideOnSend` — the R1b re-arm decision: any disabled slide
+ *      override re-arms on the next send (2026-09-16 — T/"Clear Lyrics" is a
+ *      temporary hide; see the function doc).
  */
-import type { BackgroundSpec, LayerWire } from "@/lib/broadcast";
+import type { BackgroundSpec, LayerWire, SlidePayload } from "@/lib/broadcast";
+
+/**
+ * CONTENT-only key for a live slide (2026-09-16, Victor): what the audience reads
+ * or sees, ignoring styling. Two sends with the same key are a restyle (theme,
+ * per-slide look, background image) — they must NOT re-arm hidden lyrics.
+ */
+export function liveContentKey(s: SlidePayload | null | undefined): string {
+  if (!s) return "e";
+  switch (s.kind) {
+    case "text": return `t:${s.text}|${s.reference ?? ""}`;
+    case "image": return `i:${s.url}`;
+    case "video": return `v:${s.url}`;
+    case "logo": return `l:${s.url ?? ""}`;
+    default: return s.kind;
+  }
+}
 
 /** Decision for the background reconcile effect. */
 export interface BackgroundReconcileDecision {
@@ -63,18 +74,18 @@ export function reconcileBackgroundOnBaseChange(
 /**
  * R1b re-arm decision for the slide layer on a new slide send.
  *
- * @param override   the current slide override (if any).
- * @param eyeHidden  true if the slide layer was hidden via the EYE toggle (as
- *                   opposed to a CLEAR/trash block).
+ * 2026-09-16 (user-directed, supersedes the Wave 5A "eye-hide persists across
+ * advances" rule FOR THE SLIDE LAYER ONLY): the rail's T ("Clear Lyrics") is a
+ * TEMPORARY hide, ProPresenter-style — the next slide sent live (operator click,
+ * AI scripture auto-fire, or a re-send of the same slide) brings the text back
+ * with no extra keypress. So ANY disabled slide override re-arms, whether it
+ * came from the eye/rail toggle or a CLEAR. Background/camera/logo eye-hides are
+ * untouched (they never flow through this decision) and still persist.
+ *
+ * @param override  the current slide override (if any).
  * @returns true when the disabled slide override should be dropped/re-enabled so
- *          the freshly-sent slide shows. An EYE-hide persists (returns false);
- *          only a CLEAR-style block re-arms.
+ *          the freshly-sent slide shows.
  */
-export function shouldRearmSlideOnSend(
-  override: LayerWire | undefined,
-  eyeHidden: boolean,
-): boolean {
-  if (!override || override.enabled) return false; // nothing disabled to re-arm
-  if (eyeHidden) return false;                     // EYE-hide persists across advances
-  return true;                                     // CLEAR-style block → re-arm
+export function shouldRearmSlideOnSend(override: LayerWire | undefined): boolean {
+  return !!override && !override.enabled;
 }

@@ -1722,8 +1722,8 @@ export async function updatePreferences(data: {
   // Explicit field whitelist BEFORE any .set()/.values() — never spread the raw
   // `data` object into the DB write. This is the ONLY server action that writes
   // church_preferences from client input, so a poisoned/extra property (most
-  // importantly `layersV2`, which is admin/SQL-only for now — the layers engine
-  // opt-in must NOT be flippable through this settings action) can never reach a
+  // importantly `layersV2`, which is ONLY writable via the dedicated admin action
+  // `setLayersEngineEnabled` — never through this general settings action) can never reach a
   // column. Only keys present in `data` are copied through.
   const patch: Partial<typeof churchPreferences.$inferInsert> = {};
   if ("defaultTranslationId" in data) patch.defaultTranslationId = data.defaultTranslationId;
@@ -1744,6 +1744,28 @@ export async function updatePreferences(data: {
     await db.insert(churchPreferences).values({ churchId: user.churchId, ...patch });
   }
   revalidatePath("/settings");
+  return { ok: true };
+}
+
+// Layers engine opt-out (2026-09-16, user-directed: Layers on by default, a
+// church can turn it off). A DEDICATED admin-only action — `updatePreferences`
+// still whitelists `layersV2` OUT so a general settings save can never flip it.
+// Church-scoped: writes only the caller's own church_preferences row.
+export async function setLayersEngineEnabled(enabled: boolean): Promise<Result> {
+  const user = await requireRole("admin");
+  if (typeof enabled !== "boolean") return { ok: false, error: "Invalid value" };
+  const db = getDb();
+  const [existing] = await db.select({ id: churchPreferences.id }).from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+  if (existing) {
+    await db.update(churchPreferences).set({ layersV2: enabled, updatedAt: new Date() }).where(and(eq(churchPreferences.id, existing.id), eq(churchPreferences.churchId, user.churchId)));
+  } else {
+    // Upsert on the unique church_id so a double-click with no prefs row can't
+    // hit the unique constraint.
+    await db.insert(churchPreferences).values({ churchId: user.churchId, layersV2: enabled })
+      .onConflictDoUpdate({ target: churchPreferences.churchId, set: { layersV2: enabled, updatedAt: new Date() } });
+  }
+  revalidatePath("/settings");
+  revalidatePath("/operator");
   return { ok: true };
 }
 

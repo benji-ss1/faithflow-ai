@@ -61,6 +61,7 @@ import { normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/lib/projecti
 import { ZoneEditor } from "./zone/ZoneEditor";
 import { useShell } from "@/hooks/useShell";
 import { publishSongLibrary } from "@/lib/song-lyric-search-store";
+import { liveContentKey } from "@/lib/layer-store";
 
 type Cursor = { itemIdx: number; slideIdx: number };
 
@@ -965,8 +966,20 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     if (changed) { liveSendSeqRef.current += 1; setLiveSendSeq(liveSendSeqRef.current); }
   }, []);
   const setLive = useCallback((slide: SlidePayload, pos?: LivePos | null) => {
+    const prevLive = liveRef.current;
     noteLiveSend(slide, pos);
     setLiveRaw(slide);
+    // R1b re-arm, centralised 2026-09-16 so EVERY send path (operator slide click,
+    // AI scripture auto-fire, banked verse, arrow auto-send, undo/redo) brings back
+    // lyrics hidden with the rail T ("Clear Lyrics") and everything the Live-screen
+    // X hid. Clear/blank/logo are "safe screen" states, not content → no re-arm.
+    // Victor 2026-09-16: ONLY when the CONTENT changes — a theme / per-slide style
+    // re-send of the same words must NOT bring hidden lyrics back (style and
+    // visibility are independent). The layout toggle opts in explicitly below.
+    if (slide.kind !== "empty" && slide.kind !== "blank" && slide.kind !== "logo"
+      && liveContentKey(slide) !== liveContentKey(prevLive)) {
+      liveLayersRef.current.rearmSlide();
+    }
   }, [noteLiveSend]);
   // The PRE-layout source of whatever is currently live — captured at
   // sendSlideToLive entry (before applyChurchLayout). Re-sending THIS through the
@@ -1336,6 +1349,12 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // Projector untouched, but same content from a DIFFERENT deck position is a
       // new send for the operator title (it clears).
       if (options?.position) noteLiveSend(slide, options.position);
+      // 2026-09-16 (user-directed): a re-send of the on-screen slide still brings
+      // back lyrics hidden with the rail T — re-arm is layer-only (no-op when
+      // nothing is hidden), so the projector pulse guard above is untouched.
+      // carryLiveOrigin = a restyle of what's already live (per-slide background
+      // remove/use-on-all/drop) — never a re-send → no re-arm (Victor 2026-09-16).
+      if (!options?.carryLiveOrigin) liveLayersRef.current.rearmSlide();
       return;
     }
     if (options?.instant) {
@@ -1349,7 +1368,6 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       setLive(slide, options?.position);
       setLiveBroadcastRevision((revision) => revision + 1);
       chRef.current?.postMessage({ type: "set", slide, transition: null } as LiveMessage);
-      liveLayersRef.current.rearmSlide(); // R1b: a real new slide re-arms the slide layer
       return;
     }
     // Transition the "set" message and the follow-up "output" message will
@@ -1374,7 +1392,6 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       slide,
       ...(setTransition !== undefined ? { transition: setTransition } : {}),
     } as LiveMessage);
-    liveLayersRef.current.rearmSlide(); // R1b: a real new slide re-arms the slide layer
     try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
   }, [churchId, stampLiveOrigin, noteLiveSend, setLive]);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
@@ -1695,6 +1712,9 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // Reduce the source back to raw content so applyChurchLayout re-derives the
     // CURRENT layout (a pre-styled source would no-op — that's the whole trick).
     sendSlideToLive(sourceForRelayout(src), undefined, { instant: true, force: true, carryLiveOrigin: true });
+    // Full/third layout change brings hidden lyrics back (user-approved
+    // 2026-09-16) — explicit, because the content-change gate in setLive skips it.
+    liveLayersRef.current.rearmSlide();
   }, [sendSlideToLive, currentLiveSource]);
 
   // Any editor's "Apply to current slide" (or another surface) can push the
