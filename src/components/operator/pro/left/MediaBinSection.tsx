@@ -30,6 +30,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
   ChevronDown, ChevronRight, Images, ExternalLink, Maximize2, Minimize2,
   Upload, ImagePlus, Film, MonitorPlay, PanelBottom, FolderInput, Trash2, X, GripHorizontal,
+  CheckCircle2, RotateCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CenterMode } from "../ProOperatorShell";
@@ -42,6 +43,9 @@ import { isImageAsset } from "@/lib/media-drop";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { MediaImportWizard } from "../center/MediaImportWizard";
+import { isOsFileDrag, collectDroppedFiles, isFileInputTarget } from "@/lib/media-bin-drop";
+import { isRealDragLeave } from "@/lib/spring-load";
+import { MediaBinUploadQueue, type MediaBinUploadQueueHandle } from "./MediaBinUploadQueue";
 import { MediaImageEditor } from "../center/MediaImageEditor";
 import { Pencil } from "lucide-react";
 import { usePp7Layers } from "@/lib/pp7-layers-flag";
@@ -98,6 +102,11 @@ export function MediaBinSection({
   const { confirm, dialog: confirmDialog } = useConfirm();
   const imgInputRef = useRef<HTMLInputElement>(null);
   const vidInputRef = useRef<HTMLInputElement>(null);
+  // ── OS file drop (Finder / Explorer → bin) ──────────────────────────────────
+  const [fileDragOver, setFileDragOver] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const queueRef = useRef<MediaBinUploadQueueHandle>(null);
+  const dragClearTimerRef = useRef<number | null>(null);
   // Defer a single-click (open full library) so a double-click (quick preview)
   // cancels it — otherwise the first click of a dblclick navigates away first.
   const clickTimerRef = useRef<number | null>(null);
@@ -244,6 +253,112 @@ export function MediaBinSection({
     setWizardOpen(true);
   };
 
+  // ── OS file drop ─────────────────────────────────────────────────────────────
+  // Only REAL OS files are handled here; in-app drags (media tiles, library
+  // items, slides) never match isOsFileDrag, so every existing drop target keeps
+  // working exactly as before. Uploads/progress live in MediaBinUploadQueue so
+  // progress never re-renders this (large) component.
+
+  // Post-upload refresh that NEVER blanks the bin on a failed fetch (unlike the
+  // general `load`, whose behaviour is left untouched).
+  const refreshAfterUpload = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/media/list", { cache: "no-store" });
+      if (!res.ok) return false;
+      const json = await res.json();
+      if (!Array.isArray(json?.assets)) return false;
+      setAssets(json.assets);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+  const openWizardWith = useCallback((files: File[]) => {
+    setWizardFiles(files);
+    setWizardOpen(true);
+  }, []);
+
+  // Guard so a burst of dragenter events (children) can't toggle open→closed.
+  const springOpenedRef = useRef(false);
+  useEffect(() => { if (open) springOpenedRef.current = false; }, [open]);
+  const springOpen = () => {
+    if (open || springOpenedRef.current) return;
+    springOpenedRef.current = true;
+    onToggle();
+  };
+  // A drag event belongs to the bin only if its DOM target is really inside the
+  // section. React bubbles events out of PORTALS (the import wizard / image
+  // editor dialogs render inside this component), so without this a drop on
+  // the wizard's own drop zone would be imported twice.
+  const ownsDragEvent = (e: React.DragEvent) =>
+    isOsFileDrag(e.dataTransfer?.types) && (e.currentTarget as HTMLElement).contains(e.target as Node);
+  const armOverlay = () => {
+    setFileDragOver(true);
+    // Fallback: an OS drag cancelled with Esc may never send dragleave/drop.
+    if (dragClearTimerRef.current) window.clearTimeout(dragClearTimerRef.current);
+    dragClearTimerRef.current = window.setTimeout(() => setFileDragOver(false), 1500);
+  };
+  const onBinDragEnter = (e: React.DragEvent) => {
+    if (!ownsDragEvent(e)) return;
+    e.preventDefault();
+    springOpen(); // collapsed bin springs open for a file drag
+    armOverlay();
+  };
+  const onBinDragOver = (e: React.DragEvent) => {
+    if (!ownsDragEvent(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    armOverlay();
+  };
+  const onBinDragLeave = (e: React.DragEvent) => {
+    if (!isRealDragLeave(e.currentTarget as HTMLElement, e.relatedTarget)) return;
+    setFileDragOver(false);
+  };
+  const onBinDrop = (e: React.DragEvent) => {
+    if (!ownsDragEvent(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setFileDragOver(false);
+    springOpen();
+    // Entries must be read synchronously from the live DataTransfer.
+    void collectDroppedFiles(e.dataTransfer)
+      .then(({ files, truncated }) => queueRef.current?.importFiles(files, { truncated }))
+      .catch(() => toast.error("Couldn't read the dropped files"));
+  };
+
+  // Safety net: a file dropped anywhere that ISN'T a drop target must not make
+  // the page (or the desktop shell) navigate to / open the file. Only OS-file
+  // drags are touched; element drop handlers run first (bubble phase) and mark
+  // the event handled; native <input type=file> drops are left alone.
+  useEffect(() => {
+    const onOver = (e: DragEvent) => {
+      if (!isOsFileDrag(e.dataTransfer ? Array.from(e.dataTransfer.types) : null)) return;
+      if (isFileInputTarget(e.target)) return;
+      e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      setFileDragOver(false);
+      if (!isOsFileDrag(e.dataTransfer ? Array.from(e.dataTransfer.types) : null)) return;
+      if (isFileInputTarget(e.target)) return;
+      if (e.defaultPrevented) return; // a real drop target handled it
+      e.preventDefault();
+      toast.info("Drop files on the Media Bin to upload them", { id: "pf-stray-file-drop" });
+    };
+    const onLeaveWindow = (e: DragEvent) => { if (!e.relatedTarget) setFileDragOver(false); };
+    const clear = () => setFileDragOver(false);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("drop", onDrop);
+    window.addEventListener("dragleave", onLeaveWindow);
+    window.addEventListener("dragend", clear);
+    return () => {
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("drop", onDrop);
+      window.removeEventListener("dragleave", onLeaveWindow);
+      window.removeEventListener("dragend", clear);
+      if (dragClearTimerRef.current) window.clearTimeout(dragClearTimerRef.current);
+    };
+  }, []);
+
   // ── Resize (item 1) — pointer-drag the top edge; up = taller, down = shorter ─
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -289,9 +404,20 @@ export function MediaBinSection({
   return (
     <section
       className={cn(
-        "border-t border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col min-h-0 shrink-0",
+        "relative border-t border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col min-h-0 shrink-0",
       )}
+      onDragEnter={onBinDragEnter}
+      onDragOver={onBinDragOver}
+      onDragLeave={onBinDragLeave}
+      onDrop={onBinDrop}
     >
+      {/* OS file drop overlay — pointer-events:none so it never steals the drop. */}
+      <div className="pf-bin-drop" data-on={fileDragOver ? "" : undefined} aria-hidden>
+        <span className="pf-bin-drop-label"><Upload className="w-4 h-4" /> Drop to add to Media Bin</span>
+      </div>
+      <span className="sr-only" aria-live="polite">
+        {uploadingCount > 0 ? `Uploading ${uploadingCount} file${uploadingCount === 1 ? "" : "s"}` : ""}
+      </span>
       {confirmDialog}
       {/* Resize handle — only meaningful when the bin is open. A thin grab strip
           on the TOP edge; pull up to enlarge, down to shrink. */}
@@ -311,9 +437,14 @@ export function MediaBinSection({
       <header className="flex items-center h-8 px-2.5 gap-1 bg-[linear-gradient(180deg,var(--color-panel),transparent)] shrink-0">
         <button type="button" className="flex items-center gap-1 shrink-0 text-left" onClick={onToggle}>
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <span className="eyebrow">Media Bin</span>
+          <span className="eyebrow" title="Media Bin — drag files here from Finder or File Explorer to upload">Media Bin</span>
           {assets !== null && (
             <span className="ml-1.5 min-w-[16px] h-[15px] px-1 grid place-items-center rounded-full bg-[var(--color-brand)]/16 text-[var(--color-brand)] text-[9px] font-mono font-bold tabular-nums">{count}</span>
+          )}
+          {uploadingCount > 0 && (
+            <span className="ml-1 h-[15px] px-1.5 grid place-items-center rounded-full bg-[var(--color-brand)]/16 text-[var(--color-brand)] text-[9px] font-semibold tabular-nums">
+              Uploading {uploadingCount}
+            </span>
           )}
         </button>
         <span className="h-px flex-1 mx-2" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
@@ -363,12 +494,23 @@ export function MediaBinSection({
         </button>
       </header>
 
+      {/* Upload queue stays MOUNTED while collapsed so uploads keep going. */}
+      <div className={open ? undefined : "hidden"}>
+        <MediaBinUploadQueue
+          ref={queueRef}
+          refresh={refreshAfterUpload}
+          onOpenWizard={openWizardWith}
+          onActiveCountChange={setUploadingCount}
+          live={!!ctx?.liveSlide}
+          thumbMin={thumbMin}
+        />
+      </div>
       {open && (
         <div className="overflow-y-auto p-2" style={{ height: effH }}>
           {assets === null && (
             <div className="text-[11px] text-[var(--color-muted-foreground)] opacity-60 px-1 py-2">Loading media…</div>
           )}
-          {assets !== null && assets.length === 0 && (
+          {assets !== null && assets.length === 0 && uploadingCount === 0 && (
             <div className="flex flex-col items-start gap-1.5 px-1 py-2">
               <span className="text-[11px] text-[var(--color-muted-foreground)]">No media yet.</span>
               <button
@@ -377,6 +519,7 @@ export function MediaBinSection({
               >
                 <Upload className="w-3 h-3" /> Upload your first image or video
               </button>
+              <span className="text-[10px] text-[var(--color-muted-foreground)] opacity-70">…or drag files here from Finder or File Explorer (images, video, PowerPoint, PDF)</span>
             </div>
           )}
           {assets && assets.length > 0 && (
