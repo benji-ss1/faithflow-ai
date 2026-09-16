@@ -11,6 +11,12 @@ import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
 import { audioGuideReply, audioGuideSearch, MissingApiKeyError, GroqRateLimitedError } from "@/lib/ai-helpers";
 import { SARAH_KNOWLEDGE, SARAH_STEPS, CHECK_IDS, type SarahStep } from "@/lib/audio/sarahKnowledge";
 import { OS_VALUES, CONNECTION_VALUES, MIX_VALUES } from "@/lib/server/audio-setup";
+import { createLimiter } from "@/lib/rate-limit";
+
+// Web search costs real money per call. Daily caps per church and per person, on the
+// shared limiter (in-memory today; becomes durable when the Redis/pg backend is set).
+const searchPerChurchDay = createLimiter("sarah-search-church", 50, 24 * 60 * 60 * 1000);
+const searchPerUserDay = createLimiter("sarah-search-user", 30, 24 * 60 * 60 * 1000);
 
 export const runtime = "nodejs";
 
@@ -72,7 +78,12 @@ export async function POST(req: Request) {
       // Search is best-effort: a rate limit or an over-size request (common on lower Groq
       // tiers — search runs on a larger model) falls back to the knowledge-base answer
       // below instead of failing the question. Only a missing key is a hard stop.
-      const found = await audioGuideSearch({ question: message, setup }).catch((e) => {
+      // Only gear facts go to the search provider — never the device name (it can carry a
+      // church's name) or anything identifying.
+      const searchSetup: Record<string, string> = {};
+      for (const k of ["desk", "os", "connection", "mixType", "deviceKind"]) if (setup[k]) searchSetup[k] = setup[k];
+      const allowed = (await searchPerChurchDay(user.churchId)) && (await searchPerUserDay(user.id));
+      const found = !allowed ? null : await audioGuideSearch({ question: message, setup: searchSetup }).catch((e) => {
         if (e instanceof MissingApiKeyError) throw e;
         return null;
       });

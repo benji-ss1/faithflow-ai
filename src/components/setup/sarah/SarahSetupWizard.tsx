@@ -65,6 +65,8 @@ const deviceToOs = (d?: string): Os | undefined => (/mac/i.test(d ?? "") ? "mac"
 const nextId = (() => { let i = 0; return () => ++i; })();
 const QUIET_MS = 8000;
 const SPEAK_MS = 10000;
+/** First-win projection bar — matches Bible auto-approve so the demo behaves like the real thing. */
+const FIRST_WIN_CONFIDENCE = 75;
 /** Enough clean speech to judge a level — we pass early rather than run the full timer. */
 const SPEAK_MIN_MS = 3500;
 const SPEAK_MIN_FRAMES = 60; // ≈3s at the native 20 Hz probe rate
@@ -77,7 +79,9 @@ export type SarahLive = {
   transcript?: string;
   interim?: string;
   /** Scripture detections from the live engine (shape kept loose on purpose). */
-  suggestions?: { id?: string; reference?: string; ref?: { book: string; chapter: number; verseStart: number; verseEnd: number } }[];
+  suggestions?: { id?: string; reference?: string; ref?: { book: string; chapter: number; verseStart: number; verseEnd: number }; confidence?: number; fromInterim?: boolean; voiceCommand?: boolean }[];
+  /** Something (a song, a verse, a lower third) is already on the projector. */
+  liveHasContent?: boolean;
   onListen?: () => void;
   noAudioSignal?: boolean;
   clipping?: boolean;
@@ -417,31 +421,45 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
       "listen", "Sarah is listening for your first verse");
   }, [feed, saveProfile, say]);
 
-  // First win — watch the REAL detection engine (read-only) and celebrate the
-  // moment it catches a verse. This is the moment a church realises what the app does.
+  // First win — watch the REAL detection engine and put the verse on the projector.
+  // Owner directive (2026-09-16): "the minute you say it, the AI should project the verse
+  // onto the screen." Guarded like Bible auto-fire so it can't misfire:
+  //   • only a CONFIDENT detection (>= FIRST_WIN_CONFIDENCE, the Bible auto bar);
+  //   • never an interim fragment or a relative voice command ("next verse");
+  //   • only detections that arrived AFTER this step began (baseline);
+  //   • if something is ALREADY live, Sarah asks before replacing it.
+  const [pendingWin, setPendingWin] = useState<{ reference: string; ref: { book: string; chapter: number; verseStart: number; verseEnd: number } } | null>(null);
+  useEffect(() => {
+    if (phase === "tryit") return;
+    baselineRef.current = null; heardRef.current = false; setPendingWin(null);
+  }, [phase]);
+  const projectWin = useCallback((w: { reference: string; ref: { book: string; chapter: number; verseStart: number; verseEnd: number } }) => {
+    dispatchInternal("presentflow:bible-goto", { ...w.ref, live: true });
+    setPendingWin(null);
+    say(`Putting ${w.reference} on your screen. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
+    setCoachWin(w.reference);
+    setExtraChips(["Finish"]);
+    setMood("celebrate");
+  }, [say]);
   useEffect(() => {
     if (phase !== "tryit" || heardRef.current) return;
     const current = live?.suggestions ?? [];
-    // Snapshot what the console had already detected BEFORE this step, so an old
-    // verse from earlier in the service can't be celebrated as "your first win".
     if (!baselineRef.current) { baselineRef.current = new Set(current.map((x, i) => x?.id ?? `${x?.reference ?? ""}#${i}`)); return; }
-    const hit = current.find((x) => typeof x?.reference === "string" && x.reference.trim()
-      && !baselineRef.current!.has(x?.id ?? `${x.reference}#${current.indexOf(x)}`));
-    if (!hit) return;
+    const hit = current.find((x, i) => typeof x?.reference === "string" && x.reference.trim() && !!x.ref
+      && !baselineRef.current!.has(x?.id ?? `${x.reference}#${i}`)
+      && (x.confidence ?? 0) >= FIRST_WIN_CONFIDENCE && !x.fromInterim && !x.voiceCommand);
+    if (!hit || !hit.ref || !hit.reference) return;
     heardRef.current = true;
-    // First win: put the verse on the projector. Same path as Shift+clicking a scripture
-    // chip — an explicit operator action (they're running the setup), not zero-click
-    // auto-fire, so the CLAUDE.md rule-7 confidence gates are not involved.
-    if (hit.ref) {
-      dispatchInternal("presentflow:bible-goto", {
-        book: hit.ref.book, chapter: hit.ref.chapter, verseStart: hit.ref.verseStart, verseEnd: hit.ref.verseEnd, live: true,
-      });
+    const win = { reference: hit.reference, ref: hit.ref };
+    if (live?.liveHasContent) {
+      setPendingWin(win);
+      say(`I heard ${hit.reference}! Something else is on your screen right now — shall I replace it with the verse?`, "ooh", "Sarah heard you");
+      setExtraChips([`Put ${hit.reference} on the screen`, "Not now"]);
+      setMood("ooh");
+      return;
     }
-    say(`That's it — ${hit.reference} is on your screen. Your sound, the AI and PresentFlow are all working together.`, "celebrate", "It works!");
-    setCoachWin(hit.reference ?? "your verse");
-    setExtraChips(["Finish"]);
-    setMood("celebrate");
-  }, [phase, live?.suggestions, say]);
+    projectWin(win);
+  }, [phase, live?.suggestions, live?.liveHasContent, say, projectWin]);
 
   useEffect(() => { onCoachChange?.(!!coach); }, [coach, onCoachChange]);
   // Keep the device list fresh while coaching (hotplug, NDI discovery) — quietly, with
@@ -715,6 +733,8 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
       void feed.stop(); goTo("connection", next);
       return;
     }
+    if (pendingWin && label === `Put ${pendingWin.reference} on the screen`) { userSays(label); projectWin(pendingWin); return; }
+    if (label === "Not now" && pendingWin) { userSays(label); setPendingWin(null); say("No problem — your setup works. You can put verses up any time from the AI chips.", "nod", "All set"); setExtraChips(["Finish"]); return; }
     if (label === "Finish") { userSays(label); if (onDone) { void feed.stop(); clearTimers(); onDone(); } else setShowSuccess(true); return; }
     if (label === "Turn off AI listening") { userSays(label); live?.onListen?.(); say("Thanks — pick your input again and I'll test it.", "nod", "Ready to test"); setExtraChips([]); return; }
     if (label === "Ask Sarah") { void ask("That check failed. What should I do?"); return; }
@@ -768,7 +788,7 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
   const liveBandLabel = { silent: "No sound", quiet: "Too quiet", good: "Good", loud: "Too loud" }[band];
   // Once the voice check has finished, the meter reports the RESULT — the instantaneous
   // level drops between words and read "Too quiet" right under "Voice check passed".
-  const speechResult = !measuring && phase !== "input" ? checks.find((c) => c.id === "speech-level") : undefined;
+  const speechResult = !measuring && phase === "speak" && band !== "silent" ? checks.find((c) => c.id === "speech-level") : undefined;
   const bandLabel = speechResult?.status === "pass" ? "Good — check passed" : liveBandLabel;
   const bandClass = speechResult?.status === "pass" || band === "good" ? s.bandGood : band === "silent" ? s.bandBad : s.bandWarn;
   const lastPct = useRef(0);
@@ -1026,13 +1046,16 @@ export function SarahSetupWizard({ onDone, live, onCoachChange }: { onDone?: () 
           <SarahSpotlight
             target="live-preview"
             mood={coachWin ? "celebrate" : "listen"}
-            title={coachWin ? `That's it — ${coachWin}` : "Now say the verse"}
+            title={coachWin ? `That's it — ${coachWin}` : pendingWin ? `I heard ${pendingWin.reference}` : "Now say the verse"}
             body={coachWin
               ? "Your sound, the AI and PresentFlow are working together. This screen is what your congregation sees."
               : "Into the mic your sound comes in on, say: “Let's turn to John chapter three, verse sixteen.” Watch this screen — it's what goes on the projector."}
             actions={coachWin
               ? [{ label: "I'm done", primary: true, onClick: endSetup }]
-              : [{ label: "Skip — finish setup later", onClick: endSetup }]}
+              : pendingWin
+                ? [{ label: "Not now", onClick: () => { setPendingWin(null); setCoachWin("your verse"); } },
+                   { label: `Put ${pendingWin.reference} up`, primary: true, onClick: () => projectWin(pendingWin) }]
+                : [{ label: "Skip — finish setup later", onClick: endSetup }]}
             onClose={() => setCoach(null)}
           >
             {!coachWin && (

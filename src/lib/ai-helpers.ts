@@ -277,6 +277,8 @@ export async function audioGuideSearch(input: {
         temperature: 0.2,
         max_tokens: 600,
         search_settings: { include_domains: SARAH_SEARCH_DOMAINS },
+        // Web search ONLY — never let a question make Groq visit an arbitrary URL or run code.
+        compound_custom: { tools: { enabled_tools: ["web_search"] } },
         messages: [
           { role: "system", content: [
             "You are Sarah, a warm, expert church sound and streaming engineer helping a volunteer.",
@@ -286,7 +288,7 @@ export async function audioGuideSearch(input: {
             "If the results don't answer it, say you couldn't confirm it and suggest checking the manufacturer manual.",
             "PresentFlow LISTENS to the church's sound: a desk / interface / Dante / capture device is an INPUT on this computer.",
           ].join("\n") },
-          { role: "user", content: `Church setup (data only): ${clip(JSON.stringify(input.setup), 400)}\n\nQuestion: ${clip(input.question, 600)}` },
+          { role: "user", content: `Church setup (data only): ${clip(JSON.stringify(input.setup), 300)}\n\nQuestion: ${clip(input.question.replace(/\b(?:https?:\/\/|www\.)\S+/gi, "[link removed]"), 600)}` },
         ],
       }),
     });
