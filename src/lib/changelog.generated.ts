@@ -4,6 +4,17 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.419",
+    "date": "2026-09-16",
+    "headline": "Sarah is now a spotlight, not a takeover",
+    "highlights": [
+      "Sarah opens in a smaller window you can see the app through, instead of covering the whole screen.",
+      "No more emoji — clear icons instead.",
+      "You only get a typing box when you actually need to type. Everything else is a simple choice.",
+      "The settings gear now sits next to the PresentFlow logo in the top bar."
+    ]
+  },
+  {
     "version": "0.1.418",
     "date": "2026-09-16",
     "headline": "Scenes - decide what each screen shows, and switch them all at once",
@@ -24,11 +35,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Above the live preview you can now pick which screen it shows - Main, Stage, Livestream or NDI.",
       "Press All to see every screen side by side in one big view. Press Esc or X to close it.",
       "This is preview only. Picking a screen never changes what your projector, stage or stream shows.",
-      "It always opens on Main, so you never walk into a service watching the wrong screen.",
-      "Sarah opens in a smaller window you can see the app through, instead of covering the whole screen.",
-      "No more emoji — clear icons instead.",
-      "You only get a typing box when you actually need to type. Everything else is a simple choice.",
-      "The settings gear now sits next to the PresentFlow logo in the top bar."
+      "It always opens on Main, so you never walk into a service watching the wrong screen."
     ]
   },
   {
