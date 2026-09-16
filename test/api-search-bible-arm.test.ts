@@ -15,7 +15,8 @@
 import assert from "node:assert/strict";
 import { Pool } from "pg";
 import { parseReferences } from "../src/lib/bible-parser";
-import { hybridSearch, publicDomainFallbackTranslationId } from "../src/lib/server/bible";
+import { ftsIndexReady, hybridSearch, publicDomainFallbackTranslationId } from "../src/lib/server/bible";
+import { gateByLexical } from "../src/lib/bible-palette-search";
 
 let pass = 0, fail = 0;
 async function check(name: string, fn: () => Promise<void> | void) {
@@ -25,8 +26,12 @@ async function check(name: string, fn: () => Promise<void> | void) {
 
 type Hit = { id: string; title: string; subtitle?: string; href: string };
 
-/** Byte-for-byte the route's Bible arm. */
-async function bibleArm(q: string): Promise<Hit[]> {
+/**
+ * Byte-for-byte the route's Bible arm, including the lexical relevance gate
+ * (2026-09-16 parity follow-up). `forceLexicalAvailable` lets a test exercise
+ * the FTS-index-down fallback without touching the index.
+ */
+async function bibleArm(q: string, forceLexicalAvailable?: boolean): Promise<Hit[]> {
   const hits: Hit[] = [];
   for (const ref of parseReferences(q).slice(0, 3)) {
     const range = ref.verseStart === ref.verseEnd ? `${ref.verseStart}` : `${ref.verseStart}-${ref.verseEnd}`;
@@ -40,7 +45,9 @@ async function bibleArm(q: string): Promise<Hit[]> {
   if (hits.length === 0 && q.length >= 3) {
     const remaining = 4 - hits.length;
     const pdId = await publicDomainFallbackTranslationId();
-    const rows = pdId ? await hybridSearch(pdId, q, remaining) : [];
+    const lexicalAvailable = forceLexicalAvailable ?? (await ftsIndexReady());
+    const pool = pdId ? await hybridSearch(pdId, q, remaining * 2) : [];
+    const rows = gateByLexical(pool, lexicalAvailable).slice(0, remaining);
     for (const r of rows) {
       hits.push({
         id: `v-${r.book}-${r.chapter}-${r.verse}`,
@@ -102,6 +109,26 @@ async function main() {
   await check("at most 4 Bible hits", async () => {
     const hits = await bibleArm("love");
     assert.ok(hits.length <= 4, `got ${hits.length}`);
+  });
+
+  console.log("Relevance gate (parity with the ⌘K palette):");
+  await check("gibberish returns NO Bible hits", async () => {
+    const hits = await bibleArm("asdfgh qwerty zxcv");
+    assert.deepEqual(hits, [], `expected none, got: ${hits.map((h) => h.title).join(", ")}`);
+  });
+  await check("gibberish DOES still come back semantically when ungated — the gate is what stops it", async () => {
+    const pdId = await publicDomainFallbackTranslationId();
+    const raw = pdId ? await hybridSearch(pdId, "asdfgh qwerty zxcv", 4) : [];
+    assert.ok(raw.length > 0, "regression guard: RRF answers even gibberish");
+    assert.ok(raw.every((r) => r.lexical !== true), "and none of it is lexically anchored");
+  });
+  await check("FTS index down (lexicalAvailable=false) → ungated fallback, arm still answers", async () => {
+    const hits = await bibleArm("asdfgh qwerty zxcv", false);
+    assert.ok(hits.length > 0, "must NOT silently empty the Bible arm when the FTS arm is skipped");
+  });
+  await check("the gate does not cost a real phrase its hits", async () => {
+    const hits = await bibleArm("love is patient");
+    assert.ok(hits.length > 0 && hits.length <= 4);
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

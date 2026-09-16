@@ -5,7 +5,8 @@ import { createLimiter } from "@/lib/rate-limit";
 import { getDb } from "@/lib/db/client";
 import { songs, servicePlans } from "@/lib/db/schema";
 import { parseReferences } from "@/lib/bible-parser";
-import { hybridSearch, publicDomainFallbackTranslationId } from "@/lib/server/bible";
+import { ftsIndexReady, hybridSearch, publicDomainFallbackTranslationId } from "@/lib/server/bible";
+import { gateByLexical } from "@/lib/bible-palette-search";
 
 export const runtime = "nodejs";
 // This route now runs embed() + pgvector + FTS (hybridSearch) per call, not the
@@ -111,7 +112,17 @@ export async function GET(req: Request) {
     try {
       const remaining = 4 - bibleHits.length;
       const pdId = await publicDomainFallbackTranslationId();
-      const verseRows = pdId ? await hybridSearch(pdId, q, remaining) : [];
+      // RELEVANCE GATE — parity with the ⌘K palette (2026-09-16 follow-up).
+      // RRF scores every query's top hit at 1/(60+1), gibberish included, so
+      // this arm used to answer "asdfgh qwerty zxcv" with Mark 4:3. Reuse the
+      // SAME pure helper the palette uses (one rule, one place): keep only
+      // FTS-anchored hits, lexical first — and ONLY when the lexical arm
+      // actually ran (`ftsIndexReady`), otherwise hybridSearch never sets
+      // `lexical` and gating would hide the Bible arm everywhere.
+      // Over-fetch before gating so a gated-out near-miss doesn't cost a slot.
+      const lexicalAvailable = await ftsIndexReady();
+      const pool = pdId ? await hybridSearch(pdId, q, remaining * 2) : [];
+      const verseRows = gateByLexical(pool, lexicalAvailable).slice(0, remaining);
       for (const r of verseRows) {
         bibleHits.push({
           id: `v-${r.book}-${r.chapter}-${r.verse}`,
