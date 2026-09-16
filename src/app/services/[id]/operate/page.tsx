@@ -38,6 +38,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
         autoApproveThreshold: number | null;
         autoSendToLive: boolean | null;
         layersV2?: boolean | null;
+        scenesEnabled?: boolean | null;
       }
     | null = null;
   let translationCode = "KJV";
@@ -71,6 +72,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       defaultTranslationCode={translationCode}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
+      scenesEnabled={prefs?.scenesEnabled ?? false}
       layersV2={layersV2}
       initialShell={initialShell}
     />

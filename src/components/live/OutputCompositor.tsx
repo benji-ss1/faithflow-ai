@@ -26,7 +26,7 @@
  * `planOutput()` is exported and unit-tested (test/output-compositor.test.ts) as
  * the golden record of the precedence rules.
  */
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { SlideRenderer } from "./SlideRenderer";
 import { OutputSlide } from "./OutputSlide";
 import { TransitionWrapper } from "./TransitionWrapper";
@@ -45,6 +45,7 @@ import type { ProjectionZone } from "@/lib/projection-zone";
 import { overlayBandSlide, type ObsBandConfig, type ObsThemeColors, type ObsBandExtras } from "@/lib/obs-lowerthird";
 import { planOutput, type CompositorMode, type OutputLayerPlan, type PlanInput } from "@/lib/output-plan";
 import { resolveLayeredInput, layerOpacities } from "@/lib/output-layers-render";
+import { maskFor, type SceneWire, type SceneScreen } from "@/lib/scenes";
 import type { LayerWire } from "@/lib/broadcast";
 
 export { planOutput, type CompositorMode } from "@/lib/output-plan";
@@ -103,6 +104,22 @@ export interface OutputCompositorProps {
    * ⇒ byte-identical live output.
    */
   previewFrozen?: boolean;
+  /**
+   * SCENES (2026-09-16): the active per-screen routing snapshot from
+   * OutputState.scene, and WHICH screen this surface is. Both must be present
+   * for a scene to affect anything — a route that passes neither renders exactly
+   * as it did pre-Scenes. Deliberately independent of `layersEnabled`, because
+   * NEXT_PUBLIC_LAYERS_V2 is off in production.
+   */
+  scene?: SceneWire | null;
+  screen?: SceneScreen;
+  /**
+   * True once this surface knows Scenes is enabled for the church (the operator
+   * sends the `scene` field — even as null — whenever it is). It pre-arms the
+   * layer wrapper below so the FIRST scene of a service can't flip it mid-service
+   * and remount the stack. A church without Scenes never sets it ⇒ legacy DOM.
+   */
+  scenesPossible?: boolean;
 }
 
 /**
@@ -112,18 +129,51 @@ export interface OutputCompositorProps {
  */
 export function OutputCompositor(props: OutputCompositorProps) {
   const {
-    appearance, transition, fontScale, referenceScale,
+    appearance: appearanceProp, transition, fontScale, referenceScale,
     referenceColor, zone, obsBand, obsThemeColors, videoMuted = false, onVideoRef,
     layersEnabled, layerOverrides, previewFrozen = false,
-    obsBandExtras, obsOverlay, backgroundDim,
+    obsBandExtras, obsOverlay, backgroundDim, scene, screen, scenesPossible,
   } = props;
+
+  // SCENES (2026-09-16): this screen's routing mask, if a scene is active.
+  // Gated on DATA PRESENCE, never on NEXT_PUBLIC_LAYERS_V2 (off in production —
+  // an env-gated scene would be dead code). No scene / unrouted screen ⇒ mask
+  // undefined ⇒ every code path below behaves exactly as it did pre-Scenes
+  // (parity locked by test/output-scenes.test.ts across the same ≥96 fixtures).
+  const mask = screen ? maskFor(scene, screen) : undefined;
+  // REMOUNT LATCH (review 🔴, 2026-09-16). The opacity wrapper below changes the
+  // element type+key of every layer, so a boolean that FLIPS at runtime would
+  // unmount/remount the whole layer stack on each scene switch — replaying the
+  // enter transition on a held verse (the 2026-08-19 fade-pulse this repo
+  // explicitly forbids, CLAUDE.md rule 7), restarting shader/video backgrounds,
+  // and re-acquiring the camera (~200-800ms of black). So the latch is
+  // MONOTONIC: once ANY scene has been seen on this surface it stays on for the
+  // life of the window, and it keys on the SCENE being present at all (not on
+  // whether THIS screen is routed), so switching between scenes that route
+  // different screens never flips it. A church that never uses a scene keeps the
+  // byte-identical legacy DOM (no wrapper at all).
+  const sceneSeenRef = useRef(false);
+  if (scene || scenesPossible) sceneSeenRef.current = true;
+  const wrapLayers = !!layersEnabled || sceneSeenRef.current;
+  // Per-screen theme override. Resolved operator-side into a wire appearance, so
+  // here it is a straight substitution — and because the local name shadows the
+  // prop, every downstream renderer picks it up with no further plumbing.
+  const appearance = mask?.appearance ?? appearanceProp;
+  const sceneActive = !!mask;
 
   // Phase 3: when layers mode is on, resolve the render input from the operator's
   // id-keyed overrides (parity: empty overrides ⇒ input === props ⇒ same plan).
-  const resolvedInput: PlanInput = layersEnabled ? resolveLayeredInput(props, layerOverrides) : props;
+  // A scene mask joins the SAME resolver so it reuses planOutput's precedence and
+  // always loses to an explicit operator override.
+  const baseInput: PlanInput = appearance === appearanceProp ? props : { ...props, appearance };
+  const resolvedInput: PlanInput = layersEnabled || sceneActive
+    ? resolveLayeredInput(baseInput, layersEnabled ? layerOverrides : undefined, mask)
+    : baseInput;
   const plan = planOutput(resolvedInput);
   const slide = resolvedInput.slide;
-  const opacities = layersEnabled ? layerOpacities(layerOverrides) : {};
+  const opacities = layersEnabled || sceneActive
+    ? layerOpacities(layersEnabled ? layerOverrides : undefined, mask)
+    : {};
 
   // OBS lower-third band transform (livestream lower_third capture mode).
   const effectiveSlide: SlidePayload = obsBand ? overlayBandSlide(slide, obsBand, obsThemeColors, obsBandExtras) : slide;
@@ -140,7 +190,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
     // change — a future opacity slider can never remount the camera/slide (which
     // would drop the video element / restart a transition). The flag-OFF legacy
     // path stays byte-identical (no wrapper at all), preserving 96-fixture parity.
-    if (layersEnabled) {
+    if (wrapLayers) {
       const op = opacities[layer.id] ?? 1;
       return (
         <div key={`op-${layer.id}`} className="absolute inset-0" style={{ opacity: op }}>

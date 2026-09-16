@@ -8,6 +8,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, Pane
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { LAYERS_V2 } from "@/lib/output-layers";
+import { SCENES_V1, type SceneWire } from "@/lib/scenes";
 import { nextPreviewPosition } from "@/lib/operator-nav";
 import { dispatchInternal } from "@/lib/internal-events";
 import { useLiveLayers } from "./useLiveLayers";
@@ -107,7 +108,7 @@ const SERVICE_MODE_KEY = "presentflow.pro.serviceMode.v1";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, initialShell }: {
+export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, scenesEnabled: scenesEnabledProp = false, initialShell }: {
   plan: ExpandedPlan;
   /** /operator only: the `?plan=` id no longer exists, so `plan` is a fallback to adopt. */
   pinnedPlanMissing?: boolean;
@@ -118,6 +119,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   /** Decoupling Phase 3: per-church opt-in for the layers engine. Combined with
    *  the global NEXT_PUBLIC_LAYERS_V2 kill-switch to gate the Layers Panel. */
   layersV2?: boolean;
+  scenesEnabled?: boolean;
   initialShell?: "desktop" | "web";
 }) {
   const router = useRouter();
@@ -795,6 +797,20 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // the hook emits nothing and `overrides` is always [] → OutputState.layers is
   // never populated → projector output is byte-identical to the legacy path.
   const layersEngineOn = LAYERS_V2 && layersV2Prop;
+  // SCENES (2026-09-16). The UI is flag-gated (env kill-switch AND per-church
+  // opt-in); the RENDER path is not, so a scene already on the wire keeps
+  // working even for a church without the UI. Session-scoped on purpose: a
+  // fresh console always starts on "None" (no scene) so nobody inherits last
+  // week's routing.
+  const scenesUiOn = SCENES_V1 && scenesEnabledProp;
+  const [activeScene, setActiveScene] = useState<SceneWire | null>(null);
+  // Automations / slide actions switch a scene by ID. The id→wire resolution
+  // needs the church's scene list + themes (loaded in the Scene Rail), so the
+  // console just announces the intent; the rail applies it. Nothing listening
+  // (Scenes off for this church) ⇒ harmless no-op, never an error.
+  const applySceneById = useCallback((sceneId: string) => {
+    try { window.dispatchEvent(new CustomEvent("presentflow:apply-scene", { detail: { sceneId } })); } catch { /* ignore */ }
+  }, []);
   const emitLayerPatch = useCallback((msg: LiveMessage) => {
     if (msg.type !== "layer-patch") return;
     // Same-machine BroadcastChannel is the primary zero-latency path for a
@@ -878,6 +894,17 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // invariant) without reopening the ghost-clobber. Omitted when the engine is
       // off, so flag-off churches emit exactly the legacy snapshot.
       layersEpoch: layersEngineOn ? liveLayers.epoch : undefined,
+      // SCENES: the active per-screen routing snapshot. One field on the ONE
+      // atomic output post ⇒ all four screens switch on the same frame.
+      //
+      // Omitted ENTIRELY for a church without Scenes ⇒ byte-identical legacy
+      // snapshot (parity test-locked). For a church WITH Scenes the field is
+      // always present — `null` when no scene is picked — so each output surface
+      // learns scenes are possible from its FIRST message and pre-wraps its layer
+      // stack. Without that, the first scene of a service would flip the wrapper
+      // mid-service and remount the layers: a transition replay on a held verse
+      // (rule 7's fade-pulse), a shader/video restart and a camera re-acquire.
+      ...(scenesUiOn ? { scene: activeScene } : {}),
     };
     // PROJECTOR-RELIABILITY GUARANTEE (2026-09-06 field incident). Fail-open
     // sanitize the state before it goes on ANY wire (BroadcastChannel / Realtime /
@@ -923,7 +950,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -2189,6 +2216,11 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       appearance: effectiveAppearance,
       videoInput,
       zone: activeZone,
+      // Scenes: same condition as the main emit — a Scenes church always sends the
+      // field (null = no scene) so this cold path also pre-arms each surface's
+      // layer latch; otherwise a lower third sent before anything goes live would
+      // leave the latch unarmed and the next emit would remount the stack.
+      ...(scenesUiOn ? { scene: activeScene } : {}),
     };
     const nextLt = (line1 || line2) ? { line1, line2 } : null;
     // Hold it against the CURRENT live slide so later emits of that same slide
@@ -2206,7 +2238,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     lastOutputStateRef.current = state;
     publishObsPreviewState(state); // after the projector + remote posts
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, activeScene, scenesUiOn]);
   // Actually CLEAR the lower third on the projector (was a placeholder toast
   // that left it on screen — a real live hazard). Reuses the working send path
   // with empty lines, which broadcasts lowerThird:null and toasts "cleared".
@@ -2390,6 +2422,12 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // affordance (or nothing when the env kill-switch is off).
     layersEngineOn,
     liveLayers,
+    // Scenes — the Scene Rail / Builder read these. `scenesUiOn` is env-flag AND
+    // per-church opt-in; the rail renders nothing when it is false.
+    scenesUiOn,
+    activeScene,
+    onSetScene: setActiveScene,
+    onApplyScene: applySceneById,
     onSetBackgroundMedia: setBackgroundMedia,
     dispatchEngineAction,
     fireSlideActions,

@@ -10,6 +10,22 @@ import { CopyConfirm } from "../CopyConfirm";
 import { getEffect, ensureEffectKeyframes, type EffectId } from "@/lib/effects";
 import { TRANSITION_NAME_TO_EFFECT_ID, TRANSITION_PREVIEW_EVENT } from "../BottomBar";
 import type { SlidePayload } from "@/lib/broadcast";
+import { LayoutGrid } from "lucide-react";
+import { MultiViewOverlay, PreviewOtherScreen } from "./MultiView";
+import { MULTIVIEW_SCREENS, MULTIVIEW_LABELS, MULTIVIEW_TITLES, multiviewEnabled, type MultiViewScreen } from "@/lib/multiview";
+import { sceneHidesLayer } from "@/lib/scenes";
+
+/** Preview-box screen switcher + "All screens" entry. Main keeps the original
+ *  preview render untouched; other screens render read-only OutputTiles.
+ *  The pick is deliberately NOT persisted: every console open starts on Main so
+ *  an operator never walks into a service watching a non-projector screen. */
+function useMultiViewControls() {
+  const [enabled, setEnabled] = useState(false);
+  const [screen, setScreen] = useState<MultiViewScreen>("main");
+  const [allOpen, setAllOpen] = useState(false);
+  useEffect(() => { setEnabled(multiviewEnabled()); }, []);
+  return { enabled, screen: enabled ? screen : ("main" as MultiViewScreen), setScreen, allOpen, setAllOpen };
+}
 
 // The live slide's text carries its reference/translation as a trailing
 // line after a blank line ("...verse body...\n\nBook Ch:Verse (KJV)") — see
@@ -31,6 +47,7 @@ function splitBodyAndReference(text: string): { body: string; reference: string 
 
 export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; onVideoRef?: (el: HTMLVideoElement | null) => void }) {
   const isLive = ctx.liveSlide.kind !== "empty";
+  const mv = useMultiViewControls();
   // 2026-09-01 fix ("copy text on slide doesn't work"): the reference now lives
   // in the slide's dedicated `.reference` field, NOT appended into `text` after a
   // blank line. Reading it only via splitBodyAndReference(text) returned null for
@@ -103,6 +120,65 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           floor (24px min) fits most single verses without any clipping.
           Kept aspect-agnostic (no aspect-video) so the box is a stable
           size regardless of content length. */}
+      {/* MultiView 2026-09-15: pick which screen this box monitors + open all
+          screens. Kill-switch localStorage presentflow.pro.multiview.v1="0". */}
+      {mv.enabled && (
+        <div className="flex items-center gap-1">
+          <div className="flex flex-1 min-w-0 rounded-md border border-[var(--color-border)] p-0.5" role="radiogroup" aria-label="Screen to preview">
+            {MULTIVIEW_SCREENS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="radio"
+                aria-checked={mv.screen === s}
+                tabIndex={mv.screen === s ? 0 : -1}
+                title={MULTIVIEW_TITLES[s]}
+                onClick={() => mv.setScreen(s)}
+                onKeyDown={(e) => {
+                  if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+                  e.preventDefault();
+                  const i = MULTIVIEW_SCREENS.indexOf(mv.screen);
+                  const n = MULTIVIEW_SCREENS[(i + (e.key === "ArrowRight" ? 1 : MULTIVIEW_SCREENS.length - 1)) % MULTIVIEW_SCREENS.length];
+                  mv.setScreen(n);
+                  (e.currentTarget.parentElement?.querySelector(`[data-mv-screen="${n}"]`) as HTMLElement | null)?.focus();
+                }}
+                data-mv-screen={s}
+                className={`flex-1 min-w-0 truncate h-7 px-1 rounded text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)] ${mv.screen === s ? "bg-[var(--color-brand)] text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
+              >
+                {MULTIVIEW_LABELS[s]}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => mv.setAllOpen(true)}
+            className="shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] text-[11px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)]"
+            title="See all screens at once"
+            aria-label="See all screens at once"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" aria-hidden /> All
+          </button>
+        </div>
+      )}
+      {mv.allOpen && (
+        <MultiViewOverlay layerOverrides={ctx.liveLayers.overrides} onClose={() => mv.setAllOpen(false)} />
+      )}
+      {mv.screen !== "main" && (
+        <>
+          {/* Design review 🔴: make it impossible to mistake this box for the projector. */}
+          <div className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200 [html.light_&]:bg-amber-100 [html.light_&]:border-amber-400 [html.light_&]:text-amber-900" role="status">
+            <span className="truncate">Showing {MULTIVIEW_TITLES[mv.screen]}, not the projector</span>
+            <button
+              type="button"
+              onClick={() => mv.setScreen("main")}
+              className="shrink-0 h-6 px-1.5 underline font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+            >
+              Back to Main
+            </button>
+          </div>
+          <PreviewOtherScreen screen={mv.screen} layerOverrides={ctx.liveLayers.overrides} />
+        </>
+      )}
       {/* 2026-08-13 — restored true 16:9 (aspect-video) + projectorFit sizing so
           this preview is proportionally WYSIWYG with the projector. The earlier
           aspect-agnostic h-[280px] + non-projector fit was the cause of the
@@ -110,6 +186,9 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           long verses at the sanctuary floor instead of clipping/growing, so the
           16:9 box stays stable. Panel width is fixed, so aspect-video height is
           stable (no oscillation). */}
+      {/* Main stays MOUNTED when another screen is picked (hidden only) so the
+          preview video ref that drives VideoControlBar is never dropped. */}
+      <div hidden={mv.screen !== "main"}>
       <div
         className={
           isLive
@@ -149,6 +228,8 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             layersEnabled
             layerOverrides={ctx.liveLayers.overrides}
             previewFrozen
+            scene={ctx.activeScene}
+            screen="main"
           />
         ) : (
           <PresentationCanvas zone={ctx.zone}>
@@ -156,8 +237,11 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
                 the projector (slide goes transparent via overVideo). */}
             {/* key on the preset forces a fresh WebGL canvas on theme switch —
                 reusing the canvas permanently loses its context (freezes the shader). */}
-            {ctx.background && ctx.background.type !== "none" && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} frozen />}
-            <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
+            {/* Scenes: mirror the PROJECTOR's routing here too. This legacy branch
+                is what production renders (the layers engine is off there), so
+                without this the operator is shown words the projector is hiding. */}
+            {ctx.background && ctx.background.type !== "none" && !sceneHidesLayer(ctx.activeScene, "main", "background") && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} frozen />}
+            <SlideRenderer slide={sceneHidesLayer(ctx.activeScene, "main", "slide") ? { kind: "empty" } : ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
           </PresentationCanvas>
         )}
         {ctx.liveSlide.kind !== "empty" && (
@@ -192,6 +276,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             </div>
           </div>
         )}
+      </div>
       </div>
       {/* Always-legible reference strip — book, chapter:verse, translation —
           pulled out of the slide text so it's never cramped inside the tiny

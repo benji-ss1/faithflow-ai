@@ -4,6 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire, type ObsLookWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
+import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import { livestreamRenderPlan, DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { parseObsUrl, resolveObsRender, obsThemeColorsOf, applyObsLiveFields, type ObsUrlDefaults } from "@/lib/obs-look";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
@@ -36,6 +37,12 @@ export default function LivestreamPage() {
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
   const [background, setBackground] = useState<import("@/lib/broadcast").BackgroundSpec | null>(null);
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
+  // Scenes (2026-09-16): active per-screen routing snapshot (see /live).
+  const [scene, setScene] = useState<SceneWire | null>(null);
+  // The operator sends `scene` (even as null) whenever Scenes is enabled for the
+  // church — that tells this surface to pre-wrap its layers, so the first scene
+  // of a service can never remount the stack mid-service.
+  const [scenesPossible, setScenesPossible] = useState(false);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [referenceScale, setReferenceScale] = useState(1); // scripture reference-footer size — match the projector
   const [referenceColor, setReferenceColor] = useState<string | undefined>(undefined);
@@ -327,7 +334,7 @@ export default function LivestreamPage() {
       // Apply the non-slide fields only when they actually changed (dedup).
       let sig: string;
       try {
-        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird, state.obsLook ?? null, LAYERS_V2 ? (state.layers ?? null) : null, LAYERS_V2 ? (state.layersEpoch ?? null) : null]);
+        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird, state.obsLook ?? null, LAYERS_V2 ? (state.layers ?? null) : null, LAYERS_V2 ? (state.layersEpoch ?? null) : null, state.scene ?? null]);
       } catch { sig = String(Date.now()); }
       if (sig === lastNonSlideSig) return;
       lastNonSlideSig = sig;
@@ -347,6 +354,9 @@ export default function LivestreamPage() {
       setBackground(state.background ?? null);
       setVideoInput(state.videoInput ?? null);
       setLowerThird(state.lowerThird);
+      setScene(state.scene ?? null); // Scenes: never LAYERS_V2-gated
+      // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
+      if (state.scene !== undefined) setScenesPossible(true);
       setAnnouncement(state.announcement ?? null);
       setTransition(state.transition ?? null);
     };
@@ -523,10 +533,14 @@ export default function LivestreamPage() {
             onVideoRef={handleVideoRef}
             layersEnabled={LAYERS_V2}
             layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
+            scene={scene}
+        scenesPossible={scenesPossible}
+            screen="livestream"
           />
           {/* Announcement scrim is a FULL-frame overlay — keep it off the OBS
-              lower-third caption (it would paint over the band). Full mode only. */}
-          {showFullOverlays && <AnnouncementLayer ann={announcement} />}
+              lower-third caption (it would paint over the band). Full mode only.
+              Scenes: route-drawn layer, so routed here (see /live). */}
+          {showFullOverlays && <AnnouncementLayer ann={sceneHidesLayer(scene, "livestream", "announcement") ? null : announcement} />}
           {showFullOverlays && lowerThird && (
             <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">
               <div className="bg-black/70 backdrop-blur-sm border-l-4 border-[color:var(--color-brand)] p-5">

@@ -4,6 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
+import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -73,6 +74,13 @@ export default function LivePage() {
   const [referenceColor, setReferenceColor] = useState<string | undefined>(undefined);
   const [background, setBackground] = useState<import("@/lib/broadcast").BackgroundSpec | null>(null);
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
+  // Scenes (2026-09-16): the active per-screen routing snapshot. NOT gated on
+  // LAYERS_V2 (off in prod) — absent ⇒ pre-Scenes render, byte-identical.
+  const [scene, setScene] = useState<SceneWire | null>(null);
+  // The operator sends `scene` (even as null) whenever Scenes is enabled for the
+  // church — that tells this surface to pre-wrap its layers, so the first scene
+  // of a service can never remount the stack mid-service.
+  const [scenesPossible, setScenesPossible] = useState(false);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [messageOverlay, setMessageOverlay] = useState<{ text: string; position: OverlayPosition; scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number } | null>(null);
@@ -215,6 +223,9 @@ export default function LivePage() {
               msg.state.zone ?? null, msg.state.announcement ?? null, msg.state.transition ?? null,
               msg.state.aspectRatio, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor ?? null,
               LAYERS_V2 ? (msg.state.layers ?? null) : null, LAYERS_V2 ? (msg.state.layersEpoch ?? null) : null,
+              // Scenes: NOT LAYERS_V2-gated — a scene must reach the projector
+              // whether or not the layers engine is on for this church.
+              msg.state.scene ?? null,
             ]);
           } catch { outSig = String(Date.now()); }
           if (outSig !== lastOutputSigRef.current) {
@@ -236,6 +247,9 @@ export default function LivePage() {
             setAppearance(msg.state.appearance ?? null);
             setVideoInput(msg.state.videoInput ?? null);
             setZone(msg.state.zone ?? null);
+            setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
+            // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
+            if (msg.state.scene !== undefined) setScenesPossible(true);
           }
         } else if (msg.type === "message") {
           // Wave 7: extra simultaneous messages (keyed) ride in `messages[]`.
@@ -582,9 +596,14 @@ export default function LivePage() {
               onVideoRef={handleVideoRef}
               layersEnabled={LAYERS_V2}
               layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
+              scene={scene}
+              scenesPossible={scenesPossible}
+              screen="main"
             />
           </div>
-          <AnnouncementLayer ann={announcement} />
+          {/* Scenes: the announcement layer is drawn by the route, so its per-screen
+              routing is applied here (the compositor never sees it). */}
+          <AnnouncementLayer ann={sceneHidesLayer(scene, "main", "announcement") ? null : announcement} />
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
               placement keeps overlays off the slide text unless the operator
               explicitly picks "center". */}

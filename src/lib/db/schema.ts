@@ -501,6 +501,13 @@ export const churchPreferences = pgTable("church_preferences", {
   // those pages error on the missing column. Migration-first is REQUIRED (the
   // app-code `?? false` only covers the no-row case, not an absent column).
   layersV2: boolean("layers_v2").notNull().default(false),
+  // Scenes (2026-09-16): per-church opt-in for the Scenes UI (Scene Rail +
+  // Scene Builder). Gated ALSO by the NEXT_PUBLIC_SCENES_V1 kill-switch.
+  // Default false ⇒ applying the migration changes nothing for any church.
+  // The RENDER path is data-gated (OutputState.scene presence), not flag-gated,
+  // so an already-published scene still renders on every output surface.
+  // Same migration-first requirement as layersV2 above.
+  scenesEnabled: boolean("scenes_enabled").notNull().default(false),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -651,6 +658,31 @@ export const macros = pgTable("macros", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_macros_church").on(t.churchId, t.sortOrder),
+]);
+
+// ProPresenter parity (spec §2/§22.2 "Looks") — SCENES: a church-persisted,
+// named [screen × layer] routing matrix plus an optional per-screen theme.
+// A scene stores ROUTING ONLY — which layers each screen shows — never live
+// content; switching one changes what each screen SHOWS of whatever is playing.
+// The 5 built-ins (Worship/Teaching/Announcement/Offering/Pre-Service) live in
+// code (src/lib/scenes.ts), NOT as rows, so there is nothing to seed and a user
+// can never delete them. Caps enforced in the server action (≤50/church).
+// NOTE: migration-first is REQUIRED (docs/migrations/2026-09-16-add-scenes.sql)
+// — db.select() lists every column, so the table must exist before this deploys.
+export const scenes = pgTable("scenes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  // SceneConfig — { screens: { main|stage|livestream|ndi: { layers?, opacity?,
+  // themeId? } } }, whitelist-rebuilt on write (sanitizeSceneConfig).
+  config: jsonb("config").notNull().default({}),
+  // Reserved: a church-owned COPY of a built-in stays false. Built-ins are code.
+  isBuiltIn: boolean("is_built_in").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_scenes_church").on(t.churchId, t.sortOrder),
 ]);
 
 // Networked projector sync — device pairings.

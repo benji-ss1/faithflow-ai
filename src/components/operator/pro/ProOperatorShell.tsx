@@ -46,6 +46,8 @@ import { MediaBrowser } from "./center/MediaBrowser";
 import { OpenFlowPanel } from "@/components/operator/openflow/OpenFlowPanel";
 import { OpenFlowSidebar } from "@/components/operator/openflow/OpenFlowSidebar";
 import { LivePreviewPanel } from "./right/LivePreviewPanel";
+import { SceneRail } from "./right/SceneRail";
+import { SceneBuilderHost } from "./SceneBuilderModal";
 import { AnnouncementBar } from "../AnnouncementBar";
 import { VideoControlBar } from "../VideoControlBar";
 import { OutputRoutingRow } from "./right/OutputRoutingRow";
@@ -4916,6 +4918,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             <LivePreviewPanel ctx={ctx} onVideoRef={(el) => { previewVideoRef.current = el; }} />
           </OperatorErrorBoundary>
           {ctx.liveSlide?.kind === "video" && <VideoControlBar videoRef={previewVideoRef} />}
+          {/* SCENES (2026-09-16) — always-visible one-tap Scene Rail (spec §22.2),
+              placed directly under the preview so the operator sees the routing
+              and its effect together (spec §21.7 component order). Gated on the
+              env kill-switch AND the per-church opt-in: zero DOM when off, so the
+              sidebar layout (and the locked h-[280px] preview) is untouched. */}
+          {ctx.scenesUiOn && (
+            <OperatorErrorBoundary fallbackLabel="Scene rail error">
+              <SceneRail ctx={ctx} />
+            </OperatorErrorBoundary>
+          )}
           {/* Change 3 (revised 2026-07-30) — transcript render block.
               TranscriptDisplay wraps the RICH renderer (yellow
               auto-correction spans + hover, orange trigger-phrase
@@ -4961,6 +4973,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         )}
       </div>
 
+      {/* Scenes builder — mounted once; opens on the Scene Rail's Edit button.
+          Renders null when Scenes is off for this church. */}
+      <SceneBuilderHost ctx={ctx} />
       <SongAutopilotStaging ctx={ctx} />
       <AITranscriptTicker ctx={ctx} />
       <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorBlank(false); setSlideEditorAdd(false); }} />

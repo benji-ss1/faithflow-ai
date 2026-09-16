@@ -11,6 +11,11 @@
 // "use client"), so importing it here keeps this file server-safe.
 import { isValidZone, type ProjectionZone } from "./projection-zone";
 import { isRenderableUrl } from "./render-url";
+// Scenes (2026-09-16): TYPE-ONLY import. scenes.ts imports ThemeAppearance from
+// here, so a value import would be a runtime cycle; `import type` is erased at
+// compile time and keeps this module server-safe.
+import type { SceneWire, SceneScreen, SceneLayerId, ScreenMask } from "./scenes";
+import { SCENE_SCREENS, SCENE_LAYER_IDS } from "./scenes";
 
 // Rich slide objects for the projector (Phase 5D-2 → live). Coordinates are in
 // the 1920×1080 virtual canvas the editor uses; renderers scale by percentage.
@@ -447,6 +452,22 @@ export type OutputState = {
   // ignored so it can't clobber; the SAME epoch keeps the rev-gated merge.
   // Optional + legacy-tolerant: absence ⇒ the pre-epoch rev-gated merge.
   layersEpoch?: number;
+  // SCENES (2026-09-16, ProPresenter "Looks") — the active per-screen ROUTING
+  // snapshot: for each output screen, which layers it shows plus an optional
+  // per-screen theme (resolved to a ThemeAppearance operator-side, because the
+  // output routes are public surfaces with no church DB access and a themeId
+  // lookup there would break the same-machine zero-latency path, rule 8).
+  //
+  // DELIBERATELY NOT gated on NEXT_PUBLIC_LAYERS_V2: that flag is off in
+  // production, so an env-gated scene would be dead code. The render path is
+  // gated on PRESENCE of this field instead — absent/null ⇒ every output is
+  // byte-identical to the pre-Scenes render (parity test-locked).
+  //
+  // A scene can only ever HIDE/dim a layer or restyle a screen; the operator's
+  // own eye/clear overrides always win. It carries no machine-local data (no
+  // camera deviceId — a scene toggles the camera's VISIBILITY only), so
+  // scrubOutputStateForRemote needs no scene-specific handling (test-locked).
+  scene?: SceneWire | null;
 };
 
 /**
@@ -780,6 +801,57 @@ export function isValidLayerWire(l: unknown): l is LayerWire {
   // "now" cannot be an honest Date.now()-seeded rev, so the layer is rejected.
   if (p.rev !== undefined && (typeof p.rev !== "number" || !Number.isFinite(p.rev) || p.rev < 0 || p.rev > Date.now() + REV_MAX_SKEW_MS)) return false;
   if (!isValidLayerPayload(p.kind, p.payload)) return false;
+  return true;
+}
+
+/**
+ * SCENES (2026-09-16) — wire validators for the per-screen routing snapshot.
+ *
+ * A mask is deliberately tiny and boring: booleans, 0..1 numbers, and an
+ * already-hardened ThemeAppearance. Keys are read ONLY from the known screen /
+ * layer whitelists, so a hostile "__proto__" key is unreachable rather than
+ * merely rejected. Unknown keys are IGNORED (forward-compat: a newer sender's
+ * extra screen can't invalidate a snapshot for an older receiver).
+ */
+function isValidScreenMask(m: unknown): m is ScreenMask {
+  if (!m || typeof m !== "object" || Array.isArray(m) || hasPollutionKey(m)) return false;
+  const o = m as Record<string, unknown>;
+  if (o.layers !== undefined) {
+    if (!o.layers || typeof o.layers !== "object" || Array.isArray(o.layers)) return false;
+    const l = o.layers as Record<string, unknown>;
+    for (const id of SCENE_LAYER_IDS as SceneLayerId[]) {
+      if (l[id] !== undefined && typeof l[id] !== "boolean") return false;
+    }
+  }
+  if (o.opacity !== undefined) {
+    if (!o.opacity || typeof o.opacity !== "object" || Array.isArray(o.opacity)) return false;
+    const op = o.opacity as Record<string, unknown>;
+    for (const id of SCENE_LAYER_IDS as SceneLayerId[]) {
+      const v = op[id];
+      if (v !== undefined && (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1)) return false;
+    }
+  }
+  // Per-screen theme rides the wire as a fully-validated appearance (never a
+  // themeId), so it reuses the existing hardened gate.
+  if (o.appearance !== undefined && o.appearance !== null && !isValidThemeAppearance(o.appearance)) return false;
+  return true;
+}
+
+/** Validate OutputState.scene: safe id, ≤4 known screens, valid masks, sane rev. */
+export function isValidSceneWire(s: unknown): s is SceneWire {
+  if (!s || typeof s !== "object" || Array.isArray(s) || hasPollutionKey(s)) return false;
+  const p = s as Record<string, unknown>;
+  // Same short-safe-token rule as a layer id (interpolated into React keys).
+  if (typeof p.id !== "string" || !LAYER_ID_RE.test(p.id)) return false;
+  if (p.name !== undefined && (typeof p.name !== "string" || p.name.length > 120)) return false;
+  // rev: same monotonic + skew discipline as LayerWire.rev.
+  if (p.rev !== undefined && (typeof p.rev !== "number" || !Number.isFinite(p.rev) || p.rev < 0 || p.rev > Date.now() + REV_MAX_SKEW_MS)) return false;
+  if (!p.screens || typeof p.screens !== "object" || Array.isArray(p.screens) || hasPollutionKey(p.screens)) return false;
+  const screens = p.screens as Record<string, unknown>;
+  for (const screen of SCENE_SCREENS as SceneScreen[]) {
+    const m = screens[screen];
+    if (m !== undefined && !isValidScreenMask(m)) return false;
+  }
   return true;
 }
 
@@ -1258,6 +1330,8 @@ export function isValidOutputState(s: unknown): s is OutputState {
   // layersEpoch (Y1b): optional origin epoch stamp. Finite, non-negative, and —
   // like rev — not absurdly in the future (hostile pin / wrong-clock sender).
   if (st.layersEpoch !== undefined && (typeof st.layersEpoch !== "number" || !Number.isFinite(st.layersEpoch) || st.layersEpoch < 0 || st.layersEpoch > Date.now() + REV_MAX_SKEW_MS)) return false;
+  // Scenes: optional per-screen routing snapshot. null = "no scene" (explicit).
+  if (st.scene !== undefined && st.scene !== null && !isValidSceneWire(st.scene)) return false;
   return true;
 }
 
@@ -1412,6 +1486,10 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
     const e = out.layersEpoch;
     if (typeof e !== "number" || !Number.isFinite(e) || e < 0 || e > Date.now() + REV_MAX_SKEW_MS) delete out.layersEpoch;
   }
+  // Scenes: a malformed scene is DROPPED, never allowed to poison the snapshot.
+  // Fail-open matters most here: a bad scene must not blank a projector — the
+  // screen simply falls back to the un-routed (pre-Scenes) render.
+  if (out.scene !== undefined && out.scene !== null && !isValidSceneWire(out.scene)) delete out.scene;
   return out as unknown as OutputState;
 }
 

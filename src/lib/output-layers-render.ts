@@ -19,6 +19,7 @@
  */
 import type { LayerWire, SlidePayload } from "@/lib/broadcast";
 import { planOutput, type OutputPlan, type PlanInput } from "@/lib/output-plan";
+import type { ScreenMask } from "@/lib/scenes";
 
 /** The empty (black) slide — the layer-model expression of "clear the slide".
  *  Matches the routes' own clear (`applyLive({ kind: "empty" })`). */
@@ -46,9 +47,31 @@ export function toOverrideMap(
  */
 export function layerOpacities(
   overrides?: LayerWire[] | Map<string, LayerWire> | null,
+  mask?: ScreenMask | null,
 ): Record<string, number> {
   const map = toOverrideMap(overrides);
   const out: Record<string, number> = {};
+  // Scene opacity is the FLOOR; an explicit operator opacity always wins (same
+  // precedence as visibility below).
+  // A scene's opacity applies ONLY where the operator has no override for that
+  // layer — the same "operator always wins" rule visibility uses. Without the
+  // map.has() guard a scene would dim a layer whose opacity the operator had
+  // deliberately set back to full (an override with opacity:1/undefined writes
+  // nothing, so the scene's value would have survived).
+  const putMask = (planId: string, sourceId: string, v?: number) => {
+    if (map.has(sourceId)) return;
+    if (typeof v === "number" && v >= 0 && v < 1) out[planId] = v;
+  };
+  if (mask?.opacity) {
+    putMask("background", "background", mask.opacity.background);
+    // Camera opacity folds onto the slide layer (planOutput fuses the camera
+    // into the slide's over-video render); an explicit slide value wins.
+    // The camera folds onto the SLIDE plan layer, so an operator override on
+    // EITHER id must beat it (cross-id guard, not just same-id).
+    if (!map.has("slide")) putMask("slide", "camera", mask.opacity.camera);
+    putMask("slide", "slide", mask.opacity.slide);
+    putMask("theme-logo", "logo", mask.opacity.logo);
+  }
   const put = (planId: string, l?: LayerWire) => {
     if (l && typeof l.opacity === "number" && l.opacity >= 0 && l.opacity < 1) out[planId] = l.opacity;
   };
@@ -71,9 +94,21 @@ export function layerOpacities(
 export function resolveLayeredInput(
   base: PlanInput,
   overrides?: LayerWire[] | Map<string, LayerWire> | null,
+  mask?: ScreenMask | null,
 ): PlanInput {
   const map = toOverrideMap(overrides);
-  if (map.size === 0) return base;
+  // SCENES (2026-09-16): a per-screen routing mask, applied HERE so it reuses
+  // every one of planOutput's proven precedence rules instead of re-deriving
+  // them, and so it composes with the operator's overrides rather than fighting
+  // them. Precedence is absolute: an explicit override for a layer id WINS, so
+  // a scene can never force-show what the operator cleared, and can never
+  // restore a layer the operator hid. (A pre-pass over `base` would break the
+  // Wave-5A non-destructive-hide contract, because a SHOW override carries a
+  // null payload and restores from `base`.)
+  const maskLayers = mask?.layers;
+  const hides = (id: "background" | "camera" | "slide" | "logo"): boolean =>
+    maskLayers?.[id] === false && !map.has(id);
+  if (map.size === 0 && !maskLayers) return base;
 
   // Shallow copy — we only ever replace whole fields, never mutate `base`.
   let slide: SlidePayload = base.slide;
@@ -82,6 +117,11 @@ export function resolveLayeredInput(
   let showThemeLogoOverride = base.showThemeLogoOverride;
 
   // ── background ────────────────────────────────────────────────────────────
+  if (hides("background")) background = null;
+  if (hides("camera")) videoInput = null;
+  if (hides("slide")) slide = blankSlide();
+  if (hides("logo")) showThemeLogoOverride = false;
+
   const bg = map.get("background");
   if (bg && bg.kind === "background") {
     if (!bg.enabled) background = null;                 // hide/clear the template
@@ -142,6 +182,7 @@ export function resolveLayeredInput(
 export function resolveLayeredPlan(
   base: PlanInput,
   overrides?: LayerWire[] | Map<string, LayerWire> | null,
+  mask?: ScreenMask | null,
 ): OutputPlan {
-  return planOutput(resolveLayeredInput(base, overrides));
+  return planOutput(resolveLayeredInput(base, overrides, mask));
 }
