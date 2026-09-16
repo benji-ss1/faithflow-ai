@@ -29,10 +29,10 @@ export function SarahOverlay({ live }: { live?: SarahLive } = {}) {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm" />
+        <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/45 backdrop-blur-[2px]" />
         <Dialog.Content
           // The wizard owns its own layout, chrome and Close button.
-          className="fixed inset-0 z-[91] overflow-y-auto focus:outline-none"
+          className="fixed z-[91] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(1060px,92vw)] h-[min(660px,86vh)] rounded-3xl overflow-hidden shadow-[0_40px_120px_rgba(0,0,0,0.6)] ring-1 ring-white/10 focus:outline-none"
           // Escape always gets the operator back to the console (they may need the
           // projector NOW); a stray click outside does not, so a check isn't lost by accident.
           onInteractOutside={(e) => e.preventDefault()}
