@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.420",
+    "version": "0.1.421",
     "date": "2026-09-16",
     "headline": "Sarah now shows you around the real app",
     "highlights": [
@@ -13,6 +13,17 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Sarah notices what's going on as you work, for example \"I can see your NDI source\", or \"no NDI sources, so check both computers are on the same wired network\".",
       "She spots common problems too, including a Blackmagic card with no picture, a silent Dante soundcard, an unplugged interface, sound coming in too loud, or being offline.",
       "The rest of the app stays fully usable while she's coaching."
+    ]
+  },
+  {
+    "version": "0.1.420",
+    "date": "2026-09-16",
+    "headline": "The X on your live preview now clears the whole screen",
+    "highlights": [
+      "Tap the X on the live preview to clear everything on the screen - words, Bible verses, background, camera and logo - in one tap.",
+      "Send your next slide and everything comes back on its own.",
+      "The T on the right-hand strip now hides the words only until the next slide is sent, whether you click a slide or a verse is put up for you. You never have to turn the words back on yourself.",
+      "Hiding the background, camera or logo from the strip still keeps them hidden until you show them again."
     ]
   },
   {

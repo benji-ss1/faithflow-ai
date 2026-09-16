@@ -1,7 +1,7 @@
 ---
 headline: Sarah now shows you around the real app
 audience: operator
-version: 0.1.420
+version: 0.1.421
 date: 2026-09-16
 highlights:
   - When it's time to pick your input, Sarah lights up the real Audio panel and coaches you through it, so you learn where it lives.

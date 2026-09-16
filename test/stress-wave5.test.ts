@@ -137,13 +137,10 @@ check("storm: hide → operator refresh (fresh tab, empty overrides) ⇒ layer R
   assert.equal(w.resolved().background, shaderBg, "layer resurrects to base after operator refresh");
 });
 
-check("storm: hide slide → AI send fires re-arm ⇒ EYE-hide PERSISTS (slide stays blank)", () => {
-  // shouldRearmSlideOnSend is the guard the hook consults on every send. An
-  // eye-hidden slide must survive an AI auto-fire/send (eye persists).
-  const eyeHiddenSlide: LayerWire = { id: "slide", kind: "slide", z: 10, enabled: false, zone: { kind: "full" }, opacity: 1 };
-  assert.equal(shouldRearmSlideOnSend(eyeHiddenSlide, /*eyeHidden*/ true), false, "eye-hide persists on send");
-  // A CLEAR-style block (not eye-hidden) must re-arm so it can't swallow output.
-  assert.equal(shouldRearmSlideOnSend(eyeHiddenSlide, /*eyeHidden*/ false), true, "clear-block re-arms on send");
+check("storm: hide slide → AI send fires re-arm ⇒ lyrics come BACK (2026-09-16)", () => {
+  // T/"Clear Lyrics" is a temporary hide: an AI auto-fire/send re-arms the slide.
+  const hiddenSlide: LayerWire = { id: "slide", kind: "slide", z: 10, enabled: false, zone: { kind: "full" }, opacity: 1 };
+  assert.equal(shouldRearmSlideOnSend(hiddenSlide), true, "hidden slide re-arms on send");
 });
 
 check("storm: 200 rapid hide/show flips converge to the LAST intent (no drift)", () => {

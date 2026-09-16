@@ -49,6 +49,9 @@ function splitBodyAndReference(text: string): { body: string; reference: string 
 
 export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; onVideoRef?: (el: HTMLVideoElement | null) => void }) {
   const isLive = ctx.liveSlide.kind !== "empty";
+  // Anything on the projector at all (slide OR a background/camera/logo layer) —
+  // drives the X visibility (2026-09-16: X clears everything).
+  const anyPainting = isLive || (ctx.layersEngineOn && ctx.liveLayers.rows.some((r) => r.active));
   const mv = useMultiViewControls();
   // 2026-09-01 fix ("copy text on slide doesn't work"): the reference now lives
   // in the slide's dedicated `.reference` field, NOT appended into `text` after a
@@ -237,11 +240,17 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             <SlideRenderer slide={sceneHidesLayer(ctx.activeScene, "main", "slide") ? { kind: "empty" } : ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
           </PresentationCanvas>
         )}
-        {ctx.liveSlide.kind !== "empty" && (
+        {/* 2026-09-16: X = clear EVERYTHING on the live screen (lyrics, verses,
+            background, camera, logo) → black. Layers engine on: the non-slide
+            layers are hidden non-destructively and come back with the next slide
+            sent live (user-directed). Engine off: legacy slide clear only. Shown
+            whenever anything paints, not just when a slide is live. */}
+        {anyPainting && (
           <button
-            onClick={ctx.onKill}
+            onClick={() => { if (ctx.layersEngineOn) ctx.liveLayers.blackout(); ctx.onKill(); }}
             className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded bg-black/60 text-white hover:bg-[var(--color-destructive)]"
-            title="Clear live"
+            title={ctx.layersEngineOn ? "Clear the live screen (comes back on your next slide)" : "Clear live"}
+            aria-label={ctx.layersEngineOn ? "Clear the live screen (comes back on your next slide)" : "Clear live"}
           >
             <X className="w-4 h-4" />
           </button>
