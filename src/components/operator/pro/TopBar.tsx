@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { modKeyLabel } from "@/lib/platform";
+import type { GuardianStatus } from "@/lib/audio/audioGuardian";
 import { toast } from "sonner";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as Popover from "@radix-ui/react-popover";
@@ -63,13 +65,20 @@ function IconBtn({
 
 export function TopBar({
   centerMode, onCenterMode, onToggleMediaStrip, mediaStripOpen, ctx,
+  guardianAlert,
 }: {
   centerMode: CenterMode;
   onCenterMode: (m: CenterMode) => void;
   onToggleMediaStrip: () => void;
   mediaStripOpen: boolean;
   ctx: OperatorShellCtx;
+  /** Audio Guardian "needs human" alert — rendered IN the right cluster's flow
+   *  (was an absolute overlay that covered and stole clicks from the icons). */
+  guardianAlert?: GuardianStatus | null;
 }) {
+  // "⌘" on Mac, "Ctrl" on Windows. Resolved after mount so SSR/hydration match.
+  const [modKey, setModKey] = useState("⌘");
+  useEffect(() => { setModKey(modKeyLabel()); }, []);
   const currentTitle =
     centerMode === "bible" ? "Bible"
     : centerMode === "songs" ? "Songs Library"
@@ -191,13 +200,13 @@ export function TopBar({
     onCenterMode(centerMode === m ? "slides" : m);
 
   return (
-    <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-panel),var(--color-app-bg))] shadow-[var(--edge-top)] flex items-center px-2 gap-1">
+    <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-panel),var(--color-app-bg))] shadow-[var(--edge-top)] flex items-center px-2 gap-1 min-w-0">
       {/* Prominent search input (Task A) — read-only proxy for the SearchPalette. */}
       <button
         type="button"
         onClick={() => setSearchOpen(true)}
         aria-label="Open search (Cmd+K)"
-        className="group flex items-center h-[30px] w-[248px] rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] hover:border-[color-mix(in_oklab,var(--color-brand)_40%,var(--color-border))] hover:bg-[var(--color-app-bg)] transition-[border-color,background] duration-150 px-2.5 gap-2 shrink-0"
+        className="group flex items-center h-[30px] w-[248px] [html[data-platform=win]_&]:max-[1380px]:w-[168px] rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] hover:border-[color-mix(in_oklab,var(--color-brand)_40%,var(--color-border))] hover:bg-[var(--color-app-bg)] transition-[border-color,background] duration-150 px-2.5 gap-2 shrink-0"
         style={{ fontFamily: "var(--font-sans)" }}
       >
         <Search className="w-4 h-4 text-[var(--color-muted-foreground)] group-hover:text-[var(--color-brand)] transition-colors shrink-0" />
@@ -205,7 +214,7 @@ export function TopBar({
           Search lyrics, songs, Bible, media…
         </span>
         <kbd className="text-[9px] font-mono font-semibold px-1.5 py-[2px] rounded-md border border-[var(--color-border)] bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] shrink-0">
-          ⌘K
+          {modKey}K
         </kbd>
       </button>
       <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
@@ -249,7 +258,7 @@ export function TopBar({
         action={{ label: "Themes", icon: Palette, onClick: () => window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings")) }}
       />
 
-      <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-muted-foreground)] truncate px-4">
+      <div className="flex-1 min-w-0 flex items-center justify-center text-[13px] text-[var(--color-muted-foreground)] truncate px-4 [html[data-platform=win]_&]:max-[1380px]:px-2">
         {titleEditing ? (
           <input
             autoFocus
@@ -275,7 +284,22 @@ export function TopBar({
         )}
       </div>
 
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 shrink-0">
+        {guardianAlert && (
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                window.dispatchEvent(new CustomEvent("presentflow:open-audio-settings"));
+              } catch { /* ignore */ }
+            }}
+            title={guardianAlert.detail}
+            aria-label={`Audio needs attention: ${guardianAlert.detail}`}
+            className="shrink-0 mr-1 flex items-center gap-1 h-7 px-2.5 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold tracking-wide shadow-lg animate-pulse"
+          >
+            ⚠ AUDIO
+          </button>
+        )}
         {tier !== null && !canProContent && (
           <Popover.Root>
             <Popover.Trigger asChild>
@@ -469,7 +493,7 @@ export function TopBar({
                                 strokeWidth={active ? 2.4 : 2}
                                 style={active ? { color: o.accent } : undefined}
                               />
-                              <span className="hidden xl:inline">{o.label}</span>
+                              <span className="hidden xl:inline [html[data-platform=win]_&]:max-[1380px]:hidden">{o.label}</span>
                             </button>
                           </Tooltip.Trigger>
                           <Tooltip.Portal>
