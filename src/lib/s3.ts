@@ -1,4 +1,7 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand,
+  CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 let _client: S3Client | null = null;
@@ -100,4 +103,47 @@ export async function getBuffer(key: string): Promise<Buffer | null> {
   } catch {
     return null;
   }
+}
+
+/** HEAD an object: real stored size + content-type. null if missing / error. */
+export async function headObject(key: string): Promise<{ size: number; contentType?: string } | null> {
+  if (!key || !isS3Configured()) return null;
+  try {
+    const res = await s3().send(new HeadObjectCommand({ Bucket: BUCKET(), Key: key }));
+    return { size: Number(res.ContentLength ?? 0), contentType: res.ContentType };
+  } catch {
+    return null;
+  }
+}
+
+/** Ranged GET of the first `bytes` bytes (magic-byte sniffing). */
+export async function getObjectHead(key: string, bytes = 64): Promise<Uint8Array | null> {
+  if (!key || !isS3Configured()) return null;
+  try {
+    const res = await s3().send(new GetObjectCommand({ Bucket: BUCKET(), Key: key, Range: `bytes=0-${bytes - 1}` }));
+    const arr = await res.Body?.transformToByteArray();
+    return arr ? arr.subarray(0, bytes) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Multipart (large video uploads) ────────────────────────────────────────────
+export async function createMultipart(key: string, contentType: string): Promise<string> {
+  const res = await s3().send(new CreateMultipartUploadCommand({ Bucket: BUCKET(), Key: key, ContentType: contentType }));
+  if (!res.UploadId) throw new Error("No upload id");
+  return res.UploadId;
+}
+
+export async function presignUploadPart(key: string, uploadId: string, partNumber: number, expiresSec = 3600) {
+  const cmd = new UploadPartCommand({ Bucket: BUCKET(), Key: key, UploadId: uploadId, PartNumber: partNumber });
+  return getSignedUrl(s3(), cmd, { expiresIn: expiresSec });
+}
+
+export async function completeMultipart(key: string, uploadId: string, parts: { PartNumber: number; ETag: string }[]) {
+  await s3().send(new CompleteMultipartUploadCommand({ Bucket: BUCKET(), Key: key, UploadId: uploadId, MultipartUpload: { Parts: parts } }));
+}
+
+export async function abortMultipart(key: string, uploadId: string) {
+  await s3().send(new AbortMultipartUploadCommand({ Bucket: BUCKET(), Key: key, UploadId: uploadId }));
 }

@@ -15,7 +15,9 @@ import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
 import { OVERLAY_POSITIONS } from "./broadcast";
 import { requireUser, requireRole, requireCap, hasCap } from "./session";
-import { deleteObject, getBuffer, putBuffer } from "./s3";
+import { deleteObject, getBuffer, putBuffer, headObject, getObjectHead } from "./s3";
+import { validateMediaRegistration, verifyUploadedObject, isChurchUploadKey } from "./media-types";
+import { isAudioMediaSupported, AUDIO_NOT_READY_ERROR } from "./server/media-audio-support";
 import { after } from "next/server";
 import { generateImageThumbnail } from "./media-thumbnail";
 import { validateReorderItemSlides } from "./reorder-validator";
@@ -1450,13 +1452,29 @@ export async function deleteSong(id: string): Promise<Result> {
 }
 
 // Media ----------------------------------------------------------------------
-export async function registerMediaAsset(data: { kind: "image" | "video"; fileName: string; s3Key: string; mimeType: string; sizeBytes: number; libraryId?: string | null }): Promise<Result<{ id: string }>> {
+export async function registerMediaAsset(data: { kind: "image" | "video" | "audio"; fileName: string; s3Key: string; mimeType: string; sizeBytes: number; libraryId?: string | null }): Promise<Result<{ id: string }>> {
   const user = await requireCap("edit_library");
+  // SECURITY (media-upload hardening): never trust the client's s3Key / mimeType
+  // / kind. The key must be one THIS church was issued (`${churchId}/media/<uuid>.<ext>`),
+  // the MIME must be on the shared allowlist, and kind must match the MIME.
+  const check = validateMediaRegistration(data, user.churchId);
+  if (!check.ok) return { ok: false, error: check.error };
+  if (check.kind === "audio" && !(await isAudioMediaSupported())) return { ok: false, error: AUDIO_NOT_READY_ERROR };
+  // Verify the stored object: real size within cap + magic bytes match the MIME.
+  // A mismatch deletes the object so a rejected upload never lingers.
+  const verified = await verifyUploadedObject(check.s3Key, check.mimeType, check.kind, {
+    head: headObject,
+    readHead: getObjectHead,
+    remove: deleteObject,
+  });
+  if (!verified.ok) return { ok: false, error: verified.error };
   const db = getDb();
   // Wave 3 (item 4c): an OS-file drop onto a Library row files the upload into
   // that library. Validate ownership; a bad/foreign id falls back to Default
   // (NULL) rather than failing the whole upload.
-  const { libraryId, kind, fileName, s3Key, mimeType, sizeBytes } = data;
+  const { libraryId } = data;
+  const { kind, fileName, s3Key, mimeType } = check;
+  const sizeBytes = verified.sizeBytes; // the REAL stored size, not the client's claim
   const resolvedLibraryId = libraryId && (await assertOwnLibrary(db, user.churchId, libraryId)) ? libraryId : null;
   // Explicit whitelist of the columns we persist — never spread caller input
   // into the insert, so a future extra field on `data` can't silently write an
@@ -1474,17 +1492,17 @@ export async function registerMediaAsset(data: { kind: "image" | "video"; fileNa
   // thumb can't be made, the row keeps thumbS3Key=null and the read path falls
   // back to the original. Videos are skipped (generateImageThumbnail returns
   // null for non-raster types).
-  if (data.kind === "image") {
+  if (kind === "image") {
     const churchId = user.churchId;
     after(async () => {
       try {
-        const original = await getBuffer(data.s3Key);
+        const original = await getBuffer(s3Key);
         if (!original) return; // transient (e.g. just-written) — backfill retries later
-        const thumb = await generateImageThumbnail(original, data.mimeType);
+        const thumb = await generateImageThumbnail(original, mimeType);
         // If the image can't be decoded (e.g. SVG), stamp a SENTINEL
         // (thumbS3Key = s3Key) so the read path serves the original AND the
         // backfill loop doesn't keep re-selecting this row forever.
-        const thumbKey = thumb ? `${data.s3Key}.thumb.jpg` : data.s3Key;
+        const thumbKey = thumb ? `${s3Key}.thumb.jpg` : s3Key;
         if (thumb) await putBuffer(thumbKey, thumb.buffer, thumb.mimeType);
         // Church-scoped update — the insert above is this church's row.
         await getDb().update(mediaAssets)
@@ -1556,6 +1574,9 @@ export async function renameMediaAsset(id: string, newName: string): Promise<Res
 // PPTX -----------------------------------------------------------------------
 export async function createPptxImport(fileName: string, s3Key: string): Promise<Result<{ id: string }>> {
   const user = await requireCap("edit_library");
+  // SECURITY: the source key must be a pptx key issued to THIS church, otherwise
+  // the converter could be pointed at (and leak) another tenant's object.
+  if (!isChurchUploadKey(s3Key, user.churchId, "pptx")) return { ok: false, error: "Invalid upload reference" };
   const db = getDb();
   const [row] = await db.insert(pptxImports).values({ churchId: user.churchId, originalFileName: fileName, sourceS3Key: s3Key, status: "pending" }).returning();
   revalidatePath("/library/imports");

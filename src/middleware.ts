@@ -188,6 +188,10 @@ const UNIVERSAL_ALLOWED_API_EXACT = new Set<string>([
   "/api/bible/full",                  // offline whole-Bible hydration (public-domain only, rate-limited)
   "/api/imports/parse",               // ProPresenter import
   "/api/media/backfill-thumbnails",   // thumbnails for older media
+  "/api/media/multipart/create",      // large (>100 MB) video uploads — web library + operator
+  "/api/media/multipart/parts",
+  "/api/media/multipart/complete",
+  "/api/media/multipart/abort",
 ]);
 
 function isUniversalAllowedPath(pathname: string): boolean {

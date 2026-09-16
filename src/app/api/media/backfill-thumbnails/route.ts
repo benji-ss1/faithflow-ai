@@ -46,7 +46,9 @@ export async function POST() {
   for (const m of batch) {
     let thumbKey = m.s3Key; // sentinel default = "no thumb, use original"
     try {
-      const original = await getBuffer(m.s3Key);
+      // Defence in depth: never read an object outside this church's prefix
+      // (a row written before key validation existed could point elsewhere).
+      const original = m.s3Key.startsWith(`${user.churchId}/`) ? await getBuffer(m.s3Key) : null;
       if (original) {
         const thumb = await generateImageThumbnail(original, m.mimeType);
         if (thumb) {
