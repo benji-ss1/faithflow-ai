@@ -26,7 +26,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-09-17",
     "headline": "Pictures and videos fill the screen, and the lower-third band is easier to see",
     "highlights": [
-      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.443)",
+      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.445)",
       "The lower-third band is easier to see. If you haven't picked your own band colour, it is now a soft dark bar you can see on a black screen and over pictures. Your own band colour stays the same.",
       "Captions you set on a picture or video still show in the band, and are always easy to read.",
       "Small pictures are no longer blown up until they look blurry."
@@ -179,7 +179,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "The clear buttons beside the preview now match ProPresenter — Messages, Props, Announcements, Slide, Media and Video Input (Audio is coming soon). Each one clears only its own layer.",
       "Full layer controls (show/hide each layer) are still under the Layers icon on the right.",
       "The white ✕ clears everything. The column turns red while something is live, and each live layer is highlighted.",
-      "(Changed in 0.1.438: clicking an image or video in the Media Bin now puts it on the screen. Use the Bg button to put it behind your words.)",
+      "(Changed in 0.1.441: clicking an image or video in the Media Bin now puts it on the screen. Use the Bg button to put it behind your words.)",
       "Keyboard: F1 clears all, F2 slide, F3 media, F4 props, F6 messages, F7 announcements. On a Mac, hold Fn — or turn on \"Use F1, F2, etc. keys as standard function keys\" in Keyboard settings.",
       "With a camera live, media now shows over the camera and under the words, like ProPresenter. Press Clear Media (F3) to see the camera again."
     ]
