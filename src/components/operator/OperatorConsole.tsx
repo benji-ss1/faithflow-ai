@@ -18,6 +18,7 @@ import type { ObsLookWire } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
 import { themeScriptureOptions, type ThemeScriptureOptions } from "@/lib/theme-scripture";
+import { themeConfigToAppearance } from "@/lib/theme-appearance";
 import { normalizeThemeTransition, resolveSendTransition, readOperatorTransitionsOff } from "@/lib/transition-resolve";
 import { inferLiveOrigin, type LiveOrigin, recallOrigin, rememberOrigin, carriedOrigin } from "@/lib/song-switch-guard";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
@@ -598,26 +599,52 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       void load(); // refresh the by-id cache (default may have changed)
     };
     window.addEventListener("presentflow:theme-changed", onChange);
-    return () => { cancelled = true; window.removeEventListener("presentflow:theme-changed", onChange); };
+    // Theme → Projector (PR 2): ANY theme saved/renamed/duplicated/deleted (not
+    // only the default) reloads the by-id cache, so item / song / content-type
+    // themes and theme decor take effect immediately. Appearance-only — output
+    // identity is content-only, so no transition replays on the held slide.
+    const onThemesChanged = () => { userTouched.current = false; void load(); };
+    window.addEventListener("presentflow:themes-changed", onThemesChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("presentflow:theme-changed", onChange);
+      window.removeEventListener("presentflow:themes-changed", onThemesChanged);
+    };
   }, []);
 
+  // Per-content-type default style (moved above the PR 2 resolvers + liveItemIdx,
+  // which read it).
+  const [contentStyles, setContentStyles] = useState<import("@/lib/content-type-styles").ContentTypeStyles>({});
+  useEffect(() => {
+    let alive = true;
+    const load = () => import("@/lib/content-type-styles").then(({ loadContentTypeStyles }) => { if (alive) setContentStyles(loadContentTypeStyles()); });
+    void load();
+    const onChange = () => void load();
+    window.addEventListener("presentflow:content-type-styles-changed", onChange);
+    return () => { alive = false; window.removeEventListener("presentflow:content-type-styles-changed", onChange); };
+  }, []);
   // ── Theme → Projector (PR 2): synchronous send-time theme lookup ──────────
   // Refs only (no state reads) so sendSlideToLive stays stable and never waits
   // on a dynamic import (rule 10 latency). Memoised per theme config object.
   const contentStylesRef = useRef<import("@/lib/content-type-styles").ContentTypeStyles>({});
+  contentStylesRef.current = contentStyles;
   const scriptureOptsMemoRef = useRef(new WeakMap<object, ThemeScriptureOptions | null>());
   const themeTransitionMemoRef = useRef(new WeakMap<object, import("@/lib/broadcast").TransitionSpec | null | undefined>());
-  type ThemeItemRef = { type?: string; themeId?: string | null } | undefined;
+  type ThemeItemRef = { type?: string; themeId?: string | null; songAppliedThemeId?: string | null } | undefined;
   const themeConfigForSend = useCallback((slide: SlidePayload, item: ThemeItemRef, purpose: "scripture" | "transition"): unknown => {
     const byId = (id: string | null | undefined) => (id ? themesByIdRef.current.get(id) : undefined);
     const isScripture = slide.kind === "text" && !!slide.reference;
     if (purpose === "scripture") {
-      // Scripture item's own theme → the Scripture content-type style → default.
-      if (item?.type === "scripture" && item.themeId) { const c = byId(item.themeId); if (c) return c; }
+      // Scripture styling is resolved WITHOUT the plan item on purpose: AI/voice
+      // sends carry no position, and the live-item / origin lookups re-derive
+      // identities from plan slides — one item-independent resolver keeps every
+      // path computing the SAME styled identity (review fix 6). Scripture
+      // content-type style → church default.
       return byId(contentStylesRef.current.scripture) ?? byId(defaultThemeIdRef.current);
     }
-    // Item theme → content-type style by slide kind → default.
+    // Item theme → song's applied theme → content-type style by slide kind → default.
     if (item?.themeId) { const c = byId(item.themeId); if (c) return c; }
+    if (item?.songAppliedThemeId) { const c = byId(item.songAppliedThemeId); if (c) return c; }
     const ct = isScripture || item?.type === "scripture" ? contentStylesRef.current.scripture : item?.type === "song" ? contentStylesRef.current.song : undefined;
     return byId(ct) ?? byId(defaultThemeIdRef.current);
   }, []);
@@ -677,7 +704,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     } catch { /* fall through */ }
     return -1;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan.items, live.kind, liveKey, churchId, themesVersion]);
+  }, [plan.items, live.kind, liveKey, churchId, themesVersion, contentStyles]);
 
   // Themes 2c — resolve the LIVE item's section-theme override (if any) into its
   // own appearance. Anchored to the LIVE item (not the preview cursor) so that
@@ -685,7 +712,10 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // projector theme — only what is actually LIVE (or, when nothing is live, the
   // applied church default `appearance`) drives it. When set it wins over the
   // default; unset (every existing plan, or nothing live) → null → default used.
-  const currentItemThemeId = (plan.items[liveItemIdx] as { themeId?: string } | undefined)?.themeId ?? null;
+  // Item theme wins, then the song's own applied theme (PR 2), then content-type/default.
+  const currentItemThemeId = (plan.items[liveItemIdx] as { themeId?: string } | undefined)?.themeId
+    ?? (plan.items[liveItemIdx] as { songAppliedThemeId?: string } | undefined)?.songAppliedThemeId
+    ?? null;
   const [itemAppearance, setItemAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
   useEffect(() => {
     if (!currentItemThemeId) { setItemAppearance(null); return; }
@@ -700,16 +730,6 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // Per-content-type default style: when the LIVE item has no explicit per-item
   // theme, its TYPE (song / scripture) selects a default theme; else the church
   // default. Operator-machine setting (localStorage), same-machine event-driven.
-  const [contentStyles, setContentStyles] = useState<import("@/lib/content-type-styles").ContentTypeStyles>({});
-  contentStylesRef.current = contentStyles;
-  useEffect(() => {
-    let alive = true;
-    const load = () => import("@/lib/content-type-styles").then(({ loadContentTypeStyles }) => { if (alive) setContentStyles(loadContentTypeStyles()); });
-    void load();
-    const onChange = () => void load();
-    window.addEventListener("presentflow:content-type-styles-changed", onChange);
-    return () => { alive = false; window.removeEventListener("presentflow:content-type-styles-changed", onChange); };
-  }, []);
   const liveItemType = (plan.items[liveItemIdx] as { type?: string } | undefined)?.type;
   const contentTypeThemeId = liveItemType === "song" ? (contentStyles.song ?? null) : liveItemType === "scripture" ? (contentStyles.scripture ?? null) : null;
   const [contentTypeAppearance, setContentTypeAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
@@ -1440,6 +1460,22 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
     }
   }, [churchId, stampLiveOrigin, noteLiveSend, setLive, scriptureThemeOptsFor, themeTransitionFor]);
+  const appearanceMemoRef = useRef(new WeakMap<object, import("@/lib/broadcast").ThemeAppearance | null>());
+  const appearanceForItem = useCallback((itemIdx: number): import("@/lib/broadcast").ThemeAppearance | null => {
+    const item = plan.items[itemIdx] as { type?: string; themeId?: string; songAppliedThemeId?: string } | undefined;
+    const byId = (id: string | null | undefined) => (id ? themesByIdRef.current.get(id) : undefined);
+    const ct = item?.type === "song" ? contentStyles.song : item?.type === "scripture" ? contentStyles.scripture : undefined;
+    const cfg = byId(item?.themeId) ?? byId(item?.songAppliedThemeId) ?? byId(ct) ?? null;
+    // No item-specific theme → exactly what the live output uses today.
+    if (!cfg || typeof cfg !== "object") return effectiveAppearance;
+    const memo = appearanceMemoRef.current;
+    if (!memo.has(cfg)) memo.set(cfg, themeConfigToAppearance(cfg));
+    return memo.get(cfg) ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan.items, contentStyles, effectiveAppearance, themesVersion]);
+  const layoutPreviewSlide = useCallback((slide: SlidePayload): SlidePayload => {
+    try { return applyChurchLayout(slide, churchId, scriptureThemeOptsFor(slide, undefined)); } catch { return slide; }
+  }, [churchId, scriptureThemeOptsFor]);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
   // Direct (no-transition) send paths — send(), move autoSend, jumpTo, banked,
   // legacy voice nav — used to skip applyChurchLayout, so with a lower-third
@@ -2578,6 +2614,8 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     churchId,
     // Bible-panel wiring
     onSendSlideToLive: sendSlideToLive,
+    layoutPreviewSlide,
+    appearanceForItem,
     getLiveOrigin,
     // Live projection undo/redo (back/forward through what was shown).
     onUndoLive: undoLive,

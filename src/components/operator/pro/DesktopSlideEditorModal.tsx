@@ -742,7 +742,7 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus, theme = null }: 
       </div>
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {tab === "theme" && theme && <ThemeEditorTab editor={editor} {...theme} />}
+        {tab === "theme" && theme && <ThemeEditorTab editor={editor} churchId={churchId} {...theme} />}
         {tab === "design" && <DesignPanel editor={editor} themeMode={!!theme} />}
         {tab === "add" && <AddPanel editor={editor} churchId={churchId} addFocus={addFocus} />}
         {tab === "templates" && <TemplatesPanel editor={editor} churchId={churchId} />}

@@ -435,6 +435,15 @@ export function saveScriptureStyle(churchId: string | undefined, design: Scriptu
   } catch { /* ignore */ }
 }
 
+/** Remove this machine's saved Scripture Style (so a theme's scripture boxes apply). */
+export function clearScriptureStyle(churchId: string | undefined): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(KEY(churchId));
+    window.dispatchEvent(new CustomEvent("pf-scripture-style-changed"));
+  } catch { /* ignore */ }
+}
+
 export function hasSavedScriptureStyle(churchId?: string): boolean {
   if (typeof window === "undefined") return false;
   try { return !!window.localStorage.getItem(KEY(churchId)); } catch { return false; }
