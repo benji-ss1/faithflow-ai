@@ -64,6 +64,27 @@ jobs:
         continue-on-error: true
         run: bash scripts/audify-universal.sh
 
+      # Blackmagic embedded audio — same private-SDK pattern as release-windows.yml.
+      - name: Fetch Blackmagic Desktop Video SDK (private)
+        env:
+          BUILD_DEPS_TOKEN: ${{ secrets.BUILD_DEPS_TOKEN }}
+          GH_TOKEN: ${{ secrets.BUILD_DEPS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BUILD_DEPS_TOKEN:-}" ]; then echo "::warning::BUILD_DEPS_TOKEN not set - DMG ships without Blackmagic audio"; exit 0; fi
+          D="$RUNNER_TEMP/decklink"; mkdir -p "$D"
+          gh release download decklink-sdk-16.0 --repo benji-ss1/presentflow-build-deps --pattern "*.zip" --dir "$D"
+          unzip -q "$D"/*.zip -d "$D"
+          H="$(find "$D" -path "*Mac/include/DeckLinkAPI.h" | head -1)"
+          [ -n "$H" ] || { echo "DeckLinkAPI.h not found in SDK zip"; exit 1; }
+          echo "DECKLINK_SDK_DIR=$(dirname "$(dirname "$(dirname "$H")")")" >> "$GITHUB_ENV"
+
+      - name: Build Blackmagic audio addon (universal)
+        if: env.DECKLINK_SDK_DIR != ''
+        run: |
+          npm run decklink:rebuild
+          lipo -info native/decklink-audio/build/Release/decklink_audio.node
+
       - name: Compile Electron main
         run: npm run electron:build:tsc
 
