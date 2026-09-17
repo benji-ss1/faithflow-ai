@@ -65,6 +65,11 @@ const api = {
         ipcRenderer.invoke("audio:native:startChannelProbe", opts),
       stopChannelProbe: (): Promise<void> =>
         ipcRenderer.invoke("audio:native:stopChannelProbe"),
+      // Hardware I/O Phase B: opt-in pro audio driver (RtAudio / ASIO).
+      getProDriver: (): Promise<{ supported: boolean; enabled: boolean }> =>
+        ipcRenderer.invoke("audio:native:getProDriver"),
+      setProDriver: (enabled: boolean): Promise<{ ok: boolean; enabled?: boolean; error?: string }> =>
+        ipcRenderer.invoke("audio:native:setProDriver", enabled),
       onChannelLevels: (cb: (levels: Array<{ channel: number; rms: number; db: number; peak: number }>) => void) => {
         const handler = (_e: IpcRendererEvent, levels: Array<{ channel: number; rms: number; db: number; peak: number }>) => cb(levels);
         ipcRenderer.on("audio:nativeChannelLevels", handler);

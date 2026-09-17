@@ -63,8 +63,12 @@ export interface ChannelLevels {
   speechiness: number;
 }
 
+import { dspConstraints, isRawCaptureEnabled } from "./rawCapture";
+
 export interface MultiChannelCaptureOptions {
   deviceId: string;
+  /** Device label — lets the per-device raw-capture opt-in survive a replug (new deviceId). */
+  label?: string;
   /** Requested channel count. Passed as `ideal`; device may return fewer. Default 32. */
   requestedChannels?: number;
   /** Analyser FFT size. Default 256 (fast, low CPU, adequate for meters). */
@@ -128,6 +132,7 @@ export async function openMultiChannelCapture(
 ): Promise<MultiChannelCapture> {
   const {
     deviceId,
+    label,
     requestedChannels = 32,
     fftSize = 256,
     smoothingTimeConstant = 0.4,
@@ -145,9 +150,8 @@ export async function openMultiChannelCapture(
     audio: {
       deviceId: { exact: deviceId },
       channelCount: { ideal: requestedChannels },
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
+      // Opt-in per device (rawCapture.ts). Default = DSP ON, unchanged.
+      ...dspConstraints(isRawCaptureEnabled(deviceId, label)),
     },
   });
 
