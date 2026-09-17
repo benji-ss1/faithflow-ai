@@ -137,3 +137,4 @@ test/videopsalm-parser.test.ts
 test/videopsalm.test.ts
 test/voice-commands.test.ts
 test/whats-new.test.ts
+test/band-media.test.ts

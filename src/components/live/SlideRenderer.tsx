@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
+import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandMediaBox, fitMediaInBox } from "@/lib/band-media";
 import type { SlidePayload, ThemeAppearance, ScriptureBandWire } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
 import { AutoFitText } from "./AutoFitText";
@@ -601,13 +602,17 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     // THIRD-BAND image (church lower-third default, or a per-slide layout).
     if (slide.layout === "third" && slide.url) {
       const objectFit = fitMode === "fill" ? "fill" : fitMode === "cover" ? "cover" : "contain";
-      const fitEl = <img src={slide.url} alt="" style={{ width: "100%", height: "100%", objectFit, objectPosition: "center", display: "block" }} />;
+      const fitEl = (onNatural: (w: number, h: number) => void, box: React.CSSProperties) => (
+        <img src={slide.url} alt="" style={{ ...box, objectFit, objectPosition: "center" }}
+          ref={(el) => { if (el && el.complete && el.naturalWidth) onNatural(el.naturalWidth, el.naturalHeight); }}
+          onLoad={(e) => onNatural(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} />
+      );
       const fullEl = (
         <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
           <img src={slide.url} alt="" style={imgStyle} />
         </div>
       );
-      return <ThirdBandMedia base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} appearance={appearance} media={fitEl} fullMedia={fullEl} />;
+      return <ThirdBandMedia key={slide.url} base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} appearance={appearance} media={fitEl} fullMedia={fullEl} />;
     }
     return (
       <div className={`${base} bg-black relative overflow-hidden ${className || ""}`}>
@@ -650,9 +655,11 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     // THIRD-BAND video: confine VideoSlide into the band (fit), or full video +
     // caption strip (caption). The nested VideoSlide fills its positioned box.
     if (slide.layout === "third" && slide.url) {
-      const boxed = <VideoSlide slide={slide} base="w-full h-full flex items-center justify-center overflow-hidden" videoMuted={videoMuted} onVideoRef={onVideoRef} />;
-      const full = <VideoSlide slide={slide} base="absolute inset-0 flex items-center justify-center overflow-hidden" videoMuted={videoMuted} onVideoRef={onVideoRef} />;
-      return <ThirdBandMedia base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} appearance={appearance} media={boxed} fullMedia={full} />;
+      const boxed = (onNatural: (w: number, h: number) => void, box: React.CSSProperties) => (
+        <VideoSlide slide={slide} base="w-full h-full flex items-center justify-center overflow-hidden" videoMuted={videoMuted} onVideoRef={onVideoRef} fillBox={box} onNatural={onNatural} />
+      );
+      const full = <VideoSlide slide={slide} base="absolute inset-0 bg-black flex items-center justify-center overflow-hidden" videoMuted={videoMuted} onVideoRef={onVideoRef} fillBox={{ width: "100%", height: "100%", display: "block" }} />;
+      return <ThirdBandMedia key={slide.url} base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} appearance={appearance} media={boxed} fullMedia={full} />;
     }
     return <VideoSlide slide={slide} base={base} className={className} videoMuted={videoMuted} onVideoRef={onVideoRef} />;
   }
@@ -674,53 +681,72 @@ function mediaBandPaint(band?: ScriptureBandWire): React.CSSProperties | undefin
 }
 
 // Render an image/video confined to the church's third-band. Two modes:
-//  • "fit": the media is letterboxed INTO the band rectangle (theme/camera shows
-//    above & below); the band paint, if any, is a matte behind the media.
+//  • "fit": the media sits centred in the band's inner box (same 6%/88% inset +
+//    vertical pad as the scripture text band); the band paint spans the FULL band
+//    width behind it, so it reads as a designed band. Never upscaled past 1.5×
+//    natural size. Portrait/narrow media (aspect < 0.8) stays a centred thumbnail
+//    at band height with the band still full width — applyChurchLayout defaults are
+//    unchanged (an owner could later route narrow media full-screen instead).
 //  • "caption": the media stays full-bleed and the band is a caption strip over
-//    it showing `caption` text.
-// Geometry defaults match the text band (top 68% / height 30%) so a legacy/partial
-// band still lands in a sane lower third.
+//    it showing `caption` text (band colour, or a default bottom scrim if none).
+// Geometry defaults match the text band (top 68% / height 30%).
 function ThirdBandMedia({ base, className, band, mode, caption, media, fullMedia, appearance }: {
   base: string; className?: string; band?: ScriptureBandWire;
   mode: "fit" | "caption"; caption?: string;
-  media: React.ReactNode; fullMedia: React.ReactNode;
+  media: (onNatural: (w: number, h: number) => void, box: React.CSSProperties) => React.ReactNode; fullMedia: React.ReactNode;
   appearance?: ThemeAppearance | null;
 }) {
   const topPct = band?.topPct ?? 68;
   const heightPct = band?.heightPct ?? 30;
   const fontScale = band?.fontScale ?? 1;
   const paint = mediaBandPaint(band);
+  const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
+  const onNatural = useCallback((w: number, h: number) => {
+    setNat((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
+  }, []);
   if (mode === "caption") {
+    // No band colour → default scrim so white caption text is legible on any photo.
+    const scrim: React.CSSProperties = paint
+      ? paint
+      : { background: `linear-gradient(${topPct < 34 ? "to top" : "to bottom"}, rgba(0,0,0,0), rgba(0,0,0,0.55))` };
     return (
       <div className={`${base} relative overflow-hidden ${className || ""}`}>
         {fullMedia}
-        <div style={{ position: "absolute", left: 0, right: 0, top: `${topPct}%`, height: `${heightPct}%`, display: "flex", alignItems: "center", justifyContent: "center", ...(paint || {}) }}>
+        <div style={{ position: "absolute", left: 0, right: 0, top: `${topPct}%`, height: `${heightPct}%`, ...scrim }} />
+        <div style={{ position: "absolute", left: 0, right: 0, top: `${topPct}%`, height: `${heightPct}%`, display: "flex", alignItems: "center", justifyContent: "center" }}>
           {caption ? (
-            <span style={{ color: "#ffffff", textAlign: "center", padding: "0 4%", fontWeight: 700, lineHeight: 1.1, fontSize: `${Math.max(1.5, heightPct * 0.26 * fontScale)}vh`, textShadow: "0 2px 8px rgba(0,0,0,0.65)" }}>{caption}</span>
+            <span style={{ color: "#ffffff", textAlign: "center", padding: "0 6%", fontWeight: 700, lineHeight: 1.1, fontSize: `${bandCaptionPx(heightPct, fontScale)}px`, textShadow: "0 2px 8px rgba(0,0,0,0.65)", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden", maxHeight: "100%" }}>{caption}</span>
           ) : null}
         </div>
       </div>
     );
   }
-  // fit — the media sits in the band; ABOVE & BELOW must show the THEME (not the
-  // root black), exactly like the scripture text band, so the projector matches
-  // the church's other slides (and the LayoutDefaultControl preview).
+  const box = bandMediaBox(topPct, heightPct);
+  const size = nat
+    ? fitMediaInBox(nat.w, nat.h, (box.widthPct / 100) * CANVAS_W, (box.heightPct / 100) * CANVAS_H)
+    : { wPct: 100, hPct: 100 };
+  const mediaBox: React.CSSProperties = { width: "100%", height: "100%", display: "block", borderRadius: `${Math.round(CANVAS_W * 0.006)}px`, overflow: "hidden" };
   return (
-    <div className={`${base} relative overflow-hidden ${className || ""}`} style={themeBackgroundStyle(appearance, "#000000")}>
-      <div style={{ position: "absolute", left: 0, right: 0, top: `${topPct}%`, height: `${heightPct}%`, overflow: "hidden" }}>
-        {paint ? <div style={{ position: "absolute", inset: 0, ...paint }} /> : null}
-        <div style={{ position: "relative", zIndex: 1, width: "100%", height: "100%" }}>{media}</div>
+    <div className={`${base} relative overflow-hidden ${className || ""}`} style={themeBackgroundStyle(appearance, BAND_FALLBACK_BG)}>
+      {paint ? <div aria-hidden style={{ position: "absolute", left: 0, right: 0, top: `${topPct}%`, height: `${heightPct}%`, ...paint }} /> : null}
+      <div style={{ position: "absolute", left: `${box.leftPct}%`, width: `${box.widthPct}%`, top: `${box.topPct}%`, height: `${box.heightPct}%`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ position: "relative", width: `${size.wPct}%`, height: `${size.hPct}%`, opacity: nat ? 1 : 0 }}>
+          {media(onNatural, mediaBox)}
+        </div>
       </div>
     </div>
   );
 }
 
-function VideoSlide({ slide, base, className, videoMuted, onVideoRef }: {
+function VideoSlide({ slide, base, className, videoMuted, onVideoRef, fillBox, onNatural }: {
   slide: Extract<SlidePayload, { kind: "video" }>;
   base: string;
   className?: string;
   videoMuted: boolean;
   onVideoRef?: (el: HTMLVideoElement | null) => void;
+  /** Band/caption use: fill this box (no black backing box). Absent = legacy full-screen styles, unchanged. */
+  fillBox?: React.CSSProperties;
+  onNatural?: (w: number, h: number) => void;
 }) {
   const hasAutoPlayed = useRef(false);
   const lastUrl = useRef(slide.url);
@@ -740,8 +766,9 @@ function VideoSlide({ slide, base, className, videoMuted, onVideoRef }: {
   }, [onVideoRef]);
 
   return (
-    <div className={`${base} bg-black relative ${className || ""}`}>
+    <div className={`${base}${fillBox ? "" : " bg-black"} relative ${className || ""}`}>
       <video
+        onLoadedMetadata={onNatural ? (e) => onNatural(e.currentTarget.videoWidth, e.currentTarget.videoHeight) : undefined}
         src={slide.url}
         loop={slide.loop !== false}
         muted={videoMuted}
@@ -749,7 +776,7 @@ function VideoSlide({ slide, base, className, videoMuted, onVideoRef }: {
         playsInline
         onError={(e) => console.warn("[slide] video error:", (e.currentTarget as HTMLVideoElement).error?.message || "unknown")}
         ref={setRef}
-        style={{
+        style={fillBox ? { ...fillBox, objectFit: slide.fit === "cover" ? "cover" : "contain", objectPosition: "center" } : {
           maxWidth: "100%",
           maxHeight: "100%",
           width: "auto",
