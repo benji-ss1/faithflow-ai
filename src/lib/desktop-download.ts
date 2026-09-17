@@ -15,7 +15,7 @@ export const DESKTOP_DOWNLOAD_WIN_VERSION = "0.1.373"; // last Windows .exe cut
 // per-OS constants above.
 export const DESKTOP_DOWNLOAD_VERSION = DESKTOP_DOWNLOAD_MAC_VERSION;
 
-const REL = "https://github.com/benji-ss1/faithflow-ai/releases/download";
+const REL = "https://github.com/benji-ss1/presentflow-releases/releases/download";
 const MAC_BASE = `${REL}/v${DESKTOP_DOWNLOAD_MAC_VERSION}`;
 const WIN_BASE = `${REL}/v${DESKTOP_DOWNLOAD_WIN_VERSION}`;
 
@@ -37,7 +37,7 @@ export const DESKTOP_DOWNLOAD_WIN_URL = `${WIN_BASE}/PresentFlow-Setup-${DESKTOP
 // per platform, take the newest one that actually carries a matching asset.
 // ---------------------------------------------------------------------------
 
-const GITHUB_RELEASES_URL = "https://api.github.com/repos/benji-ss1/faithflow-ai/releases?per_page=30";
+const GITHUB_RELEASES_URL = "https://api.github.com/repos/benji-ss1/presentflow-releases/releases?per_page=30";
 
 export type DesktopDownloadUrls = {
   arm64Url: string;

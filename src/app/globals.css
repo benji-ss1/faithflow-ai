@@ -695,3 +695,42 @@ html[data-platform="win"] aside[data-tour="right"] { overflow-x: hidden; }
    src/lib/platform.ts. Outranks the Tailwind w-[360px] class by specificity. */
 @media (max-width: 1239.98px) { html[data-platform="win"] aside[data-tour="right"] { width: 300px; } }
 @media (max-width: 959.98px) { html[data-platform="win"] aside[data-tour="right"] { width: 280px; } }
+
+/* ── Media Bin OS file drop (Finder / Explorer → bin) ──────────────────────
+ * transform/opacity only (live-projection machines); reduced-motion honoured. */
+.pf-bin-drop {
+  position: absolute; inset: 4px; z-index: 30; pointer-events: none;
+  display: grid; place-items: center; border-radius: var(--radius-md, 8px);
+  border: 1.5px dashed var(--color-brand);
+  background: color-mix(in oklab, var(--color-brand) 10%, transparent);
+  opacity: 0; transform: scale(.985);
+  transition: opacity 160ms cubic-bezier(.22,1,.36,1), transform 160ms cubic-bezier(.22,1,.36,1);
+}
+.pf-bin-drop[data-on] { opacity: 1; transform: none; }
+.pf-bin-drop-label {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; color: var(--color-brand);
+  background: color-mix(in oklab, var(--color-panel) 85%, transparent);
+}
+@keyframes pfBinTileIn { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
+.pf-bin-tile-in { contain: layout paint; animation: pfBinTileIn 220ms cubic-bezier(.34,1.56,.64,1) both; animation-delay: calc(var(--i, 0) * 40ms); }
+.pf-bin-tile-media { opacity: .45; filter: blur(1.5px); transition: opacity 200ms ease, filter 200ms ease; }
+.pf-bin-tile-media[data-ready] { opacity: 1; filter: none; }
+.pf-bin-shimmer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.pf-bin-shimmer::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--color-brand) 16%, transparent), transparent);
+  animation: pfBinShim 1.2s linear infinite;
+}
+@keyframes pfBinShim { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.pf-bin-ring { transition: stroke-dashoffset 120ms linear; }
+@keyframes pfBinCheck { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+.pf-bin-check { animation: pfBinCheck 180ms cubic-bezier(.34,1.56,.64,1) both; }
+@keyframes pfBinShake { 0%,100% { transform: none; } 20%,60% { transform: translateX(-3px); } 40%,80% { transform: translateX(3px); } }
+.pf-bin-tile-failed { border-color: color-mix(in oklab, var(--color-destructive) 75%, #000); }
+.pf-bin-tile-shake { animation: pfBinShake 240ms ease-in-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .pf-bin-drop, .pf-bin-ring, .pf-bin-tile-media { transition: none; }
+  .pf-bin-tile-in, .pf-bin-check, .pf-bin-tile-shake { animation: none; }
+  .pf-bin-shimmer::after { animation: none; opacity: .5; }
+}

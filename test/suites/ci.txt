@@ -8,8 +8,10 @@ test/adversarial/audio-sessions-cross-church.test.ts
 test/adversarial/auto-approve-safeguards.test.ts
 test/adversarial/auto-approve-shell-rules.test.ts
 test/adversarial/learned-keyterms-cross-church.test.ts
+test/adversarial/media-register-scope.test.ts
 test/adversarial/sermon-backfill-cross-church.test.ts
 test/adversarial/song-chunk-scope.test.ts
+test/adversarial/theme-reapply-scope.test.ts
 test/ai-pipeline.test.ts
 test/allusion-matcher.test.ts
 test/allusion-precision.test.ts
@@ -123,6 +125,9 @@ test/stress-wave6-3.test.ts
 test/text-size-freedom.test.ts
 test/theme-appearance.test.ts
 test/theme-bake.test.ts
+test/theme-editor-model.test.ts
+test/theme-layout-sanitize.test.ts
+test/theme-rebake.test.ts
 test/tier.test.ts
 test/transition-publish.test.tsx
 test/translation-commands.test.ts

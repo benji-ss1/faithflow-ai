@@ -18,6 +18,7 @@ export function SlideCanvas({
   readOnly,
   themeBgStyle,
   backgroundNode,
+  objectBadge,
 }: {
   slide: EditableSlide | null;
   // Full selection set. Length 1 = classic single-select (with resize handles);
@@ -43,6 +44,9 @@ export function SlideCanvas({
   // When provided, the canvas container background is forced transparent so the
   // node shows through. Takes precedence over themeBgStyle.
   backgroundNode?: React.ReactNode;
+  // Optional small label drawn at an object's top-left (theme editor: text-box
+  // role). Callers that don't pass it render exactly as before.
+  objectBadge?: (o: SlideObject) => string | null;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   // Snap guides — teal alignment lines (in canvas units) shown while a moving
@@ -332,6 +336,17 @@ export function SlideCanvas({
               textScale={zone.fontScale}
             />
           ))}
+          {objectBadge && slide.objects.map((o) => {
+            const label = objectBadge(o);
+            if (!label) return null;
+            return (
+              <span key={`badge_${o.id}`} aria-hidden
+                className="pointer-events-none absolute z-40 rounded-sm px-1 py-px text-[9px] font-bold uppercase tracking-wide bg-[#e8501a] text-black"
+                style={{ left: `${(o.x / CANVAS_W) * 100}%`, top: `${(o.y / CANVAS_H) * 100}%` }}>
+                {label}
+              </span>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -542,11 +557,11 @@ function ObjectView({
       )}
       {selected && !readOnly && !editing && (
         <>
-          <div className={cn("absolute inset-0 pointer-events-none ring-2", soleSelected ? "ring-[#e8501a]" : "ring-[#e8501a]/70")} />
+          <div className={cn("absolute inset-0 z-[2] pointer-events-none ring-2", soleSelected ? "ring-[#e8501a]" : "ring-[#e8501a]/70")} />
           {/* Resize handles only for an unlocked sole selection — a group moves
               as a unit and locked objects can't be resized. */}
           {soleSelected && !locked && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as HandleKey[]).map((k) => (
-            <Handle key={k} k={k} onBegin={(e) => beginDrag(e, obj, k)} />
+            <Handle key={k} k={k} onBegin={(e) => beginDrag(e, obj, k)} edges={{ l: obj.x <= 0, t: obj.y <= 0, r: obj.x + obj.w >= CANVAS_W, b: obj.y + obj.h >= CANVAS_H }} />
           ))}
         </>
       )}
@@ -554,8 +569,11 @@ function ObjectView({
   );
 }
 
-function Handle({ k, onBegin }: { k: HandleKey; onBegin: (e: React.MouseEvent) => void }) {
-  const pos: React.CSSProperties = { position: "absolute", width: 10, height: 10, background: "#e8501a", border: "1px solid #fff", borderRadius: 2 };
+function Handle({ k, onBegin, edges }: { k: HandleKey; onBegin: (e: React.MouseEvent) => void; edges?: { l: boolean; t: boolean; r: boolean; b: boolean } }) {
+  // zIndex 2: an image object's <img> is `position:relative; zIndex:1` (blur-fill
+  // layering), which otherwise painted OVER the handles and swallowed every
+  // resize drag (turning it into a move).
+  const pos: React.CSSProperties = { position: "absolute", zIndex: 2, width: 10, height: 10, background: "#e8501a", border: "1px solid #fff", borderRadius: 2 };
   const map: Record<HandleKey, React.CSSProperties> = {
     nw: { left: -5, top: -5, cursor: "nwse-resize" },
     n:  { left: "50%", top: -5, transform: "translateX(-50%)", cursor: "ns-resize" },
@@ -566,9 +584,20 @@ function Handle({ k, onBegin }: { k: HandleKey; onBegin: (e: React.MouseEvent) =
     sw: { left: -5, bottom: -5, cursor: "nesw-resize" },
     w:  { left: -5, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" },
   };
+  // The canvas clips (overflow:hidden). When the object sits flush with a canvas
+  // edge, pull that side's handles INWARD (offset 0 instead of -5) so the whole
+  // square is visible + grabbable. Objects inside the canvas are unaffected.
+  const m = { ...map[k] };
+  if (edges) {
+    if (edges.l && m.left === -5) m.left = 0;
+    if (edges.t && m.top === -5) m.top = 0;
+    if (edges.r && m.right === -5) m.right = 0;
+    if (edges.b && m.bottom === -5) m.bottom = 0;
+  }
   return (
     <div
-      style={{ ...pos, ...map[k] }}
+      data-handle={k}
+      style={{ ...pos, ...m }}
       onMouseDown={(e) => { e.stopPropagation(); onBegin(e); }}
     />
   );

@@ -165,6 +165,8 @@ export async function convertPptxImport(importId: string) {
     // while libreoffice-convert times out inside a child process.
     await assertSofficeAvailable();
 
+    // Defence in depth: the source must live under this import's church prefix.
+    if (!imp.sourceS3Key.startsWith(`${imp.churchId}/`)) throw new Error("Invalid source file reference");
     const pptxBuf = await s3GetBuffer(imp.sourceS3Key);
     let pdfBuf: Buffer;
     try {

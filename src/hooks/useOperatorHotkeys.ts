@@ -184,7 +184,7 @@ export type HotkeyHandlers = {
  * ALL global hotkeys — otherwise pressing Escape inside a picker would kill
  * live output.
  */
-function anyOverlayOpen(): boolean {
+export function anyOverlayOpen(): boolean {
   if (typeof document === "undefined") return false;
   try {
     return document.querySelectorAll(

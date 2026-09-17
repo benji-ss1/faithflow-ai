@@ -31,7 +31,34 @@ export type MediaFrame = {
   logoSizePct?: number;                   // 10-100 — the logo box as % of the canvas
   logoPosX?: number;                      // 0-100 — logo box CENTRE x
   logoPosY?: number;                      // 0-100 — logo box CENTRE y
+  // The image BOX on the 1920x1080 canvas (2026-09-16). Optional + backward
+  // compatible: absent = the pre-existing behaviour (full canvas in matte mode,
+  // logoSizePct/logoPos-derived square-% box in background mode). Present =
+  // the exact crop/resize the operator dragged with the handles.
+  boxX?: number;
+  boxY?: number;
+  boxW?: number;
+  boxH?: number;
 };
+
+/** Event fired (on window) whenever a saved frame is written or cleared, so any
+ *  list/grid that renders frame-aware thumbnails can recompute. */
+export const MEDIA_FRAME_CHANGED_EVENT = "presentflow:media-frame-changed";
+
+function emitFrameChanged(churchId: string | undefined, assetId: string) {
+  try {
+    window.dispatchEvent(new CustomEvent(MEDIA_FRAME_CHANGED_EVENT, { detail: { churchId, assetId } }));
+  } catch { /* non-fatal */ }
+}
+
+/** The saved box, if a complete valid one exists (else null → legacy geometry). */
+export function frameBox(frame: MediaFrame): { x: number; y: number; w: number; h: number } | null {
+  const { boxX, boxY, boxW, boxH } = frame;
+  if ([boxX, boxY, boxW, boxH].every((n) => typeof n === "number" && Number.isFinite(n)) && (boxW as number) >= 1 && (boxH as number) >= 1) {
+    return { x: Math.round(boxX as number), y: Math.round(boxY as number), w: Math.round(boxW as number), h: Math.round(boxH as number) };
+  }
+  return null;
+}
 
 const key = (churchId: string | undefined, assetId: string) =>
   `pf.mediaFrame.v1.${churchId || "default"}.${assetId}`;
@@ -39,6 +66,9 @@ const key = (churchId: string | undefined, assetId: string) =>
 export function loadMediaFrame(churchId: string | undefined, assetId: string): MediaFrame | null {
   if (typeof window === "undefined") return null;
   try {
+    // Reads ONLY this church's key. A frame under the shared "default" key is never
+    // adopted by a church (a device can switch churches → cross-church leak), and
+    // the editor won't save until the church id has loaded, so none are written.
     const raw = window.localStorage.getItem(key(churchId, assetId));
     if (!raw) return null;
     const p = JSON.parse(raw) as Partial<MediaFrame>;
@@ -69,6 +99,16 @@ export function loadMediaFrame(churchId: string | undefined, assetId: string): M
     if (typeof p.logoSizePct === "number" && Number.isFinite(p.logoSizePct)) out.logoSizePct = clamp(p.logoSizePct, 10, 100, 60);
     if (typeof p.logoPosX === "number" && Number.isFinite(p.logoPosX)) out.logoPosX = clamp(p.logoPosX, 0, 100, 50);
     if (typeof p.logoPosY === "number" && Number.isFinite(p.logoPosY)) out.logoPosY = clamp(p.logoPosY, 0, 100, 50);
+    // Box: only kept when ALL four are valid numbers (a partial box is ignored →
+    // legacy geometry). Generous band so a box dragged slightly off-canvas survives.
+    const bx = p.boxX, by = p.boxY, bw = p.boxW, bh = p.boxH;
+    if ([bx, by, bw, bh].every((n) => typeof n === "number" && Number.isFinite(n))) {
+      // Same band the projector wire accepts (broadcast.ts isCanvasCoord).
+      out.boxX = clamp(bx, -CANVAS_W, CANVAS_W * 2, 0);
+      out.boxY = clamp(by, -CANVAS_W, CANVAS_W * 2, 0);
+      out.boxW = clamp(bw, 1, CANVAS_W * 2, CANVAS_W);
+      out.boxH = clamp(bh, 1, CANVAS_W * 2, CANVAS_H);
+    }
     return out;
   } catch {
     return null;
@@ -81,7 +121,9 @@ export function saveMediaFrame(churchId: string | undefined, assetId: string, fr
     window.localStorage.setItem(key(churchId, assetId), JSON.stringify(frame));
   } catch {
     /* quota / disabled storage — non-fatal, framing just won't persist */
+    return;
   }
+  emitFrameChanged(churchId, assetId);
 }
 
 export function clearMediaFrame(churchId: string | undefined, assetId: string): void {
@@ -90,7 +132,9 @@ export function clearMediaFrame(churchId: string | undefined, assetId: string): 
     window.localStorage.removeItem(key(churchId, assetId));
   } catch {
     /* non-fatal */
+    return;
   }
+  emitFrameChanged(churchId, assetId);
 }
 
 /**
@@ -105,8 +149,9 @@ export function buildMediaFrameSlide(frame: MediaFrame, url: string): { bgColor?
   if (frame.bgMode === "background") {
     const size = frame.logoSizePct ?? 60;
     const cx = frame.logoPosX ?? 50, cy = frame.logoPosY ?? 50;
-    const w = Math.round(CANVAS_W * size / 100), h = Math.round(CANVAS_H * size / 100);
-    const x = Math.round(CANVAS_W * cx / 100 - w / 2), y = Math.round(CANVAS_H * cy / 100 - h / 2);
+    const box = frameBox(frame);
+    const w = box ? box.w : Math.round(CANVAS_W * size / 100), h = box ? box.h : Math.round(CANVAS_H * size / 100);
+    const x = box ? box.x : Math.round(CANVAS_W * cx / 100 - w / 2), y = box ? box.y : Math.round(CANVAS_H * cy / 100 - h / 2);
     const logo: ImageObject = { id: newObjectId(), kind: "image", x, y, w, h, url, fit: "contain", posX: 50, posY: 50, zoom: 1 };
     const kind = frame.bgKind ?? "solid";
     if (kind === "gradient") {
@@ -125,10 +170,28 @@ export function buildMediaFrameSlide(frame: MediaFrame, url: string): { bgColor?
   // Matte (default): full-canvas image on black, framed by fit/pan/zoom.
   // blurFill carries through so a saved blurred flyer projects blurred on a
   // single click, everywhere (media library, playlist, editor) — 1:1 with live.
+  const mbox = frameBox(frame) ?? { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H };
   const logo: ImageObject = {
-    id: newObjectId(), kind: "image", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H,
+    id: newObjectId(), kind: "image", x: mbox.x, y: mbox.y, w: mbox.w, h: mbox.h,
     url, fit: frame.fit, posX: frame.posX, posY: frame.posY, zoom: frame.zoom,
     ...(frame.blurFill && frame.fit === "contain" ? { blurFill: true } : {}),
   };
   return { bgColor: "#000000", objects: [logo] };
+}
+
+/**
+ * PP7 layers: a Media-bin/library click normally puts media on the Media LAYER
+ * (a plain full-screen background — no framing). A SAVED frame (crop / logo on
+ * background) can only project as an object slide, so when the image is framed
+ * and no WORDS are live (nothing to keep on screen), send the framed slide
+ * instead. With words live the Media-layer behaviour is unchanged (words stay).
+ */
+export function shouldSendFramedSlide(
+  hasFrame: boolean,
+  isVideo: boolean,
+  live: { kind: string; text?: string } | null | undefined,
+): boolean {
+  if (!hasFrame || isVideo) return false;
+  const wordsLive = !!live && live.kind === "text" && typeof live.text === "string" && live.text.trim().length > 0;
+  return !wordsLive;
 }

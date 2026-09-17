@@ -10,13 +10,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
-  CheckCircle2, Upload, X, FileImage, FileVideo, AlertCircle, Presentation, FolderOpen,
+  CheckCircle2, Upload, X, FileImage, FileVideo, AlertCircle, Presentation, FolderOpen, Music,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { registerMediaAsset } from "@/lib/actions";
 import { isPdfFile, renderPdfToImages } from "@/lib/pdf-to-images";
 import { finalizeImport } from "@/lib/import-actions";
+import { classifyDroppedFile, MEDIA_BIN_MAX_BYTES, type DroppedFileRoute } from "@/lib/media-bin-drop";
+import { cachedAudioSupport, convertHeicToJpeg, isHeicFile, loadMediaCapabilities, shouldUseMultipart, uploadMultipart } from "@/lib/media-upload-client";
 
 // Re-export Pencil for MediaBrowser without a separate import
 export { Pencil } from "lucide-react";
@@ -26,7 +28,9 @@ export { Pencil } from "lucide-react";
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
 const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
 const PRO_EXTENSIONS = [".pro6", ".pro7", ".pro7x", ".pro5", ".pro"];
-const MAX_FILE_SIZE_MB = 500;
+// Videos can be up to 5 GB (large ones upload in parts); everything else 500 MB.
+const MAX_FILE_SIZE_MB = 5120;
+const MAX_NON_VIDEO_SIZE_MB = 500;
 
 function isProFile(file: File): boolean {
   const n = file.name.toLowerCase();
@@ -38,24 +42,69 @@ function isProFile(file: File): boolean {
  * normal media path and each rendered deck page (B2), so there is one upload
  * path, not two divergent copies. Throws on any failure.
  */
-async function uploadMediaFile(file: File, signal?: AbortSignal, libraryId?: string | null): Promise<void> {
+export async function uploadMediaFile(
+  file: File,
+  signal?: AbortSignal,
+  libraryId?: string | null,
+  // Media Bin OS drop: `contentType` overrides an empty/unreliable OS file.type
+  // (Windows .mov); `onProgress` switches the PUT to XHR for byte progress.
+  // Both optional — existing wizard callers are byte-identical.
+  opts?: { contentType?: string; onProgress?: (fraction: number) => void; /** true while a slide is live → large uploads send one part at a time */ isLive?: () => boolean },
+): Promise<void> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-  const presignRes = await fetch("/api/media/presign", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }),
-    signal,
-  });
-  if (!presignRes.ok) {
-    const err = (await presignRes.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Presign failed (${presignRes.status})`);
+  // iPhone HEIC/HEIF → JPEG in the browser first (converter lazy-loaded only here).
+  if (isHeicFile(file)) {
+    file = await convertHeicToJpeg(file);
+    opts = { ...opts, contentType: "image/jpeg" };
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   }
-  const { url: uploadUrl, key } = (await presignRes.json()) as { url: string; key: string };
-  const uploadRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file, signal });
-  if (!uploadRes.ok) throw new Error("Storage upload failed");
-  const kind = file.type.startsWith("video") ? ("video" as const) : ("image" as const);
-  const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: file.type, sizeBytes: file.size, libraryId });
+  const contentType = opts?.contentType || file.type;
+  let key: string;
+  if (shouldUseMultipart(contentType, file.size)) {
+    // Large video (>100 MB): S3 multipart with progress + abort.
+    key = await uploadMultipart(file, contentType, signal, opts?.onProgress, opts?.isLive);
+  } else {
+    // Small-file path — unchanged.
+    const presignRes = await fetch("/api/media/presign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileName: file.name, contentType, size: file.size, purpose: "media" }),
+      signal,
+    });
+    if (!presignRes.ok) {
+      const err = (await presignRes.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `Presign failed (${presignRes.status})`);
+    }
+    const presigned = (await presignRes.json()) as { url: string; key: string };
+    key = presigned.key;
+    if (opts?.onProgress) {
+      await putWithProgress(presigned.url, file, contentType, opts.onProgress, signal);
+    } else {
+      const uploadRes = await fetch(presigned.url, { method: "PUT", headers: { "Content-Type": contentType }, body: file, signal });
+      if (!uploadRes.ok) throw new Error("Storage upload failed");
+    }
+  }
+  const kind = contentType.startsWith("video") ? ("video" as const) : contentType.startsWith("audio") ? ("audio" as const) : ("image" as const);
+  const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: contentType, sizeBytes: file.size, libraryId });
   if (!result?.ok) throw new Error((result as { error?: string } | undefined)?.error ?? "Registration failed");
+}
+
+/** PUT via XHR so upload byte progress is observable (fetch can't report it). */
+function putWithProgress(url: string, file: File, contentType: string, onProgress: (f: number) => void, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("Storage upload failed")));
+    xhr.onerror = () => reject(new Error("Storage upload failed — check your connection"));
+    xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"));
+    if (signal) {
+      if (signal.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
+      signal.addEventListener("abort", () => xhr.abort(), { once: true });
+    }
+    xhr.send(file);
+  });
 }
 
 /** True if the file is a PowerPoint we convert (server-side) to a PDF, then
@@ -123,6 +172,7 @@ interface QueuedMedia {
   deck?: boolean;        // PDF/PPTX deck → expand to page images on upload (B2)
   pptx?: boolean;        // PowerPoint → convert to PDF (server) FIRST, then deck
   progress?: string;     // e.g. "3/12" while rendering deck pages
+  contentType?: string;  // canonical MIME when the OS type is empty/unreliable (audio, HEIC→JPEG)
 }
 
 interface QueuedPro {
@@ -196,6 +246,9 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
   const [errorCount, setErrorCount] = useState(0);
   const deckAbortRef = useRef<AbortController | null>(null); // cancels an in-flight deck render on close
 
+  // Audio-enabled check (cached) so audio is routed before any upload.
+  useEffect(() => { if (open) void loadMediaCapabilities(); }, [open]);
+
   // Reset on close
   useEffect(() => {
     if (!open) {
@@ -228,6 +281,13 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
   const enqueueFiles = useCallback((incoming: File[]) => {
     const valid: QueuedFile[] = [];
     for (const file of incoming) {
+      let routed: DroppedFileRoute;
+      // Non-video files keep the 500 MB cap; videos may be up to 5 GB (multipart).
+      const isVideoFile = ALLOWED_VIDEO_TYPES.includes(file.type) || /\.(mp4|m4v|webm|mov)$/i.test(file.name);
+      if (!isVideoFile && file.size > MAX_NON_VIDEO_SIZE_MB * 1024 * 1024) {
+        toast.error(`"${file.name}" exceeds ${MAX_NON_VIDEO_SIZE_MB} MB — skipped.`);
+        continue;
+      }
       if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
         toast.error(`"${file.name}" exceeds ${MAX_FILE_SIZE_MB} MB — skipped.`);
         continue;
@@ -253,6 +313,21 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
         valid.push({ tag: "media", key, file, previewUrl: URL.createObjectURL(file), status: "pending" });
       } else if (ALLOWED_VIDEO_TYPES.includes(file.type)) {
         valid.push({ tag: "media", key, file, previewUrl: null, status: "pending" });
+      } else if ((routed = classifyDroppedFile(file)).route === "audio" && cachedAudioSupport() === false) {
+        toast.info(`"${file.name}": audio in the Media Bin is coming soon.`);
+        continue;
+      } else if (routed.route === "image" || routed.route === "video" || routed.route === "audio") {
+        // Extension-first fallback: iPhone HEIC (converted to JPEG on upload),
+        // audio, and files whose OS type is empty (Windows).
+        if (routed.route === "image" && file.size > MEDIA_BIN_MAX_BYTES) { toast.error(`"${file.name}" exceeds ${MAX_NON_VIDEO_SIZE_MB} MB — skipped.`); continue; }
+        const canPreview = routed.route === "image" && !("heic" in routed && routed.heic);
+        valid.push({ tag: "media", key, file, previewUrl: canPreview ? URL.createObjectURL(file) : null, status: "pending", contentType: routed.contentType });
+      } else if (routed.route === "too-large") {
+        toast.error(`"${file.name}" exceeds ${routed.limitMb} MB — skipped.`);
+        continue;
+      } else if (routed.route === "audio-format") {
+        toast.error(`"${file.name}": that audio format isn't supported — use MP3, WAV, M4A or AAC.`);
+        continue;
       } else {
         toast.error(`"${file.name}" is not supported — drop images, videos, a PowerPoint (.pptx/.ppt) or a PDF.`);
         continue;
@@ -384,7 +459,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
       } else if (item.tag === "media") {
         // ── Media path: presign → S3 PUT → registerMediaAsset ──────────────
         try {
-          await uploadMediaFile(item.file, undefined, initialLibraryId);
+          await uploadMediaFile(item.file, undefined, initialLibraryId, item.contentType ? { contentType: item.contentType } : undefined);
           setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "done" } : q));
           media++;
         } catch (err) {
@@ -494,7 +569,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                   id="media-import-input"
                   type="file"
                   multiple
-                  accept=".jpg,.jpeg,.png,.webp,.gif,.avif,.mp4,.webm,.mov,.pdf,.pptx,.ppt,.pro6,.pro7,.pro7x,.pro5,.pro"
+                  accept=".jpg,.jpeg,.png,.webp,.gif,.avif,.heic,.heif,.mp4,.webm,.mov,.mp3,.wav,.m4a,.aac,.pdf,.pptx,.ppt,.pro6,.pro7,.pro7x,.pro5,.pro"
                   className="sr-only"
                   onChange={(e) => { enqueueFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
                 />
@@ -508,7 +583,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                   htmlFor="media-import-input"
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
-                  onDrop={(e) => { e.preventDefault(); setDragOver(false); enqueueFiles(Array.from(e.dataTransfer.files)); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); enqueueFiles(Array.from(e.dataTransfer.files)); }}
                   className={cn(
                     "flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed px-6 py-14 text-center cursor-pointer transition-colors",
                     dragOver
@@ -538,7 +613,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                     <FolderOpen className="h-4 w-4" />
                     Browse files
                   </span>
-                  <p className="text-xs text-[var(--color-muted-foreground)]">or drag &amp; drop · up to {MAX_FILE_SIZE_MB} MB per file</p>
+                  <p className="text-xs text-[var(--color-muted-foreground)]">or drag &amp; drop · videos up to 5 GB, other files up to {MAX_NON_VIDEO_SIZE_MB} MB</p>
                 </label>
 
                 {queue.length > 0 && (
@@ -586,11 +661,11 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                             <img src={q.previewUrl} alt={q.file.name} className="w-full h-full object-contain" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center bg-[var(--color-elevated)]">
-                              <FileVideo className="h-8 w-8 text-[var(--color-muted-foreground)]" />
+                              {(q.contentType ?? "").startsWith("audio") ? <Music className="h-8 w-8 text-[var(--color-muted-foreground)]" /> : q.contentType === "image/jpeg" ? <FileImage className="h-8 w-8 text-[var(--color-muted-foreground)]" /> : <FileVideo className="h-8 w-8 text-[var(--color-muted-foreground)]" />}
                             </div>
                           )}
                           <div className="absolute bottom-0 inset-x-0 bg-black/70 px-1.5 py-1 flex items-center gap-1">
-                            {q.file.type.startsWith("video") ? <FileVideo className="h-3 w-3 shrink-0 text-white/70" /> : <FileImage className="h-3 w-3 shrink-0 text-white/70" />}
+                            {q.file.type.startsWith("video") ? <FileVideo className="h-3 w-3 shrink-0 text-white/70" /> : (q.contentType ?? q.file.type).startsWith("audio") ? <Music className="h-3 w-3 shrink-0 text-white/70" /> : <FileImage className="h-3 w-3 shrink-0 text-white/70" />}
                             <span className="text-[10px] text-white/90 truncate flex-1" title={q.file.name}>{q.file.name}</span>
                           </div>
                           <button type="button" onClick={() => removeFromQueue(q.key)}

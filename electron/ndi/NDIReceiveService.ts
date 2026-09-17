@@ -114,6 +114,7 @@ export class NDIReceiveService {
   private stalled = false;
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private static readonly STALL_MS = 3000;
+  private static readonly CONNECT_WAIT_MS = 8000;
 
   constructor(getMainWindow: () => BrowserWindow | null) {
     this.getMainWindow = getMainWindow;
@@ -181,17 +182,46 @@ export class NDIReceiveService {
     }
     this.stop(); // idempotent — tear down any prior session
     try {
-      this.receiver = new this.mod.NdiReceiver();
+      // Prefer the persistent discovery receiver: its finder has already been
+      // dwelling (it populated the picker the operator just clicked), so connect()
+      // resolves the source immediately and the wait below is skipped. Only a cold
+      // start (e.g. app launch with a remembered source) actually waits — keeping
+      // overlapping start()s, which the renderer handles poorly, rare.
+      const receiver = this.discovery ?? new this.mod.NdiReceiver();
+      this.discovery = null;
+      this.receiver = receiver;
       this.resampler = null; // (lazily created when we learn the source rate)
       this.lastAudioAt = Date.now(); // grace period before the stall watchdog trips
       this.stalled = false;
-      const ok = this.receiver.connect(sourceName, (pcm, sampleRate, channels) => {
-        this.onAudio(pcm, sampleRate, channels);
-      });
+      // A fresh receiver's NDI finder has seen nothing yet: a source on ANOTHER PC
+      // (OBS/DistroAV) takes ~1-3s of mDNS dwell to appear, so a single immediate
+      // connect() failed with "not found" and the app silently fell back to the
+      // laptop mic (same-PC Test Patterns resolve instantly, which hid this). Retry
+      // on the SAME receiver (its finder keeps dwelling) until the source appears.
+      const deadline = Date.now() + NDIReceiveService.CONNECT_WAIT_MS;
+      let ok = false;
+      let lastErr = "NDI source not found on the network";
+      for (;;) {
+        try {
+          ok = receiver.connect(sourceName, (pcm, sampleRate, channels) => {
+            this.onAudio(pcm, sampleRate, channels);
+          });
+        } catch (e) {
+          lastErr = e instanceof Error ? e.message : String(e);
+        }
+        if (ok || Date.now() >= deadline) break;
+        await new Promise((r) => setTimeout(r, 500));
+        // stop()/another start() ran while we waited: this attempt is superseded.
+        if (this.receiver !== receiver) {
+          try { receiver.disconnect(); } catch { /* ignore */ }
+          return { ok: false, error: "NDI connect superseded" };
+        }
+      }
       if (!ok) {
         this.stop();
-        return { ok: false, error: "NDI source not found on the network" };
+        return { ok: false, error: lastErr };
       }
+      this.lastAudioAt = Date.now(); // restart the stall grace period after the wait
       this.sourceName = sourceName;
       this.error = null;
       this.startWatchdog();

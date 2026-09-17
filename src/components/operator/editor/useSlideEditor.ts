@@ -21,6 +21,10 @@ export type UseSlideEditorArgs = {
   // straight from song_slides; for other item types we still show a
   // read-only editor derived from ExpandedItem.slides (SlidePayloads).
   initialSlides: EditorSlideRow[];
+  // Theme Editor (PR 1): lets a non-song target (a theme's layout) be edited.
+  // Omitted → the original rule (only songs are editable), so every existing
+  // caller behaves byte-identically.
+  editable?: boolean;
 };
 
 export type UseSlideEditorReturn = {
@@ -62,6 +66,9 @@ export type UseSlideEditorReturn = {
   reorderSlide: (from: number, to: number) => void;
   setBg: (patch: { bgColor?: string; bgImageUrl?: string }) => void;
   updateSlideDirect: (patch: Partial<EditableSlide>) => void;
+  // Theme Editor (PR 1): map EVERY slide in one undoable step (theme-wide
+  // typography/background defaults). Additive; no existing caller uses it.
+  patchAllSlides: (fn: (s: EditableSlide, index: number) => EditableSlide) => void;
   hasDirtyChanges: boolean;
   resetDirty: () => void;
   undo: () => void;
@@ -75,7 +82,7 @@ export type UseSlideEditorReturn = {
 
 export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   const { itemId, itemType, initialSlides } = args;
-  const isEditable = itemType === "song";
+  const isEditable = args.editable ?? itemType === "song";
 
   // Hydrate from initialSlides. Deterministic init: derive directly from prop.
   const initialParsed = initialSlides.map(normalizeEditableSlide);
@@ -608,6 +615,12 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     if (patch.objects) setSelectedIds([]);
   }, [patchCurrent]);
 
+  const patchAllSlides = useCallback((fn: (s: EditableSlide, index: number) => EditableSlide) => {
+    if (!isEditable) return;
+    setSlides((prev) => prev.map(fn));
+    setDirty(true);
+  }, [isEditable]);
+
   const currentPayload = currentSlide ? slidePayloadFromEditable(currentSlide) : null;
   const currentLyrics = currentSlide ? extractLyricsFromEditable(currentSlide) : "";
 
@@ -646,6 +659,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     reorderSlide,
     setBg,
     updateSlideDirect,
+    patchAllSlides,
     hasDirtyChanges: dirty,
     resetDirty: () => setDirty(false),
     undo,

@@ -1,0 +1,22 @@
+-- Media Bin audio (2026-09-16): allow media_assets.kind = 'audio'.
+--
+-- Additive + idempotent. NOT YET APPLIED to any database.
+-- ORDERING: the app code tolerates this being absent — presign + registerMediaAsset
+-- check pg_enum (src/lib/server/media-audio-support.ts) and return
+-- "Audio needs a quick update — coming soon" until it exists. So code can ship
+-- first; applying this simply switches audio uploads on (within ~60s per instance).
+-- NOTE: ALTER TYPE ... ADD VALUE cannot run inside a transaction block on
+-- Postgres < 12; on 12+ the new value just can't be USED in the same transaction.
+--
+-- ROLLBACK (written first):
+--   Postgres cannot DROP an enum value. Rollback is therefore:
+--     1. Revert the app code (or leave it — it is harmless with the value present).
+--     2. Remove any audio rows if required:
+--          DELETE FROM media_assets WHERE kind::text = 'audio';
+--        (and delete their S3 objects; keys are listed by
+--          SELECT s3_key FROM media_assets WHERE kind::text = 'audio';  — run first)
+--     3. Leave the unused 'audio' label in place. Fully removing it needs a
+--        type swap (create media_kind_new, ALTER COLUMN ... USING kind::text::media_kind_new,
+--        drop old, rename) — only with an expert and a maintenance window.
+
+ALTER TYPE media_kind ADD VALUE IF NOT EXISTS 'audio';

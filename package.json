@@ -85,6 +85,7 @@
     "fast-xml-parser": "^5.9.3",
     "fflate": "^0.8.3",
     "ffmpeg-static": "^5.3.0",
+    "heic2any": "^0.0.4",
     "isomorphic-dompurify": "^2.19.0",
     "libreoffice-convert": "^1.6.0",
     "lightningcss": "^1.33.0",
@@ -255,6 +256,15 @@
       "target": "nsis",
       "extraResources": [
         {
+          "from": "native/ndi-sender",
+          "to": "native/ndi-sender",
+          "filter": [
+            "build/Release/ndi_sender.node",
+            "index.js",
+            "package.json"
+          ]
+        },
+        {
           "from": "native/ndi-receiver",
           "to": "native/ndi-receiver",
           "filter": [
@@ -278,6 +288,10 @@
         {
           "from": "native/decklink-audio/package.json",
           "to": "native/decklink-audio/package.json"
+        },
+        {
+          "from": "native/ndi-sender/ndi-sdk/lib/Processing.NDI.Lib.x64.dll",
+          "to": "native/ndi-sender/build/Release/Processing.NDI.Lib.x64.dll"
         }
       ]
     },
@@ -292,7 +306,7 @@
       {
         "provider": "github",
         "owner": "benji-ss1",
-        "repo": "faithflow-ai",
+        "repo": "presentflow-releases",
         "vPrefixedTagName": true,
         "releaseType": "release"
       }

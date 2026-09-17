@@ -57,6 +57,12 @@ export function VideoInputPanel() {
   // Vertical placement of the lyrics over the camera (full-screen overlay only).
   const [lyricsPos, setLyricsPos] = useState<NonNullable<VideoInputState["lyricsPos"]>>("center");
   const [active, setActive] = useState(false);
+  // PP7 clear rail (Clear Video Input / Clear All) stops the camera from outside.
+  useEffect(() => {
+    const onCleared = () => setActive(false);
+    window.addEventListener("presentflow:video-input-cleared", onCleared);
+    return () => window.removeEventListener("presentflow:video-input-cleared", onCleared);
+  }, []);
   const [previewStatus, setPreviewStatus] = useState<"idle" | "loading" | "on" | "error">("idle");
   const [showObsHelp, setShowObsHelp] = useState(false);
   const previewRef = useRef<HTMLVideoElement | null>(null);

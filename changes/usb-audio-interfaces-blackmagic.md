@@ -1,7 +1,7 @@
 ---
 headline: Better sound from USB mixers, audio interfaces and Blackmagic devices
 audience: operator
-version: 0.1.431
+version: 0.1.440
 date: 2026-09-16
 highlights:
   - New option in Audio → "Separate channels from my mixer (USB)". Turn it on for a USB mixer or interface (X32, XR18, SQ, Focusrite, ATEM Mini) so each channel reaches PresentFlow on its own instead of being squashed together. It's off by default, so nothing changes until you turn it on.
