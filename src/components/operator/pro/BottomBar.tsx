@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import { dispatchInternal } from "@/lib/internal-events";
 import { openLiveChannel, safePost, type LiveChannelLike, type LiveMessage } from "@/lib/broadcast";
 
-export const TRANSITION_KEY = "presentflow.pro.transition.v1";
+export { TRANSITION_KEY } from "@/lib/transition-names";
+import { TRANSITION_KEY } from "@/lib/transition-names";
 // Centralized so BottomBar (the publisher), the Transitions panel, and the
 // live-monitor preview can't silently desync on a mistyped event name.
 export const TRANSITION_UPDATED_EVENT = "presentflow:transition-updated";
@@ -15,29 +16,9 @@ export const TRANSITION_PREVIEW_EVENT = "presentflow:transition-preview";
 
 export type SlideViewMode = "grid" | "list" | "text";
 
-// 2026-07-25 Fix 4 — the TransitionChooser exposes display names
-// ("Cut", "Fade", "Slide (L→R)") but the projector's TransitionWrapper
-// expects effect IDs from src/lib/effects.ts ("fade_in", "slide_right").
-// Before this mapping, every picked transition passed through as an
-// unknown effectId and TransitionWrapper silently fell back to no
-// animation. This is why the transition picker "did nothing".
-// "Cut" is deliberately null so no animation applies.
-// Effects we don't have real implementations for (Amoeba, Color Burn,
-// Iris) fall back to the closest visible substitute rather than doing
-// nothing — the operator picked SOMETHING, they should see SOMETHING.
-export const TRANSITION_NAME_TO_EFFECT_ID: Record<string, string | null> = {
-  "Cut": null,
-  "Fade": "fade_in",
-  "Dissolve": "cross_fade",
-  "Slide (L→R)": "slide_right",
-  "Slide (R→L)": "slide_left",
-  "Wipe": "wipe_right",
-  "Amoeba": "dissolve",       // best available substitute
-  "Dispersion Blur": "blur_in",
-  "Color Burn": "dissolve",   // best available substitute
-  "Iris": "zoom_in",
-  "Push": "slide_right",
-};
+// Name → effect-id mapping lives in src/lib (shared with theme transitions).
+export { TRANSITION_NAME_TO_EFFECT_ID } from "@/lib/transition-names";
+import { TRANSITION_NAME_TO_EFFECT_ID } from "@/lib/transition-names";
 
 /** Same parsing as the load effect below (name, durationMs or legacy seconds, off). */
 function readSavedTransition(): { name?: string; duration?: number; off?: boolean } {

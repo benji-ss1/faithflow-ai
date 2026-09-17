@@ -163,6 +163,14 @@ export type OperatorShellCtx = {
   // per-slide id (or stringified index if none). Optional so legacy shells
   // that never dnd-wrap can omit it.
   onReorderSlidesInItem?: (itemIdx: number, newOrder: string[]) => void;
+  /** Theme → Projector (PR 2): the church layout + theme scripture styling the
+   *  projector will apply to this slide (same resolver as the send path), so a
+   *  preview card matches the output. Optional — absent ⇒ preview the raw slide. */
+  layoutPreviewSlide?: (slide: SlidePayload) => SlidePayload;
+  /** Theme → Projector (PR 2): the theme appearance a plan item will project with
+   *  (item theme > song applied theme > content-type style > church default), so
+   *  slide thumbnails show that theme's boxes + decor. Absent ⇒ use `appearance`. */
+  appearanceForItem?: (itemIdx: number) => import("@/lib/broadcast").ThemeAppearance | null;
   onSendSlideToLive: (
     slide: SlidePayload,
     transition?: import("@/lib/broadcast").TransitionSpec | null,

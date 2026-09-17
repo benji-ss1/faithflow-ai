@@ -394,6 +394,7 @@ export default function StagePage() {
             stays route-owned (it is stage-unique, not duplicated). */}
         <OutputCompositor
           mode="stage"
+          ignoreThemeLayout
           slide={current}
           appearance={appearance}
           background={background}
@@ -432,7 +433,7 @@ export default function StagePage() {
           )}
         </div>
         {next && next.kind !== "empty" ? (
-          <div className="opacity-75 w-full h-full"><PresentationCanvas><SlideRenderer slide={next} projectorFit appearance={appearance} /></PresentationCanvas></div>
+          <div className="opacity-75 w-full h-full"><PresentationCanvas><SlideRenderer slide={next} projectorFit appearance={appearance} ignoreThemeLayout /></PresentationCanvas></div>
         ) : (
           <div className="w-full h-full flex items-center justify-center text-white/20 text-sm">— end of item —</div>
         )}
