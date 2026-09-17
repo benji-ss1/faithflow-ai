@@ -260,6 +260,9 @@ exit 0
 `;
   writeFileSync(join(home, ".fly/bin/flyctl"), fake);
   chmodSync(join(home, ".fly/bin/flyctl"), 0o755);
+  // deploy.sh `need vercel` — CI runners don't have the Vercel CLI installed.
+  writeFileSync(join(home, ".fly/bin/vercel"), "#!/usr/bin/env bash\nexit 0\n");
+  chmodSync(join(home, ".fly/bin/vercel"), 0o755);
   const env = { ...process.env, HOME: home, CONVERT_SHARED_SECRET: opts.envSecret ?? "" };
   let code = 0;
   try { execFileSync("bash", ["scripts/deploy.sh", "convert"], { env, stdio: "pipe" }); } catch (e) { code = (e as { status: number }).status ?? 1; }
