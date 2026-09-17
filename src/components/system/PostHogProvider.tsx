@@ -42,6 +42,18 @@ export function setCookieConsent(accepted: boolean) {
   } catch {
     /* ignore */
   }
+  if (!accepted) {
+    // Consent can be withdrawn after the SDK has loaded. Tell the client to
+    // stop both capture and its persistence immediately, not merely our own
+    // wrapper functions.
+    try { client?.opt_out_capturing(); } catch { /* no-op */ }
+    return;
+  }
+
+  // Re-accepting after a withdrawal resumes an already-loaded SDK without
+  // fetching a second copy. Skip PostHog's automatic opt-in event; the page
+  // view below remains our single, explicit first event.
+  try { client?.opt_in_capturing({ captureEventName: false }); } catch { /* no-op */ }
   if (accepted) {
     const url = window.location.href;
     void ensureInit().then((posthog) => {
@@ -71,6 +83,9 @@ function ensureInit(): Promise<PostHog | null> {
         capture_pageview: false,
         capture_pageleave: true,
         person_profiles: "identified_only",
+        // When consent is withdrawn, opt_out_capturing() disables and removes
+        // this SDK's cookie/localStorage persistence as well as future capture.
+        opt_out_persistence_by_default: true,
       });
       client = posthog;
       return posthog;
