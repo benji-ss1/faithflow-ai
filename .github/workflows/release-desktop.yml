@@ -52,11 +52,7 @@ jobs:
         run: npm version "${{ github.event.inputs.version }}" --no-git-tag-version
 
       - name: Verify native audio module (RtAudio / audify) loads
-        # Hardware I/O Phase B (opt-in pro audio driver). NON-BLOCKING: the app
-        # degrades to standard capture without it, so a flaky prebuild download
-        # must never block a release — but the warning makes the gap visible.
-        continue-on-error: true
-        run: node -e "const {RtAudio}=require('audify'); new RtAudio(); console.log('audify OK', process.arch)"
+        run: node scripts/verify-audify.cjs || echo "::warning::audify did not load cleanly on the runner (exit $?). The app falls back to standard capture if this happens on a real Mac."
 
       - name: Make audify universal (arm64 + x64, pinned sha256)
         # prebuild-install fetches the HOST arch only; both DMGs share one
@@ -124,29 +120,31 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
-          APP="release/mac-arm64/Present Flow.app"
-          ZIP="release/Present-Flow-${VERSION}-arm64-mac.zip"
-          BLOCKMAP="release/Present-Flow-${VERSION}-arm64-mac.zip.blockmap"
-
-          if [ ! -d "$APP" ]; then
-            echo "::error::App bundle not found at $APP"
-            ls -la release release/mac-arm64 || true
-            exit 1
-          fi
-
-          echo "→ ad-hoc signing $APP"
-          codesign --deep --force --sign - --timestamp=none "$APP"
-          echo "→ verifying signature"
-          codesign --verify --verbose=2 "$APP"
-
-          echo "→ repacking zip"
-          rm -f "$ZIP" "$BLOCKMAP"
-          cd "release/mac-arm64"
-          # ditto preserves resource forks + xattrs — required for macOS
-          # to treat the extracted .app as valid.
-          ditto -c -k --sequesterRsrc --keepParent "Present Flow.app" "../Present-Flow-${VERSION}-arm64-mac.zip"
-          cd -
-          ls -lh "$ZIP"
+          # Sign + repack BOTH arches. Intel Macs' electron-updater EXCLUDES any
+          # arm64 file, so without a signed x64 zip in latest-mac.yml Intel Macs
+          # never auto-update (fixed 2026-09-17).
+          for PAIR in "mac-arm64:arm64" "mac:x64"; do
+            DIR="release/${PAIR%%:*}"; ARCH="${PAIR##*:}"
+            APP="$DIR/Present Flow.app"
+            ZIP="release/Present-Flow-${VERSION}-${ARCH}-mac.zip"
+            if [ ! -d "$APP" ]; then
+              echo "::error::App bundle not found at $APP"
+              ls -la release "$DIR" || true
+              exit 1
+            fi
+            echo "→ ad-hoc signing $APP"
+            codesign --deep --force --sign - --timestamp=none "$APP"
+            codesign --verify --verbose=2 "$APP"
+            BIN="$APP/Contents/MacOS/$(defaults read "$PWD/$APP/Contents/Info" CFBundleExecutable)"
+            WANT=$( [ "$ARCH" = x64 ] && echo x86_64 || echo arm64 )
+            lipo -archs "$BIN" | grep -q "$WANT" || { echo "::error::$APP is not $WANT ($(lipo -archs "$BIN"))"; exit 1; }
+            echo "→ repacking $ZIP"
+            rm -f "$ZIP" "$ZIP.blockmap"
+            # ditto preserves resource forks + xattrs — required for macOS
+            # to treat the extracted .app as valid.
+            (cd "$DIR" && ditto -c -k --sequesterRsrc --keepParent "Present Flow.app" "../Present-Flow-${VERSION}-${ARCH}-mac.zip")
+            ls -lh "$ZIP"
+          done
 
       - name: Upload installers + generate latest-mac.yml
         env:
@@ -154,7 +152,8 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
-          ZIP="release/Present-Flow-${VERSION}-arm64-mac.zip"
+          ARM_ZIP="release/Present-Flow-${VERSION}-arm64-mac.zip"
+          INTEL_ZIP="release/Present-Flow-${VERSION}-x64-mac.zip"
           ARM_DMG="release/Present-Flow-${VERSION}-arm64-mac.dmg"
           INTEL_DMG="release/Present-Flow-${VERSION}-x64-mac.dmg"
           TAG="v${VERSION}"
@@ -162,30 +161,33 @@ jobs:
           # Create GH Release if it doesn't exist (workflow_dispatch path).
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
 
-          # Upload the freshly-signed zip.
-          gh release upload "$TAG" "$ZIP" --clobber
+          # Direct-download installers + the freshly-signed update zips. Intel
+          # Macs receive x64, Apple Silicon Macs arm64 — never a generic "Mac" file.
+          test -f "$ARM_ZIP"; test -f "$INTEL_ZIP"; test -f "$ARM_DMG"; test -f "$INTEL_DMG"
+          gh release upload "$TAG" "$ARM_ZIP" "$INTEL_ZIP" "$ARM_DMG" "$INTEL_DMG" --clobber
 
-          # Direct-download installers. Intel Macs must receive x64; Apple
-          # Silicon Macs receive arm64. They are intentionally separate,
-          # never a misleading single generic "Mac" download.
-          test -f "$ARM_DMG"
-          test -f "$INTEL_DMG"
-          gh release upload "$TAG" "$ARM_DMG" "$INTEL_DMG" --clobber
-
-          # Reconstruct latest-mac.yml from the SIGNED zip (sha512 changed).
-          SHA=$(shasum -a 512 "$ZIP" | awk '{print $1}' | xxd -r -p | base64)
-          SIZE=$(stat -f%z "$ZIP")
+          # Reconstruct latest-mac.yml from the SIGNED zips (sha512 changed).
+          # electron-updater picks by arch: arm64 Macs → the arm64 entry, Intel
+          # Macs → the non-arm64 (x64) entry. Top-level path stays arm64 for
+          # very old updaters that only read `path`.
+          sha() { shasum -a 512 "$1" | awk '{print $1}' | xxd -r -p | base64; }
+          ARM_SHA=$(sha "$ARM_ZIP"); ARM_SIZE=$(stat -f%z "$ARM_ZIP")
+          INTEL_SHA=$(sha "$INTEL_ZIP"); INTEL_SIZE=$(stat -f%z "$INTEL_ZIP")
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
           cat > release/latest-mac.yml <<EOF
           version: ${VERSION}
           files:
             - url: Present-Flow-${VERSION}-arm64-mac.zip
-              sha512: ${SHA}
-              size: ${SIZE}
+              sha512: ${ARM_SHA}
+              size: ${ARM_SIZE}
+            - url: Present-Flow-${VERSION}-x64-mac.zip
+              sha512: ${INTEL_SHA}
+              size: ${INTEL_SIZE}
           path: Present-Flow-${VERSION}-arm64-mac.zip
-          sha512: ${SHA}
+          sha512: ${ARM_SHA}
           releaseDate: '${DATE}'
           EOF
+          grep -q "x64-mac.zip" release/latest-mac.yml || { echo "::error::latest-mac.yml missing Intel entry"; exit 1; }
           gh release upload "$TAG" release/latest-mac.yml --clobber
 
       # Installers are ALSO published to the public, code-free
@@ -204,6 +206,6 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           TAG="v${VERSION}"
           gh release view "$TAG" -R "$R" >/dev/null 2>&1 || gh release create "$TAG" -R "$R" --title "PresentFlow $TAG" --notes "PresentFlow desktop $TAG" || true
-          gh release upload "$TAG" -R "$R" "release/Present-Flow-${VERSION}-arm64-mac.zip" "release/Present-Flow-${VERSION}-arm64-mac.dmg" "release/Present-Flow-${VERSION}-x64-mac.dmg" release/latest-mac.yml --clobber
+          gh release upload "$TAG" -R "$R" "release/Present-Flow-${VERSION}-arm64-mac.zip" "release/Present-Flow-${VERSION}-x64-mac.zip" "release/Present-Flow-${VERSION}-arm64-mac.dmg" "release/Present-Flow-${VERSION}-x64-mac.dmg" release/latest-mac.yml --clobber
           gh release view "$TAG" -R "$R" --json assets -q '.assets[].name'
 

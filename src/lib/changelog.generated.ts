@@ -6,8 +6,10 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
     "version": "0.1.447",
     "date": "2026-09-17",
-    "headline": "Song backgrounds from your theme now show on the live screen, matching the slide previews",
+    "headline": "Intel Macs now update automatically, and the Windows pro audio driver is more reliable",
     "highlights": [
+      "Intel Macs now get PresentFlow updates automatically, like Apple Silicon Macs and Windows. If you're on an Intel Mac and stuck on an older version, install the latest Intel (x64) download once and it will keep itself up to date from then on.",
+      "On Windows, the pro audio driver for USB mixers and interfaces stays switched on reliably instead of occasionally turning itself off at startup.",
       "If you picked a theme for songs, its background now shows on the live screen and projector, not just on the slide previews.",
       "When the same song is in your service more than once, the live screen uses the theme of the copy you actually clicked.",
       "Theme logos that had stopped loading after a while now load again."

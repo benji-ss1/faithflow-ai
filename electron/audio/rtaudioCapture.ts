@@ -1,471 +1,247 @@
-// rtaudioCapture.ts — hardware I/O Phases B + C (docs/HARDWARE_IO_PLAN.md).
+// rtaudioCapture.ts — main-process PROXY for the isolated audio-driver process.
 //
-// Phase B: native multichannel capture through RtAudio (npm `audify`, N-API
-// prebuilt, ABI-stable across Electron). CoreAudio on macOS, WASAPI + ASIO on
-// Windows. Fixes: Windows never reporting channel counts (ffmpeg dshow can't),
-// interfaces stuck at 2ch (ASIO exposes every input), macOS ffmpeg-tier fuzzy
-// name matching / shifting avfoundation indices.
-// Phase C: Blackmagic Desktop Video embedded SDI/HDMI audio via the
-// native/decklink-audio addon, sharing the same DSP + IPC path.
-//
-// Contract mirrors nativeCapture.ts + multiChannelProbe.ts EXACTLY (same IPC
-// channels, 16 kHz mono s16le chunks, level payloads, ffmpeg-style `pan`
-// channel filter) so the renderer needs no changes.
-//
-// Review-gate hardening (2026-09-16):
-//  • start/stop are SERIALISED (concurrent starts leaked 2–3 live streams).
-//  • every stream has a liveness flag — late driver frames are dropped.
-//  • the DeckLink addon holds ONE input session: a second DeckLink open is
-//    refused, and a stale wrapper can never stop someone else's session.
-//  • capture auto-reconnects with backoff on stream errors (ffmpeg-tier parity).
-//  • device lists are cached briefly and ASIO is not re-enumerated while an
-//    ASIO stream is open (ASIO allows one loaded driver).
-//  • unknown native error text is logged, never shown raw to operators.
+// All native audio-driver code (RtAudio: CoreAudio/WASAPI/ASIO, and the
+// Blackmagic DeckLink addon) runs in a separate Electron utility process
+// (rtaudioWorker.ts → rtaudioEngine.ts). A native crash there — during capture
+// or at exit — can never close PresentFlow. This proxy:
+//   • forks the worker lazily and forwards its PCM/level/error events to the
+//     operator window on the same IPC channels as the ffmpeg/Swift tiers;
+//   • on an unexpected worker exit: tells the operator, restarts the worker and
+//     resumes the capture that was running (bounded; after repeated crashes the
+//     pro driver is reported unavailable and standard capture takes over);
+//   • keeps the same export names the IPC layer already used.
 
 import path from "node:path";
-import type { BrowserWindow } from "electron";
-import { CHANNELS } from "./nativeCapture";
-import { PROBE_CHANNELS } from "./multiChannelProbe";
+import { utilityProcess, type UtilityProcess, type BrowserWindow } from "electron";
 import type { NativeDevice } from "./deviceList";
-import {
-  parsePanFilter, mixToMono, StreamingResampler, channelLevels,
-  encodeDeviceIndex, decodeDeviceIndex, API_DECKLINK, deckLinkChannels,
-} from "./rtaudioDsp";
-
-// const-enum values from audify/index.d.ts (const enums don't exist at runtime)
-const API_CORE = 1;
-const API_ASIO = 6;
-const API_WASAPI = 7;
-const FMT_SINT16 = 0x2;
-const FRAME_MS = 20;
-const LEVEL_INTERVAL_MS = 50;
-const LIST_CACHE_MS = 1500;
-const RESTART_BACKOFF_MS = [2000, 4000, 8000, 16000, 30000];
 
 export const FRIENDLY_BUSY = "Could not open the audio device — it's in use by another app (OBS, a DAW, vMix, or the interface's own control panel). Close it and reselect the input.";
 export const FRIENDLY_GONE = "Audio device disappeared — reconnect the USB cable and reselect the input.";
 export const FRIENDLY_UNAVAILABLE = "The pro audio driver isn't available in this build — using standard capture.";
-const FRIENDLY_GENERIC = "Couldn't start the audio interface. Check the cable, close other audio apps, and reselect the input.";
+/** Transient: the driver process is (re)starting. Never a reason to downgrade the tier. */
+export const FRIENDLY_RESTARTING = "The audio driver is restarting — try again in a moment.";
 
-function friendly(raw: string): string {
-  console.warn(`[rtaudio] native error: ${raw}`);
-  if (/busy|in use|exclusive|already|unavailable/i.test(raw)) return FRIENDLY_BUSY;
-  if (/not found|invalid device|no devices|disappeared/i.test(raw)) return FRIENDLY_GONE;
-  return FRIENDLY_GENERIC;
-}
+const CALL_TIMEOUT_MS = 15000;
+const START_TIMEOUT_MS = 35000; // ASIO / DeckLink / aggregate opens can be slow
+const START_READY_MS = 15000;
+const MAX_CRASHES = 3;
+const CRASH_WINDOW_MS = 10 * 60 * 1000;
 
-// ── native module loading ────────────────────────────────────────────────
-type AudifyDevice = { id: number; name: string; inputChannels: number; preferredSampleRate: number; sampleRates: number[] };
-type RtAudioLike = {
-  getDevices(): AudifyDevice[];
-  openStream(out: null, input: { deviceId: number; nChannels: number; firstChannel: number }, format: number, sampleRate: number, frameSize: number, name: string, onInput: (b: Buffer) => void, onOutput: null, flags?: number, onError?: (type: number, msg: string) => void): number;
-  start(): void;
-  stop(): void;
-  closeStream(): void;
-  isStreamOpen(): boolean;
-};
-type AudifyModule = { RtAudio: new (api?: number) => RtAudioLike };
-
-let audify: AudifyModule | null | undefined;
-
-// A native crash (segfault) inside the main process would close PresentFlow
-// entirely — seen once on a headless Windows CI runner. So before the first
-// in-process load, load audify in a THROWAWAY child (Electron running as Node)
-// and enumerate devices there. Only if that child exits cleanly do we load it
-// in-process; otherwise the tier stays off and standard capture is used.
-function audifySurvivesChildProbe(): boolean {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
-    const modPath = require.resolve("audify");
-    const apis = JSON.stringify(apisForPlatform());
-    const code = `const {RtAudio}=require(${JSON.stringify(modPath)});for(const a of ${apis}){try{new RtAudio(a).getDevices()}catch(e){}}process.stdout.write("ok")`;
-    const r = spawnSync(process.execPath, ["-e", code], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-      timeout: 8000,
-      encoding: "utf8",
-      windowsHide: true,
-    });
-    const ok = r.status === 0 && (r.stdout ?? "").includes("ok");
-    if (!ok) console.warn(`[rtaudio] child probe failed (status=${r.status} signal=${r.signal}) — pro driver disabled`);
-    return ok;
-  } catch (err) {
-    console.warn("[rtaudio] child probe could not run — pro driver disabled:", err instanceof Error ? err.message : err);
-    return false;
-  }
-}
-
-function loadAudify(): AudifyModule | null {
-  if (audify !== undefined) return audify;
-  if (!audifySurvivesChildProbe()) {
-    audify = null;
-    return audify;
-  }
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    audify = require("audify") as AudifyModule;
-  } catch (err) {
-    console.warn("[rtaudio] audify unavailable — tier disabled:", err instanceof Error ? err.message : err);
-    audify = null;
-  }
-  return audify;
-}
-
-type DeckLinkDevice = { index: number; name: string; channelCount: number; sampleRate: number };
-type DeckLinkModule = {
-  isAvailable(): boolean;
-  listDevices(): DeckLinkDevice[];
-  start(index: number, channels: number, onPcm: (b: Buffer) => void): { ok: boolean; error?: string };
-  stop(): void;
-};
-let decklink: DeckLinkModule | null | undefined;
-function loadDeckLink(): DeckLinkModule | null {
-  if (decklink !== undefined) return decklink;
-  decklink = null;
-  const candidates = [
-    process.resourcesPath ? path.join(process.resourcesPath, "native", "decklink-audio") : null,
-    path.join(__dirname, "..", "..", "native", "decklink-audio"),
-  ].filter((p): p is string => !!p);
-  for (const p of candidates) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require(p) as DeckLinkModule | null;
-      if (mod) { decklink = mod; break; }
-    } catch { /* not built / not bundled — Blackmagic audio unavailable */ }
-  }
-  return decklink;
-}
-
-function apisForPlatform(): number[] {
-  if (process.platform === "darwin") return [API_CORE];
-  // WASAPI first (every device); ASIO adds the full-channel driver view.
-  if (process.platform === "win32") return [API_WASAPI, API_ASIO];
-  return [];
-}
-
-// ── renderer target ──────────────────────────────────────────────────────
 let getTargetWindow: () => BrowserWindow | null = () => null;
 export function setRtAudioTarget(getter: () => BrowserWindow | null) {
   getTargetWindow = getter;
 }
-function send(channel: string, payload: unknown) {
+function toWindow(channel: string, payload: unknown) {
   const win = getTargetWindow();
   if (!win || win.isDestroyed()) return;
   try { win.webContents.send(channel, payload); } catch { /* window tearing down */ }
 }
 
-// ── sessions ─────────────────────────────────────────────────────────────
-type Session = { deviceIndex: number; api: number; close(): void };
-let tokenCounter = 0;
-let capture: Session | null = null;
-let probe: Session | null = null;
-let deckLinkOwner: number | null = null; // token of the session holding the addon
+type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
+let child: UtilityProcess | null = null;
+const intentionalExit = new WeakSet<UtilityProcess>();
+let ready: Promise<void> | null = null;
+let nextId = 1;
+const pending = new Map<number, Pending>();
+let crashTimes: number[] = [];
+let disabled = false;
+// What capture should be running, so a worker crash can resume it.
+let wantCapture: { deviceIndex: number; channelFilter?: string } | null = null;
+let capturing = false;
 
-function isAsioOpen(): boolean {
-  return capture?.api === API_ASIO || probe?.api === API_ASIO;
+function workerPath(): string {
+  return path.join(__dirname, "rtaudioWorker.js");
 }
 
-// Serialise every start/stop so concurrent IPC calls can't leak streams.
-let chain: Promise<unknown> = Promise.resolve();
-function serial<T>(fn: () => Promise<T> | T): Promise<T> {
-  const next = chain.then(fn, fn);
-  chain = next.catch(() => undefined);
-  return next;
+function killWorker(proc: UtilityProcess | null) {
+  if (!proc) return;
+  intentionalExit.add(proc);
+  try { proc.kill(); } catch { /* already gone */ }
+  if (child === proc) { child = null; ready = null; }
 }
 
-// ── device lists ─────────────────────────────────────────────────────────
-let rtCache: { at: number; list: NativeDevice[] } | null = null;
-
-export function isRtAudioAvailable(): boolean {
-  return loadAudify() !== null && apisForPlatform().length > 0;
-}
-
-export function listRtAudioDevices(): NativeDevice[] {
-  const mod = loadAudify();
-  if (!mod) return [];
-  const now = Date.now();
-  if (rtCache && now - rtCache.at < LIST_CACHE_MS) return rtCache.list;
-  const out: NativeDevice[] = [];
-  for (const api of apisForPlatform()) {
-    if (api === API_ASIO && isAsioOpen()) {
-      // Don't load a second ASIO driver instance under a live stream.
-      out.push(...(rtCache?.list.filter((d) => decodeDeviceIndex(d.index).api === API_ASIO) ?? []));
-      continue;
-    }
-    try {
-      const rt = new mod.RtAudio(api);
-      for (const d of rt.getDevices()) {
-        if (!d.inputChannels) continue;
-        out.push({
-          index: encodeDeviceIndex(api, d.id),
-          name: api === API_ASIO ? `${d.name} (ASIO)` : d.name,
-          platform: process.platform as NativeDevice["platform"],
-          channelCount: d.inputChannels,
-          sampleRate: d.preferredSampleRate || undefined,
+function ensureWorker(): Promise<void> {
+  if (disabled) return Promise.reject(new Error(FRIENDLY_UNAVAILABLE));
+  if (child && ready) return ready;
+  const proc = utilityProcess.fork(workerPath(), [], {
+    serviceName: "PresentFlow Audio Driver",
+    stdio: "inherit",
+    // The worker locates the Blackmagic addon (shipped via extraResources) here.
+    env: { ...process.env, PF_RESOURCES_PATH: process.resourcesPath ?? "" },
+  });
+  child = proc;
+  let settleReady: ((err?: Error) => void) | null = null;
+  ready = new Promise<void>((resolve, reject) => {
+    const t = setTimeout(() => settleReady?.(new Error("audio driver process did not start")), START_READY_MS);
+    settleReady = (err) => {
+      clearTimeout(t);
+      settleReady = null;
+      if (err) {
+        // Never leave a half-started worker cached: kill + clear so the next call retries.
+        killWorker(proc);
+        reject(err);
+      } else {
+        resolve();
+      }
+    };
+    proc.on("message", (msg: { id?: number; ok?: boolean; result?: unknown; error?: string; event?: string; payload?: unknown }) => {
+      if (msg?.event === "__ready") { settleReady?.(); return; }
+      if (msg?.event) {
+        // Drop late PCM/levels from a capture the proxy no longer owns.
+        if (!capturing && (msg.event === "audio:nativePcmChunk" || msg.event === "audio:nativeLevel")) return;
+        toWindow(msg.event, msg.payload);
+        return;
+      }
+      if (typeof msg?.id === "number") {
+        const p = pending.get(msg.id);
+        if (!p) return; // late reply after a timeout — ignored
+        pending.delete(msg.id);
+        clearTimeout(p.timer);
+        if (msg.ok) p.resolve(msg.result);
+        else p.reject(new Error(msg.error ?? "audio driver error"));
+      }
+    });
+  });
+  proc.on("exit", (code) => {
+    settleReady?.(new Error("audio driver process exited during start"));
+    if (child !== proc && !intentionalExit.has(proc)) return;
+    if (child === proc) { child = null; ready = null; }
+    for (const [, p] of pending) { clearTimeout(p.timer); p.reject(new Error("audio driver process exited")); }
+    pending.clear();
+    const wasCapturing = capturing;
+    capturing = false;
+    if (intentionalExit.has(proc)) return;
+    console.warn(`[rtaudio] audio driver process exited (code=${code})`);
+    const now = Date.now();
+    crashTimes = [...crashTimes.filter((t) => now - t < CRASH_WINDOW_MS), now];
+    if (crashTimes.length >= MAX_CRASHES) {
+      disabled = true;
+      console.warn("[rtaudio] audio driver process crashed repeatedly — pro driver disabled for this session");
+      if (wasCapturing) {
+        toWindow("audio:nativeError", {
+          message: "The pro audio driver stopped working on this computer.",
+          suggestion: "Turn off Pro audio driver in Audio settings, or restart PresentFlow.",
         });
       }
-    } catch (err) {
-      // ASIO with no driver installed throws — normal, not an error.
-      console.log(`[rtaudio] api ${api} enumerate skipped:`, err instanceof Error ? err.message : err);
+      return;
     }
-  }
-  rtCache = { at: now, list: out };
-  return out;
+    if (wasCapturing && wantCapture) {
+      const resume = wantCapture;
+      toWindow("audio:nativeError", { message: "Audio driver restarted — reconnecting…", suggestion: "No action needed." });
+      setTimeout(() => {
+        if (wantCapture !== resume) return; // operator changed/stopped meanwhile
+        void call<{ ok: boolean; error?: string }>("startCapture", resume, START_TIMEOUT_MS)
+          .then((r) => {
+            if (wantCapture !== resume) {
+              // Operator stopped/switched while the resume was in flight — undo it.
+              if (r?.ok) void call("stopCapture").catch(() => {});
+              return;
+            }
+            capturing = !!r?.ok;
+            if (!r?.ok) toWindow("audio:nativeError", { message: r?.error ?? FRIENDLY_GONE });
+          })
+          .catch(() => { /* next exit handler decides */ });
+      }, 1000);
+    }
+  });
+  return ready;
 }
 
-/** Blackmagic devices with audio input. Empty when driver/addon absent. */
-export function listDeckLinkAudioDevices(): NativeDevice[] {
-  const mod = loadDeckLink();
-  if (!mod) return [];
+async function call<T>(op: string, args?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<T> {
+  await ensureWorker();
+  const proc = child;
+  if (!proc) throw new Error("audio driver process unavailable");
+  const id = nextId++;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error("audio driver did not respond"));
+    }, timeoutMs);
+    pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
+    proc.postMessage({ id, op, args });
+  });
+}
+
+/** Operator re-enabled the pro driver: give the driver process a clean slate. */
+export function resetRtAudioWorkerHealth(): void {
+  disabled = false;
+  crashTimes = [];
+  availableCache = null;
+}
+
+let availableCache: { at: number; value: boolean } | null = null;
+export async function isRtAudioAvailable(): Promise<boolean> {
+  if (disabled) return false;
+  if (availableCache && Date.now() - availableCache.at < 60_000) return availableCache.value;
+  let value = false;
+  try { value = !!(await call<boolean>("isAvailable")); } catch { value = false; }
+  availableCache = { at: Date.now(), value };
+  return value;
+}
+
+export async function listRtAudioDevices(): Promise<NativeDevice[]> {
+  try { return (await call<NativeDevice[]>("listDevices")) ?? []; } catch { return []; }
+}
+
+export async function listDeckLinkAudioDevices(): Promise<NativeDevice[]> {
+  try { return (await call<NativeDevice[]>("listDeckLink")) ?? []; } catch { return []; }
+}
+
+export async function startRtAudioCapture(opts: { deviceIndex: number; channelFilter?: string }): Promise<{ ok: boolean; error?: string }> {
+  const want = { deviceIndex: opts.deviceIndex, channelFilter: opts.channelFilter };
+  wantCapture = want;
+  capturing = false;
   try {
-    if (!mod.isAvailable()) return [];
-    return mod.listDevices().map((d) => ({
-      index: encodeDeviceIndex(API_DECKLINK, d.index),
-      name: `${d.name} (Blackmagic SDI/HDMI audio)`,
-      platform: process.platform as NativeDevice["platform"],
-      channelCount: deckLinkChannels(d.channelCount),
-      sampleRate: 48000,
-    }));
-  } catch (err) {
-    console.warn("[decklink] list failed:", err instanceof Error ? err.message : err);
-    return [];
+    const r = await call<{ ok: boolean; error?: string }>("startCapture", want, START_TIMEOUT_MS);
+    if (wantCapture !== want) {
+      // Superseded while opening — make sure the worker isn't left streaming it.
+      if (r?.ok) void call("stopCapture").catch(() => {});
+      return { ok: false, error: FRIENDLY_RESTARTING };
+    }
+    capturing = !!r?.ok;
+    if (!r?.ok) wantCapture = null;
+    return r ?? { ok: false, error: FRIENDLY_RESTARTING };
+  } catch {
+    // Timed out or the worker died mid-open. The worker may still finish the open
+    // and stream — kill it so there can never be two captures feeding the AI.
+    if (wantCapture === want) wantCapture = null;
+    capturing = false;
+    killWorker(child);
+    return { ok: false, error: disabled ? FRIENDLY_UNAVAILABLE : FRIENDLY_RESTARTING };
   }
 }
 
-// ── opening inputs ───────────────────────────────────────────────────────
-type FrameFn = (pcm: Int16Array, channels: number, sampleRate: number) => void;
-type Opened = { ok: true; session: Session } | { ok: false; error: string };
+async function stopWithDeadline(op: string): Promise<void> {
+  if (!child) return;
+  try { await call(op, undefined, 2000); } catch { killWorker(child); }
+}
 
-function openInput(deviceIndex: number, onFrame: FrameFn, onStreamError: (msg: string) => void): Opened {
-  const { api, id } = decodeDeviceIndex(deviceIndex);
-  if (api === API_DECKLINK) return openDeckLink(deviceIndex, id, onFrame);
+export async function stopRtAudioCapture(): Promise<void> {
+  wantCapture = null;
+  capturing = false;
+  await stopWithDeadline("stopCapture");
+}
 
-  const mod = loadAudify();
-  if (!mod) return { ok: false, error: FRIENDLY_UNAVAILABLE };
-  if (!apisForPlatform().includes(api)) return { ok: false, error: FRIENDLY_GONE };
+export async function startRtAudioProbe(opts: { deviceIndex: number }): Promise<{ ok: boolean; error?: string }> {
   try {
-    const rt = new mod.RtAudio(api);
-    const dev = rt.getDevices().find((d) => d.id === id);
-    if (!dev || !dev.inputChannels) return { ok: false, error: FRIENDLY_GONE };
-    const channels = Math.min(dev.inputChannels, 64);
-    const sampleRate = dev.preferredSampleRate || (dev.sampleRates.includes(48000) ? 48000 : dev.sampleRates[0]);
-    const frameSize = Math.max(64, Math.round((sampleRate * FRAME_MS) / 1000));
-    let live = true;
-    rt.openStream(
-      null,
-      { deviceId: id, nChannels: channels, firstChannel: 0 },
-      FMT_SINT16,
-      sampleRate,
-      frameSize,
-      "PresentFlow",
-      (buf: Buffer) => {
-        if (!live) return; // late frame from a closed/superseded stream
-        const usable = buf.byteLength - (buf.byteLength % 2);
-        onFrame(new Int16Array(buf.buffer, buf.byteOffset, usable / 2), channels, sampleRate);
-      },
-      null,
-      0,
-      // RtAudioErrorType 0/1 = (debug) warnings, e.g. close-time chatter — log only.
-      (type, msg) => { if (type <= 1) console.log(`[rtaudio] ${msg}`); else if (live) onStreamError(msg); },
-    );
-    rt.start();
-    return {
-      ok: true,
-      session: {
-        deviceIndex, api,
-        close() {
-          live = false;
-          try { rt.stop(); } catch { /* not running */ }
-          try { if (rt.isStreamOpen()) rt.closeStream(); } catch { /* already closed */ }
-        },
-      },
-    };
-  } catch (err) {
-    return { ok: false, error: friendly(err instanceof Error ? err.message : String(err)) };
+    return (await call<{ ok: boolean; error?: string }>("startProbe", opts, START_TIMEOUT_MS)) ?? { ok: false, error: FRIENDLY_RESTARTING };
+  } catch {
+    return { ok: false, error: disabled ? FRIENDLY_UNAVAILABLE : FRIENDLY_RESTARTING };
   }
 }
 
-function openDeckLink(deviceIndex: number, id: number, onFrame: FrameFn): Opened {
-  const mod = loadDeckLink();
-  if (!mod) return { ok: false, error: "Blackmagic audio isn't included in this build of PresentFlow." };
-  if (deckLinkOwner !== null) {
-    return { ok: false, error: "A Blackmagic input is already in use by PresentFlow. Stop listening (or close the channel meters) first." };
-  }
-  const dev = listDeckLinkAudioDevices().find((d) => d.index === deviceIndex);
-  if (!dev) return { ok: false, error: "Blackmagic device not found — install Desktop Video 14.3+, allow its extensions, and reconnect the device." };
-  const channels = deckLinkChannels(dev.channelCount);
-  let live = true;
-  const res = mod.start(id, channels, (buf) => {
-    if (!live) return;
-    const usable = buf.byteLength - (buf.byteLength % 2);
-    onFrame(new Int16Array(buf.buffer, buf.byteOffset, usable / 2), channels, 48000);
-  });
-  if (!res.ok) return { ok: false, error: res.error ?? FRIENDLY_GENERIC };
-  const token = ++tokenCounter;
-  deckLinkOwner = token;
-  return {
-    ok: true,
-    session: {
-      deviceIndex, api: API_DECKLINK,
-      close() {
-        live = false;
-        if (deckLinkOwner === token) { // never stop another session's input
-          deckLinkOwner = null;
-          try { mod.stop(); } catch { /* already stopped */ }
-        }
-      },
-    },
-  };
-}
-
-// ── capture ──────────────────────────────────────────────────────────────
-type CaptureWant = { deviceIndex: number; channelFilter?: string; name?: string };
-let want: CaptureWant | null = null; // what the operator asked for (null = stopped)
-let restartTimer: NodeJS.Timeout | null = null;
-let restartAttempts = 0;
-
-function clearRestart() {
-  if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
-}
-
-function openCapture(w: CaptureWant): Opened {
-  const terms = parsePanFilter(w.channelFilter);
-  if (w.channelFilter && !terms) {
-    console.warn(`[rtaudio] channel filter not understood, using all channels: ${w.channelFilter}`);
-  }
-  let resampler: StreamingResampler | null = null;
-  let lastLevel = 0;
-  return openInput(
-    w.deviceIndex,
-    (pcm, channels, sampleRate) => {
-      if (!resampler || resampler.inRate !== sampleRate) resampler = new StreamingResampler(sampleRate, 16000);
-      const out = resampler.process(mixToMono(pcm, channels, terms));
-      if (!out.length) return;
-      if (restartAttempts > 0) restartAttempts = 0; // healthy audio heals backoff
-      send(CHANNELS.pcmChunk, out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength));
-      const now = Date.now();
-      if (now - lastLevel >= LEVEL_INTERVAL_MS) {
-        lastLevel = now;
-        const [lv] = channelLevels(out, 1);
-        send(CHANNELS.level, { rms: lv.rms, db: lv.db, peak: lv.peak });
-      }
-    },
-    (msg) => {
-      console.warn(`[rtaudio] capture stream error: ${msg}`);
-      void serial(() => scheduleReconnect(w));
-    },
-  );
-}
-
-function scheduleReconnect(w: CaptureWant) {
-  if (want !== w || restartTimer) return; // superseded, or already scheduled
-  capture?.close();
-  capture = null;
-  if (restartAttempts >= RESTART_BACKOFF_MS.length) {
-    send(CHANNELS.error, {
-      message: "The audio interface stopped responding and PresentFlow stopped retrying.",
-      suggestion: "Check the USB cable and power, then reselect the input.",
-    });
-    return;
-  }
-  const delay = RESTART_BACKOFF_MS[restartAttempts++];
-  send(CHANNELS.error, { message: "Audio interface disconnected — reconnecting…", suggestion: "Check the USB cable." });
-  restartTimer = setTimeout(() => {
-    restartTimer = null;
-    void serial(() => {
-      if (want !== w || capture) return;
-      // Re-resolve by NAME: a replug can change RtAudio's device ids.
-      rtCache = null;
-      const byName = w.name
-        ? [...listRtAudioDevices(), ...listDeckLinkAudioDevices()].find((d) => d.name === w.name)
-        : undefined;
-      const res = openCapture({ ...w, deviceIndex: byName?.index ?? w.deviceIndex });
-      if (res.ok) {
-        capture = res.session;
-        console.log("[rtaudio] capture reconnected");
-      } else {
-        scheduleReconnect(w);
-      }
-    });
-  }, delay);
-}
-
-export function startRtAudioCapture(opts: { deviceIndex: number; channelFilter?: string }): Promise<{ ok: boolean; error?: string }> {
-  return serial(() => {
-    clearRestart();
-    restartAttempts = 0;
-    capture?.close();
-    capture = null;
-    want = null;
-    const isDeckLink = decodeDeviceIndex(opts.deviceIndex).api === API_DECKLINK;
-    const { api } = decodeDeviceIndex(opts.deviceIndex);
-    if (probe && (probe.api === API_DECKLINK || probe.api === API_ASIO) && probe.api === api) {
-      probe.close(); // single-stream driver (DeckLink / ASIO) — live capture wins over meters
-      probe = null;
-    }
-    const name = (isDeckLink ? listDeckLinkAudioDevices() : listRtAudioDevices())
-      .find((d) => d.index === opts.deviceIndex)?.name;
-    const w: CaptureWant = { ...opts, name };
-    const res = openCapture(w);
-    if (!res.ok) return { ok: false, error: res.error };
-    want = w;
-    capture = res.session;
-    return { ok: true };
-  });
-}
-
-export function stopRtAudioCapture(): Promise<void> {
-  return serial(() => {
-    clearRestart();
-    want = null;
-    capture?.close();
-    capture = null;
-  });
-}
-
-// ── probe (per-channel meters) ───────────────────────────────────────────
-export function startRtAudioProbe(opts: { deviceIndex: number }): Promise<{ ok: boolean; error?: string }> {
-  return serial(() => {
-    probe?.close();
-    probe = null;
-    const { api } = decodeDeviceIndex(opts.deviceIndex);
-    if (api === API_DECKLINK && capture?.api === API_DECKLINK) {
-      return { ok: false, error: "Channel meters for Blackmagic inputs are available when listening is stopped." };
-    }
-    if (api === API_ASIO && capture?.api === API_ASIO) {
-      return { ok: false, error: "ASIO allows one stream at a time — stop listening to see per-channel meters." };
-    }
-    let window: Int16Array[] = [];
-    let lastEmit = Date.now();
-    const res = openInput(
-      opts.deviceIndex,
-      (pcm, channels) => {
-        window.push(Int16Array.from(pcm));
-        const now = Date.now();
-        if (now - lastEmit < LEVEL_INTERVAL_MS) return;
-        lastEmit = now;
-        const total = window.reduce((n, a) => n + a.length, 0);
-        const joined = new Int16Array(total);
-        let o = 0;
-        for (const a of window) { joined.set(a, o); o += a.length; }
-        window = [];
-        send(PROBE_CHANNELS.levels, channelLevels(joined, channels));
-      },
-      () => send(PROBE_CHANNELS.error, { message: FRIENDLY_GONE }),
-    );
-    if (!res.ok) return { ok: false, error: res.error };
-    probe = res.session;
-    return { ok: true };
-  });
-}
-
-export function stopRtAudioProbe(): Promise<void> {
-  return serial(() => {
-    probe?.close();
-    probe = null;
-  });
+export async function stopRtAudioProbe(): Promise<void> {
+  await stopWithDeadline("stopProbe");
 }
 
 export function isRtAudioCapturing(): boolean {
-  return capture !== null;
+  return capturing;
+}
+
+/** Window closed / app quit: stop the worker without treating its exit as a crash.
+ *  A later audio call simply starts a fresh worker. */
+export function shutdownRtAudioWorker(): void {
+  wantCapture = null;
+  capturing = false;
+  killWorker(child);
 }
