@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.450",
+    "version": "0.1.451",
     "date": "2026-09-17",
     "headline": "One Settings window — Bible, CCLI and Automations moved out of the small gear at the bottom of the panel",
     "highlights": [
@@ -13,6 +13,15 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Automations now have their own section in Settings. Creating, editing, test-running and deleting them all work exactly as before.",
       "Type \"ccli\" or \"automation\" into the Settings search box to jump straight to them.",
       "The rest of the bottom icon row is unchanged — Bible, Songs, Cross-references, Layers, Timers and Messages all stay where they were."
+    ]
+  },
+  {
+    "version": "0.1.450",
+    "date": "2026-09-17",
+    "headline": "Songs now open with your chosen song look, even on the first slide of a fresh session",
+    "highlights": [
+      "Sometimes the very first song you put up in a new session came out in the plain default look — white text, no background — until you clicked away to another item and back. That's fixed.",
+      "If your church's themes are slow to load when the console opens, PresentFlow now keeps trying for a few seconds and applies your song look as soon as they arrive. The screen updates in place, with no re-cut or flash."
     ]
   },
   {

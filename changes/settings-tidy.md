@@ -1,7 +1,7 @@
 ---
 headline: One Settings window — Bible, CCLI and Automations moved out of the small gear at the bottom of the panel
 audience: operator
-version: 0.1.450
+version: 0.1.451
 date: 2026-09-17
 highlights:
   - The small gear at the bottom-right of the operator panel is gone. There is now one Settings window, opened by the gear at the top next to the Present Flow logo.
