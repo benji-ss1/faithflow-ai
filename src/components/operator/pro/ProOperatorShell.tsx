@@ -61,6 +61,7 @@ import { RightIconBar } from "./right/RightIconBar";
 import { VerticalClearRail } from "./right/VerticalClearRail";
 import { Pp7ClearRail } from "./right/Pp7ClearRail";
 import { usePp7Layers } from "@/lib/pp7-layers-flag";
+import { pp7MessagesLive } from "@/lib/pp7-layer-model";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
@@ -2541,7 +2542,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // preview + F-key clears + Media Bin clicks go behind the words.
   const pp7Layers = usePp7Layers() && ctx.layersEngineOn;
   // PP7: timers show through the Messages layer, so they light and clear with it.
-  const pp7MessagesActive = messages.state.showing || messagesBoard.active.some((m) => !m.hidden) || timer.state.shown || timers.slots.some((t) => t.shown);
+  const pp7MessagesActive = pp7MessagesLive({
+    messagesShowing: messages.state.showing,
+    boardHasVisible: messagesBoard.active.some((m) => !m.hidden),
+    timerShown: timer.state.shown,
+    anyTimerSlotShown: timers.slots.some((t) => t.shown),
+  });
   const pp7MsgRef = useRef({ messages, messagesBoard, timer, timers });
   pp7MsgRef.current = { messages, messagesBoard, timer, timers };
   const pp7ClearMessages = useCallback(() => {

@@ -17,13 +17,15 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Music, Send, Layers, Megaphone, SquareMenu, Image as ImageIcon, Video, X } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
-import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
-import { clearVideoInputLive } from "@/lib/video-input-clear";
 import { shouldIgnore, anyOverlayOpen } from "@/hooks/useOperatorHotkeys";
 import {
   PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, PP7_CLEAR_KEY, decodePp7ClearKey,
-  isMediaSlideKind, isEmptySlideKind, type Pp7ClearLayer,
+  type Pp7ClearLayer,
 } from "@/lib/pp7-clear";
+import {
+  PP7_LAYER_AVAILABLE, pp7AnyLive, pp7ClearAll, pp7ClearLayer, pp7LayerActive,
+} from "@/lib/pp7-layer-model";
+import { usePp7LayerInputs, usePp7ClearEffects } from "./usePp7Layers";
 
 const ICONS: Record<Pp7ClearLayer, React.ComponentType<{ className?: string }>> = {
   audio: Music,
@@ -48,66 +50,24 @@ export function Pp7ClearRail({
   messagesActive: boolean;
   onClearMessages: () => void;
 }) {
-  const kind = ctx.liveSlide?.kind;
-  const row = useCallback(
-    (id: string) => ctx.liveLayers.rows.find((r) => r.id === id),
-    [ctx.liveLayers.rows],
+  // The layer mapping + clear actions live in the shared pure model so this
+  // rail and the PP7 Layers panel can never disagree (src/lib/pp7-layer-model.ts).
+  const inputs = usePp7LayerInputs(ctx, messagesActive);
+  const effects = usePp7ClearEffects(ctx, onClearMessages);
+
+  const active = useMemo(() => pp7LayerActive(inputs), [inputs]);
+  const available = PP7_LAYER_AVAILABLE;
+
+  const clear = useCallback(
+    (layer: Pp7ClearLayer) => pp7ClearLayer(layer, inputs, effects),
+    [inputs, effects],
   );
-
-  const active: Record<Pp7ClearLayer, boolean> = useMemo(() => ({
-    audio: false, // no audio layer yet
-    messages: messagesActive,
-    props: !!row("logo")?.active,
-    announcements: !!ctx.announcement,
-    slide: !isEmptySlideKind(kind) && !isMediaSlideKind(kind) && !!row("slide")?.active,
-    // Background row is off while a camera is live (legacy plan), but under PP7
-    // order the media still paints over the camera — read the base too.
-    media: !!row("background")?.active || (!!ctx.background && ctx.background.type !== "none" && !!ctx.videoInput) || (isMediaSlideKind(kind) && !!row("slide")?.active),
-    videoInput: !!ctx.videoInput && !!row("camera")?.active,
-  }), [messagesActive, row, ctx.announcement, ctx.background, ctx.videoInput, kind]);
-
-  const available: Record<Pp7ClearLayer, boolean> = {
-    audio: false, messages: true, props: true, announcements: true, slide: true, media: true, videoInput: true,
-  };
-
-  const clear = useCallback((layer: Pp7ClearLayer) => {
-    switch (layer) {
-      case "slide":
-        if (!isMediaSlideKind(ctx.liveSlide?.kind)) ctx.onKill();
-        return;
-      case "media":
-        setActiveBackgroundId("none");
-        // A background override can show while the base store is already none
-        // (e.g. a Layers-panel swap) — clear the layer too so it really goes.
-        if (row("background")?.active) ctx.liveLayers.clearLayer("background");
-        if (isMediaSlideKind(ctx.liveSlide?.kind)) ctx.onKill();
-        return;
-      case "videoInput":
-        // Stop the feed like the camera panel's Clear, so it can go live again.
-        if (ctx.videoInput) clearVideoInputLive();
-        return;
-      case "props":
-        if (row("logo")?.active) ctx.liveLayers.clearLayer("logo");
-        return;
-      case "announcements":
-        ctx.onSetAnnouncement(null);
-        return;
-      case "messages":
-        onClearMessages();
-        return;
-      case "audio":
-        return;
-    }
-  }, [ctx, row, onClearMessages]);
 
   // Clear All = every PP7 layer clear, plus the livestream lower third. Runs the
   // per-layer clears (not liveLayers.clearAll) so the camera, media and slide all
   // work normally afterwards. The theme logo (Props) stays off until re-enabled
   // from the Layers panel, as a cleared prop does in ProPresenter.
-  const clearAll = useCallback(() => {
-    for (const layer of PP7_CLEAR_ORDER) clear(layer);
-    ctx.onClearLowerThird?.();
-  }, [ctx, clear]);
+  const clearAll = useCallback(() => pp7ClearAll(inputs, effects), [inputs, effects]);
 
   // F1–F7 (PP7 shortcuts). Ignored while typing, with modifiers, or while a
   // dialog/menu is open (same guard as the operator hotkeys). Audio (F5) has no
@@ -127,7 +87,7 @@ export function Pp7ClearRail({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const anyLive = PP7_CLEAR_ORDER.some((l) => active[l]);
+  const anyLive = pp7AnyLive(active);
 
   return (
     <div
