@@ -47,7 +47,7 @@ const ok = (cond: boolean | RegExpMatchArray | null, msg: string) => { assert.ok
   ok(/eq\(themes\.id, themeId\), eq\(themes\.churchId, user\.churchId\)/.test(b), "theme church-scoped");
   ok(/eq\(songs\.id, songId\), eq\(songs\.churchId, user\.churchId\)\)\)\.for\("update"\)/.test(b), "song church-scoped + row-locked");
   ok(/slides\.length !== ids\.length\) return \{ ok: false, error: "Slide not found" \}/.test(b), "foreign/other-song slide ids reject the whole batch");
-  ok(/if \(!\(slide\.id in backups\)\) backups\[slide\.id\] = \{ objectsJson: slide\.objectsJson \?\? null, themeId \}/.test(b), "first-snapshot backups tagged with themeId");
+  ok(/if \(!\(slide\.id in backups\)\) backups\[slide\.id\] = \{ objectsJson: slide\.objectsJson \?\? null, themeId, bakedConfigs: \[pickBakedConfig\(cfg\)\] \}/.test(b), "first-snapshot backups tagged with themeId + server-side baked config");
   const helper = src.slice(src.indexOf("function cleanSlideIds("), src.indexOf("export async function applyThemeToSongSlides("));
   ok(/THEME_UUID_RE\.test\(id\)/.test(helper) && /MAX_BATCH_SLIDES/.test(helper), "helper rejects non-uuid ids and oversized batches");
 }

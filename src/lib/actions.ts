@@ -4,7 +4,7 @@ import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { adHocCleanupTargets, recentChurchDayKeys } from "./operator-plan-select";
 import { getDb } from "./db/client";
 import { bakeThemeIntoObjectsJson } from "./theme-bake";
-import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide, resetThemeOwnedFields, pruneThemeBackup, reapplyFieldsForConfigs, copyThemeBackupForDuplicate } from "./theme-rebake";
+import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide, resetThemeOwnedFields, pruneThemeBackup, reapplyFieldsForConfigs, copyThemeBackupForDuplicate, appendBakedConfig, readBakedConfigs, pickBakedConfig, type BakeableThemeConfigList } from "./theme-rebake";
 import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
@@ -2476,7 +2476,17 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
     // with A's baked slides, so "undo" restored A, never the original). Slides
     // created after the first apply are added; entries for deleted slides pruned.
     const merged0 = mergeThemeBackup(prevSettings.themeBackup, slides.map((s) => ({ id: s.id, objectsJson: s.objectsJson ?? null })), themeId);
-    const backup = pruneThemeBackup(merged0, slides.map((s) => s.id)) ?? merged0;
+    const pruned0 = pruneThemeBackup(merged0, slides.map((s) => s.id)) ?? merged0;
+    // Remember (server-side) which theme config(s) these slides are baked with,
+    // so a later re-apply can tell theme leftovers from operator-set backgrounds.
+    const prevBackupCfgs = readBakedConfigs((prevSettings.themeBackup as Record<string, unknown> | undefined)?.bakedConfigs);
+    const perSlidePrev = Object.values((prevSettings.slideThemeBackups as Record<string, Record<string, unknown>> | undefined) ?? {});
+    const perSlideCfgs = perSlidePrev.flatMap((e) => readBakedConfigs(e?.bakedConfigs) ?? []);
+    const legacyThemed = (typeof prevSettings.appliedThemeId === "string" && !prevBackupCfgs) || perSlidePrev.some((e) => !readBakedConfigs(e?.bakedConfigs));
+    const priorCfgs: BakeableThemeConfigList | undefined = prevBackupCfgs || perSlideCfgs.length ? [...(prevBackupCfgs ?? []), ...perSlideCfgs] : undefined;
+    const bakedConfigs = appendBakedConfig(priorCfgs, cfg, legacyThemed);
+    const { bakedConfigs: _drop, ...pruned0Rest } = pruned0; void _drop;
+    const backup = bakedConfigs ? { ...pruned0Rest, bakedConfigs } : pruned0Rest;
     // The bake (contrast guard, black-bg sentinel, gradient pass-through, theme
     // wins) lives in ONE place — theme-bake.ts — shared with the per-slide
     // override and the theme-editor re-apply (see test/theme-bake.test.ts).
@@ -2551,8 +2561,16 @@ export async function applyThemeToSongSlides(themeId: string, songId: string, sl
       // Only snapshot the ORIGINAL look once, so re-applying different themes to
       // the same slide still reverts to the pre-override state. themeId records
       // which theme owns the override (re-apply skips other themes' slides).
-      if (!(slide.id in backups)) backups[slide.id] = { objectsJson: slide.objectsJson ?? null, themeId };
-      else backups[slide.id] = { ...(backups[slide.id] as Record<string, unknown>), themeId };
+      // bakedConfigs: which configs this override baked (server-side memory for
+      // re-apply). A fresh snapshot IS the current look ⇒ just this config; an
+      // existing legacy entry (no stored configs) stays legacy.
+      if (!(slide.id in backups)) backups[slide.id] = { objectsJson: slide.objectsJson ?? null, themeId, bakedConfigs: [pickBakedConfig(cfg)] };
+      else {
+        const prevEntry = backups[slide.id] as Record<string, unknown>;
+        const bc = appendBakedConfig(readBakedConfigs(prevEntry.bakedConfigs), cfg, true);
+        const { bakedConfigs: _old, ...rest } = prevEntry; void _old;
+        backups[slide.id] = { ...rest, themeId, ...(bc ? { bakedConfigs: bc } : {}) };
+      }
     }
     await writeSongSlideObjects(tx, songId, slides.map((sl) => ({ id: sl.id, objectsJson: bakeThemeIntoObjectsJson(cfg, sl.objectsJson) })));
     await tx.update(songs).set({ settings: { ...prevSettings, slideThemeBackups: backups } })
@@ -2686,8 +2704,15 @@ export async function countSongsUsingTheme(themeId: string, opts: { checkSongId?
   return { ok: true, data: { count: Number(row?.n ?? 0), includesCheckedSong } };
 }
 
+function perSlideTouched(settings: Record<string, unknown>, slideId: string, themeId: string): boolean {
+  const e = ((settings.slideThemeBackups as Record<string, Record<string, unknown>> | undefined) ?? {})[slideId];
+  return !!e && e.themeId === themeId;
+}
+
 export async function reapplyThemeToSongs(
   themeId: string,
+  // previousConfig is accepted for old clients but IGNORED: what each song was
+  // baked with is stored server-side on the song (themeBackup/slideThemeBackups).
   opts: { cursor?: string | null; limit?: number; previousConfig?: unknown } = {},
 ): Promise<Result<{ updated: number; nextCursor: string | null }>> {
   const user = await requireCap("edit_library");
@@ -2707,7 +2732,6 @@ export async function reapplyThemeToSongs(
   // sets NOW or SET BEFORE are reset — an operator's own value for a field no
   // theme version set is left alone. previousConfig is only read for WHICH
   // keys exist (whitelisted field names).
-  const fields = reapplyFieldsForConfigs([cfg, opts.previousConfig]);
   const base = songsUsingThemeWhere(user.churchId, themeId);
   const page = await db.select({ id: songs.id }).from(songs)
     .where(cursor ? and(base, sql`${songs.id} > ${cursor}::uuid`) : base)
@@ -2723,20 +2747,35 @@ export async function reapplyThemeToSongs(
         .from(songSlides).where(eq(songSlides.songId, songId));
       const additions: { id: string; objectsJson: unknown }[] = [];
       const rows: { id: string; objectsJson: unknown }[] = [];
+      const perSlideRebaked: string[] = [];
       for (const sl of slides) {
         const src = reapplySourceForSlide(themeId, sl, settings);
         if (!src) continue; // per-slide override of another theme, or not this theme
         if (src.addToBackup) additions.push({ id: sl.id, objectsJson: sl.objectsJson ?? null });
-        rows.push({ id: sl.id, objectsJson: rebakeThemeFromOriginal(cfg, sl.objectsJson, src.original, fields, opts.previousConfig) });
+        // Text fields: those the theme sets NOW or the configs this slide was
+        // baked with (server-stored). Legacy (none stored): the new config only.
+        const fields = reapplyFieldsForConfigs([cfg, ...(src.bakedConfigs ?? [])]);
+        rows.push({ id: sl.id, objectsJson: rebakeThemeFromOriginal(cfg, sl.objectsJson, src.original, fields, src.bakedConfigs) });
+        if (perSlideTouched(settings, sl.id, themeId)) perSlideRebaked.push(sl.id);
       }
       await writeSongSlideObjects(tx, songId, rows);
+      // After a rebake every touched slide = snapshot + THIS config (+ kept
+      // operator values), so the stored baked-config list becomes [cfg].
+      let nextSettings: Record<string, unknown> | null = null;
       if (settings.appliedThemeId === themeId) {
         const merged = additions.length > 0 ? mergeThemeBackup(settings.themeBackup, additions, themeId) : settings.themeBackup;
         const pruned = pruneThemeBackup(merged, slides.map((x) => x.id));
-        if (pruned) {
-          await tx.update(songs).set({ settings: { ...settings, themeBackup: pruned } })
-            .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
-        }
+        if (pruned) nextSettings = { ...settings, themeBackup: { ...pruned, bakedConfigs: [pickBakedConfig(cfg)] } };
+      }
+      if (perSlideRebaked.length > 0) {
+        const base0 = nextSettings ?? settings;
+        const per = { ...((base0.slideThemeBackups as Record<string, Record<string, unknown>>) ?? {}) };
+        for (const id of perSlideRebaked) per[id] = { ...per[id], bakedConfigs: [pickBakedConfig(cfg)] };
+        nextSettings = { ...base0, slideThemeBackups: per };
+      }
+      if (nextSettings) {
+        await tx.update(songs).set({ settings: nextSettings })
+          .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
       }
       return rows.length > 0;
     });

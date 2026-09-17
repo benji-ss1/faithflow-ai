@@ -9,6 +9,7 @@
 // objects) always comes from the CURRENT slide, so edits made since the first
 // apply are kept.
 import { bakeThemeIntoObjectsJson, type BakeableThemeConfig } from "./theme-bake";
+export type { BakeableThemeConfig };
 
 export const THEME_OWNED_SLIDE_FIELDS = ["bgType", "bgColor", "bgColor2", "bgImageUrl", "transition"] as const;
 export const THEME_OWNED_TEXT_FIELDS = ["fontFamily", "fontSize", "fontWeight", "color", "align"] as const;
@@ -18,6 +19,41 @@ const asObj = (v: unknown): Obj => (v && typeof v === "object" && !Array.isArray
 
 function sameValue(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+function isOperatorSetBg(k: string, cur: Obj, orig: Obj, originalObjectsJson: unknown, bakedConfigs: BakeableThemeConfig[]): boolean {
+  if (sameValue(cur[k], orig[k])) return false;
+  for (const c of bakedConfigs) {
+    if (sameValue(cur[k], bakeThemeIntoObjectsJson(c, originalObjectsJson)[k])) return false;
+  }
+  return true;
+}
+
+const BAKEABLE_KEYS = ["fontFamily", "fontSizePx", "fontWeight", "textColor", "align", "bgType", "bgColor", "bgColor2", "bgImageUrl", "transition"] as const;
+/** The bake-relevant subset of a theme config (no layout/media blobs) — what a
+ *  song stores to remember what it was baked with. */
+export function pickBakedConfig(cfg: unknown): BakeableThemeConfig {
+  const c = asObj(cfg);
+  const out: Obj = {};
+  for (const k of BAKEABLE_KEYS) if (c[k] !== undefined && c[k] !== null) out[k] = c[k];
+  return out as BakeableThemeConfig;
+}
+export type BakeableThemeConfigList = BakeableThemeConfig[];
+const MAX_BAKED_CONFIGS = 5;
+/** Stored baked-config list, or undefined when absent/malformed (legacy). */
+export function readBakedConfigs(v: unknown): BakeableThemeConfig[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.filter((x) => x && typeof x === "object" && !Array.isArray(x)).map((x) => pickBakedConfig(x));
+}
+/**
+ * The baked-config list to store after baking `cfg` ON TOP of a slide's current
+ * look. `prior` = configs already baked into it; `legacyThemed` = the slide
+ * already carries a theme bake with no stored config ⇒ stay legacy (undefined),
+ * so a later re-apply keeps today's reset-all behaviour for it.
+ */
+export function appendBakedConfig(prior: BakeableThemeConfig[] | undefined, cfg: unknown, legacyThemed: boolean): BakeableThemeConfig[] | undefined {
+  if (!prior && legacyThemed) return undefined;
+  return [...(prior ?? []), pickBakedConfig(cfg)].slice(-MAX_BAKED_CONFIGS);
 }
 
 function copyField(target: Obj, source: Obj, key: string) {
@@ -66,22 +102,20 @@ export function reapplyFieldsForConfigs(configs: unknown[]): ThemeOwnedFields {
 /**
  * Restore theme-owned fields on `current` from `original` (no bake).
  *
- * `previousConfig` (review fix 🟡4): when given, a BACKGROUND field is only reset
- * if its current value is still what that previous theme baked onto the
- * snapshot (i.e. theme-owned / leftover). A background the operator set by hand
- * after applying the theme differs from the baked value and is kept. When the
- * previous config is unknown (undefined) every background field is reset — the
- * leftover case this rule exists for.
+ * `bakedConfigs` (review fix): the theme config(s) THIS slide was actually baked
+ * with, stored SERVER-SIDE on the song at bake time (never from the client).
+ * When given, a BACKGROUND field is only reset if its current value is the
+ * snapshot's or what one of those configs baked onto the snapshot (theme-owned /
+ * leftover — including a song baked on an OLDER theme version). A background the
+ * operator set by hand matches none of them and is kept. Undefined (legacy song,
+ * no stored config) ⇒ every background field is reset, as before.
  */
-export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS, previousConfig?: unknown): Obj {
+export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS, bakedConfigs?: BakeableThemeConfig[]): Obj {
   const cur = asObj(currentObjectsJson);
   const orig = asObj(originalObjectsJson);
   const out: Obj = { ...cur };
-  const prevBaked = previousConfig && typeof previousConfig === "object"
-    ? bakeThemeIntoObjectsJson(previousConfig as BakeableThemeConfig, originalObjectsJson)
-    : null;
   for (const k of fields.slide) {
-    if (prevBaked && !sameValue(cur[k], prevBaked[k]) && !sameValue(cur[k], orig[k])) continue; // operator-set: keep
+    if (bakedConfigs && isOperatorSetBg(k, cur, orig, originalObjectsJson, bakedConfigs)) continue; // operator-set: keep
     copyField(out, orig, k);
   }
   const origObjects = Array.isArray(orig.objects) ? (orig.objects as Obj[]) : [];
@@ -100,9 +134,9 @@ export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjec
 }
 
 /** Reset theme-owned fields from the snapshot, then bake the (current) theme. */
-export function rebakeThemeFromOriginal(cfg: BakeableThemeConfig, currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS, previousConfig?: unknown): Obj {
-  const reset = resetThemeOwnedFields(currentObjectsJson, originalObjectsJson, fields, previousConfig);
-  if (previousConfig && typeof previousConfig === "object") {
+export function rebakeThemeFromOriginal(cfg: BakeableThemeConfig, currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS, bakedConfigs?: BakeableThemeConfig[]): Obj {
+  const reset = resetThemeOwnedFields(currentObjectsJson, originalObjectsJson, fields, bakedConfigs);
+  if (bakedConfigs) {
     // Keep operator-set backgrounds through the bake too: the new theme must not
     // overwrite a field the operator chose by hand.
     const cur = asObj(currentObjectsJson);
@@ -116,7 +150,7 @@ export function rebakeThemeFromOriginal(cfg: BakeableThemeConfig, currentObjects
 }
 
 export type ThemeBackupEntry = { id: string; objectsJson: unknown };
-export type ThemeBackup = { slides: ThemeBackupEntry[]; themeId?: string };
+export type ThemeBackup = { slides: ThemeBackupEntry[]; themeId?: string; bakedConfigs?: BakeableThemeConfig[] };
 
 /**
  * Preserve the FIRST pre-theme snapshot across repeated applies (the revert
@@ -132,7 +166,8 @@ export function mergeThemeBackup(prev: unknown, slides: { id: string; objectsJso
     : [];
   const have = new Set(prevSlides.map((e) => e.id));
   const added = slides.filter((s) => !have.has(s.id)).map((s) => ({ id: s.id, objectsJson: s.objectsJson ?? null }));
-  return { slides: [...prevSlides, ...added], themeId };
+  const bc = readBakedConfigs(p.bakedConfigs);
+  return { slides: [...prevSlides, ...added], themeId, ...(bc ? { bakedConfigs: bc } : {}) };
 }
 
 /**
@@ -148,20 +183,23 @@ export function reapplySourceForSlide(
   themeId: string,
   slide: { id: string; objectsJson: unknown },
   settings: unknown,
-): { original: unknown; addToBackup: boolean } | null {
+): { original: unknown; addToBackup: boolean; bakedConfigs?: BakeableThemeConfig[] } | null {
   const s = asObj(settings);
   const perSlide = asObj(s.slideThemeBackups)[slide.id];
   if (perSlide !== undefined) {
     const entry = asObj(perSlide);
     if (entry.themeId !== themeId) return null;
-    return { original: entry.objectsJson ?? null, addToBackup: false };
+    const bc = readBakedConfigs(entry.bakedConfigs);
+    return { original: entry.objectsJson ?? null, addToBackup: false, ...(bc ? { bakedConfigs: bc } : {}) };
   }
   if (s.appliedThemeId !== themeId) return null;
   const backup = asObj(s.themeBackup);
   const list = Array.isArray(backup.slides) ? (backup.slides as Obj[]) : [];
   const hit = list.find((e) => e && e.id === slide.id);
-  if (hit) return { original: hit.objectsJson ?? null, addToBackup: false };
-  return { original: slide.objectsJson ?? null, addToBackup: true };
+  const bakedConfigs = readBakedConfigs(backup.bakedConfigs);
+  if (hit) return { original: hit.objectsJson ?? null, addToBackup: false, ...(bakedConfigs ? { bakedConfigs } : {}) };
+  // Slide created after the apply: its current look IS the snapshot.
+  return { original: slide.objectsJson ?? null, addToBackup: true, ...(bakedConfigs ? { bakedConfigs } : {}) };
 }
 
 /** Drop backup entries whose slides no longer exist. */
@@ -170,7 +208,8 @@ export function pruneThemeBackup(backup: unknown, existingSlideIds: Iterable<str
   if (!Array.isArray(b.slides)) return undefined;
   const ids = new Set(existingSlideIds);
   const slides = (b.slides as unknown[]).filter((e): e is ThemeBackupEntry => !!e && typeof (e as Obj).id === "string" && ids.has((e as Obj).id as string));
-  return { slides, ...(typeof b.themeId === "string" ? { themeId: b.themeId } : {}) };
+  const bc = readBakedConfigs(b.bakedConfigs);
+  return { slides, ...(typeof b.themeId === "string" ? { themeId: b.themeId } : {}), ...(bc ? { bakedConfigs: bc } : {}) };
 }
 
 /**
