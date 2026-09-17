@@ -59,11 +59,20 @@ jobs:
         run: npm version "${{ github.event.inputs.version }}" --no-git-tag-version
 
       - name: Verify native audio module (RtAudio / audify) loads
-        # Hardware I/O Phase B (opt-in pro audio driver). NON-BLOCKING: the app
-        # degrades to standard capture without it, so a flaky prebuild download
-        # must never block a release — but the warning makes the gap visible.
-        continue-on-error: true
-        run: node -e "const {RtAudio}=require('audify'); new RtAudio(); console.log('audify OK', process.arch)"
+        # Hosted Windows runners ship with the Windows Audio service STOPPED, and
+        # RtAudio segfaults when enumerating with no audio stack (exit 139 = red
+        # log noise, not a real-PC problem). Start the service, then load audify
+        # in a CHILD process — exactly how the app itself probes it — so a crash
+        # is reported as a warning instead of killing the step.
+        shell: pwsh
+        run: |
+          Set-Service -Name Audiosrv -StartupType Manual -ErrorAction SilentlyContinue
+          Start-Service -Name AudioEndpointBuilder -ErrorAction SilentlyContinue
+          Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
+          Get-Service Audiosrv, AudioEndpointBuilder | Format-Table Name, Status
+          node scripts/verify-audify.cjs
+          if ($LASTEXITCODE -ne 0) { Write-Host "::warning::audify did not load cleanly on the runner (exit $LASTEXITCODE). The app falls back to standard capture if this happens on a real PC." }
+          exit 0
 
       # NDI: the license-gated SDK isn't in the repo. Download NDI's own installer,
       # install it silently (Inno Setup), and build both native addons against

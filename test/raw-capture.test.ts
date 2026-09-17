@@ -48,6 +48,13 @@ check("legacy entry (no enabled) = on", isRawCaptureEnabled("old", "Old"));
 store.set("presentflow.audio.rawCapture.v1", "{corrupt");
 check("corrupt storage → default", isRawCaptureEnabled("dev-x32", "X32 USB") && !isRawCaptureEnabled("laptop", "MacBook Pro Microphone"));
 
+// 2026-09-17 church gear research (IE/UK/EU top 20): separate channels ON by default
+for (const n of ["X-USB", "DN32-USB", "SQ Audio", "Qu-16", "X18/XR18", "MR18", "Ui24R", "Yamaha TF", "TF5", "WING", "Yamaha DM3", "CQ-20B", "StudioLive 32", "Signature 12 MTK", "Yamaha Steinberg USB", "Scarlett 4i4 USB", "UMC404HD 192k", "Blackmagic Design", "DL32S", "LiveTrak L-12", "ZEDi-10"]) {
+  check(`church device raw by default: ${n}`, isRawCaptureEnabled(`id-${n}`, n));
+}
+check("not a mixer: 'Wingman headset'", !isRawCaptureEnabled("w", "Wingman headset"));
+check("not a mixer: 'L-1200 speaker'", !isRawCaptureEnabled("l", "L-1200 speaker"));
+
 // Phase C: Blackmagic embedded audio must never be auto-picked over a real mic
 check("blackmagic ranks after built-in mic", rankNativeDevice("UltraStudio Recorder 3G (Blackmagic SDI/HDMI audio)") > rankNativeDevice("MacBook Pro Microphone"));
 check("mixer still wins", pickBestNativeDevice([

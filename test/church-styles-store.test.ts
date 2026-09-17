@@ -18,7 +18,7 @@ const events: string[] = [];
 import {
   hydrateChurchStyles, hydrateChurchStylesInitial, getScriptureStyle, getContentTypeStyles, applyPeerChurchStyles,
   registerChurchStylesRemote, flushPending, hasPendingChurchStyles, __resetChurchStylesStore, churchStylesSnapshotFromPrefs,
-  isContentTypeEditDenied, restorePendingWrites,
+  isContentTypeEditDenied, restorePendingWrites, setCanEditLibrary,
   type ChurchStylesSnapshot, type PendingWrites,
 } from "../src/lib/church-styles-store";
 import { loadScriptureStyle, saveScriptureStyle, clearScriptureStyle, hasSavedScriptureStyle, applyChurchLayout, DEFAULT_SCRIPTURE_DESIGN } from "../src/components/operator/scripture/scriptureStyle";
@@ -283,6 +283,15 @@ async function main() {
     assert.equal(events.length, 0, "nothing dispatched inside the render");
     await Promise.resolve();
     assert.ok(events.includes("pf-scripture-style-changed"), "dispatched on the microtask");
+  });
+
+  await check("picker disabled up front from server canEditLibrary (no refusal needed)", () => {
+    hydrateChurchStylesInitial(A, snap(null, {}));
+    setCanEditLibrary(A, false);
+    assert.equal(isContentTypeEditDenied(A), true);
+    assert.equal(isContentTypeEditDenied(B), false, "per church");
+    setCanEditLibrary(A, true);
+    assert.equal(isContentTypeEditDenied(A), false);
   });
 
   await check("snapshot from prefs row", () => {

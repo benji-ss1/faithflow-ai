@@ -103,4 +103,15 @@ const bridge = readFileSync("src/components/layout/RealtimeSyncBridge.tsx", "utf
 const line = bridge.split("\n").find((l) => l.includes('table: "church_preferences"')) ?? "";
 ok(/filter \}/.test(line) && /refreshChurchStylesFromServer\(churchId\)/.test(line) && !/scheduleRefresh/.test(line), "church_preferences → styles refetch only, church-filtered");
 
+// ── picker disabled up front: server pages pass the session capability ──
+for (const f of ["src/app/(app)/operator/page.tsx", "src/app/services/[id]/operate/page.tsx"]) {
+  ok(/canEditLibrary=\{hasCap\(user\.role, "edit_library"\)\}/.test(readFileSync(f, "utf8")), `${f} passes canEditLibrary from the session`);
+}
+const oc = readFileSync("src/components/operator/OperatorConsole.tsx", "utf8");
+ok(/setCanEditLibrary\(churchId, canEditLibrary\)/.test(oc), "OperatorConsole records the capability in the first render");
+const tm = readFileSync("src/components/library/ThemesManager.tsx", "utf8");
+ok(/setDenied\(isContentTypeEditDenied\(\)\)/.test(tm) && /disabled=\{denied\}/.test(tm), "picker disabled when denied (up front or after refusal)");
+const note = readFileSync("changes/church-styles.md", "utf8");
+ok(/within about a minute/.test(note) && !/few seconds/.test(note), "What's New promises about a minute, not seconds");
+
 console.log(`church-styles-scope: ${n} assertions passed`);

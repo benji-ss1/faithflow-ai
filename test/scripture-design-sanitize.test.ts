@@ -69,6 +69,10 @@ ok(hard.verse.fontSize === DEFAULT_SCRIPTURE_DESIGN.verse.fontSize, "string font
 ok(hard.verse.x === DEFAULT_SCRIPTURE_DESIGN.verse.x, "null x → default");
 ok(!("evil" in hard.verse), "unknown key dropped");
 ok(hard.verse.align === "center", "bad align → default");
+const css = sanitizeScriptureDesign({ verse: { stroke: "red;--x:url(evil)", fontFamily: "Sora; background:url(x)" }, reference: { stroke: "rgba(0,0,0,0.5)", fontFamily: "'Open Sans', sans-serif" } })!;
+ok(css.verse.stroke === DEFAULT_SCRIPTURE_DESIGN.verse.stroke, "CSS-injection stroke → default");
+ok(css.verse.fontFamily === DEFAULT_SCRIPTURE_DESIGN.verse.fontFamily, "CSS-injection fontFamily → default");
+ok(css.reference.stroke === "rgba(0,0,0,0.5)" && css.reference.fontFamily === "'Open Sans', sans-serif", "valid colour/font kept");
 ok(sanitizeScriptureDesign(null) === null && sanitizeScriptureDesign("x") === null && sanitizeScriptureDesign([]) === null, "non-object → null");
 ok(SCRIPTURE_DESIGN_MAX_BYTES === 16 * 1024, "16KB cap");
 // 4. content-type styles

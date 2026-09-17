@@ -65,7 +65,7 @@ import { ZoneEditor } from "./zone/ZoneEditor";
 import { useShell } from "@/hooks/useShell";
 import { publishSongLibrary } from "@/lib/song-lyric-search-store";
 import { liveContentKey } from "@/lib/layer-store";
-import { hydrateChurchStylesInitial, getContentTypeStyles, CONTENT_TYPE_STYLES_EVENT, type ChurchStylesSnapshot } from "@/lib/church-styles-store";
+import { hydrateChurchStylesInitial, setCanEditLibrary, getContentTypeStyles, CONTENT_TYPE_STYLES_EVENT, type ChurchStylesSnapshot } from "@/lib/church-styles-store";
 import { startChurchStylesSync } from "@/lib/church-styles-sync";
 
 type Cursor = { itemIdx: number; slideIdx: number };
@@ -114,7 +114,7 @@ const SERVICE_MODE_KEY = "presentflow.pro.serviceMode.v1";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, scenesEnabled: scenesEnabledProp = false, initialShell, initialChurchStyles = null }: {
+export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, scenesEnabled: scenesEnabledProp = false, initialShell, initialChurchStyles = null, canEditLibrary }: {
   plan: ExpandedPlan;
   /** /operator only: the `?plan=` id no longer exists, so `plan` is a fallback to adopt. */
   pinnedPlanMissing?: boolean;
@@ -129,12 +129,18 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   initialShell?: "desktop" | "web";
   /** PR B: the church's Scripture Style + content-type themes from church_preferences. */
   initialChurchStyles?: ChurchStylesSnapshot | null;
+  /** PR B: session has edit_library (content-type default themes picker). Undefined = unknown → server refusal path only. */
+  canEditLibrary?: boolean;
 }) {
   // PR B (per-church styles): hydrate the synchronous style cache from server
   // props in the FIRST render — before any hook below can send a slide — so
   // applyChurchLayout/styleScriptureSlide read the church's style, not this
   // machine's. useState initializer = runs exactly once per mount.
-  useState(() => { hydrateChurchStylesInitial(churchId, initialChurchStyles); return null; });
+  useState(() => {
+    hydrateChurchStylesInitial(churchId, initialChurchStyles);
+    if (typeof canEditLibrary === "boolean") setCanEditLibrary(churchId, canEditLibrary);
+    return null;
+  });
   useEffect(() => startChurchStylesSync(churchId, initialChurchStyles ?? null), [churchId]); // eslint-disable-line react-hooks/exhaustive-deps
   const router = useRouter();
   // Voice command "give me NIV" (and future variants) can override the

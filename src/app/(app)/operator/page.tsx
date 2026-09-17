@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { isUuid } from "@/lib/operator-plan-select";
 import { cookies, headers } from "next/headers";
-import { requireUser } from "@/lib/session";
+import { requireUser, hasCap } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { churches, servicePlans, churchPreferences, bibleTranslations, settings as churchSettings } from "@/lib/db/schema";
 import { getTodayInChurchTz } from "@/lib/dates";
@@ -153,6 +153,7 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
       layersV2={prefs?.layersV2 ?? true}
       scenesEnabled={prefs?.scenesEnabled ?? false}
       initialChurchStyles={churchStylesSnapshotFromPrefs(prefs)}
+      canEditLibrary={hasCap(user.role, "edit_library")}
       initialShell={initialShell}
     />
   );

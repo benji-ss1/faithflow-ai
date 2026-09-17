@@ -221,6 +221,15 @@ export function isChurchStylesHydrated(churchId: string): boolean {
   return !!entries.get(churchId)?.hydrated;
 }
 export function getActiveStylesChurchId(): string | null { return activeChurchId; }
+/**
+ * Record the session's edit_library capability (server page props, hasCap on
+ * the session) so the content-type picker is disabled UP FRONT for volunteers.
+ * The server still enforces it; a refusal also marks the church denied.
+ */
+export function setCanEditLibrary(churchId: string, canEdit: boolean): void {
+  if (!hasWindow() || !churchId) return;
+  if (canEdit) ctsEditDenied.delete(churchId); else ctsEditDenied.add(churchId);
+}
 export function isContentTypeEditDenied(churchId?: string): boolean {
   const id = churchId || activeChurchId;
   return !!id && ctsEditDenied.has(id);

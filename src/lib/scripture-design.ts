@@ -5,6 +5,7 @@
 // client has always applied to a saved style.
 import { CANVAS_W, CANVAS_H } from "./slide-objects";
 import { BAND_DEFAULT_COLOR } from "./band-media";
+import { isValidColor, FONT_FAMILY_RE } from "./broadcast";
 
 export type TextStyle = {
   x: number; y: number; w: number; h: number;
@@ -114,6 +115,10 @@ function mergeTextStyle<T extends TextStyle>(def: T, raw: unknown): T {
     const d = (def as Record<string, unknown>)[k];
     if (k === "align") { if (v === "left" || v === "center" || v === "right") out[k] = v; continue; }
     if (typeof d === "number") { if (typeof v === "number" && Number.isFinite(v)) out[k] = v; continue; }
+    // stroke → same colour rule the output sanitizer enforces; fontFamily → the
+    // safe CSS charset (it is interpolated into a CSS value on every output).
+    if (k === "stroke") { if (isValidColor(v)) out[k] = v; continue; }
+    if (k === "fontFamily") { if (typeof v === "string" && FONT_FAMILY_RE.test(v)) out[k] = v; continue; }
     if (typeof d === "string") { if (typeof v === "string" && v.length <= 200) out[k] = v; continue; }
     if (typeof d === "boolean") { if (typeof v === "boolean") out[k] = v; continue; }
   }

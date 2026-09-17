@@ -58,12 +58,13 @@ export function setProDriverEnabled(enabled: boolean): void {
   forced = null;
 }
 
-function rtaudioHealthy(): boolean {
+async function rtaudioHealthy(): Promise<boolean> {
   const pinned = process.env.PRESENTFLOW_AUDIO_TIER;
   if (pinned === "ffmpeg" || pinned === "swift") return false;
   if (!isProDriverEnabled()) return false;
   try {
-    return isRtAudioAvailable() && listRtAudioDevices().length > 0;
+    // Runs in the isolated audio-driver process; a crash there returns false.
+    return (await isRtAudioAvailable()) && (await listRtAudioDevices()).length > 0;
   } catch {
     return false;
   }
@@ -74,30 +75,30 @@ export async function resolveCaptureTier(): Promise<CaptureTier> {
   if (resolved) return resolved;
   resolved = (async (): Promise<CaptureTier> => {
     if (process.env.PRESENTFLOW_AUDIO_TIER === "ffmpeg") return "ffmpeg";
-    if (process.env.PRESENTFLOW_AUDIO_TIER === "rtaudio" && rtaudioHealthy()) return "rtaudio";
-    const fallback = (why: string): CaptureTier => {
-      const t: CaptureTier = rtaudioHealthy() ? "rtaudio" : "ffmpeg";
+    if (process.env.PRESENTFLOW_AUDIO_TIER === "rtaudio" && (await rtaudioHealthy())) return "rtaudio";
+    const fallback = async (why: string): Promise<CaptureTier> => {
+      const t: CaptureTier = (await rtaudioHealthy()) ? "rtaudio" : "ffmpeg";
       console.log(`[audio-native] tier: ${t} (${why})`);
       return t;
     };
     if (process.platform !== "darwin" || !swiftHelperBinaryExists()) {
-      return fallback("swift helper binary absent");
+      return await fallback("swift helper binary absent");
     }
     try {
       // Health check: spawn + list-devices must answer within 2s.
       const ok = await swiftHelper.ensureRunning(2000);
-      if (!ok) return fallback("swift helper failed readiness check");
+      if (!ok) return await fallback("swift helper failed readiness check");
       const devices = await swiftHelper.listDevices(2000);
       if (devices.length === 0) {
         // A Mac ALWAYS has at least the built-in mic; an empty list means
         // the helper is not actually talking to CoreAudio. Don't trust it.
-        return fallback("swift helper returned no devices");
+        return await fallback("swift helper returned no devices");
       }
       console.log(`[audio-native] tier: swift (${devices.length} devices)`);
       return "swift";
     } catch (err) {
       console.warn("[audio-native] swift probe threw", err);
-      return fallback("swift probe threw");
+      return await fallback("swift probe threw");
     }
   })();
   return resolved;

@@ -20,7 +20,7 @@ import {
 import {
   setRtAudioTarget, listRtAudioDevices, startRtAudioCapture, stopRtAudioCapture,
   startRtAudioProbe, stopRtAudioProbe, listDeckLinkAudioDevices, isRtAudioAvailable,
-  FRIENDLY_UNAVAILABLE,
+  FRIENDLY_UNAVAILABLE, shutdownRtAudioWorker, resetRtAudioWorkerHealth,
 } from "../audio/rtaudioCapture";
 import { isDeckLinkIndex, API_INDEX_BASE } from "../audio/rtaudioDsp";
 
@@ -41,8 +41,8 @@ async function stopAllProbes(): Promise<void> {
 }
 
 /** Blackmagic inputs join whichever tier's list is active. */
-function withDeckLink(list: NativeDevice[]): NativeDevice[] {
-  return [...list, ...listDeckLinkAudioDevices()];
+async function withDeckLink(list: NativeDevice[]): Promise<NativeDevice[]> {
+  return [...list, ...(await listDeckLinkAudioDevices())];
 }
 
 export function registerAudioIpc() {
@@ -128,17 +128,17 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
     try {
       const tier = await resolveCaptureTier();
       if (tier === "rtaudio") {
-        const devices = listRtAudioDevices();
-        if (devices.length > 0) return withDeckLink(devices);
+        const devices = await listRtAudioDevices();
+        if (devices.length > 0) return await withDeckLink(devices);
         console.warn("[audio:native:listDevices] rtaudio returned empty; using ffmpeg list");
       }
       if (tier === "swift") {
         const devices = await swiftHelper.listDevices();
-        if (devices.length > 0) return withDeckLink(toNativeDevices(devices));
+        if (devices.length > 0) return await withDeckLink(toNativeDevices(devices));
         // Swift answered but with nothing — degrade for this call only.
         console.warn("[audio:native:listDevices] swift returned empty; using ffmpeg list");
       }
-      return withDeckLink(await listNativeDevices());
+      return await withDeckLink(await listNativeDevices());
     } catch (err) {
       console.warn("[audio:native:listDevices]", err);
       return [];
@@ -250,8 +250,8 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
 
   // Hardware I/O Phase B opt-in. `supported` = audify loads in this build;
   // `enabled` = operator switched the pro driver on (persisted in userData).
-  ipcMain.handle("audio:native:getProDriver", () => ({
-    supported: isRtAudioAvailable(),
+  ipcMain.handle("audio:native:getProDriver", async () => ({
+    supported: await isRtAudioAvailable(),
     enabled: isProDriverEnabled(),
   }));
   ipcMain.handle("audio:native:setProDriver", async (_e, enabled: unknown) => {
@@ -260,6 +260,7 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
     // renderer restarts listening and re-resolves its device by name.
     await Promise.allSettled([stopAllCaptures(), stopAllProbes()]);
     setProDriverEnabled(enabled);
+    if (enabled) resetRtAudioWorkerHealth();
     return { ok: true, enabled: isProDriverEnabled() };
   });
 }
@@ -269,11 +270,11 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
  * never outlive the Electron main process.
  */
 export async function stopAllNativeAudio(): Promise<void> {
+  // Kill the driver process immediately (never wait on a hung driver at close).
+  shutdownRtAudioWorker();
   await Promise.allSettled([
     nativeStopCapture(),
     nativeStopChannelProbe(),
-    stopRtAudioCapture(),
-    stopRtAudioProbe(),
     swiftHelper.shutdown(),
   ]);
 }
