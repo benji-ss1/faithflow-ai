@@ -1,5 +1,5 @@
-# Offline test files that pass on main (no DB / API keys). CI runs these and blocks on failure.
 # Add new pure tests here. Regenerate: node scripts/run-tests.mjs --all
+# Offline test files that pass on main (no DB / API keys). CI runs these and blocks on failure.
 test/actions.test.ts
 test/adversarial/accuracy-pass2.test.ts
 test/adversarial/accuracy-pass2b-fable.test.ts
@@ -7,6 +7,7 @@ test/adversarial/audio-reconnect.test.ts
 test/adversarial/audio-sessions-cross-church.test.ts
 test/adversarial/auto-approve-safeguards.test.ts
 test/adversarial/auto-approve-shell-rules.test.ts
+test/adversarial/church-styles-scope.test.ts
 test/adversarial/learned-keyterms-cross-church.test.ts
 test/adversarial/media-register-scope.test.ts
 test/adversarial/sermon-backfill-cross-church.test.ts
@@ -25,6 +26,7 @@ test/audio-hardening.test.ts
 test/audio-lockin-devices.test.ts
 test/audio-setup-diagnostics.test.ts
 test/background-persistence.test.ts
+test/band-media.test.ts
 test/bible-add-verse.test.ts
 test/bible-allusion.test.ts
 test/bible-antireplay.test.ts
@@ -44,6 +46,7 @@ test/bible-stutter-combine.test.ts
 test/bible-verse-enum-phonetic.test.ts
 test/bible-verse-range.test.ts
 test/changelog-generator.test.ts
+test/church-styles-store.test.ts
 test/colorway.test.ts
 test/context-parser-nav.test.ts
 test/deepgram-keyterms.test.ts
@@ -64,10 +67,13 @@ test/hex-color.test.ts
 test/keyboard-shortcuts.test.ts
 test/layer-store.test.ts
 test/layer-wire.test.ts
+test/live-bg-theme-decor.test.ts
+test/live-item-theme.test.ts
 test/login-guard.test.ts
 test/logo-key.test.ts
 test/media-as-background.stress.test.ts
 test/media-as-background.test.ts
+test/media-click-sends-live.test.ts
 test/media-drop.test.ts
 test/media-frame-slide.test.ts
 test/media-layout.test.ts
@@ -90,6 +96,7 @@ test/output-scenes.test.ts
 test/pd-search-and-actions.test.ts
 test/pdf-to-images.test.ts
 test/platform.test.ts
+test/pptx-convert.test.ts
 test/proclaim-order.test.ts
 test/projector-fontsize.test.ts
 test/projector-output.test.ts
@@ -99,11 +106,13 @@ test/render-url-allowlist.test.ts
 test/render-url-clean.test.ts
 test/render-url-loopback.test.ts
 test/right-rail-badges.test.ts
+test/s3-key-nesting.test.ts
 test/sarah-answers.test.ts
 test/sarah-scenarios.test.ts
 test/sarah-watchers.test.ts
 test/scenes.test.ts
 test/scripture-chunk.test.ts
+test/scripture-design-sanitize.test.ts
 test/scripture-live-parity.test.ts
 test/scripture-lowerthird.test.ts
 test/service-mode.test.ts
@@ -137,11 +146,8 @@ test/transition-resolve.test.ts
 test/translation-commands.test.ts
 test/update-banner-arch.test.ts
 test/verse-v2-mishears.test.ts
+test/video-fit-band-hint.test.ts
 test/videopsalm-parser.test.ts
 test/videopsalm.test.ts
 test/voice-commands.test.ts
 test/whats-new.test.ts
-test/band-media.test.ts
-test/pptx-convert.test.ts
-test/media-click-sends-live.test.ts
-test/video-fit-band-hint.test.ts

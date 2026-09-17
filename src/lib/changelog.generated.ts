@@ -4,6 +4,28 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.449",
+    "date": "2026-09-17",
+    "headline": "Song backgrounds from your theme now show on the live screen, matching the slide previews",
+    "highlights": [
+      "If you picked a theme for songs, its background now shows on the live screen and projector, not just on the slide previews.",
+      "When the same song is in your service more than once, the live screen uses the theme of the copy you actually clicked.",
+      "Theme logos that had stopped loading after a while now load again."
+    ]
+  },
+  {
+    "version": "0.1.448",
+    "date": "2026-09-17",
+    "headline": "Your Scripture Style and default song and Bible themes are now shared across every computer in your church",
+    "highlights": [
+      "Set the Scripture Style (full screen or lower third, band colour, text size) once and every computer in your church uses it. Before, each computer kept its own.",
+      "The default theme you pick for Songs and for Bible verses is now the same on every computer in your church.",
+      "A change made on one computer shows up on the others within about a minute, without reloading or changing what is on the screen.",
+      "Volunteers can still change the Scripture Style during a service. Changing the default song and Bible themes needs someone who can edit the library.",
+      "Your existing style carries over automatically the first time you open PresentFlow. If two computers had different styles, the first one to open wins."
+    ]
+  },
+  {
     "version": "0.1.447",
     "date": "2026-09-17",
     "headline": "Intel Macs now update automatically, and the Windows pro audio driver is more reliable",

@@ -62,13 +62,32 @@ export function keyFromPresignedUrl(url: string): string | null {
   } else if (!u.host.includes(".amazonaws.com")) {
     return null;
   }
-  let path = decodeURIComponent(u.pathname).replace(/^\/+/, "");
+  let path: string;
+  try { path = decodeURIComponent(u.pathname).replace(/^\/+/, ""); } catch { return null; }
   const bucket = BUCKET();
-  if (path === bucket) return null;
-  // Path-style URLs (custom endpoint / forcePathStyle) carry the bucket as the
-  // leading path segment; virtual-hosted AWS URLs don't. Strip it if present.
-  if (path.startsWith(bucket + "/")) path = path.slice(bucket.length + 1);
-  return path || null;
+  // A custom endpoint may itself carry a path (Supabase: /storage/v1/s3). Path-
+  // style presigned URLs are <endpointPath>/<bucket>/<key>. Previously only a
+  // leading "<bucket>/" was stripped, so on such endpoints the key kept the
+  // "storage/v1/s3/<bucket>/" prefix and EVERY re-sign nested it one level
+  // deeper (2026-09-17 prod: a theme logoUrl with the prefix repeated 5×).
+  // Strip the endpoint path + bucket repeatedly — idempotent, and it heals
+  // already-nested stored URLs back to the real key.
+  let endpointPath = "";
+  if (endpoint) {
+    try { endpointPath = decodeURIComponent(new URL(endpoint).pathname).replace(/^\/+|\/+$/g, ""); } catch { /* none */ }
+  }
+  for (let guard = 0; guard < 16; guard++) {
+    if (endpointPath && path.startsWith(endpointPath + "/")) { path = path.slice(endpointPath.length + 1); continue; }
+    if (path.startsWith(bucket + "/")) { path = path.slice(bucket.length + 1); continue; }
+    break;
+  }
+  if (!path || path === bucket || path === endpointPath) return null;
+  // Encoded slashes (%2F) survive URL normalisation and decode here, so a key
+  // could carry "../" segments that pass a "{churchId}/" prefix check while
+  // pointing at another church's object. Refuse any dot segment, absolute
+  // path or backslash — our real keys never contain them.
+  if (path.startsWith("/") || path.includes("\\") || path.split("/").some((seg) => seg === ".." || seg === ".")) return null;
+  return path;
 }
 
 /**

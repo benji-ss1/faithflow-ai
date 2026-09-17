@@ -174,7 +174,7 @@ export type OperatorShellCtx = {
   onSendSlideToLive: (
     slide: SlidePayload,
     transition?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: import("@/lib/song-switch-guard").LiveOrigin; carryLiveOrigin?: boolean },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: import("@/lib/song-switch-guard").LiveOrigin; carryLiveOrigin?: boolean; /** Plan item index this slide was sent from (live theme resolution). */ sourceItemIdx?: number },
   ) => void;
   /** Origin (song/scripture/media/text/other) of the CURRENT live output, or null
    *  when unknown (set by another device / unstamped). Song auto-switch guard. */

@@ -178,7 +178,7 @@ export function BottomBar({
     ctx.onJumpSlide(ctx.previewItemIdx, targetIdx);
     const targetSlide = item?.slides?.[targetIdx];
     if (targetSlide) {
-      try { ctx.onSendSlideToLive(targetSlide, undefined, item?.type === "song" ? { origin: { kind: "song", songId: (item as { songId?: string }).songId } } : undefined); }
+      try { ctx.onSendSlideToLive(targetSlide, undefined, item?.type === "song" ? { origin: { kind: "song", songId: (item as { songId?: string }).songId }, sourceItemIdx: ctx.previewItemIdx } : { sourceItemIdx: ctx.previewItemIdx }); }
       catch (e) { console.warn("[bottom-bar] prev sendSlideToLive failed", e); }
     }
   };
@@ -188,7 +188,7 @@ export function BottomBar({
     ctx.onJumpSlide(ctx.previewItemIdx, targetIdx);
     const targetSlide = item?.slides?.[targetIdx];
     if (targetSlide) {
-      try { ctx.onSendSlideToLive(targetSlide, undefined, item?.type === "song" ? { origin: { kind: "song", songId: (item as { songId?: string }).songId } } : undefined); }
+      try { ctx.onSendSlideToLive(targetSlide, undefined, item?.type === "song" ? { origin: { kind: "song", songId: (item as { songId?: string }).songId }, sourceItemIdx: ctx.previewItemIdx } : { sourceItemIdx: ctx.previewItemIdx }); }
       catch (e) { console.warn("[bottom-bar] next sendSlideToLive failed", e); }
     }
   };
