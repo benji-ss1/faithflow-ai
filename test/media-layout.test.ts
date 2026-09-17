@@ -30,21 +30,31 @@ test("church default fullscreen → image UNCHANGED (no band)", () => {
   assert.equal(out, img);
 });
 
-test("church default lowerThird → image auto-bands into the third (fit)", () => {
+// 2026-09-17 owner decision ("full screen always"): the church lower-third
+// default no longer bands media. These REPLACE the old auto-band assertions.
+test("church default lowerThird → plain image stays FULL SCREEN (unchanged)", () => {
   setLayout("lowerThird");
   const img = { kind: "image", url: IMG, fit: "contain" } as any;
   const out = applyChurchLayout(img, CHURCH) as any;
-  assert.equal(out.layout, "third");
-  assert.equal(out.bandMode, "fit");
-  assert.ok(out.band, "band geometry attached");
+  assert.equal(out, img);
+  assert.equal(out.layout, undefined);
+  assert.equal(out.band, undefined);
 });
 
-test("church default lowerThird → video auto-bands too", () => {
+test("church default lowerThird → plain video stays FULL SCREEN too", () => {
   setLayout("lowerThird");
   const vid = { kind: "video", url: IMG } as any;
   const out = applyChurchLayout(vid, CHURCH) as any;
-  assert.equal(out.layout, "third");
-  assert.equal(out.bandMode, "fit");
+  assert.equal(out, vid);
+  assert.equal(out.layout, undefined);
+});
+
+test("explicit per-slide FIT layout still bands under lowerThird and fullscreen", () => {
+  for (const l of ["lowerThird", "fullscreen"] as const) {
+    setLayout(l);
+    const img = { kind: "image", url: IMG, layout: "third", bandMode: "fit", band: { topPct: 68, heightPct: 30 } } as any;
+    assert.equal(applyChurchLayout(img, CHURCH), img);
+  }
 });
 
 test("per-slide media layout (e.g. a caption) wins over church default", () => {

@@ -659,7 +659,7 @@ export function MediaImageEditor({
 
             <Section label="Projection layout">
               <LayoutDefaultControl churchId={ctx.churchId} compact />
-              <div className="mt-1.5 text-[10px] text-zinc-500">Set to a Lower / Upper / Mid third to place your images &amp; videos — and songs &amp; verses — in a band instead of full screen. This is your default for everything.</div>
+              <div className="mt-1.5 text-[10px] text-zinc-500">Set to a Lower / Upper / Mid third to place songs &amp; verses in a band. Pictures &amp; videos always fill the whole screen.</div>
             </Section>
 
             {bgMode === "matte" ? (
