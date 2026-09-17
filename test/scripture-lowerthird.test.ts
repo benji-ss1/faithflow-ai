@@ -21,8 +21,9 @@
 import assert from "node:assert/strict";
 import {
   bandWireFromDesign, bandTopPct, scriptureLowerThirdPayload, scriptureSlidePayload, styleScriptureSlide,
-  DEFAULT_SCRIPTURE_DESIGN, BAND_DEFAULT, type ScriptureDesign,
+  DEFAULT_SCRIPTURE_DESIGN, BAND_DEFAULT, sanitizeBandStyle, type ScriptureDesign,
 } from "../src/components/operator/scripture/scriptureStyle";
+import { BAND_DEFAULT_COLOR, bandEdgeShadow } from "../src/lib/band-media";
 import { slideOutputIdentity, type SlidePayload } from "../src/lib/broadcast";
 
 let passed = 0, failed = 0;
@@ -87,7 +88,7 @@ test("marks layout, keeps reference, adds a band w/ geometry, NO objects", () =>
   assert.equal(p.scriptureLayout, "lowerThird");
   assert.equal(p.text, "For God so loved the world");
   assert.equal(p.reference, "John 3:16 (KJV)");
-  assert.ok(p.scriptureBand && p.scriptureBand.color === "#000000");
+  assert.ok(p.scriptureBand && p.scriptureBand.color === BAND_DEFAULT_COLOR);
   assert.equal(typeof p.scriptureBand!.topPct, "number");
   assert.ok(!p.objects || p.objects.length === 0, "third band must NOT carry drag objects");
 });
@@ -198,3 +199,20 @@ import { refitScaledToBox } from "../src/components/live/AutoFitText";
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
+
+// 2026-09-17 "subtle visible band": the UNSET default is a soft charcoal (visible
+// on black) with a faint top edge; an explicit saved colour is kept verbatim.
+test("default band colour is the soft charcoal, not pure black, with a top edge", () => {
+  const w = bandWireFromDesign({ ...DEFAULT_SCRIPTURE_DESIGN, layout: "lowerThird" })!;
+  assert.equal(w.color, BAND_DEFAULT_COLOR);
+  assert.notEqual(w.color, "#000000");
+  assert.equal(w.opacity, 0.72);
+  assert.ok(bandEdgeShadow(w.color, w.color2));
+  assert.equal(sanitizeBandStyle({}).color, BAND_DEFAULT_COLOR, "unset → default");
+});
+test("explicit band colours (incl. black) are unchanged and get no edge", () => {
+  assert.equal(sanitizeBandStyle({ color: "#000000" }).color, "#000000");
+  assert.equal(sanitizeBandStyle({ color: "#112233" }).color, "#112233");
+  assert.equal(bandEdgeShadow("#000000"), undefined);
+  assert.equal(bandEdgeShadow("#112233"), undefined);
+});

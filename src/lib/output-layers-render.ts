@@ -158,7 +158,7 @@ export function resolveLayeredInput(
     }
     // Media: a "full" zone un-bands a banded image/video (layout:"third") back to
     // full-screen, mirroring the text un-lower-third above. lowerThird is not
-    // applied to media here (media banding comes from the church layout / editor).
+    // applied to media here (media banding comes only from an explicit per-slide editor layout).
     if (sl.zone && sl.zone.kind === "full" && (slide.kind === "image" || slide.kind === "video") && (slide.layout || slide.band)) {
       const { layout: _l, band: _b, bandMode: _m, caption: _c, ...rest } = slide;
       void _l; void _b; void _m; void _c;

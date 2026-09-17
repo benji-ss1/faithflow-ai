@@ -84,7 +84,7 @@ export function LayoutDefaultControl({ churchId, compact }: { churchId?: string;
         <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed mt-1.5">
           {isThird
             ? "Words sit in a band — put it in the upper, mid or lower third, over your own camera/graphics."
-            : "Classic full-screen words."} This is your default for every slide — verses, songs and media.
+            : "Classic full-screen words."} This is your default for verses and songs. Pictures and videos always fill the screen.
         </p>
       </div>
 
