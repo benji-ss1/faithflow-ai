@@ -144,3 +144,4 @@ test/whats-new.test.ts
 test/band-media.test.ts
 test/pptx-convert.test.ts
 test/media-click-sends-live.test.ts
+test/video-fit-band-hint.test.ts
