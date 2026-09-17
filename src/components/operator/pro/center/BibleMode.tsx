@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { ThemedSlideCard } from "./ThemedSlideCard";
@@ -582,6 +582,21 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     }
     return { kind: "text", text: body, ...(includeRef ? { reference: refLabel } : {}) };
   }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides, scriptureStyle, translation]);
+  // Preview == projector (PR 2): run the card through the same church layout +
+  // theme scripture styling the send path applies. Absent ⇒ raw slide (legacy).
+  // Cached per card content so a long chapter re-rendering during live audio
+  // doesn't re-read the saved Scripture Style for every card every render.
+  const previewCache = useMemo(() => new Map<string, SlidePayload>(), [ctx.layoutPreviewSlide, scriptureStyle]);
+  const previewLayout = (sl: SlidePayload): SlidePayload => {
+    if (!ctx.layoutPreviewSlide) return sl;
+    const key = JSON.stringify(sl);
+    const hit = previewCache.get(key);
+    if (hit) return hit;
+    const out = ctx.layoutPreviewSlide(sl);
+    if (previewCache.size > 500) previewCache.clear();
+    previewCache.set(key, out);
+    return out;
+  };
   // Sync ref for the bible-play-current handler above.
   useEffect(() => { cardToSlideRef.current = cardToSlide; }, [cardToSlide]);
 
@@ -1052,7 +1067,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             >
               {selectedIdx != null && cards[selectedIdx] ? (
                 <div className="relative aspect-video rounded overflow-hidden border border-[var(--color-border)]">
-                  <ThemedSlideCard slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} appearance={ctx.appearance ?? undefined} background={ctx.background} />
+                  <ThemedSlideCard slide={previewLayout(cardToSlide(cards[selectedIdx], selectedIdx, cards.length))} appearance={ctx.appearance ?? undefined} background={ctx.background} />
                 </div>
               ) : (
                 <div className="text-[11px] text-[var(--color-muted-foreground)] text-center py-8">Click a verse in the list.</div>
@@ -1136,7 +1151,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
                   : "border border-[var(--color-border)] shadow-[var(--shadow-sm)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--shadow-lg)]",
               )}
             >
-              <ThemedSlideCard slide={slide} textMinPx={14} appearance={ctx.appearance ?? undefined} background={ctx.background} />
+              <ThemedSlideCard slide={previewLayout(slide)} textMinPx={14} appearance={ctx.appearance ?? undefined} background={ctx.background} />
               <div className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1 flex items-center justify-center text-[10px] font-bold tabular-nums text-white/85 bg-black/60 border border-white/15 rounded-md">
                 {idx + 1}
               </div>

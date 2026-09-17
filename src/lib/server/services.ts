@@ -51,6 +51,10 @@ export type ExpandedItem = {
   // Themes 2c — optional per-item theme override (a "section theme"). When set,
   // the operator resolves this theme for the item instead of the church default.
   themeId?: string;
+  // Theme → Projector (PR 2): the song's whole-song applied theme
+  // (songs.settings.appliedThemeId). Precedence on output: item theme > this >
+  // content-type style > church default.
+  songAppliedThemeId?: string;
   // For a grouped MEDIA item: the underlying asset id + name for each expanded
   // slide, in the SAME order as `slides`. Lets the playlist rename / reorder /
   // remove individual images inside a group.
@@ -131,6 +135,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     let mediaMeta: { id: string; fileName: string }[] | undefined;
 
     let songId: string | undefined;
+    let songAppliedThemeId: string | undefined;
     let songSlideRows: { id: string; lyrics: string; objectsJson: unknown }[] | undefined;
     // Groups & Arrangements operator-shell surface (wave 6D). Undefined for every
     // non-song item and for groupless songs (no-regression line).
@@ -145,8 +150,8 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
       // in actions.ts is the first line at write; this ensures a legacy row
       // or a future direct-DB write path can't leak another church's slides.
       const candidateSongId = String(payload.songId);
-      let [ownedSong]: { id: string }[] = isUuid(candidateSongId)
-        ? await db.select({ id: songs.id }).from(songs)
+      let [ownedSong]: { id: string; settings?: unknown }[] = isUuid(candidateSongId)
+        ? await db.select({ id: songs.id, settings: songs.settings }).from(songs)
           .where(and(eq(songs.id, candidateSongId), eq(songs.churchId, churchId))).limit(1)
         : [];
       // Resilience: a dangling payload.songId (the song was re-imported/re-synced
@@ -161,7 +166,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         const titleKey = (it.title || "").trim().toLowerCase();
         if (titleKey) {
           const byTitle = await db
-            .select({ id: songs.id, n: sql<number>`count(${songSlides.id})::int` })
+            .select({ id: songs.id, settings: songs.settings, n: sql<number>`count(${songSlides.id})::int` })
             .from(songs)
             .leftJoin(songSlides, eq(songSlides.songId, songs.id))
             .where(and(eq(songs.churchId, churchId), sql`lower(trim(${songs.title})) = ${titleKey}`))
@@ -169,13 +174,15 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
             .orderBy(sql`count(${songSlides.id}) desc`)
             .limit(1);
           if (byTitle[0] && byTitle[0].n > 0) {
-            ownedSong = { id: byTitle[0].id };
+            ownedSong = { id: byTitle[0].id, settings: byTitle[0].settings };
             console.log(`[services] re-linked stale song ref for "${it.title}" (${candidateSongId} → ${byTitle[0].id}, ${byTitle[0].n} slides)`);
           }
         }
       }
       if (ownedSong) {
         songId = ownedSong.id;
+        const st = ownedSong.settings as { appliedThemeId?: unknown } | null | undefined;
+        if (st && typeof st.appliedThemeId === "string" && st.appliedThemeId) songAppliedThemeId = st.appliedThemeId;
         const rows = await db.select().from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
 
         // ── Groups & Arrangements model (ProPresenter §12) ───────────────────
@@ -231,7 +238,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
             slideActions = arranged.map((r) => actByRowArr.get(r.id) ?? []);
             songSlideRows = arranged.map((r) => ({ id: r.id, lyrics: sanitizeLyrics(r.lyrics), objectsJson: r.objectsJson }));
             slides = arranged.map((r) => projectableSongSlide(sanitizeLyrics(r.lyrics), r.objectsJson));
-            expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides: slides.length ? slides : [{ kind: "blank", bgColor: blankBgColor }], songId, songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds, slideActions });
+            expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides: slides.length ? slides : [{ kind: "blank", bgColor: blankBgColor }], songId, ...(songAppliedThemeId ? { songAppliedThemeId } : {}), songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds, slideActions });
             continue;
           }
           // Pinned arrangement no longer resolves (deleted, or groups removed) →
@@ -414,7 +421,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         ? (payload.slideActions as Record<string, unknown>) : null;
       if (saMap) slideActions = slides.map((_, i) => sanitizeSlideActions(saMap[String(i)]) as unknown[]);
     }
-    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds, slideActions });
+    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, ...(songAppliedThemeId ? { songAppliedThemeId } : {}), songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds, slideActions });
   }
 
   return { id: plan.id, title: plan.title, items: expanded, logoUrl, blankBgColor };

@@ -26,7 +26,7 @@ export function hasVideoBackground(videoInput?: VideoInputState | null, appearan
  * normally. The video layer is a sibling of the overlay (not wrapped by any
  * slide-keyed element), so slide changes never restart the video.
  */
-export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef, mediaNode }: {
+export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef, mediaNode, ignoreThemeLayout }: {
   slide: SlidePayload;
   videoInput?: VideoInputState | null;
   appearance?: ThemeAppearance | null;
@@ -38,7 +38,10 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
   onVideoRef?: (el: HTMLVideoElement | null) => void;
   /** ProPresenter 7: Media layer drawn above the live camera, below the words. */
   mediaNode?: React.ReactNode;
+  /** Theme → Projector (PR 2): full-screen (stage). */
+  ignoreThemeLayout?: boolean;
 }) {
+  const ign = ignoreThemeLayout ? { ignoreThemeLayout: true } : {};
   // Live camera takes precedence over a theme video background.
   const themeVideoUrl = !videoInput && appearance?.bgType === "video" && appearance.bgVideoUrl ? appearance.bgVideoUrl : null;
 
@@ -76,11 +79,12 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
                 // (overlayClass). Fit them to THAT band, not the whole frame, or
                 // multi-line lyrics clip out of it (2026-09-16).
                 fitBandFraction={videoInput && videoInput.overlay !== "full" ? 0.38 : undefined}
+                {...ign}
               />
             </div>
           ) : (
             <div className="absolute inset-0">
-              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} />
+              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} {...ign} />
             </div>
           )
         )}
@@ -97,6 +101,7 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
       appearance={appearance}
       videoMuted={videoMuted}
       onVideoRef={onVideoRef}
+      {...ign}
     />
   );
 }

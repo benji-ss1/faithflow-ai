@@ -18,6 +18,9 @@ import { ChevronLeft, ChevronRight, Palette, Pencil, Plus, SlidersHorizontal } f
 import { toast } from "sonner";
 import { applyThemeLive, readThemeRecents, type ClientTheme } from "@/lib/theme-apply-client";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { themeConfigToAppearance } from "@/lib/theme-appearance";
+import type { SlidePayload, SlideObjectWire, ThemeAppearance } from "@/lib/broadcast";
 
 // Theme Editor (PR 1): the pencil / "Edit…" open the PP7-style editor ON that
 // theme (the same full-screen slide editor). The sliders icon still opens the
@@ -47,13 +50,34 @@ function previewStyle(cfg: Record<string, unknown>): React.CSSProperties {
   };
 }
 
-function ThemeThumb({ theme, large = false }: { theme: ClientTheme; large?: boolean }) {
+// A static preview appearance: the theme's real render appearance (boxes, decor,
+// background, fonts) with motion removed — no animated gradient layer and no
+// playing decor video in a grid of cards.
+export function themeThumbAppearance(cfg: Record<string, unknown>): ThemeAppearance | null {
+  const a = themeConfigToAppearance(cfg);
+  if (!a) return null;
+  const out: ThemeAppearance = { ...a };
+  delete out.bgAnimation;
+  if (out.layout) {
+    const still = (d?: SlideObjectWire[]) => d?.filter((o) => o.kind !== "video");
+    out.layout = {
+      ...(out.layout.lyrics ? { lyrics: { ...out.layout.lyrics, decor: still(out.layout.lyrics.decor) } } : {}),
+      ...(out.layout.scripture ? { scripture: { ...out.layout.scripture, decor: still(out.layout.scripture.decor) } } : {}),
+    };
+  }
+  return out;
+}
+
+const THUMB_SLIDE: SlidePayload = { kind: "text", text: "Lyrics appear here" };
+
+/** Theme card preview: the REAL slide renderer with the theme's appearance, so
+ *  images, shapes, text boxes and backgrounds show exactly as projected. */
+export function ThemeThumb({ theme, large = false }: { theme: ClientTheme; large?: boolean }) {
   const cfg = theme.config ?? {};
-  const color = (cfg.textColor as string) || "#ffffff";
-  const font = (cfg.fontFamily as string) || undefined;
+  const appearance = useMemo(() => themeThumbAppearance(cfg), [cfg]);
   return (
-    <div className="relative aspect-video w-full rounded-[3px] overflow-hidden grid place-items-center" style={previewStyle(cfg)}>
-      <span style={{ color, fontFamily: font, fontSize: large ? 14 : 8, fontWeight: 600 }}>Text</span>
+    <div className="relative aspect-video w-full rounded-[3px] overflow-hidden" style={appearance ? undefined : previewStyle(cfg)} data-theme-thumb="">
+      <SlideRenderer slide={THUMB_SLIDE} appearance={appearance} textMinPx={large ? 6 : 4} disablePagination />
     </div>
   );
 }

@@ -6,6 +6,7 @@
 
 import { projectableTextSlide, type SlidePayload, type ScriptureBandWire } from "@/lib/broadcast";
 import { newObjectId, CANVAS_W, CANVAS_H, type EditableSlide, type SlideObject, type TextObject } from "@/lib/slide-objects";
+import { designFromThemeScripture, type ThemeScriptureOptions } from "@/lib/theme-scripture";
 
 export type TextStyle = {
   x: number; y: number; w: number; h: number;
@@ -200,7 +201,30 @@ export function scriptureSlidePayload(verseText: string, reference: string, tran
 // slideDesignSig, so the content-identity guarding the already-live skip +
 // fade-pulse behaviour in sendSlideToLive is unchanged. Never throws — a styling
 // failure falls back to the plain slide so a live send is never broken.
-export function styleScriptureSlide(slide: SlidePayload, churchId: string): SlidePayload {
+// Theme → Projector (PR 2): a scripture slide styled from the resolved THEME's
+// scripture options (only used when there is no saved Scripture Style — the
+// saved style always wins). Text objects are role-tagged (verse / reference) so
+// the renderer fits them in their boxes; the reference object is kept but
+// HIDDEN when the theme hides the reference or shows it inline. The dedicated
+// `reference` field is ALWAYS carried — anti-replay (bible-antireplay.ts
+// liveGuardText) identifies the live verse by it.
+export function themeScripturePayload(verseText: string, reference: string, translation: string | undefined, opts: ThemeScriptureOptions): SlidePayload {
+  const d = designFromThemeScripture(opts, DEFAULT_SCRIPTURE_DESIGN);
+  const label = reference ? referenceLabel(reference, translation, d.reference.showTranslation) : "";
+  const inline = opts.position === "inline" && d.reference.show && !!label;
+  const verseObj: TextObject = { ...textObjectFrom(d.verse, inline ? `${verseText} — ${label}` : verseText), role: "verse" };
+  const objects: SlideObject[] = [verseObj];
+  if (label) {
+    const refObj: TextObject = { ...textObjectFrom(d.reference, label), role: "reference" };
+    if (!d.reference.show || inline) refObj.hidden = true;
+    objects.push(refObj);
+  }
+  const p = projectableTextSlide(verseText, undefined, undefined, objects);
+  if (p.kind === "text" && label) p.reference = label;
+  return p;
+}
+
+export function styleScriptureSlide(slide: SlidePayload, churchId: string, themeOpts?: ThemeScriptureOptions | null): SlidePayload {
   if (slide.kind !== "text" || !slide.reference) return slide;
   if (slide.objects && slide.objects.length > 0) return slide; // already styled (fullscreen)
   if (slide.scriptureLayout) return slide; // already styled (lower-third)
@@ -212,6 +236,8 @@ export function styleScriptureSlide(slide: SlidePayload, churchId: string): Slid
     const m = slide.reference.slice(0, 200).match(/^(.*?)\s*\(([^)]+)\)\s*$/);
     const refText = m ? m[1].trim() : slide.reference;
     const translation = m ? m[2].trim() : undefined;
+    // Decision 4: saved Scripture Style wins; theme options only without one.
+    if (themeOpts && !hasSavedScriptureStyle(churchId)) return themeScripturePayload(slide.text, refText, translation, themeOpts);
     return scriptureSlidePayload(slide.text, refText, translation, loadScriptureStyle(churchId));
   } catch {
     return slide;
@@ -258,10 +284,10 @@ export function songLowerThirdPayload(text: string, d: ScriptureDesign): SlidePa
 // Deterministic + never throws (a failure falls back to the original slide) so a
 // live send is never broken, and the identity guarding the already-live skip /
 // fade-pulse stays stable across heartbeats.
-export function applyChurchLayout(slide: SlidePayload, churchId: string): SlidePayload {
+export function applyChurchLayout(slide: SlidePayload, churchId: string, themeOpts?: ThemeScriptureOptions | null): SlidePayload {
   // Scripture first — returns a NEW styled payload for an unstyled verse, or the
   // SAME slide ref for non-scripture / already-styled sends.
-  const scriptured = styleScriptureSlide(slide, churchId);
+  const scriptured = styleScriptureSlide(slide, churchId, themeOpts);
   if (scriptured !== slide) return scriptured;
   try {
     // Media (image/video): when the church default is lower-third, confine the
@@ -405,6 +431,15 @@ export function saveScriptureStyle(churchId: string | undefined, design: Scriptu
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(KEY(churchId), JSON.stringify(design));
+    window.dispatchEvent(new CustomEvent("pf-scripture-style-changed"));
+  } catch { /* ignore */ }
+}
+
+/** Remove this machine's saved Scripture Style (so a theme's scripture boxes apply). */
+export function clearScriptureStyle(churchId: string | undefined): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(KEY(churchId));
     window.dispatchEvent(new CustomEvent("pf-scripture-style-changed"));
   } catch { /* ignore */ }
 }
