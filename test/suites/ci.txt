@@ -127,9 +127,12 @@ test/theme-appearance.test.ts
 test/theme-bake.test.ts
 test/theme-editor-model.test.ts
 test/theme-layout-sanitize.test.ts
+test/theme-projector-layout.test.ts
 test/theme-rebake.test.ts
+test/theme-scripture.test.ts
 test/tier.test.ts
 test/transition-publish.test.tsx
+test/transition-resolve.test.ts
 test/translation-commands.test.ts
 test/update-banner-arch.test.ts
 test/verse-v2-mishears.test.ts
