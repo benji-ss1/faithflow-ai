@@ -1,7 +1,8 @@
 "use client";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Lock, Image as ImageIcon, Play, Save, Type, AlignLeft, AlignCenter, AlignRight, BookOpen, Maximize2, PanelBottom, ArrowUpToLine, ArrowDownToLine, AlignVerticalJustifyCenter } from "lucide-react";
 import { toast } from "sonner";
+import { BAND_DEFAULT_COLOR, bandHintKey, shouldShowBandHint } from "@/lib/band-media";
 import { cn } from "@/lib/utils";
 import type { SlidePayload, TransitionSpec, ThemeAppearance } from "@/lib/broadcast";
 import { projectableTextSlide } from "@/lib/broadcast";
@@ -57,6 +58,17 @@ export function ScriptureSlideEditor({
   const [layout, setLayout] = useState<ScriptureLayout>(baseDesign.layout ?? "fullscreen");
   const [band, setBand] = useState<BandStyle>(baseDesign.band ?? BAND_DEFAULT);
   const isLowerThird = layout === "lowerThird";
+  // One-time hint for churches still on the OLD black band. Never auto-applies.
+  // Start hidden-safe (dismissed) and read storage after mount — no SSR/hydration mismatch.
+  const [hintDismissed, setHintDismissed] = useState<boolean>(true);
+  useEffect(() => {
+    try { setHintDismissed(window.localStorage.getItem(bandHintKey(churchId)) === "1"); } catch { setHintDismissed(false); }
+  }, [churchId]);
+  const showBandHint = shouldShowBandHint(baseDesign.band, hintDismissed) && band.color.toLowerCase() === "#000000";
+  const dismissBandHint = () => {
+    setHintDismissed(true);
+    try { window.localStorage.setItem(bandHintKey(churchId), "1"); } catch { /* storage blocked */ }
+  };
 
   // Identify verse (first text) + reference (second text) objects.
   const texts = slide.objects.filter((o): o is TextObject => o.kind === "text");
@@ -270,6 +282,14 @@ export function ScriptureSlideEditor({
                     <button key={m} onClick={() => setBand((b) => ({ ...b, mode: m }))} className={cn(segBase, "flex-1 capitalize")} style={seg(band.mode === m)}>{m === "none" ? "None" : m}</button>
                   ))}
                 </div></Row>
+                {showBandHint && band.mode !== "none" && (
+                  <div data-testid="band-hint" className="flex items-center gap-2 rounded-lg border px-2 py-1.5 text-[11px] text-[var(--color-foreground)]" style={{ borderColor: "var(--color-border)" }}>
+                    <span className="inline-block w-4 h-4 rounded shrink-0" style={{ background: BAND_DEFAULT_COLOR, boxShadow: "inset 0 2px 0 rgba(255,255,255,0.16)" }} />
+                    <span className="flex-1">New: a more visible band. Try it, then Save to keep it.</span>
+                    <button onClick={() => { setBand((b) => ({ ...b, color: BAND_DEFAULT_COLOR, ...(b.mode === "gradient" && b.color2.toLowerCase() === "#000000" ? { color2: BAND_DEFAULT_COLOR } : {}) })); }} className="font-semibold text-[var(--color-brand)] hover:underline">Try it</button>
+                    <button onClick={dismissBandHint} aria-label="Dismiss tip" className="text-zinc-500 hover:text-zinc-300"><X className="w-3 h-3" /></button>
+                  </div>
+                )}
                 {band.mode !== "none" && (
                   <>
                     <Row label={band.mode === "gradient" ? "From" : "Colour"}><input type="color" value={band.color} onChange={(e) => setBand((b) => ({ ...b, color: e.target.value }))} className="h-8 w-full rounded-lg border bg-transparent shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)]" style={{ borderColor: "var(--color-border)" }} /></Row>
