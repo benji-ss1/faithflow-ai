@@ -17,6 +17,7 @@ import type { UseSlideEditorReturn } from "../editor/useSlideEditor";
 import type { TextObject } from "@/lib/slide-objects";
 import { BgAssetPicker } from "@/components/library/BgAssetPicker";
 import { TRANSITIONS } from "./BottomBar/TransitionChooser";
+import { TRANSITION_NAME_TO_EFFECT_ID } from "@/lib/transition-names";
 import { extractLogoPalette } from "@/lib/actions";
 import { buildColorwayFromPalette } from "@/lib/colorway";
 import { mainTextOf, typographyTargetOf, parseThemeFontSize, type ThemeSlideMeta } from "@/lib/theme-editor-model";
@@ -127,8 +128,11 @@ export function ThemeEditorTab({ editor, cfg, setCfg, meta, setMeta, makeDefault
   const transition = (cfg.transition && typeof cfg.transition === "object" ? cfg.transition : {}) as { name?: string; effectId?: string; durationMs?: number };
   const transitionName = transition.name ?? transition.effectId ?? "Fade";
   const transitionMs = typeof transition.durationMs === "number" ? transition.durationMs : get<number>(cfg, "transitionDurationMs", 300);
+  // Only written when the operator touches the controls. Saves a REAL effect id
+  // (PR 1 saved the display name as effectId; normalizeThemeTransition repairs
+  // those on read). "Cut" keeps effectId "cut" + name "Cut" → a hard cut.
   const setTransition = (name: string, durationMs: number) =>
-    setCfg({ transition: { effectId: name, name, durationMs, easing: "ease-in-out" }, transitionDurationMs: durationMs });
+    setCfg({ transition: { effectId: TRANSITION_NAME_TO_EFFECT_ID[name] ?? "cut", name, durationMs, easing: "ease-in-out" }, transitionDurationMs: durationMs });
 
   return (
     <div className="p-3 space-y-3">

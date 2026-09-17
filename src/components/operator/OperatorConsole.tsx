@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { decidePlanPropChange, shouldPinPlanUrl } from "@/lib/operator-plan-select";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { SCENES_V1, type SceneWire } from "@/lib/scenes";
 import { nextPreviewPosition } from "@/lib/operator-nav";
@@ -17,6 +17,8 @@ import { OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, readObsEditorStore, o
 import type { ObsLookWire } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
+import { themeScriptureOptions, type ThemeScriptureOptions } from "@/lib/theme-scripture";
+import { normalizeThemeTransition, resolveSendTransition, readOperatorTransitionsOff } from "@/lib/transition-resolve";
 import { inferLiveOrigin, type LiveOrigin, recallOrigin, rememberOrigin, carriedOrigin } from "@/lib/song-switch-guard";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
@@ -430,6 +432,10 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // Phase 5D-2: projector-level layers
   const [announcement, setAnnouncement] = useState<import("@/lib/broadcast").AnnouncementPayload | null>(null);
   const [transitionSpec, setTransitionSpec] = useState<import("@/lib/broadcast").TransitionSpec | null>(null);
+  // Mirror for the send-time transition resolution (sendSlideToLive is a stable
+  // callback and must read the CURRENT operator transition).
+  const transitionSpecRef = useRef<import("@/lib/broadcast").TransitionSpec | null>(null);
+  transitionSpecRef.current = transitionSpec;
   // One-shot marker for a slide whose transition is decided at fire-time rather
   // than from the operator's configured `transitionSpec`. `transition: null`
   // means a hard cut (Bible card clicks — the configured theme fade is visible
@@ -513,6 +519,9 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // Themes 2c — all church themes cached by id so we can resolve a per-item
   // "section theme" override. `themesVersion` bumps when the cache changes.
   const themesByIdRef = useRef<Map<string, unknown>>(new Map());
+  // Theme → Projector (PR 2): the church default theme's id, for the synchronous
+  // send-time theme lookup (scripture options + theme transition).
+  const defaultThemeIdRef = useRef<string | null>(null);
   const [themesVersion, setThemesVersion] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -522,6 +531,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // never carries churchId — so the offline theme cache silently no-op'd).
     const applyList = async (list: ThemeRow[]) => {
       themesByIdRef.current = new Map(list.filter((t) => typeof t.id === "string").map((t) => [t.id as string, t.config]));
+      defaultThemeIdRef.current = (list.find((t) => t.isDefault && typeof t.id === "string")?.id as string | undefined) ?? null;
       if (!cancelled) setThemesVersion((v) => v + 1);
       const active = list.find((t) => t.isDefault) ?? null;
       if (!cancelled && !userTouched.current && active) {
@@ -591,6 +601,47 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     return () => { cancelled = true; window.removeEventListener("presentflow:theme-changed", onChange); };
   }, []);
 
+  // ── Theme → Projector (PR 2): synchronous send-time theme lookup ──────────
+  // Refs only (no state reads) so sendSlideToLive stays stable and never waits
+  // on a dynamic import (rule 10 latency). Memoised per theme config object.
+  const contentStylesRef = useRef<import("@/lib/content-type-styles").ContentTypeStyles>({});
+  const scriptureOptsMemoRef = useRef(new WeakMap<object, ThemeScriptureOptions | null>());
+  const themeTransitionMemoRef = useRef(new WeakMap<object, import("@/lib/broadcast").TransitionSpec | null | undefined>());
+  type ThemeItemRef = { type?: string; themeId?: string | null } | undefined;
+  const themeConfigForSend = useCallback((slide: SlidePayload, item: ThemeItemRef, purpose: "scripture" | "transition"): unknown => {
+    const byId = (id: string | null | undefined) => (id ? themesByIdRef.current.get(id) : undefined);
+    const isScripture = slide.kind === "text" && !!slide.reference;
+    if (purpose === "scripture") {
+      // Scripture item's own theme → the Scripture content-type style → default.
+      if (item?.type === "scripture" && item.themeId) { const c = byId(item.themeId); if (c) return c; }
+      return byId(contentStylesRef.current.scripture) ?? byId(defaultThemeIdRef.current);
+    }
+    // Item theme → content-type style by slide kind → default.
+    if (item?.themeId) { const c = byId(item.themeId); if (c) return c; }
+    const ct = isScripture || item?.type === "scripture" ? contentStylesRef.current.scripture : item?.type === "song" ? contentStylesRef.current.song : undefined;
+    return byId(ct) ?? byId(defaultThemeIdRef.current);
+  }, []);
+  const scriptureThemeOptsFor = useCallback((slide: SlidePayload, item: ThemeItemRef): ThemeScriptureOptions | null => {
+    if (slide.kind !== "text" || !slide.reference) return null;
+    if (slide.objects?.length || slide.scriptureLayout) return null; // already styled → untouched anyway
+    try {
+      const cfg = themeConfigForSend(slide, item, "scripture");
+      if (!cfg || typeof cfg !== "object") return null;
+      const memo = scriptureOptsMemoRef.current;
+      if (!memo.has(cfg)) memo.set(cfg, themeScriptureOptions(cfg));
+      return memo.get(cfg) ?? null;
+    } catch { return null; }
+  }, [themeConfigForSend]);
+  const themeTransitionFor = useCallback((slide: SlidePayload, item: ThemeItemRef): import("@/lib/broadcast").TransitionSpec | null | undefined => {
+    try {
+      const cfg = themeConfigForSend(slide, item, "transition");
+      if (!cfg || typeof cfg !== "object") return undefined;
+      const memo = themeTransitionMemoRef.current;
+      if (!memo.has(cfg)) memo.set(cfg, normalizeThemeTransition(cfg));
+      return memo.get(cfg);
+    } catch { return undefined; }
+  }, [themeConfigForSend]);
+
   // liveItemIdx — which plan item is currently LIVE on the projector (-1 if
   // none). Relocated here (2026-08-12) so the section-theme resolution below can
   // key off the LIVE item instead of the preview cursor. Deps unchanged.
@@ -620,13 +671,13 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
           if (ps.kind !== live.kind) continue;
           const pid = slideOutputIdentity(ps);
           if (pid === srcId || pid === liveId) return i;
-          if (slideOutputIdentity(applyChurchLayout(ps, churchId)) === liveId) return i;
+          if (slideOutputIdentity(applyChurchLayout(ps, churchId, scriptureThemeOptsFor(ps, plan.items[i]))) === liveId) return i;
         }
       }
     } catch { /* fall through */ }
     return -1;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan.items, live.kind, liveKey, churchId]);
+  }, [plan.items, live.kind, liveKey, churchId, themesVersion]);
 
   // Themes 2c — resolve the LIVE item's section-theme override (if any) into its
   // own appearance. Anchored to the LIVE item (not the preview cursor) so that
@@ -650,6 +701,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // theme, its TYPE (song / scripture) selects a default theme; else the church
   // default. Operator-machine setting (localStorage), same-machine event-driven.
   const [contentStyles, setContentStyles] = useState<import("@/lib/content-type-styles").ContentTypeStyles>({});
+  contentStylesRef.current = contentStyles;
   useEffect(() => {
     let alive = true;
     const load = () => import("@/lib/content-type-styles").then(({ loadContentTypeStyles }) => { if (alive) setContentStyles(loadContentTypeStyles()); });
@@ -1037,7 +1089,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
           if (ps.kind !== "text") return false;
           const pid = slideOutputIdentity(ps);
           if (pid === srcId || pid === identity) return true;
-          try { return slideOutputIdentity(applyChurchLayout(ps, churchId)) === identity; } catch { return false; }
+          try { return slideOutputIdentity(applyChurchLayout(ps, churchId, scriptureThemeOptsFor(ps, it))) === identity; } catch { return false; }
         });
         if (!hit) continue;
         const itType = (it as { type?: string }).type;
@@ -1054,7 +1106,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     if (declared) rememberOrigin(originByIdRef.current, identity, declared);
     else if (carried && origin.kind === "song") rememberOrigin(originByIdRef.current, identity, origin);
     liveOriginRef.current = { origin, identity };
-  }, [churchId]);
+  }, [churchId, scriptureThemeOptsFor]);
   // Origin recorded for a given live payload (null = unknown / not stamped here).
   const originOf = useCallback((slide: SlidePayload): LiveOrigin | null => {
     const r = liveOriginRef.current;
@@ -1327,7 +1379,10 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // Runs BEFORE the identity checks so all downstream guards see the final slide.
     lastSourceRef.current = slide; // remember the pre-layout source (for a live toggle)
     const originSource = slide;
-    slide = applyChurchLayout(slide, churchId);
+    // The plan item this send belongs to (when the caller knows it) — drives the
+    // theme lookup for scripture options + the theme transition (PR 2).
+    const sendItem = options?.position ? (planItemsRef.current[options.position.itemIdx] as { type?: string; themeId?: string | null } | undefined) : undefined;
+    slide = applyChurchLayout(slide, churchId, scriptureThemeOptsFor(slide, sendItem));
     lastSourceLiveIdRef.current = slideOutputIdentity(slide);
     // Record what KIND of content this is for the song auto-switch guard. On the
     // already-live skip below the identity is unchanged, so a re-stamp only ever
@@ -1357,43 +1412,34 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       if (!options?.carryLiveOrigin) liveLayersRef.current.rearmSlide();
       return;
     }
-    if (options?.instant) {
-      // instant: true — bypass all transition animation for this slide.
-      // Sends transition:null in the "set" message so the projector clears its
-      // cached transition immediately (before the output-effect fires), and also
-      // marks fastTransitionSlideRef so the subsequent "output" message also
-      // carries transition:null. Used for Bible verse card clicks where a 1-2 s
-      // theme fade is user-visible latency.
-      fastTransitionSlideRef.current = { slide, transition: null };
-      setLive(slide, options?.position);
-      setLiveBroadcastRevision((revision) => revision + 1);
-      chRef.current?.postMessage({ type: "set", slide, transition: null } as LiveMessage);
-      return;
-    }
-    // Transition the "set" message and the follow-up "output" message will
-    // carry. AI auto-fires (preserveConfiguredTransition) animate with the fast
-    // AI_AUTO_TRANSITION — smooth but latency-safe — while leaving the operator's
-    // configured `transitionSpec` untouched for subsequent manual sends.
-    let setTransition: import("@/lib/broadcast").TransitionSpec | null | undefined;
-    if (options?.preserveConfiguredTransition) {
-      fastTransitionSlideRef.current = { slide, transition: AI_AUTO_TRANSITION };
-      setTransition = AI_AUTO_TRANSITION;
-    } else {
-      if (spec !== undefined) setTransitionSpec(spec);
-      setTransition = spec;
-    }
+    // TRANSITION — resolved ONCE per send (decision 3, PR 2) and sticky while
+    // this slide is live (the marker below rides every OutputState re-post):
+    //   instant (Bible card clicks: hard cut, a 1-2 s fade is visible latency)
+    //   → AI/voice auto-fire (fast AI_AUTO_TRANSITION, rule 10)
+    //   → operator master Off → the resolved theme's transition (only when that
+    //   theme sets one) → the operator's global transition.
+    // A church with no theme transition resolves to exactly the operator's
+    // transition, as before. `transition` is now ALWAYS in the "set" message
+    // (incl. null) so /live never keeps a stale cached one.
+    if (!options?.instant && !options?.preserveConfiguredTransition && spec !== undefined) setTransitionSpec(spec);
+    const resolvedTransition = resolveSendTransition({
+      instant: options?.instant,
+      aiAuto: options?.preserveConfiguredTransition,
+      operatorOff: !options?.instant && !options?.preserveConfiguredTransition ? readOperatorTransitionsOff() : false,
+      themeTransition: !options?.instant && !options?.preserveConfiguredTransition ? themeTransitionFor(slide, sendItem) : undefined,
+      operatorSpec: spec !== undefined ? spec : transitionSpecRef.current,
+    });
+    fastTransitionSlideRef.current = { slide, transition: resolvedTransition };
     setLive(slide, options?.position);
     // A repeated reference can reuse the exact same slide object. Force the
     // networked OutputState effect to republish even when React bails out of
     // the identical setLive value.
     setLiveBroadcastRevision((revision) => revision + 1);
-    const posted = chRef.current?.postMessage({
-      type: "set",
-      slide,
-      ...(setTransition !== undefined ? { transition: setTransition } : {}),
-    } as LiveMessage);
-    try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
-  }, [churchId, stampLiveOrigin, noteLiveSend, setLive]);
+    const posted = chRef.current?.postMessage({ type: "set", slide, transition: resolvedTransition } as LiveMessage);
+    if (!options?.instant) {
+      try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
+    }
+  }, [churchId, stampLiveOrigin, noteLiveSend, setLive, scriptureThemeOptsFor, themeTransitionFor]);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
   // Direct (no-transition) send paths — send(), move autoSend, jumpTo, banked,
   // legacy voice nav — used to skip applyChurchLayout, so with a lower-third
@@ -1401,13 +1447,14 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // them through the same layout + source bookkeeping. applyChurchLayout is
   // idempotent on already-styled slides (no double-apply) and returns blank/logo/
   // empty unchanged; the "set" post is unchanged (still an instant hard cut).
-  const layoutForDirectSend = useCallback((slide: SlidePayload): SlidePayload => {
-    const styled = applyChurchLayout(slide, churchId);
+  const layoutForDirectSend = useCallback((slide: SlidePayload, itemIdx?: number): SlidePayload => {
+    const item = typeof itemIdx === "number" ? (planItemsRef.current[itemIdx] as { type?: string; themeId?: string | null } | undefined) : undefined;
+    const styled = applyChurchLayout(slide, churchId, scriptureThemeOptsFor(slide, item));
     lastSourceRef.current = slide;
     lastSourceLiveIdRef.current = slideOutputIdentity(styled);
     stampLiveOrigin(slide, styled); // every direct send path records its origin too
     return styled;
-  }, [churchId, stampLiveOrigin]);
+  }, [churchId, stampLiveOrigin, scriptureThemeOptsFor]);
   const sendBankedToLive = useCallback((idx: number) => {
     const v = effectiveBank[idx];
     if (!v) return;
@@ -1472,7 +1519,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   }, []);
 
   const send = useCallback((raw: SlidePayload, pos?: LivePos) => {
-    const slide = layoutForDirectSend(raw);
+    const slide = layoutForDirectSend(raw, pos?.itemIdx);
     setLive(slide, pos);
     chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
   }, [layoutForDirectSend, setLive]);
@@ -1737,7 +1784,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     if (autoSend) {
       const raw = plan.items[next.itemIdx]?.slides[next.slideIdx];
       if (raw) {
-        const s = layoutForDirectSend(raw);
+        const s = layoutForDirectSend(raw, next.itemIdx);
         setLive(s, next);
         chRef.current?.postMessage({ type: "set", slide: s } as LiveMessage);
         // Operator-initiated send → fire that slide's attached actions (AI paths never do).
@@ -2227,7 +2274,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       lowerThird: null,
       countdownEndsAt,
       announcement,
-      transition: transitionSpec,
+      transition: fastTransitionSlideRef.current?.slide === live ? fastTransitionSlideRef.current.transition : transitionSpec,
       nextItem: nextItemForStage,
       fontScale: effectiveFontScale,
       referenceScale,
