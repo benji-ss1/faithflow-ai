@@ -29,6 +29,15 @@ kill_timeout = 30          # let an in-flight LibreOffice conversion finish
   auto_start_machines = true     # cold-start on the next request
   min_machines_running = 0
 
+  # ONE conversion per machine: LibreOffice on 2GB can't safely run two big
+  # decks at once. Fly's proxy sends the next request to another machine (or
+  # queues it); the server also answers 429 "busy" as a backstop, which the
+  # Next route retries with backoff.
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 1
+    hard_limit = 1
+
   [http_service.http_options]
     # A conversion streams ZERO response bytes until the whole PDF is ready, so
     # idle_timeout must cover the full conversion — otherwise the proxy drops

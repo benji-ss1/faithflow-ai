@@ -5,41 +5,55 @@
  * WHY this exists: Vercel serverless can't run LibreOffice, and browsers can't
  * render PPTX. So the operator's media import uploads the PPTX to S3, the Next
  * app (/api/pptx/to-pdf) hands us a short-lived presigned URL, we download +
- * convert here, and stream the PDF back. The Next app then reuses its existing
- * client-side PDF→images path to turn each page into a projectable media slide.
+ * convert here. The Next app then reuses its client-side PDF→images path.
  *
- * Security model: this service is reachable on the public internet, so every
- * /convert call MUST carry the shared secret (CONVERT_SHARED_SECRET) in the
- * x-convert-secret header. Without a matching secret it returns 401 and does no
- * work. It never touches the database and holds no S3 credentials — it only
- * fetches the exact presigned URL the trusted Next app gives it.
+ * Two response modes (the Next route supports BOTH, so Vercel and Fly can ship
+ * in either order):
+ *  - body.outputPutUrl present → we PUT the PDF straight to storage and reply
+ *    JSON {ok:true, pdfUploaded:true}. The PDF never transits Vercel (whose
+ *    ~4.5MB response cap broke photo-heavy decks).
+ *  - absent (legacy caller) → reply with the PDF bytes (application/pdf).
  *
- * Runs as a long-lived Node process on CONVERT_PORT (default 3002); Fly's edge
- * terminates TLS on 443. Machines scale to zero when idle (see fly.convert.toml)
- * so an idle converter costs nothing.
+ * Hardening: one conversion per machine (429 "busy" otherwise; Fly's
+ * concurrency hard_limit=1 routes the next request to another machine), the
+ * source is streamed to a temp file (never fully buffered), its file signature
+ * is checked before LibreOffice sees it, each job gets its own LibreOffice
+ * profile + temp dir, and a hard timeout kills the whole soffice process tree.
+ * Errors are mapped to plain operator messages (scripts/convert-lib.ts) — raw
+ * stderr is only logged, never returned.
+ *
+ * Security model: every /convert call MUST carry CONVERT_SHARED_SECRET in the
+ * x-convert-secret header (fail closed). No DB, no S3 credentials — it only
+ * touches the exact presigned URLs the trusted Next app gives it.
  */
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { promisify } from "node:util";
-// @ts-ignore - no types export in root
-import libre from "libreoffice-convert";
-
-const convert = promisify(libre.convert) as (buf: Buffer, ext: string, filter: string | undefined) => Promise<Buffer>;
+import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream, promises as fsp, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import {
+  CONVERT_MESSAGES, isAllowedUrl, mapSofficeFailure, sniffDeckSignature, statusForCode,
+  type ConvertErrorCode,
+} from "./convert-lib";
 
 const PORT = Number(process.env.CONVERT_PORT || 3002);
 const SECRET = process.env.CONVERT_SHARED_SECRET || "";
-// Cap the source file we'll pull — a PPTX beyond this is almost certainly not a
-// sermon deck, and LibreOffice on a small machine shouldn't chew on it.
-const MAX_SOURCE_BYTES = 150 * 1024 * 1024; // 150MB
-const ALLOWED_EXT = new Set([".pptx", ".ppt"]);
-// Hard timeout on the source download so a slow/hanging URL can't wedge the
-// process (LibreOffice has no such loop; the fetch does).
+const SOFFICE = process.env.SOFFICE_PATH || "soffice";
+const ALLOW_HTTP = process.env.CONVERT_ALLOW_HTTP === "1"; // local dev only
+const MAX_SOURCE_BYTES = 150 * 1024 * 1024; // 150MB — mirrors the presign cap
 const DOWNLOAD_TIMEOUT_MS = 60_000;
-// Optional defense-in-depth against SSRF: if CONVERT_ALLOWED_HOSTS is set
-// (comma-separated hostnames), the source URL's host MUST be one of them. The
-// app always sends a presigned STORAGE url, so set this to your S3/Supabase
-// host in prod. Unset = allow any https host (still secret-gated).
+const CONVERT_TIMEOUT_MS = Number(process.env.CONVERT_TIMEOUT_MS || 170_000);
+const UPLOAD_TIMEOUT_MS = 90_000;
 const ALLOWED_HOSTS = (process.env.CONVERT_ALLOWED_HOSTS || "")
   .split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+
+class ConvertError extends Error {
+  constructor(public code: ConvertErrorCode, detail?: string) { super(detail || code); }
+}
 
 function readJson(req: IncomingMessage, limitBytes = 64 * 1024): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -55,77 +69,250 @@ function readJson(req: IncomingMessage, limitBytes = 64 * 1024): Promise<Record<
   });
 }
 
-async function downloadPptx(url: string): Promise<Buffer> {
-  // Optional host allowlist (SSRF defense-in-depth on top of the shared secret).
-  if (ALLOWED_HOSTS.length) {
-    let host = "";
-    try { host = new URL(url).host.toLowerCase(); } catch { throw new Error("bad url"); }
-    if (!ALLOWED_HOSTS.includes(host)) throw new Error("source host not allowed");
-  }
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), DOWNLOAD_TIMEOUT_MS);
+function sendJson(res: ServerResponse, status: number, body: unknown) {
+  if (res.headersSent || res.destroyed) return;
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(body));
+}
+
+function sendError(res: ServerResponse, code: ConvertErrorCode) {
+  sendJson(res, statusForCode(code), { error: CONVERT_MESSAGES[code], code });
+}
+
+/** Stream the presigned source to `dest`, enforcing the size cap mid-stream. */
+async function downloadTo(url: string, dest: string, signal: AbortSignal): Promise<number> {
+  let res: Response;
   try {
-    // redirect:"error" — never follow a redirect to a different (possibly
-    // internal) host; the presigned URL we're given resolves directly.
-    const res = await fetch(url, { redirect: "error", signal: ctrl.signal });
-    if (!res.ok) throw new Error(`source fetch failed (${res.status})`);
-    const len = Number(res.headers.get("content-length") || 0);
-    if (len && len > MAX_SOURCE_BYTES) throw new Error("source too large");
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > MAX_SOURCE_BYTES) throw new Error("source too large");
-    return buf;
+    // redirect:"error" — never follow a redirect to a different (possibly internal) host.
+    res = await fetch(url, { redirect: "error", signal: AbortSignal.any([signal, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)]) });
+  } catch (e) {
+    if (signal.aborted) throw e;
+    throw new ConvertError("source_unavailable", String(e));
+  }
+  if (!res.ok || !res.body) throw new ConvertError("source_unavailable", `source fetch ${res.status}`);
+  const len = Number(res.headers.get("content-length") || 0);
+  if (len && len > MAX_SOURCE_BYTES) throw new ConvertError("too_large");
+  let total = 0;
+  const cap = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      total += chunk.length;
+      if (total > MAX_SOURCE_BYTES) cb(new ConvertError("too_large"));
+      else cb(null, chunk);
+    },
+  });
+  try {
+    await pipeline(Readable.fromWeb(res.body as import("node:stream/web").ReadableStream), cap, createWriteStream(dest));
+  } catch (e) {
+    if (e instanceof ConvertError || signal.aborted) throw e;
+    throw new ConvertError("source_unavailable", String(e));
+  }
+  return total;
+}
+
+async function readHeadTail(path: string, size: number): Promise<{ head: Uint8Array; tail: Uint8Array }> {
+  const fh = await fsp.open(path, "r");
+  try {
+    const headLen = Math.min(size, 64 * 1024);
+    const head = Buffer.alloc(headLen);
+    await fh.read(head, 0, headLen, 0);
+    const tailLen = Math.min(size, 1024 * 1024);
+    const tail = Buffer.alloc(tailLen);
+    await fh.read(tail, 0, tailLen, size - tailLen);
+    return { head, tail };
   } finally {
-    clearTimeout(timer);
+    await fh.close();
+  }
+}
+
+function killTree(child: ChildProcess) {
+  if (!child.pid) return;
+  try { process.kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* gone */ } }
+}
+
+/** Run soffice on `input` → PDF in `outDir`. Resolves the PDF path. */
+function runSoffice(input: string, outDir: string, profileDir: string, signal: AbortSignal, timeoutMs = CONVERT_TIMEOUT_MS): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const args = [
+      `-env:UserInstallation=file://${profileDir}`,
+      "--headless", "--norestore", "--nologo", "--nolockcheck", "--nodefault", "--nofirststartwizard",
+      "--convert-to", "pdf", "--outdir", outDir, input,
+    ];
+    // detached → own process group, so a timeout/cancel can kill soffice.bin too.
+    const child = spawn(SOFFICE, args, { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    child.stdout?.on("data", (d) => { stderr += d; });
+    child.stderr?.on("data", (d) => { stderr += d; });
+    let settled = false;
+    const onAbort = () => { killTree(child); finish(() => reject(new DOMException("Aborted", "AbortError"))); };
+    const timer = setTimeout(() => { killTree(child); finish(() => reject(new ConvertError("timeout"))); }, timeoutMs);
+    function finish(fn: () => void) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      fn();
+    }
+    if (signal.aborted) { onAbort(); return; }
+    signal.addEventListener("abort", onAbort, { once: true });
+    child.on("error", (e) => finish(() => reject(new ConvertError("failed", `spawn: ${e.message}`))));
+    child.on("close", (code) => {
+      const base = input.slice(input.lastIndexOf("/") + 1).replace(/\.[^.]+$/, "");
+      const pdf = join(outDir, `${base}.pdf`);
+      const produced = existsSync(pdf);
+      finish(() => {
+        if (code === 0 && produced) { resolve(pdf); return; }
+        console.error(`[convert] soffice exit=${code} produced=${produced} out=${stderr.slice(0, 500)}`);
+        reject(new ConvertError(mapSofficeFailure(stderr, produced), stderr));
+      });
+    });
+  });
+}
+
+/** PUT the file to a presigned URL with an explicit content-length (S3 rejects chunked PUTs). */
+async function putFile(url: string, path: string, signal: AbortSignal): Promise<void> {
+  const { size } = await fsp.stat(path);
+  const u = new URL(url);
+  const reqFn = u.protocol === "https:" ? httpsRequest : httpRequest;
+  await new Promise<void>((resolve, reject) => {
+    const req = reqFn(u, {
+      method: "PUT",
+      headers: { "content-type": "application/pdf", "content-length": String(size) },
+      timeout: UPLOAD_TIMEOUT_MS,
+      signal,
+    }, (res) => {
+      res.resume();
+      res.on("end", () => {
+        const sc = res.statusCode ?? 0;
+        if (sc >= 200 && sc < 300) resolve();
+        else reject(new ConvertError("upload_failed", `put ${sc}`));
+      });
+    });
+    req.on("timeout", () => req.destroy(new ConvertError("upload_failed", "put timeout")));
+    req.on("error", (e) => reject(e instanceof ConvertError || signal.aborted ? e : new ConvertError("upload_failed", e.message)));
+    createReadStream(path).on("error", (e) => req.destroy(e)).pipe(req);
+  });
+}
+
+let busy = false;
+
+async function handleConvert(req: IncomingMessage, res: ServerResponse) {
+  // Constant-work secret check; empty server secret = deny all (fail closed).
+  const provided = req.headers["x-convert-secret"];
+  if (!SECRET || provided !== SECRET) {
+    sendJson(res, 401, { error: "unauthorized" });
+    return;
+  }
+  if (busy) { req.resume(); console.log("[convert] busy → 429"); sendError(res, "busy"); return; }
+  busy = true;
+
+  const jobId = randomUUID();
+  const workDir = join(tmpdir(), `convert-${jobId}`);
+  const profileDir = join(tmpdir(), `lo-${jobId}`);
+  const ac = new AbortController();
+  // The caller hung up (operator cancelled / route timed out) → stop the work.
+  res.on("close", () => { if (!res.writableFinished) ac.abort(); });
+  const started = Date.now();
+
+  try {
+    let body: Record<string, unknown>;
+    try { body = await readJson(req); } catch { sendError(res, "bad_request"); return; }
+    const url = body.url;
+    const outputPutUrl = body.outputPutUrl;
+    if (!isAllowedUrl(url, ALLOW_HTTP, ALLOWED_HOSTS)) { sendJson(res, 400, { error: "missing or non-https url", code: "bad_request" }); return; }
+    if (outputPutUrl !== undefined && !isAllowedUrl(outputPutUrl, ALLOW_HTTP, ALLOWED_HOSTS)) {
+      sendJson(res, 400, { error: "bad outputPutUrl", code: "bad_request" });
+      return;
+    }
+    const requestedExt = body.ext === ".ppt" ? ".ppt" : ".pptx";
+
+    await fsp.mkdir(workDir, { recursive: true });
+    const raw = join(workDir, "source.bin");
+    const size = await downloadTo(url, raw, ac.signal);
+    if (size === 0) throw new ConvertError("not_presentation");
+
+    const { head, tail } = await readHeadTail(raw, size);
+    const sig = sniffDeckSignature(head, tail);
+    if (sig === null) throw new ConvertError("not_presentation");
+    if (sig === "encrypted") throw new ConvertError("password");
+    // The signature wins over the claimed extension (a renamed .ppt/.pptx still
+    // converts); requestedExt only matters if the sniff ever widens.
+    const ext = sig === "pptx" ? ".pptx" : sig === "ppt" ? ".ppt" : requestedExt;
+    const input = join(workDir, `deck${ext}`);
+    await fsp.rename(raw, input);
+
+    const outDir = join(workDir, "out");
+    await fsp.mkdir(outDir);
+    const pdfPath = await runSoffice(input, outDir, profileDir, ac.signal);
+    await fsp.rm(input, { force: true }); // free disk before the upload
+    const pdfSize = (await fsp.stat(pdfPath)).size;
+
+    if (typeof outputPutUrl === "string") {
+      await putFile(outputPutUrl, pdfPath, ac.signal);
+      sendJson(res, 200, { ok: true, pdfUploaded: true, bytes: pdfSize });
+    } else {
+      res.writeHead(200, { "content-type": "application/pdf", "content-length": String(pdfSize) });
+      await pipeline(createReadStream(pdfPath), res);
+    }
+    console.log(`[convert] ${jobId} ok ${(size / 1048576).toFixed(1)}MB -> ${(pdfSize / 1048576).toFixed(1)}MB pdf in ${((Date.now() - started) / 1000).toFixed(1)}s mode=${typeof outputPutUrl === "string" ? "put" : "bytes"}`);
+  } catch (err) {
+    if (ac.signal.aborted) {
+      console.log(`[convert] ${jobId} cancelled by caller after ${((Date.now() - started) / 1000).toFixed(1)}s`);
+      return;
+    }
+    const code: ConvertErrorCode = err instanceof ConvertError ? err.code : "failed";
+    console.error(`[convert] ${jobId} ${code}: ${err instanceof Error ? err.message.slice(0, 300) : String(err)}`);
+    sendError(res, code);
+  } finally {
+    busy = false;
+    await Promise.all([
+      fsp.rm(workDir, { recursive: true, force: true }).catch(() => {}),
+      fsp.rm(profileDir, { recursive: true, force: true }).catch(() => {}),
+    ]);
   }
 }
 
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   void (async () => {
-    // Health check — used by Fly's http_checks and the deploy script.
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("ok");
       return;
     }
-
     if (req.method !== "POST" || req.url !== "/convert") {
       res.writeHead(404).end("not found");
       return;
     }
-
-    // Constant-work secret check. Missing/empty server secret = deny all
-    // (fail closed) so a misconfigured deploy can't accept anonymous work.
-    const provided = req.headers["x-convert-secret"];
-    if (!SECRET || provided !== SECRET) {
-      res.writeHead(401, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "unauthorized" }));
-      return;
-    }
-
-    try {
-      const body = await readJson(req);
-      const url = typeof body.url === "string" ? body.url : "";
-      const ext = typeof body.ext === "string" && ALLOWED_EXT.has(body.ext) ? body.ext : ".pptx";
-      if (!url || !/^https:\/\//i.test(url)) {
-        res.writeHead(400, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "missing or non-https url" }));
-        return;
-      }
-
-      const source = await downloadPptx(url);
-      const pdf = await convert(source, ".pdf", undefined);
-
-      res.writeHead(200, { "content-type": "application/pdf", "content-length": String(pdf.length) });
-      res.end(pdf);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "conversion failed";
-      res.writeHead(500, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: msg }));
-    }
+    try { await handleConvert(req, res); }
+    catch { sendError(res, "failed"); }
   })();
 });
 
+// A conversion can legitimately take minutes with zero bytes on the wire.
+server.requestTimeout = 0;
+
 server.listen(PORT, () => {
-  // eslint-disable-next-line no-console
   console.log(`[convert] listening on :${PORT}`);
+  // Warm LibreOffice once in the background (loads binaries + fonts into the
+  // page cache) so the first real deck after a cold start is faster. Best-effort;
+  // does not hold the busy slot.
+  const warm = process.env.CONVERT_WARMUP_FILE || join(__dirname, "convert-warmup.pptx");
+  if (process.env.CONVERT_WARMUP !== "0" && existsSync(warm)) {
+    void (async () => {
+      const id = `warm-${randomUUID()}`;
+      const dir = join(tmpdir(), `convert-${id}`);
+      const prof = join(tmpdir(), `lo-${id}`);
+      const t = Date.now();
+      try {
+        await fsp.mkdir(join(dir, "out"), { recursive: true });
+        await fsp.copyFile(warm, join(dir, "warm.pptx"));
+        await runSoffice(join(dir, "warm.pptx"), join(dir, "out"), prof, new AbortController().signal, 120_000);
+        console.log(`[convert] warm-up done in ${((Date.now() - t) / 1000).toFixed(1)}s`);
+      } catch (e) {
+        console.error(`[convert] warm-up failed: ${e instanceof Error ? e.message.slice(0, 200) : e}`);
+      } finally {
+        await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+        await fsp.rm(prof, { recursive: true, force: true }).catch(() => {});
+      }
+    })();
+  }
 });

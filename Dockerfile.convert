@@ -15,8 +15,17 @@ RUN apt-get update \
      libreoffice-core \
      fonts-liberation \
      fonts-dejavu \
+     fonts-crosextra-carlito \
+     fonts-crosextra-caladea \
+     fonts-noto-core \
+     fonts-noto-color-emoji \
+     fontconfig \
      ca-certificates \
+  && fc-cache -f \
   && rm -rf /var/lib/apt/lists/*
+# Carlito/Caladea are metric-compatible with Calibri/Cambria (PowerPoint's
+# default fonts) so text wraps like the original; Noto core covers non-Latin
+# scripts; Noto Color Emoji renders emoji. Adds roughly 150-200MB to the image.
 
 WORKDIR /app
 
@@ -26,7 +35,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --ignore-scripts && npm i tsx
 
 # The converter script + tsconfig (tsx transpiles TS on the fly).
-COPY scripts/convert-server.ts ./scripts/convert-server.ts
+COPY scripts/convert-server.ts scripts/convert-lib.ts scripts/convert-warmup.pptx ./scripts/
 COPY tsconfig.json ./
 
 ENV NODE_ENV=production
