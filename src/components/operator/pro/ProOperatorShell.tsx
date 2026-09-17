@@ -1885,9 +1885,30 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // { blank: true } so the modal drops in and selects a fresh empty slide.
   const [slideEditorBlank, setSlideEditorBlank] = useState(false);
   const [slideEditorAdd, setSlideEditorAdd] = useState(false);
+  // Theme Editor (PR 1): the Themes popover pencil dispatches { themeId } so the
+  // SAME editor opens on that theme (PP7-style). Mutually exclusive with a song.
+  const [slideEditorTargetTheme, setSlideEditorTargetTheme] =
+    useState<import("./DesktopSlideEditorModal").SlideEditorTargetTheme | null>(null);
   useEffect(() => {
     const open = (e: Event) => {
-      const detail = (e as CustomEvent<{ songId?: string; title?: string; blank?: boolean; add?: boolean } | undefined>).detail;
+      const detail = (e as CustomEvent<{ songId?: string; title?: string; blank?: boolean; add?: boolean; themeId?: string } | undefined>).detail;
+      if (detail?.themeId) {
+        const themeId = detail.themeId;
+        setSlideEditorBlank(false);
+        setSlideEditorAdd(false);
+        fetch("/api/themes")
+          .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+          .then((data: { themes?: { id: string; name: string; isDefault?: boolean; config?: unknown }[] }) => {
+            const t = (data.themes ?? []).find((x) => x.id === themeId);
+            if (!t) { toast.error("Couldn't find that theme."); return; }
+            setSlideEditorTargetSong(null);
+            setSlideEditorTargetTheme({ id: t.id, name: t.name, isDefault: t.isDefault === true, config: (t.config && typeof t.config === "object" ? t.config : {}) as Record<string, unknown> });
+            setSlideEditorOpen(true);
+          })
+          .catch(() => { toast.error("Couldn't load that theme to edit."); });
+        return;
+      }
+      setSlideEditorTargetTheme(null);
       setSlideEditorBlank(!!detail?.blank);
       setSlideEditorAdd(!!detail?.add);
       if (detail?.songId) {
@@ -5045,7 +5066,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <SceneBuilderHost ctx={ctx} />
       <SongAutopilotStaging ctx={ctx} />
       <AITranscriptTicker ctx={ctx} />
-      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorBlank(false); setSlideEditorAdd(false); }} />
+      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} targetTheme={slideEditorTargetTheme} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorTargetTheme(null); setSlideEditorBlank(false); setSlideEditorAdd(false); }} />
       {mediaEdit ? (
         <MediaImageEditor
           asset={mediaEdit}
