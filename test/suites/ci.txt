@@ -144,8 +144,7 @@ test/whats-new.test.ts
 test/band-media.test.ts
 test/pptx-convert.test.ts
 test/media-click-sends-live.test.ts
-<<<<<<< HEAD
 test/live-bg-theme-decor.test.ts
-=======
 test/video-fit-band-hint.test.ts
->>>>>>> origin/main
+test/live-item-theme.test.ts
+test/s3-key-nesting.test.ts
