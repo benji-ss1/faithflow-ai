@@ -1,5 +1,5 @@
-# Offline test files that pass on main (no DB / API keys). CI runs these and blocks on failure.
 # Add new pure tests here. Regenerate: node scripts/run-tests.mjs --all
+# Offline test files that pass on main (no DB / API keys). CI runs these and blocks on failure.
 test/actions.test.ts
 test/adversarial/accuracy-pass2.test.ts
 test/adversarial/accuracy-pass2b-fable.test.ts
@@ -7,6 +7,7 @@ test/adversarial/audio-reconnect.test.ts
 test/adversarial/audio-sessions-cross-church.test.ts
 test/adversarial/auto-approve-safeguards.test.ts
 test/adversarial/auto-approve-shell-rules.test.ts
+test/adversarial/church-styles-scope.test.ts
 test/adversarial/learned-keyterms-cross-church.test.ts
 test/adversarial/media-register-scope.test.ts
 test/adversarial/sermon-backfill-cross-church.test.ts
@@ -45,6 +46,7 @@ test/bible-stutter-combine.test.ts
 test/bible-verse-enum-phonetic.test.ts
 test/bible-verse-range.test.ts
 test/changelog-generator.test.ts
+test/church-styles-store.test.ts
 test/colorway.test.ts
 test/context-parser-nav.test.ts
 test/deepgram-keyterms.test.ts
@@ -68,6 +70,8 @@ test/hex-color.test.ts
 test/keyboard-shortcuts.test.ts
 test/layer-store.test.ts
 test/layer-wire.test.ts
+test/live-bg-theme-decor.test.ts
+test/live-item-theme.test.ts
 test/login-guard.test.ts
 test/logo-key.test.ts
 test/media-as-background.stress.test.ts
@@ -105,11 +109,13 @@ test/render-url-allowlist.test.ts
 test/render-url-clean.test.ts
 test/render-url-loopback.test.ts
 test/right-rail-badges.test.ts
+test/s3-key-nesting.test.ts
 test/sarah-answers.test.ts
 test/sarah-scenarios.test.ts
 test/sarah-watchers.test.ts
 test/scenes.test.ts
 test/scripture-chunk.test.ts
+test/scripture-design-sanitize.test.ts
 test/scripture-live-parity.test.ts
 test/scripture-lowerthird.test.ts
 test/service-mode.test.ts
@@ -149,6 +155,3 @@ test/videopsalm-parser.test.ts
 test/videopsalm.test.ts
 test/voice-commands.test.ts
 test/whats-new.test.ts
-test/adversarial/church-styles-scope.test.ts
-test/church-styles-store.test.ts
-test/scripture-design-sanitize.test.ts

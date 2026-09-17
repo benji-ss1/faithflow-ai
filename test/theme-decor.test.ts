@@ -186,8 +186,8 @@ async function main() {
     const body = oc.slice(oc.indexOf("const themeConfigForSend = useCallback("), oc.indexOf("const scriptureThemeOptsFor = useCallback("));
     const scripture = body.slice(body.indexOf('if (purpose === "scripture") {'), body.indexOf("// Item theme → song's applied theme"));
     assert.ok(!/item/.test(scripture.replace(/\/\/.*$/gm, "")), scripture);
-    assert.ok(oc.includes("applyChurchLayout(ps, churchId, scriptureThemeOptsFor(ps, plan.items[i]))"));
-    assert.ok(oc.includes("}, [plan.items, live.kind, liveKey, churchId, themesVersion, contentStyles]);"), "liveItemIdx deps include themes + contentStyles");
+    assert.ok(oc.includes("layout: (ps, item) => applyChurchLayout(ps, churchId, scriptureThemeOptsFor(ps, item as never))"));
+    assert.ok(oc.includes("}, [plan.items, live.kind, liveKey, churchId, themesVersion, contentStyles, liveItemStampSeq]);"), "liveItemIdx deps include themes + contentStyles");
   });
   await check("lookup consistency: identity for the same verse is equal whatever item is passed", () => {
     const opts = themeScriptureOptions({ scriptureShowReference: false });
@@ -197,8 +197,10 @@ async function main() {
   });
   await check("precedence: item theme > song appliedThemeId > content-type > default", () => {
     assert.ok(oc.includes("if (item?.themeId) { const c = byId(item.themeId); if (c) return c; }\n    if (item?.songAppliedThemeId) { const c = byId(item.songAppliedThemeId); if (c) return c; }"));
-    assert.ok(/themeId\s*\n\s*\?\? \(plan\.items\[liveItemIdx\] as \{ songAppliedThemeId\?: string \} \| undefined\)\?\.songAppliedThemeId/.test(oc), "live appearance");
-    assert.ok(oc.includes("byId(item?.themeId) ?? byId(item?.songAppliedThemeId) ?? byId(ct)"), "grid appearance");
+    // Live + grid share ONE resolver (src/lib/live-item-theme.ts, 2026-09-17).
+    assert.ok(oc.includes("resolveItemThemeConfig(plan.items[liveItemIdx]"), "live appearance");
+    assert.ok(oc.includes("resolveItemThemeConfig(plan.items[itemIdx]"), "grid appearance");
+    assert.ok(src("src/lib/live-item-theme.ts").includes("[item.themeId, item.songAppliedThemeId, ct]"), "precedence order");
     const svc = src("src/lib/server/services.ts");
     assert.ok(svc.includes("songAppliedThemeId = st.appliedThemeId"));
   });
