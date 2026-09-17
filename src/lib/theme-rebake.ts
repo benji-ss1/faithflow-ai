@@ -16,6 +16,10 @@ export const THEME_OWNED_TEXT_FIELDS = ["fontFamily", "fontSize", "fontWeight", 
 type Obj = Record<string, unknown>;
 const asObj = (v: unknown): Obj => (v && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : {});
 
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
 function copyField(target: Obj, source: Obj, key: string) {
   if (source[key] === undefined) delete target[key];
   else target[key] = source[key];
@@ -59,12 +63,27 @@ export function reapplyFieldsForConfigs(configs: unknown[]): ThemeOwnedFields {
   return { slide: THEME_OWNED_SLIDE_FIELDS, text: themeFieldsForConfigs(configs).text };
 }
 
-/** Restore theme-owned fields on `current` from `original` (no bake). */
-export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS): Obj {
+/**
+ * Restore theme-owned fields on `current` from `original` (no bake).
+ *
+ * `previousConfig` (review fix 🟡4): when given, a BACKGROUND field is only reset
+ * if its current value is still what that previous theme baked onto the
+ * snapshot (i.e. theme-owned / leftover). A background the operator set by hand
+ * after applying the theme differs from the baked value and is kept. When the
+ * previous config is unknown (undefined) every background field is reset — the
+ * leftover case this rule exists for.
+ */
+export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS, previousConfig?: unknown): Obj {
   const cur = asObj(currentObjectsJson);
   const orig = asObj(originalObjectsJson);
   const out: Obj = { ...cur };
-  for (const k of fields.slide) copyField(out, orig, k);
+  const prevBaked = previousConfig && typeof previousConfig === "object"
+    ? bakeThemeIntoObjectsJson(previousConfig as BakeableThemeConfig, originalObjectsJson)
+    : null;
+  for (const k of fields.slide) {
+    if (prevBaked && !sameValue(cur[k], prevBaked[k]) && !sameValue(cur[k], orig[k])) continue; // operator-set: keep
+    copyField(out, orig, k);
+  }
   const origObjects = Array.isArray(orig.objects) ? (orig.objects as Obj[]) : [];
   const byId = new Map<string, Obj>();
   for (const o of origObjects) if (o && typeof o.id === "string") byId.set(o.id, o);
@@ -81,8 +100,19 @@ export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjec
 }
 
 /** Reset theme-owned fields from the snapshot, then bake the (current) theme. */
-export function rebakeThemeFromOriginal(cfg: BakeableThemeConfig, currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS): Obj {
-  return bakeThemeIntoObjectsJson(cfg, resetThemeOwnedFields(currentObjectsJson, originalObjectsJson, fields));
+export function rebakeThemeFromOriginal(cfg: BakeableThemeConfig, currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS, previousConfig?: unknown): Obj {
+  const reset = resetThemeOwnedFields(currentObjectsJson, originalObjectsJson, fields, previousConfig);
+  if (previousConfig && typeof previousConfig === "object") {
+    // Keep operator-set backgrounds through the bake too: the new theme must not
+    // overwrite a field the operator chose by hand.
+    const cur = asObj(currentObjectsJson);
+    const baked = bakeThemeIntoObjectsJson(cfg, reset);
+    for (const k of fields.slide) {
+      if (!sameValue(reset[k], asObj(originalObjectsJson)[k]) && sameValue(reset[k], cur[k])) copyField(baked, cur, k);
+    }
+    return baked;
+  }
+  return bakeThemeIntoObjectsJson(cfg, reset);
 }
 
 export type ThemeBackupEntry = { id: string; objectsJson: unknown };

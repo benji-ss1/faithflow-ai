@@ -124,5 +124,24 @@ check("keep-songs bg leftover: re-apply always resets bg even when neither confi
   assert.deepEqual([...fields.slide].sort(), ["bgColor", "bgColor2", "bgImageUrl", "bgType", "transition"]);
 });
 
+check("re-apply: theme-baked (leftover) bg is reset when it matches the previous theme's bake", () => {
+  const orig = { bgColor: "#000000", objects: [{ id: "a", kind: "text", text: "x" }] };
+  const prev = { bgType: "image", bgImageUrl: "https://x/old.png" };
+  const cur = { ...orig, bgType: "image", bgImageUrl: "https://x/old.png" };
+  const next = { bgColor: "#223344" }; // new theme version dropped the image
+  const re = rebakeThemeFromOriginal(next, cur, orig, reapplyFieldsForConfigs([next, prev]), prev) as any;
+  assert.equal(re.bgImageUrl, undefined);
+  assert.equal(re.bgColor, "#223344");
+});
+check("re-apply: a background the operator set by hand AFTER applying is kept", () => {
+  const orig = { bgColor: "#000000", objects: [{ id: "a", kind: "text", text: "x" }] };
+  const prev = { bgType: "image", bgImageUrl: "https://x/old.png" };
+  const cur = { ...orig, bgType: "image", bgImageUrl: "https://x/operator-flyer.png" };
+  const next = { bgType: "image" as const, bgImageUrl: "https://x/new.png" };
+  const re = rebakeThemeFromOriginal(next, cur, orig, reapplyFieldsForConfigs([next, prev]), prev) as any;
+  assert.equal(re.bgImageUrl, "https://x/operator-flyer.png");
+  assert.equal(re.bgType, "image");
+});
+
 console.log(`\ntheme-rebake: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
