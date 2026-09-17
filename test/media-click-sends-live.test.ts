@@ -6,6 +6,7 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { mediaClickAction } from "../src/lib/media-click";
 
 let pass = 0, fail = 0;
 function check(name: string, fn: () => void) {
@@ -28,6 +29,16 @@ function bodyAfter(src: string, marker: string): string {
   throw new Error("unbalanced");
 }
 
+check("pure: images, videos, unknown kinds → send live", () => {
+  for (const k of ["image", "image/png", "video", "video/mp4", "", null, undefined]) assert.equal(mediaClickAction(k), "send-live");
+});
+check("pure: audio is blocked, never sent live or set as background", () => {
+  for (const k of ["audio", "audio/mpeg", "AUDIO"]) assert.equal(mediaClickAction(k), "audio-blocked");
+});
+check("both click paths route through mediaClickAction", () => {
+  assert.match(bin, /mediaClickAction\(a\.kind\) === "send-live"\) sendAsSlide\(a\)/);
+  assert.match(browser, /mediaClickAction\(a\.kind\) === "audio-blocked"/);
+});
 check("Media Bin tile click timer sends the asset live", () => {
   const timer = bodyAfter(bin, "clickTimerRef.current = window.setTimeout(");
   assert.match(timer, /sendAsSlide\(a\)/);

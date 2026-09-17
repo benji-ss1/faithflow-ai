@@ -35,6 +35,7 @@ import { MediaImportWizard } from "./MediaImportWizard";
 import { takePendingImport, onOsDropImport, type PendingImport } from "./pendingImport";
 import { MediaImageEditor } from "./MediaImageEditor";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
+import { mediaClickAction, AUDIO_NOT_PROJECTABLE_MESSAGE } from "@/lib/media-click";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
 
 type Asset = {
@@ -305,6 +306,7 @@ export function MediaBrowser({
     // A click ALWAYS sends the media live to the screen (framed if it has a saved
     // edit). Only "Set as background" changes the background behind every slide
     // (user-directed 2026-09-17 — a click must never set a background).
+    if (mediaClickAction(a.kind) === "audio-blocked") { toast.error(AUDIO_NOT_PROJECTABLE_MESSAGE); return; }
     // Was something already on the projector? (a blank slide = nothing live).
     const wasLive = !!ctx.liveSlide && ctx.liveSlide.kind !== "blank";
     setSelectedId(a.id);
@@ -317,7 +319,7 @@ export function MediaBrowser({
     if (wasLive && !a.kind.startsWith("video")) {
       toast.success("Image sent to the screen", {
         id: "pf-media-sent-hint",
-        description: "Wanted it behind your lyrics instead? Set it as the background — the image stays up until you advance.",
+        description: "Wanted it behind the lyrics on every slide instead? Set it as the background, then go back to your lyrics slide.",
         action: {
           label: "Set as background instead",
           onClick: () => setAsBackground(a),

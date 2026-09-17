@@ -41,6 +41,7 @@ import { deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } fro
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isImageAsset } from "@/lib/media-drop";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
+import { mediaClickAction, AUDIO_NOT_PROJECTABLE_MESSAGE } from "@/lib/media-click";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { MediaImportWizard } from "../center/MediaImportWizard";
 import { isOsFileDrag, collectDroppedFiles, isFileInputTarget } from "@/lib/media-bin-drop";
@@ -60,8 +61,8 @@ type Asset = {
 
 /** Audio has no output path yet (no audio slide kind) — it must never be sent
  *  live, used as a background, or dragged onto a slide. */
-const isAudioAsset = (a: Asset) => (a.kind || "") === "audio";
-const AUDIO_NOT_PROJECTABLE = "Audio can't be shown on screen — playback from the Media Bin is coming soon";
+const isAudioAsset = (a: Asset) => mediaClickAction(a.kind) === "audio-blocked";
+const AUDIO_NOT_PROJECTABLE = AUDIO_NOT_PROJECTABLE_MESSAGE;
 
 // Popped-out preset height (used when the operator taps the pop-out button
 // instead of hand-dragging the resize handle).
@@ -586,7 +587,9 @@ export function MediaBinSection({
                             // has a saved edit). Only the "Bg" button / "Set as background"
                             // menu items change the background behind every slide
                             // (user-directed 2026-09-17 — a click must never set a background).
-                            if (ctx) sendAsSlide(a); else onCenterMode?.("media");
+                            if (!ctx) { onCenterMode?.("media"); return; }
+                            if (mediaClickAction(a.kind) === "send-live") sendAsSlide(a);
+                            else toast.error(AUDIO_NOT_PROJECTABLE);
                           }, 250);
                         }}
                         onDoubleClick={(e) => {
