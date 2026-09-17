@@ -12,7 +12,11 @@ try {
   & powershell -ExecutionPolicy Bypass -File prepare-sdk.ps1
   if ($LASTEXITCODE -ne 0) { throw "prepare-sdk failed" }
   if (-not (Test-Path node_modules)) { npm install --no-audit --no-fund --ignore-scripts }
-  npx --yes node-gyp@13.0.2 rebuild --arch=x64
+  # node-gyp 13 is required for Node 22+ (ClangCL toolset) but breaks on Node 20
+  # (undici); node-gyp 10 is the opposite. Pick by the running Node major.
+  $nodeMajor = [int]((node -p "process.versions.node.split('.')[0]").Trim())
+  $gyp = if ($nodeMajor -ge 22) { "node-gyp@13.0.2" } else { "node-gyp@10.2.0" }
+  npx --yes $gyp rebuild --arch=x64
   if ($LASTEXITCODE -ne 0) { throw "node-gyp failed" }
   Write-Host "[decklink-rebuild] OK"
 } catch {
