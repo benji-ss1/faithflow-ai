@@ -4,6 +4,15 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.438",
+    "date": "2026-09-17",
+    "headline": "Clicking a picture in the Media Bin puts it on the screen again",
+    "highlights": [
+      "Click a picture or video in the Media Bin or the Media library and it goes straight to the screen, just like before.",
+      "A click no longer changes the background behind all your slides. To do that, use the Bg button on the picture (or right-click → Set as background)."
+    ]
+  },
+  {
     "version": "0.1.437",
     "date": "2026-09-17",
     "headline": "New Themes popover, like ProPresenter",

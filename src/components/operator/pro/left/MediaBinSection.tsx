@@ -40,7 +40,7 @@ import { snapshotBackgroundState, restoreBackgroundState, removeCustomBackground
 import { deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isImageAsset } from "@/lib/media-drop";
-import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide, shouldSendFramedSlide } from "../center/mediaFrame";
+import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { MediaImportWizard } from "../center/MediaImportWizard";
 import { isOsFileDrag, collectDroppedFiles, isFileInputTarget } from "@/lib/media-bin-drop";
@@ -48,7 +48,6 @@ import { isRealDragLeave } from "@/lib/spring-load";
 import { MediaBinUploadQueue, type MediaBinUploadQueueHandle } from "./MediaBinUploadQueue";
 import { MediaImageEditor } from "../center/MediaImageEditor";
 import { Pencil } from "lucide-react";
-import { usePp7Layers } from "@/lib/pp7-layers-flag";
 
 type Asset = {
   id: string;
@@ -179,19 +178,6 @@ export function MediaBinSection({
       return projectableTextSlide("", bgColor, undefined, objects);
     }
     return { kind: "image", url: a.url, fit: "contain" };
-  };
-
-  // PP7 layers flag: a click puts media on the Media layer, BEHIND the words
-  // (the slide stays live; F3 / the rail's Media button clears only the media).
-  const pp7Layers = usePp7Layers();
-  const sendToMediaLayer = (a: Asset) => {
-    if (isAudioAsset(a)) { toast.error(AUDIO_NOT_PROJECTABLE); return; }
-    if (!a.url) { toast.error("This asset has no file to show"); return; }
-    setMediaAsBackground({
-      id: a.id, url: a.url, fileName: a.fileName || "Media",
-      kind: normalizeMediaKind(a.kind || "image"), mediaKey: a.mediaKey || undefined,
-    });
-    toast.success(`“${a.fileName || "Media"}” is on the Media layer`, { id: "pf-media-layer", description: ctx && ctx.liveLayers.rows.some((r) => r.id === "camera" && r.active) ? "It covers the live camera. Clear Media (F3) shows the camera again." : "Clear Media (F3) removes it. Your words stay." });
   };
 
   const sendAsSlide = (a: Asset) => {
@@ -596,12 +582,11 @@ export function MediaBinSection({
                           if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
                           clickTimerRef.current = window.setTimeout(() => {
                             clickTimerRef.current = null;
-                            if (ctx) {
-                              // A saved frame can't ride the Media layer (plain full-screen) —
-                              // project it framed when no words are live.
-                              const framed = shouldSendFramedSlide(!!(a.url && loadMediaFrame(ctx.churchId, a.id)), (a.kind || "").startsWith("video"), ctx.liveSlide as { kind: string; text?: string } | null);
-                              if (pp7Layers && ctx.layersEngineOn && !framed) sendToMediaLayer(a); else sendAsSlide(a);
-                            } else onCenterMode?.("media");
+                            // A click ALWAYS sends the media live to the screen (framed if it
+                            // has a saved edit). Only the "Bg" button / "Set as background"
+                            // menu items change the background behind every slide
+                            // (user-directed 2026-09-17 — a click must never set a background).
+                            if (ctx) sendAsSlide(a); else onCenterMode?.("media");
                           }, 250);
                         }}
                         onDoubleClick={(e) => {
