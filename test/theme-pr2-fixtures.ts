@@ -18,6 +18,11 @@ export const SLIDES: Record<string, SlidePayload> = {
     { kind: "text", x: 100, y: 400, w: 1700, h: 300, text: "Hello", fontSize: 90 },
   ] },
   lowerThird: { kind: "text", text: "For God so loved", reference: "John 3:16", scriptureLayout: "lowerThird", scriptureBand: { topPct: 68, heightPct: 30, fontScale: 1, color: "#000000", opacity: 0.7 } },
+  soleTextRef: { kind: "text", text: "For God so loved", reference: "John 3:16 (NIV)", objects: [{ kind: "text", x: 80, y: 60, w: 1760, h: 820, text: "For God so loved", fontFamily: "Sora", fontSize: 96, color: "#ffffff", align: "center", uppercase: false }] },
+  scriptureStyled: { kind: "text", text: "16 For God so loved the world", reference: "John 3:16 (KJV)", objects: [
+    { kind: "text", x: 80, y: 60, w: 1760, h: 820, text: "16 For God so loved the world", fontFamily: "Sora", fontSize: 96, fontWeight: 700, color: "#ffffff", align: "center", italic: false, uppercase: false, shadow: true, stroke: "#000000", strokeWidth: 0, lineHeight: 1.15, letterSpacing: 0 },
+    { kind: "text", x: 80, y: 930, w: 1760, h: 110, text: "John 3:16 (KJV)", fontFamily: "Sora", fontSize: 44, fontWeight: 500, color: "#ffffff", align: "center", italic: false, uppercase: false, shadow: true, stroke: "#000000", strokeWidth: 0, lineHeight: 1.1, letterSpacing: 1 },
+  ] },
   blank: { kind: "blank" },
   empty: { kind: "empty" },
 };
@@ -26,12 +31,17 @@ export const APPEARANCES: Record<string, ThemeAppearance | null> = {
   none: null,
   basic: { bgType: "solid", bgColor: "#101020", textColor: "#ffeecc", fontFamily: "Inter, sans-serif", fontWeight: 700, align: "left" },
   gradient: { bgType: "gradient", bgColor: "#000000", bgColor2: "#333333", bgAngle: 135, textShadow: false },
+  image: { bgType: "image", bgImageUrl: "https://cdn.example.com/bg.jpg", dim: 0.4, textColor: "#ffffff" },
+  video: { bgType: "video", bgVideoUrl: "https://cdn.example.com/bg.mp4", dim: 0.3 },
+  animated: { bgType: "gradient", bgColor: "#101010", bgColor2: "#303050", bgAnimation: "drift" },
+  dimSolid: { bgType: "solid", bgColor: "#f0f0f0", dim: 0.5, logoUrl: "https://cdn.example.com/logo.png", logoPosition: "bottom-right", logoSizePct: 10 },
 };
 
 export const PROP_SETS: Record<string, Record<string, unknown>> = {
   projector: { projectorFit: true },
   projectorScaled: { projectorFit: true, fontScale: 1.3, referenceScale: 1.2, referenceColor: "#ff0000" },
   thumb: { textMinPx: 8 },
+  editable: { textMinPx: 14, editable: true },
   overVideo: { projectorFit: true, overVideo: true },
   overVideoTop: { projectorFit: true, overVideo: true, verticalAlign: "top" },
   transparent: { projectorFit: true, transparentBg: true },
