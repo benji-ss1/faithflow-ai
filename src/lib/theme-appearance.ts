@@ -125,7 +125,11 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
   // ── Logo overlay (Phase 2) ──
   if (isHttpsUrl(c.logoUrl) && c.logoPosition !== "none") {
     a.logoUrl = c.logoUrl;
-    a.logoPosition = LOGO_POSITIONS.has(c.logoPosition as string) ? (c.logoPosition as NonNullable<ThemeAppearance["logoPosition"]>) : "bottom-right";
+    // The theme editor's 3x3 grid stores the centre cell as "middle-center" but
+    // the wire contract calls it "center" — map it, or a centred logo silently
+    // fell back to bottom-right.
+    const pos = c.logoPosition === "middle-center" ? "center" : (c.logoPosition as string);
+    a.logoPosition = LOGO_POSITIONS.has(pos) ? (pos as NonNullable<ThemeAppearance["logoPosition"]>) : "bottom-right";
     // ThemeConfig stores logoSizePx (against a ~1920 reference); the wire uses a
     // resolution-independent % of output width.
     const px = typeof c.logoSizePx === "number" && Number.isFinite(c.logoSizePx) ? c.logoSizePx : 0;
