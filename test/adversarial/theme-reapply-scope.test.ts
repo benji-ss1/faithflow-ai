@@ -20,7 +20,7 @@ const ok = (cond: boolean | RegExpMatchArray | null, msg: string) => { assert.ok
 
 for (const name of ["countSongsUsingTheme", "reapplyThemeToSongs", "applyThemeToSong", "applyThemeToSongSlides", "removeThemeFromSongSlides", "updateTheme"]) {
   const b = body(name);
-  ok(b.match(/requireCap\("edit_library"\)/), `${name} requires edit_library`);
+  ok(b.match(/requireCap\("edit_library"\)|requireUser\(\);\s*if \(!hasCap\(user\.role, "edit_library"\)\) return \{ ok: false/), `${name} requires edit_library`);
   ok(b.match(/eq\(themes\.id, themeId|eq\(themes\.id, id\)/) ? /eq\(themes\.churchId, user\.churchId\)/.test(b) : true, `${name} selects the theme by church`);
 }
 

@@ -77,7 +77,19 @@ export const THEME_ALLOWED_KEYS: (keyof ThemeConfig)[] = [
   "builtinId",
 ];
 
-export function sanitizeThemeConfig(input: unknown): { config: ThemeConfig; rejected: string[] } {
+/**
+ * `allowBuiltinId` (review fix): ONLY materializeBuiltinTheme may persist
+ * `builtinId`. Every other writer (create/update/import/duplicate) silently
+ * strips it, so a user theme can never impersonate or hijack a built-in's
+ * find-or-create slot.
+ */
+export function stripBuiltinId(config: Record<string, unknown>): Record<string, unknown> {
+  if (!config || typeof config !== "object" || !("builtinId" in config)) return config;
+  const { builtinId: _b, ...rest } = config; void _b;
+  return rest;
+}
+
+export function sanitizeThemeConfig(input: unknown, opts: { allowBuiltinId?: boolean } = {}): { config: ThemeConfig; rejected: string[] } {
   const rejected: string[] = [];
   const out: ThemeConfig = {};
   if (!input || typeof input !== "object") return { config: out, rejected };
@@ -90,7 +102,7 @@ export function sanitizeThemeConfig(input: unknown): { config: ThemeConfig; reje
   for (const k of Object.keys(obj)) {
     if ((THEME_ALLOWED_KEYS as string[]).includes(k)) {
       if (k === "builtinId") {
-        if (obj[k] === undefined || obj[k] === null) continue;
+        if (obj[k] === undefined || obj[k] === null || !opts.allowBuiltinId) continue;
         if (isBuiltinThemeId(obj[k])) out.builtinId = obj[k] as string; else rejected.push(k);
       } else if (k === "layout") {
         // Dedicated validator: objects via isValidSlideObject, urls via

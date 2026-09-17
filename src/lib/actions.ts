@@ -11,7 +11,7 @@ import { GROUP_KINDS } from "../engine/arrangements";
 import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
-import { sanitizeThemeConfig, type ThemeConfig } from "./theme-config";
+import { sanitizeThemeConfig, stripBuiltinId, type ThemeConfig } from "./theme-config";
 import { getBuiltinTheme, builtinThemeConfig } from "./builtin-themes";
 import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
@@ -2192,7 +2192,7 @@ export async function duplicateTheme(id: string): Promise<Result<{ id: string }>
   const [row] = await db.insert(themes).values({
     churchId: user.churchId,
     name: `${existing.name} copy`,
-    config: existing.config as Record<string, unknown>,
+    config: stripBuiltinId(existing.config as Record<string, unknown>),
   }).returning({ id: themes.id });
   return { ok: true, data: { id: row.id } };
 }
@@ -2426,7 +2426,7 @@ export async function materializeBuiltinTheme(builtinId: string): Promise<Result
   if (!hasCap(user.role, "operate_services")) return { ok: false, error: "Not permitted" };
   const builtin = getBuiltinTheme(builtinId);
   if (!builtin) return { ok: false, error: "Unknown built-in theme" };
-  const { config } = sanitizeThemeConfig(builtinThemeConfig(builtin.id));
+  const { config } = sanitizeThemeConfig(builtinThemeConfig(builtin.id), { allowBuiltinId: true });
   const db = getDb();
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"builtin-theme:" + user.churchId + ":" + builtin.id}))`);
@@ -2527,7 +2527,8 @@ function cleanSlideIds(slideIds: unknown): string[] | null {
  * backups keep the FIRST (pre-override) snapshot, tagged with themeId.
  */
 export async function applyThemeToSongSlides(themeId: string, songId: string, slideIds: string[]): Promise<Result<{ slidesUpdated: number }>> {
-  const user = await requireCap("edit_library");
+  const user = await requireUser();
+  if (!hasCap(user.role, "edit_library")) return { ok: false, error: "Not permitted to restyle library songs" };
   const ids = cleanSlideIds(slideIds);
   if (!ids) return { ok: false, error: "Invalid slide selection" };
   if (!THEME_UUID_RE.test(themeId)) return { ok: false, error: "Theme not found" };
@@ -2572,7 +2573,8 @@ export async function removeThemeFromSongSlide(songId: string, slideId: string):
 
 /** Batch undo of per-slide overrides (slides with no snapshot are skipped). */
 export async function removeThemeFromSongSlides(songId: string, slideIds: string[]): Promise<Result<{ slidesRestored: number }>> {
-  const user = await requireCap("edit_library");
+  const user = await requireUser();
+  if (!hasCap(user.role, "edit_library")) return { ok: false, error: "Not permitted to restyle library songs" };
   const ids = cleanSlideIds(slideIds);
   if (!ids) return { ok: false, error: "Invalid slide selection" };
   if (!THEME_UUID_RE.test(songId)) return { ok: false, error: "Song not found" };
@@ -2725,7 +2727,7 @@ export async function reapplyThemeToSongs(
         const src = reapplySourceForSlide(themeId, sl, settings);
         if (!src) continue; // per-slide override of another theme, or not this theme
         if (src.addToBackup) additions.push({ id: sl.id, objectsJson: sl.objectsJson ?? null });
-        rows.push({ id: sl.id, objectsJson: rebakeThemeFromOriginal(cfg, sl.objectsJson, src.original, fields) });
+        rows.push({ id: sl.id, objectsJson: rebakeThemeFromOriginal(cfg, sl.objectsJson, src.original, fields, opts.previousConfig) });
       }
       await writeSongSlideObjects(tx, songId, rows);
       if (settings.appliedThemeId === themeId) {

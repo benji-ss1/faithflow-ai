@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 // Built-in themes — pure constants, sanitize round-trip, layout validity.
 // Run: npx tsx test/builtin-themes.test.ts
 import assert from "node:assert/strict";
 import { BUILTIN_THEMES, isBuiltinThemeId, getBuiltinTheme, builtinThemeConfig } from "../src/lib/builtin-themes";
-import { sanitizeThemeConfig } from "../src/lib/theme-config";
+import { sanitizeThemeConfig, stripBuiltinId } from "../src/lib/theme-config";
 import { sanitizeThemeLayout } from "../src/lib/theme-layout";
 import { themeConfigToAppearance } from "../src/lib/theme-appearance";
 import { isValidThemeAppearance } from "../src/lib/broadcast";
@@ -23,7 +24,7 @@ check("unique ids + names, ids are builtin:<slug>", () => {
 });
 for (const t of BUILTIN_THEMES) {
   check(`${t.name}: sanitize round-trip is lossless (nothing rejected)`, () => {
-    const { config, rejected } = sanitizeThemeConfig(builtinThemeConfig(t.id));
+    const { config, rejected } = sanitizeThemeConfig(builtinThemeConfig(t.id), { allowBuiltinId: true });
     assert.deepEqual(rejected, []);
     assert.deepEqual(config, t.config);
     assert.equal(config.builtinId, t.id);
@@ -49,9 +50,21 @@ check("builtinId validated against the list", () => {
   assert.equal(isBuiltinThemeId("builtin:dark"), true);
   assert.equal(isBuiltinThemeId("builtin:evil"), false);
   assert.equal(getBuiltinTheme("__proto__"), null);
-  assert.deepEqual(sanitizeThemeConfig({ builtinId: "builtin:evil" }).rejected, ["builtinId"]);
-  assert.deepEqual(sanitizeThemeConfig({ builtinId: 5 }).rejected, ["builtinId"]);
-  assert.equal(sanitizeThemeConfig({ builtinId: "builtin:light" }).config.builtinId, "builtin:light");
+  const allow = { allowBuiltinId: true };
+  assert.deepEqual(sanitizeThemeConfig({ builtinId: "builtin:evil" }, allow).rejected, ["builtinId"]);
+  assert.deepEqual(sanitizeThemeConfig({ builtinId: 5 }, allow).rejected, ["builtinId"]);
+  assert.equal(sanitizeThemeConfig({ builtinId: "builtin:light" }, allow).config.builtinId, "builtin:light");
+});
+check("builtinId is STRIPPED by default (create/update/import) and by duplicate", () => {
+  const r = sanitizeThemeConfig({ builtinId: "builtin:light", textColor: "#ffffff" });
+  assert.equal(r.config.builtinId, undefined);
+  assert.deepEqual(r.rejected, []);
+  assert.equal(r.config.textColor, "#ffffff");
+  assert.deepEqual(stripBuiltinId({ builtinId: "builtin:dark", bgColor: "#000000" }), { bgColor: "#000000" });
+  const src = readFileSync(new URL("../src/lib/actions.ts", import.meta.url), "utf8");
+  assert.equal(src.split("allowBuiltinId: true").length - 1, 1, "only materializeBuiltinTheme allows builtinId");
+  assert.ok(/materializeBuiltinTheme[\s\S]*allowBuiltinId: true/.test(src));
+  assert.ok(src.includes("config: stripBuiltinId(existing.config"), "duplicateTheme strips builtinId");
 });
 check("builtinThemeConfig returns an independent copy", () => {
   const c = builtinThemeConfig("builtin:default")!;

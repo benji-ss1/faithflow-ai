@@ -33,13 +33,16 @@ const ok = (cond: boolean | RegExpMatchArray | null, msg: string) => { assert.ok
   ok(/eq\(themes\.churchId, user\.churchId\), sql`\$\{themes\.config\}->>'builtinId' = \$\{builtin\.id\}`/.test(b), "dedupe lookup is church-scoped (another church's copy never reused)");
   ok(/insert\(themes\)\.values\(\{ churchId: user\.churchId/.test(b), "created row belongs to the caller's church");
   ok(!isBuiltinThemeId("builtin:../../x") && getBuiltinTheme("constructor") === null && getBuiltinTheme(undefined) === null, "hostile ids resolve to nothing");
-  ok(sanitizeThemeConfig({ builtinId: "builtin:nope" }).rejected.includes("builtinId"), "unknown builtinId never persists via create/update/import");
+  ok(sanitizeThemeConfig({ builtinId: "builtin:nope" }, { allowBuiltinId: true }).rejected.includes("builtinId"), "unknown builtinId rejected even for materialize");
+  ok(sanitizeThemeConfig({ builtinId: "builtin:dark" }).config.builtinId === undefined, "ANY builtinId is stripped via create/update/import");
 }
 
 // ── applyThemeToSongSlides ──
 {
   const b = body("applyThemeToSongSlides");
-  ok(/requireCap\("edit_library"\)/.test(b), "batch apply requires edit_library");
+  ok(/requireUser\(\);\s*if \(!hasCap\(user\.role, "edit_library"\)\) return \{ ok: false/.test(b), "batch apply: edit_library as {ok:false} (no redirect)");
+  ok(/requireUser\(\);\s*if \(!hasCap\(user\.role, "edit_library"\)\) return \{ ok: false/.test(body("removeThemeFromSongSlides")), "batch remove: edit_library as {ok:false} (no redirect)");
+  ok(/removeThemeFromSongSlides\(/.test(body("removeThemeFromSongSlide")), "single remove delegates to the gated batch");
   ok(/cleanSlideIds\(slideIds\)/.test(b) && /Invalid slide selection/.test(b), "slide ids validated (uuid, non-empty, capped)");
   ok(/eq\(themes\.id, themeId\), eq\(themes\.churchId, user\.churchId\)/.test(b), "theme church-scoped");
   ok(/eq\(songs\.id, songId\), eq\(songs\.churchId, user\.churchId\)\)\)\.for\("update"\)/.test(b), "song church-scoped + row-locked");
