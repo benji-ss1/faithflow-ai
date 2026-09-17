@@ -79,14 +79,19 @@ function audifySurvivesChildProbe(): boolean {
     const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
     const modPath = require.resolve("audify");
     const apis = JSON.stringify(apisForPlatform());
-    const code = `const {RtAudio}=require(${JSON.stringify(modPath)});for(const a of ${apis}){try{new RtAudio(a).getDevices()}catch(e){}}process.stdout.write("ok")`;
+    // Prints ENUM_OK once every API has loaded + enumerated. On a machine with no
+    // audio devices, RtAudio's WASAPI teardown can crash as the child EXITS
+    // (0xC0000005, seen on hosted Windows runners) — that's after the work we care
+    // about, so success = the marker was printed, not a clean exit code.
+    const code = `const {RtAudio}=require(${JSON.stringify(modPath)});const keep=[];for(const a of ${apis}){try{const r=new RtAudio(a);keep.push(r);r.getDevices()}catch(e){}}process.stdout.write("ENUM_OK")`;
     const r = spawnSync(process.execPath, ["-e", code], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
       timeout: 8000,
       encoding: "utf8",
       windowsHide: true,
     });
-    const ok = r.status === 0 && (r.stdout ?? "").includes("ok");
+    const ok = (r.stdout ?? "").includes("ENUM_OK");
+    if (ok && r.status !== 0) console.log(`[rtaudio] child probe enumerated OK but exited with status=${r.status} (teardown quirk) — pro driver enabled`);
     if (!ok) console.warn(`[rtaudio] child probe failed (status=${r.status} signal=${r.signal}) — pro driver disabled`);
     return ok;
   } catch (err) {
@@ -134,6 +139,23 @@ function loadDeckLink(): DeckLinkModule | null {
     } catch { /* not built / not bundled — Blackmagic audio unavailable */ }
   }
   return decklink;
+}
+
+// Long-lived RtAudio instances. NEVER create-and-discard: RtAudio's WASAPI
+// destructor can crash when V8 garbage-collects a dropped instance, and a native
+// crash in the main process would close PresentFlow mid-service. One instance per
+// (role, host API), created once and kept for the app's lifetime; streams are
+// opened/closed on them.
+type RtRole = "enum" | "capture" | "probe";
+const rtPool = new Map<string, RtAudioLike>();
+function pooledRtAudio(mod: AudifyModule, role: RtRole, api: number): RtAudioLike {
+  const key = `${role}:${api}`;
+  let rt = rtPool.get(key);
+  if (!rt) {
+    rt = new mod.RtAudio(api);
+    rtPool.set(key, rt);
+  }
+  return rt;
 }
 
 function apisForPlatform(): number[] {
@@ -193,7 +215,7 @@ export function listRtAudioDevices(): NativeDevice[] {
       continue;
     }
     try {
-      const rt = new mod.RtAudio(api);
+      const rt = pooledRtAudio(mod, "enum", api);
       for (const d of rt.getDevices()) {
         if (!d.inputChannels) continue;
         out.push({
@@ -236,7 +258,7 @@ export function listDeckLinkAudioDevices(): NativeDevice[] {
 type FrameFn = (pcm: Int16Array, channels: number, sampleRate: number) => void;
 type Opened = { ok: true; session: Session } | { ok: false; error: string };
 
-function openInput(deviceIndex: number, onFrame: FrameFn, onStreamError: (msg: string) => void): Opened {
+function openInput(role: Exclude<RtRole, "enum">, deviceIndex: number, onFrame: FrameFn, onStreamError: (msg: string) => void): Opened {
   const { api, id } = decodeDeviceIndex(deviceIndex);
   if (api === API_DECKLINK) return openDeckLink(deviceIndex, id, onFrame);
 
@@ -244,7 +266,8 @@ function openInput(deviceIndex: number, onFrame: FrameFn, onStreamError: (msg: s
   if (!mod) return { ok: false, error: FRIENDLY_UNAVAILABLE };
   if (!apisForPlatform().includes(api)) return { ok: false, error: FRIENDLY_GONE };
   try {
-    const rt = new mod.RtAudio(api);
+    const rt = pooledRtAudio(mod, role, api);
+    try { if (rt.isStreamOpen()) { rt.stop(); rt.closeStream(); } } catch { /* already closed */ }
     const dev = rt.getDevices().find((d) => d.id === id);
     if (!dev || !dev.inputChannels) return { ok: false, error: FRIENDLY_GONE };
     const channels = Math.min(dev.inputChannels, 64);
@@ -336,6 +359,7 @@ function openCapture(w: CaptureWant): Opened {
   let resampler: StreamingResampler | null = null;
   let lastLevel = 0;
   return openInput(
+    "capture",
     w.deviceIndex,
     (pcm, channels, sampleRate) => {
       if (!resampler || resampler.inRate !== sampleRate) resampler = new StreamingResampler(sampleRate, 16000);
@@ -438,6 +462,7 @@ export function startRtAudioProbe(opts: { deviceIndex: number }): Promise<{ ok: 
     let window: Int16Array[] = [];
     let lastEmit = Date.now();
     const res = openInput(
+      "probe",
       opts.deviceIndex,
       (pcm, channels) => {
         window.push(Int16Array.from(pcm));
