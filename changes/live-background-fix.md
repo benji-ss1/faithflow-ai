@@ -1,7 +1,7 @@
 ---
 headline: Song backgrounds from your theme now show on the live screen, matching the slide previews
 audience: operator
-version: 0.1.447
+version: 0.1.448
 date: 2026-09-17
 highlights:
   - If you picked a theme for songs, its background now shows on the live screen and projector, not just on the slide previews.
