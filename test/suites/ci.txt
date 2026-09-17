@@ -116,6 +116,7 @@ test/scripture-design-sanitize.test.ts
 test/scripture-live-parity.test.ts
 test/scripture-lowerthird.test.ts
 test/service-mode.test.ts
+test/settings-tidy.test.ts
 test/slide-actions-remap.test.ts
 test/slide-paste.test.ts
 test/slide-renderer-empty.test.ts
