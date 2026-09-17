@@ -1,5 +1,8 @@
 # Releasing a new tester build
 
+> **2026-09-17: installers live in the public, code-free repo `benji-ss1/presentflow-releases`.** The release workflows upload every installer and update file to BOTH `presentflow-releases` (which the dashboard and updater read) and `faithflow-ai` (transition only). Check and fix releases in `presentflow-releases` first. Required secret: `RELEASES_REPO_TOKEN`. See CLAUDE.md → Deploy runbook.
+
+
 Present Flow ships auto-updates via `electron-updater` + GitHub Releases. The
 tester installs the app once from a `.dmg`; every subsequent release is
 downloaded silently in the background and applied on the next restart.
@@ -18,7 +21,7 @@ downloaded silently in the background and applied on the next restart.
    ```
 4. `electron-builder` publishes `Present Flow-<version>.dmg`,
    `Present Flow-<version>-mac.zip`, and `latest-mac.yml` to the GitHub Release
-   at https://github.com/benji-ss1/faithflow-ai/releases/tag/vX.Y.Z .
+   at https://github.com/benji-ss1/presentflow-releases/releases/tag/vX.Y.Z .
 5. Existing testers auto-update within the hour (or on their next app launch).
 
 ## What testers see

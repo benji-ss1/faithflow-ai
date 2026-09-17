@@ -158,3 +158,26 @@ jobs:
           gh release upload "$TAG" release/*.exe --clobber
           gh release upload "$TAG" release/*.exe.blockmap --clobber || true
           gh release upload "$TAG" release/latest.yml --clobber
+
+      # Installers are ALSO published to the public, code-free
+      # benji-ss1/presentflow-releases repo — that's where the dashboard download
+      # links and the apps' auto-updater look, so the main code repo can go
+      # private. RELEASES_REPO_TOKEN = fine-grained PAT, Contents: read+write on
+      # presentflow-releases only. Fails loudly if missing: a release that only
+      # lands in the old repo would be invisible to downloads + auto-update.
+      - name: Mirror installer + latest.yml to presentflow-releases
+        if: "!(github.event_name == 'workflow_dispatch' && inputs.dry_run)"
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then echo "::error::RELEASES_REPO_TOKEN secret is missing"; exit 1; fi
+          R=benji-ss1/presentflow-releases
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          gh release view "$TAG" -R "$R" >/dev/null 2>&1 || gh release create "$TAG" -R "$R" --title "PresentFlow $TAG" --notes "PresentFlow desktop $TAG" || true
+          gh release upload "$TAG" -R "$R" release/*.exe --clobber
+          gh release upload "$TAG" -R "$R" release/*.exe.blockmap --clobber || true
+          gh release upload "$TAG" -R "$R" release/latest.yml --clobber
+          gh release view "$TAG" -R "$R" --json assets -q '.assets[].name'
+
