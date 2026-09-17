@@ -21,6 +21,10 @@ async function main() {
   check("foreign host untouched", () => assert.equal(keyFromPresignedUrl(`https://evil.test/${P}${KEY}?X-Amz-Signature=a`), null));
   check("unsigned URL untouched", () => assert.equal(keyFromPresignedUrl(`https://abc.supabase.co/${P}${KEY}`), null));
   check("bucket-only path → null", () => assert.equal(keyFromPresignedUrl(url(P)), null));
+  check("encoded-slash traversal to another church → null", () => assert.equal(keyFromPresignedUrl(url(P + "c8851abe-f521-4e32-b028-e8685d043f0a%2F..%2Fbbbb-church/x.png")), null));
+  check("encoded single-dot segment → null", () => assert.equal(keyFromPresignedUrl(url(P + "aaaa%2F.%2Fx.png")), null));
+  check("encoded backslash → null", () => assert.equal(keyFromPresignedUrl(url(P + "aaaa%5C..%5Cbbbb/x.png")), null));
+  check("malformed percent-encoding → null, no throw", () => assert.equal(keyFromPresignedUrl(url(P + "aaaa/%E0%A4%A.png")), null));
   process.env.S3_ENDPOINT = "https://minio.test"; process.env.S3_BUCKET = "faithflow-media";
   check("endpoint without path: legacy bucket strip unchanged", () => assert.equal(keyFromPresignedUrl(`https://minio.test/faithflow-media/${KEY}?X-Amz-Signature=a`), KEY));
   console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1);

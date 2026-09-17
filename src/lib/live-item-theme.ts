@@ -56,7 +56,14 @@ export function resolveLiveItemIdx(
   try { liveKey = JSON.stringify(live); } catch { return -1; }
   if (!liveKey) return -1;
   try {
-    if (stamp && stamp.itemIdx >= 0 && stamp.itemIdx < items.length && stamp.identity === fns.identity(live)) return stamp.itemIdx;
+    if (stamp && stamp.itemIdx >= 0 && stamp.itemIdx < items.length && stamp.identity === fns.identity(live)) {
+      // Only trust the stamp while that item still holds the live slide (a plan
+      // reorder/delete mid-hold must not hand live another item's theme).
+      const held = (items[stamp.itemIdx].slides ?? []).some((sl) => {
+        try { return fns.identity(sl) === stamp.identity || fns.identity(fns.layout(sl, items[stamp.itemIdx])) === stamp.identity; } catch { return false; }
+      });
+      if (held) return stamp.itemIdx;
+    }
   } catch { /* fall through to the content match */ }
   for (let i = 0; i < items.length; i++) {
     const slides = items[i].slides ?? [];

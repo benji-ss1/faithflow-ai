@@ -54,6 +54,10 @@ check("duplicates: stamp picks the EXACT copy (item theme on copy 3 wins)", () =
 check("stale stamp (different slide now live) is ignored", () => {
   assert.equal(resolveLiveItemIdx(items, verse, stampFor(3, l1), fns), 1);
 });
+check("stamp pointing at an item that no longer holds the live slide (plan reorder) falls back", () => {
+  // item 1 holds the verse, not l1 — a stale index after reorder must not win.
+  assert.notEqual(resolveLiveItemIdx(items, l1, stampFor(1, l1), fns), 1);
+});
 check("out-of-range stamp falls back", () => {
   assert.equal(resolveLiveItemIdx(items, l1, stampFor(99, l1), fns), 0);
 });

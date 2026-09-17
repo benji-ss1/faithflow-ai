@@ -62,7 +62,8 @@ export function keyFromPresignedUrl(url: string): string | null {
   } else if (!u.host.includes(".amazonaws.com")) {
     return null;
   }
-  let path = decodeURIComponent(u.pathname).replace(/^\/+/, "");
+  let path: string;
+  try { path = decodeURIComponent(u.pathname).replace(/^\/+/, ""); } catch { return null; }
   const bucket = BUCKET();
   // A custom endpoint may itself carry a path (Supabase: /storage/v1/s3). Path-
   // style presigned URLs are <endpointPath>/<bucket>/<key>. Previously only a
@@ -81,6 +82,11 @@ export function keyFromPresignedUrl(url: string): string | null {
     break;
   }
   if (!path || path === bucket || path === endpointPath) return null;
+  // Encoded slashes (%2F) survive URL normalisation and decode here, so a key
+  // could carry "../" segments that pass a "{churchId}/" prefix check while
+  // pointing at another church's object. Refuse any dot segment, absolute
+  // path or backslash — our real keys never contain them.
+  if (path.startsWith("/") || path.includes("\\") || path.split("/").some((seg) => seg === ".." || seg === ".")) return null;
   return path;
 }
 
