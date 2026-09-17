@@ -37,21 +37,37 @@ export type ChurchStylesSnapshot = {
   scriptureStyle: unknown | null;
   contentTypeStyles: unknown;
   scriptureStyleUpdatedAt: string | null;
+  /** content_type_styles_updated_at — null = the church never set them. Optional for older cached snapshots. */
+  contentTypeStylesUpdatedAt?: string | null;
 };
 
 type Entry = {
   scripture: ScriptureDesign | null;
   cts: ContentTypeStyles;
-  /** Last scripture_style_updated_at seen FROM THE SERVER (never a local clock). */
+  /** Last *_updated_at seen FROM THE SERVER (never a local clock). */
   serverUpdatedAt: string | null;
+  serverCtsUpdatedAt: string | null;
   hydrated: boolean;
 };
 
+export type PendingWrites = { scripture?: { v: ScriptureDesign | null }; cts?: { v: ContentTypeStyles } };
+
+/**
+ * A remote save's outcome. `ok` = stored (snap = server state after the write).
+ * `rejected` = permanently refused (no permission / wrong church): the pending
+ * write is DROPPED and the server value (snap, when available) adopted — never
+ * retried. A thrown error / null = transient (stays pending, retried on 'online').
+ */
+export type SaveOutcome =
+  | { status: "ok"; snap: ChurchStylesSnapshot }
+  | { status: "rejected"; snap: ChurchStylesSnapshot | null; error?: string };
+
 export type ChurchStylesRemote = {
-  saveScripture: (churchId: string, design: ScriptureDesign | null) => Promise<ChurchStylesSnapshot | null>;
-  saveContentTypeStyles: (churchId: string, cts: ContentTypeStyles) => Promise<ChurchStylesSnapshot | null>;
-  onFailure?: (what: "scripture" | "cts", error: unknown) => void;
-  persistOffline?: (churchId: string, snap: ChurchStylesSnapshot) => void;
+  saveScripture: (churchId: string, design: ScriptureDesign | null) => Promise<SaveOutcome | null>;
+  saveContentTypeStyles: (churchId: string, cts: ContentTypeStyles) => Promise<SaveOutcome | null>;
+  onFailure?: (what: "scripture" | "cts", kind: "transient" | "rejected", error: unknown) => void;
+  /** Persist the current snapshot + any pending writes (survives reload while offline). */
+  persistOffline?: (churchId: string, snap: ChurchStylesSnapshot, pending: PendingWrites) => void;
   broadcast?: (churchId: string, snap: ChurchStylesSnapshot) => void;
 };
 
@@ -59,11 +75,15 @@ const entries = new Map<string, Entry>();
 let activeChurchId: string | null = null;
 let remote: ChurchStylesRemote | null = null;
 // Pending writes per church: the latest value wins; retried on 'online'.
-const pending = new Map<string, { scripture?: { v: ScriptureDesign | null }; cts?: { v: ContentTypeStyles } }>();
+const pending = new Map<string, PendingWrites>();
 const inFlight = new Map<string, number>();
+// Churches where the server refused a content-type save → the picker disables.
+const ctsEditDenied = new Set<string>();
 
 const hasWindow = () => typeof window !== "undefined";
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const newer = (next: string | null | undefined, prev: string | null) =>
+  !!next && (prev === null || Date.parse(next) > Date.parse(prev));
 
 function dispatch(kinds: { scripture?: boolean; cts?: boolean }) {
   if (!hasWindow()) return;
@@ -71,6 +91,12 @@ function dispatch(kinds: { scripture?: boolean; cts?: boolean }) {
     if (kinds.scripture) window.dispatchEvent(new CustomEvent(SCRIPTURE_STYLE_EVENT));
     if (kinds.cts) window.dispatchEvent(new CustomEvent(CONTENT_TYPE_STYLES_EVENT));
   } catch { /* best effort */ }
+}
+// Never dispatch window events synchronously from inside a React render.
+function dispatchLater(kinds: { scripture?: boolean; cts?: boolean }) {
+  if (!kinds.scripture && !kinds.cts) return;
+  const run = () => dispatch(kinds);
+  if (typeof queueMicrotask === "function") queueMicrotask(run); else void Promise.resolve().then(run);
 }
 
 // ── legacy read-only fallback (memoised by raw string → stable refs) ─────────
@@ -91,7 +117,7 @@ export function readLegacyScriptureStyle(churchId?: string): ScriptureDesign | n
   return legacyRead(LEGACY_SCRIPTURE_KEY(churchId), (raw) => sanitizeScriptureDesign(JSON.parse(raw)));
 }
 export function readLegacyContentTypeStyles(): ContentTypeStyles | null {
-  const v = legacyRead(LEGACY_CTS_KEY, (raw) => {
+  return legacyRead(LEGACY_CTS_KEY, (raw) => {
     // Legacy values weren't uuid-checked; keep any non-empty string (a foreign
     // id simply misses the church-scoped theme lookup, same as before).
     const p = JSON.parse(raw) as Record<string, unknown>;
@@ -99,17 +125,17 @@ export function readLegacyContentTypeStyles(): ContentTypeStyles | null {
     for (const k of ["song", "scripture"] as const) if (p && typeof p[k] === "string" && p[k]) out[k] = p[k] as string;
     return out;
   });
-  return v;
 }
 
 // ── hydrate ──────────────────────────────────────────────────────────────────
 
 /**
  * Apply a server snapshot for a church. Synchronous. Keeps existing object
- * references when the value is unchanged. A field with a pending local write
- * is NOT overwritten (the write's response will reconcile). Scripture is only
- * replaced when the server updatedAt is newer than the last server value seen
- * (or on first hydrate). Returns which fields changed.
+ * references when the value is unchanged. Each field (scripture / content-type)
+ * is replaced ONLY when (a) no local write is pending for it and (b) its server
+ * updated_at is newer than the last server value seen (or on first hydrate, or
+ * `force`). A never-set server value (updated_at null) therefore never
+ * overwrites a locally seeded legacy value on a refetch. Returns what changed.
  */
 export function hydrateChurchStyles(
   churchId: string,
@@ -124,23 +150,21 @@ export function hydrateChurchStyles(
   // remount's (possibly stale) props must not roll back a newer value.
   if (opts.initial && prev?.hydrated) return changed;
   const p = pending.get(churchId);
-  const nextScripture = sanitizeScriptureDesign(snap.scriptureStyle);
-  const nextCts = sanitizeContentTypeStyles(snap.contentTypeStyles);
-  const serverNewer = !prev || !prev.hydrated || opts.force ||
-    (snap.scriptureStyleUpdatedAt !== null &&
-      (prev.serverUpdatedAt === null || Date.parse(snap.scriptureStyleUpdatedAt) > Date.parse(prev.serverUpdatedAt)));
+  const first = !prev || !prev.hydrated;
+  const ctsAt = snap.contentTypeStylesUpdatedAt ?? null;
   const entry: Entry = prev
     ? { ...prev }
-    : { scripture: null, cts: {}, serverUpdatedAt: null, hydrated: false };
-  if (!p?.scripture && serverNewer && !same(entry.scripture, nextScripture)) {
-    entry.scripture = nextScripture;
-    changed.scripture = true;
+    : { scripture: null, cts: {}, serverUpdatedAt: null, serverCtsUpdatedAt: null, hydrated: false };
+  const nextScripture = sanitizeScriptureDesign(snap.scriptureStyle);
+  const nextCts = sanitizeContentTypeStyles(snap.contentTypeStyles);
+  if (!p?.scripture && (first || opts.force || newer(snap.scriptureStyleUpdatedAt, entry.serverUpdatedAt)) && !same(entry.scripture, nextScripture)) {
+    entry.scripture = nextScripture; changed.scripture = true;
   }
-  // content_type_styles has no timestamp: adopt whenever it differs and no local write is pending.
-  if (!p?.cts && !same(entry.cts, nextCts)) { entry.cts = nextCts; changed.cts = true; }
-  if (snap.scriptureStyleUpdatedAt && (entry.serverUpdatedAt === null || Date.parse(snap.scriptureStyleUpdatedAt) > Date.parse(entry.serverUpdatedAt))) {
-    entry.serverUpdatedAt = snap.scriptureStyleUpdatedAt;
+  if (!p?.cts && (first || opts.force || newer(ctsAt, entry.serverCtsUpdatedAt)) && !same(entry.cts, nextCts)) {
+    entry.cts = nextCts; changed.cts = true;
   }
+  if (newer(snap.scriptureStyleUpdatedAt, entry.serverUpdatedAt)) entry.serverUpdatedAt = snap.scriptureStyleUpdatedAt;
+  if (newer(ctsAt, entry.serverCtsUpdatedAt)) entry.serverCtsUpdatedAt = ctsAt;
   const wasHydrated = !!prev?.hydrated;
   entry.hydrated = true;
   entries.set(churchId, entry);
@@ -149,11 +173,12 @@ export function hydrateChurchStyles(
 }
 
 /**
- * First-render hydrate from server page props (OperatorConsole / ThemesManager
- * useState initializer). Also seeds the LEGACY per-machine values locally when
- * the server has none yet and this machine hasn't migrated — so the first send
- * after upgrading looks exactly like before, while church-styles-sync uploads
- * them (ifEmpty, first computer wins) and adopts the server's answer.
+ * First-render hydrate from server page props (OperatorConsole useState
+ * initializer). Also seeds the LEGACY per-machine values locally when the
+ * server has never had them (updated_at null) and this machine hasn't migrated
+ * — so the first send after upgrading looks exactly like before, while
+ * church-styles-sync uploads them (ifEmpty, first computer wins) and adopts the
+ * server's answer. Never dispatches synchronously (runs during render).
  */
 export function hydrateChurchStylesInitial(churchId: string, snap: ChurchStylesSnapshot | null | undefined): void {
   if (!hasWindow() || !churchId || !snap) return;
@@ -168,7 +193,7 @@ export function hydrateChurchStylesInitial(churchId: string, snap: ChurchStylesS
     if (legacy) seed.scripture = legacy;
   }
   const serverCts = sanitizeContentTypeStyles(snap.contentTypeStyles);
-  if (Object.keys(serverCts).length === 0) {
+  if (Object.keys(serverCts).length === 0 && (snap.contentTypeStylesUpdatedAt ?? null) === null) {
     const legacy = readLegacyContentTypeStyles();
     if (legacy && Object.keys(legacy).length > 0) seed.cts = legacy;
   }
@@ -196,12 +221,23 @@ export function isChurchStylesHydrated(churchId: string): boolean {
   return !!entries.get(churchId)?.hydrated;
 }
 export function getActiveStylesChurchId(): string | null { return activeChurchId; }
-export function getServerScriptureUpdatedAt(churchId: string): string | null {
-  return entries.get(churchId)?.serverUpdatedAt ?? null;
+export function isContentTypeEditDenied(churchId?: string): boolean {
+  const id = churchId || activeChurchId;
+  return !!id && ctsEditDenied.has(id);
 }
 export function currentSnapshot(churchId: string): ChurchStylesSnapshot {
   const e = entries.get(churchId);
-  return { scriptureStyle: e?.scripture ?? null, contentTypeStyles: e?.cts ?? {}, scriptureStyleUpdatedAt: e?.serverUpdatedAt ?? null };
+  return {
+    scriptureStyle: e?.scripture ?? null, contentTypeStyles: e?.cts ?? {},
+    scriptureStyleUpdatedAt: e?.serverUpdatedAt ?? null, contentTypeStylesUpdatedAt: e?.serverCtsUpdatedAt ?? null,
+  };
+}
+export function getPendingWrites(churchId: string): PendingWrites {
+  const p = pending.get(churchId);
+  const out: PendingWrites = {};
+  if (p?.scripture) out.scripture = { v: p.scripture.v };
+  if (p?.cts) out.cts = { v: p.cts.v };
+  return out;
 }
 
 /** Optimistically seed a church's local values (legacy migration while the server call runs). */
@@ -214,7 +250,7 @@ export function seedLocalChurchStyles(churchId: string, v: { scripture?: Scriptu
   if (v.scripture && !same(prev.scripture, v.scripture)) { next.scripture = v.scripture; changed.scripture = true; }
   if (v.cts && !same(prev.cts, v.cts)) { next.cts = v.cts; changed.cts = true; }
   entries.set(churchId, next);
-  dispatch(changed);
+  dispatchLater(changed);
 }
 
 // ── synchronous reads (used by the live send path) ───────────────────────────
@@ -242,7 +278,7 @@ function ensureEntry(churchId: string): Entry {
   if (!e) {
     // A save before hydrate (e.g. tests, a page without props): seed from the
     // legacy fallback so the unsaved field keeps its current value.
-    e = { scripture: readLegacyScriptureStyle(churchId), cts: readLegacyContentTypeStyles() ?? {}, serverUpdatedAt: null, hydrated: false };
+    e = { scripture: readLegacyScriptureStyle(churchId), cts: readLegacyContentTypeStyles() ?? {}, serverUpdatedAt: null, serverCtsUpdatedAt: null, hydrated: false };
     entries.set(churchId, e);
   }
   return e;
@@ -277,10 +313,25 @@ export function setLocalContentTypeStyles(churchId: string | undefined, cts: Con
   afterLocalWrite(id);
 }
 
+/**
+ * Restore writes that were still pending when this computer reloaded (offline
+ * KV). Only fields with no newer local pending write are restored; they are
+ * applied locally and flushed like a fresh save.
+ */
+export function restorePendingWrites(churchId: string, saved: PendingWrites | null | undefined): void {
+  if (!hasWindow() || !churchId || !saved) return;
+  const cur = pending.get(churchId);
+  if (saved.scripture && !cur?.scripture) setLocalScriptureStyle(churchId, saved.scripture.v);
+  if (saved.cts && !pending.get(churchId)?.cts) setLocalContentTypeStyles(churchId, saved.cts.v);
+}
+
+function persist(churchId: string) {
+  try { remote?.persistOffline?.(churchId, currentSnapshot(churchId), getPendingWrites(churchId)); } catch { /* ignore */ }
+}
+
 function afterLocalWrite(churchId: string) {
-  const snap = currentSnapshot(churchId);
-  try { remote?.persistOffline?.(churchId, snap); } catch { /* ignore */ }
-  try { remote?.broadcast?.(churchId, snap); } catch { /* ignore */ }
+  persist(churchId);
+  try { remote?.broadcast?.(churchId, currentSnapshot(churchId)); } catch { /* ignore */ }
   void flushPending(churchId);
 }
 
@@ -289,7 +340,61 @@ export function hasPendingChurchStyles(churchId: string): boolean {
   return !!(p && (p.scripture || p.cts));
 }
 
-/** Push pending writes to the server. Latest value wins; failures stay pending. */
+/** Adopt one field from a server snapshot unconditionally (after an ack or a refusal). */
+function adoptField(churchId: string, field: "scripture" | "cts", snap: ChurchStylesSnapshot) {
+  const e = entries.get(churchId);
+  if (!e) return;
+  const next = { ...e };
+  let changed = false;
+  if (field === "scripture") {
+    const v = sanitizeScriptureDesign(snap.scriptureStyle);
+    if (!same(e.scripture, v)) { next.scripture = v; changed = true; }
+    if (newer(snap.scriptureStyleUpdatedAt, e.serverUpdatedAt)) next.serverUpdatedAt = snap.scriptureStyleUpdatedAt;
+  } else {
+    const v = sanitizeContentTypeStyles(snap.contentTypeStyles);
+    if (!same(e.cts, v)) { next.cts = v; changed = true; }
+    if (newer(snap.contentTypeStylesUpdatedAt, e.serverCtsUpdatedAt)) next.serverCtsUpdatedAt = snap.contentTypeStylesUpdatedAt ?? null;
+  }
+  entries.set(churchId, next);
+  if (changed) dispatch(field === "scripture" ? { scripture: true } : { cts: true });
+}
+
+async function flushField(churchId: string, field: "scripture" | "cts", r: ChurchStylesRemote): Promise<void> {
+  const sent = pending.get(churchId)?.[field];
+  if (!sent) return;
+  try {
+    const out = field === "scripture"
+      ? await r.saveScripture(churchId, (sent as { v: ScriptureDesign | null }).v)
+      : await r.saveContentTypeStyles(churchId, (sent as { v: ContentTypeStyles }).v);
+    if (!out) throw new Error("save failed");
+    const cur = pending.get(churchId);
+    const superseded = cur?.[field] !== sent;
+    if (out.status === "rejected") {
+      // Permanent refusal: drop THIS write (never retry / re-toast) and fall
+      // back to the server's value. A newer local write queued meanwhile is kept.
+      if (!superseded && cur) delete cur[field];
+      if (field === "cts") { ctsEditDenied.add(churchId); dispatch({ cts: true }); }
+      if (!superseded && out.snap) adoptField(churchId, field, out.snap);
+      r.onFailure?.(field, "rejected", new Error(out.error ?? "rejected"));
+      return;
+    }
+    if (!superseded && cur) {
+      delete cur[field];
+      // Adopt the server's sanitized value (e.g. foreign theme ids dropped).
+      adoptField(churchId, field, out.snap);
+    } else {
+      const e = entries.get(churchId);
+      if (e) {
+        if (field === "scripture" && newer(out.snap.scriptureStyleUpdatedAt, e.serverUpdatedAt)) entries.set(churchId, { ...e, serverUpdatedAt: out.snap.scriptureStyleUpdatedAt });
+        if (field === "cts" && newer(out.snap.contentTypeStylesUpdatedAt, e.serverCtsUpdatedAt)) entries.set(churchId, { ...e, serverCtsUpdatedAt: out.snap.contentTypeStylesUpdatedAt ?? null });
+      }
+    }
+  } catch (err) {
+    r.onFailure?.(field, "transient", err);
+  }
+}
+
+/** Push pending writes to the server. Latest value wins; transient failures stay pending. */
 export async function flushPending(churchId: string): Promise<void> {
   if (!remote || !hasWindow()) return;
   if ((inFlight.get(churchId) ?? 0) > 0) return; // the running flush re-checks when it finishes
@@ -299,35 +404,11 @@ export async function flushPending(churchId: string): Promise<void> {
   inFlight.set(churchId, 1);
   const r = remote;
   try {
-    if (p.scripture) {
-      const sent = p.scripture;
-      try {
-        const snap = await r.saveScripture(churchId, sent.v);
-        if (!snap) throw new Error("save failed");
-        const cur = pending.get(churchId);
-        if (cur?.scripture === sent) delete cur.scripture; // not superseded meanwhile
-        const e = entries.get(churchId);
-        if (e && snap.scriptureStyleUpdatedAt) entries.set(churchId, { ...e, serverUpdatedAt: snap.scriptureStyleUpdatedAt });
-      } catch (err) { r.onFailure?.("scripture", err); }
-    }
-    const p2 = pending.get(churchId);
-    if (p2?.cts) {
-      const sent = p2.cts;
-      try {
-        const snap = await r.saveContentTypeStyles(churchId, sent.v);
-        if (!snap) throw new Error("save failed");
-        const cur = pending.get(churchId);
-        if (cur?.cts === sent) {
-          delete cur.cts;
-          // Adopt the server's sanitized value (foreign theme ids dropped).
-          const e = entries.get(churchId);
-          const serverCts = sanitizeContentTypeStyles(snap.contentTypeStyles);
-          if (e && !same(e.cts, serverCts)) { entries.set(churchId, { ...e, cts: serverCts }); dispatch({ cts: true }); }
-        }
-      } catch (err) { r.onFailure?.("cts", err); }
-    }
+    await flushField(churchId, "scripture", r);
+    await flushField(churchId, "cts", r);
   } finally {
     inFlight.set(churchId, 0);
+    persist(churchId);
   }
   const after = pending.get(churchId);
   // Re-run only if a NEW value was queued during the flush (failures wait for 'online').
@@ -343,7 +424,7 @@ export function registerChurchStylesRemote(next: ChurchStylesRemote | null): voi
 
 /** Test-only reset. */
 export function __resetChurchStylesStore(): void {
-  entries.clear(); pending.clear(); inFlight.clear(); legacyMemo.clear();
+  entries.clear(); pending.clear(); inFlight.clear(); legacyMemo.clear(); ctsEditDenied.clear();
   activeChurchId = null; remote = null;
 }
 
@@ -352,11 +433,14 @@ export function churchStylesSnapshotFromPrefs(prefs: {
   scriptureStyle?: unknown;
   contentTypeStyles?: unknown;
   scriptureStyleUpdatedAt?: Date | string | null;
+  contentTypeStylesUpdatedAt?: Date | string | null;
 } | null | undefined): ChurchStylesSnapshot {
   const at = prefs?.scriptureStyleUpdatedAt;
+  const ctsAt = prefs?.contentTypeStylesUpdatedAt;
   return {
     scriptureStyle: prefs?.scriptureStyle ?? null,
     contentTypeStyles: prefs?.contentTypeStyles ?? {},
     scriptureStyleUpdatedAt: at ? new Date(at).toISOString() : null,
+    contentTypeStylesUpdatedAt: ctsAt ? new Date(ctsAt).toISOString() : null,
   };
 }

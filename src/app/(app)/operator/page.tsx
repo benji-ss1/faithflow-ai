@@ -47,6 +47,7 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
     scriptureStyle?: unknown;
     contentTypeStyles?: unknown;
     scriptureStyleUpdatedAt?: Date | null;
+    contentTypeStylesUpdatedAt?: Date | null;
   } | null = null;
   let translationCode = "KJV";
   let logoUrl: string | undefined;

@@ -18,7 +18,8 @@ const events: string[] = [];
 import {
   hydrateChurchStyles, hydrateChurchStylesInitial, getScriptureStyle, getContentTypeStyles, applyPeerChurchStyles,
   registerChurchStylesRemote, flushPending, hasPendingChurchStyles, __resetChurchStylesStore, churchStylesSnapshotFromPrefs,
-  type ChurchStylesSnapshot,
+  isContentTypeEditDenied, restorePendingWrites,
+  type ChurchStylesSnapshot, type PendingWrites,
 } from "../src/lib/church-styles-store";
 import { loadScriptureStyle, saveScriptureStyle, clearScriptureStyle, hasSavedScriptureStyle, applyChurchLayout, DEFAULT_SCRIPTURE_DESIGN } from "../src/components/operator/scripture/scriptureStyle";
 import { loadContentTypeStyles, saveContentTypeStyles } from "../src/lib/content-type-styles";
@@ -119,8 +120,8 @@ async function main() {
     assert.ok(events.includes("presentflow:content-type-styles-changed"));
     const calls: string[] = [];
     registerChurchStylesRemote({
-      saveScripture: async (_c, d) => { calls.push("s"); return snap(d, {}, "2026-09-17T11:00:00.000Z"); },
-      saveContentTypeStyles: async () => { calls.push("c"); return snap(lower, {}, "2026-09-17T11:00:00.000Z"); }, // server dropped foreign id
+      saveScripture: async (_c, d) => { calls.push("s"); return { status: "ok", snap: snap(d, {}, "2026-09-17T11:00:00.000Z") }; },
+      saveContentTypeStyles: async () => { calls.push("c"); return { status: "ok", snap: { ...snap(lower, {}, "2026-09-17T11:00:00.000Z"), contentTypeStylesUpdatedAt: "2026-09-17T11:00:00.000Z" } }; }, // server dropped foreign id
     });
     await new Promise((r) => setTimeout(r, 10));
     assert.deepEqual(calls, ["s", "c"]);
@@ -132,7 +133,7 @@ async function main() {
     hydrateChurchStylesInitial(A, snap(null, {}));
     let failures = 0, ok = false;
     registerChurchStylesRemote({
-      saveScripture: async (_c, d) => { if (!ok) throw new Error("offline"); return snap(d, {}, "2026-09-17T12:00:00.000Z"); },
+      saveScripture: async (_c, d) => { if (!ok) throw new Error("offline"); return { status: "ok", snap: snap(d, {}, "2026-09-17T12:00:00.000Z") }; },
       saveContentTypeStyles: async () => null,
       onFailure: () => { failures++; },
     });
@@ -174,8 +175,101 @@ async function main() {
     assert.equal(getScriptureStyle(B), null);
   });
 
+
+  await check("#2 seeded legacy content-type themes survive refetches while the server value is never-set", () => {
+    store.set("presentflow.contentTypeStyles.v1", JSON.stringify({ song: T1, scripture: T2 }));
+    hydrateChurchStylesInitial(A, snap(null, {}));
+    assert.deepEqual(loadContentTypeStyles(A), { song: T1, scripture: T2 });
+    // focus / realtime / 60s poll refetch returns the still-empty never-set server row
+    hydrateChurchStyles(A, { ...snap(null, {}), contentTypeStylesUpdatedAt: null });
+    hydrateChurchStyles(A, snap(null, {}));
+    assert.deepEqual(loadContentTypeStyles(A), { song: T1, scripture: T2 }, "never wiped mid-service");
+    // once ANY computer actually sets them (updated_at non-null), the server value is adopted
+    hydrateChurchStyles(A, { ...snap(null, { song: T2 }), contentTypeStylesUpdatedAt: "2026-09-17T13:00:00.000Z" });
+    assert.deepEqual(loadContentTypeStyles(A), { song: T2 });
+    // and an OLDER set is ignored
+    hydrateChurchStyles(A, { ...snap(null, { song: T1 }), contentTypeStylesUpdatedAt: "2026-09-17T12:00:00.000Z" });
+    assert.deepEqual(loadContentTypeStyles(A), { song: T2 });
+  });
+
+  await check("#2 legacy content-type themes NOT seeded when the church deliberately emptied them", () => {
+    store.set("presentflow.contentTypeStyles.v1", JSON.stringify({ song: T1 }));
+    hydrateChurchStylesInitial(A, { ...snap(null, {}), contentTypeStylesUpdatedAt: "2026-09-17T10:00:00.000Z" });
+    assert.deepEqual(loadContentTypeStyles(A), {});
+  });
+
+  await check("#3 a refused save is dropped (no retry, one failure) and the server value adopted; picker marked denied", async () => {
+    hydrateChurchStylesInitial(A, { ...snap(lower, { song: T1 }, "2026-09-17T10:00:00.000Z"), contentTypeStylesUpdatedAt: "2026-09-17T10:00:00.000Z" });
+    const fails: string[] = [];
+    let calls = 0;
+    registerChurchStylesRemote({
+      saveScripture: async () => ({ status: "rejected", snap: snap(lower, { song: T1 }, "2026-09-17T10:00:00.000Z"), error: "Not permitted" }),
+      saveContentTypeStyles: async () => { calls++; return { status: "rejected", snap: { ...snap(lower, { song: T1 }, "2026-09-17T10:00:00.000Z"), contentTypeStylesUpdatedAt: "2026-09-17T10:00:00.000Z" }, error: "Not permitted" }; },
+      onFailure: (_w, kind) => { fails.push(kind); },
+    });
+    saveContentTypeStyles({ song: T2 }, A);
+    assert.deepEqual(loadContentTypeStyles(A), { song: T2 }, "optimistic");
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(hasPendingChurchStyles(A), false, "dropped, not stuck pending");
+    assert.deepEqual(loadContentTypeStyles(A), { song: T1 }, "server value adopted — no stuck local override");
+    assert.equal(isContentTypeEditDenied(A), true);
+    await flushPending(A);
+    assert.equal(calls, 1, "never retried");
+    assert.deepEqual(fails, ["rejected"], "toasted once");
+    saveScriptureStyle(A, DEFAULT_SCRIPTURE_DESIGN);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(loadScriptureStyle(A).layout, "lowerThird", "refused scripture save also reverts to server");
+  });
+
+  await check("#3 wrong-church refusal drops the write without adopting anything", async () => {
+    hydrateChurchStylesInitial(A, snap(lower, {}, "2026-09-17T10:00:00.000Z"));
+    registerChurchStylesRemote({
+      saveScripture: async () => ({ status: "rejected", snap: null, error: "Wrong church" }),
+      saveContentTypeStyles: async () => null,
+    });
+    clearScriptureStyle(A);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(hasPendingChurchStyles(A), false);
+  });
+
+  await check("#5 pending writes are persisted with the snapshot and restored after a reload", async () => {
+    const persisted: { pending: PendingWrites }[] = [];
+    hydrateChurchStylesInitial(A, snap(null, {}));
+    registerChurchStylesRemote({
+      saveScripture: async () => { throw new Error("offline"); },
+      saveContentTypeStyles: async () => { throw new Error("offline"); },
+      persistOffline: (_c, _s, pending) => { persisted.push({ pending }); },
+    });
+    saveScriptureStyle(A, lower);
+    await new Promise((r) => setTimeout(r, 10));
+    const last = persisted[persisted.length - 1];
+    assert.equal(last.pending.scripture?.v?.layout, "lowerThird", "dirty flag persisted while offline");
+    // reload: fresh store, server props still empty, offline record restores the pending write
+    __resetChurchStylesStore();
+    hydrateChurchStylesInitial(A, snap(null, {}));
+    const sent: string[] = [];
+    registerChurchStylesRemote({
+      saveScripture: async (_c, d) => { sent.push(d?.layout ?? "null"); return { status: "ok", snap: snap(d, {}, "2026-09-17T14:00:00.000Z") }; },
+      saveContentTypeStyles: async () => null,
+    });
+    restorePendingWrites(A, last.pending);
+    assert.equal(loadScriptureStyle(A).layout, "lowerThird");
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(sent, ["lowerThird"], "flushed on reconnect");
+    assert.equal(hasPendingChurchStyles(A), false);
+  });
+
+  await check("#7 first-render seed does not dispatch synchronously (no events during render)", async () => {
+    store.set(`pf.scriptureStyle.v2.${A}`, JSON.stringify(lower));
+    events.length = 0;
+    hydrateChurchStylesInitial(A, snap(null, {}));
+    assert.equal(events.length, 0, "nothing dispatched inside the render");
+    await Promise.resolve();
+    assert.ok(events.includes("pf-scripture-style-changed"), "dispatched on the microtask");
+  });
+
   await check("snapshot from prefs row", () => {
-    assert.deepEqual(churchStylesSnapshotFromPrefs(null), { scriptureStyle: null, contentTypeStyles: {}, scriptureStyleUpdatedAt: null });
+    assert.deepEqual(churchStylesSnapshotFromPrefs(null), { scriptureStyle: null, contentTypeStyles: {}, scriptureStyleUpdatedAt: null, contentTypeStylesUpdatedAt: null });
     assert.equal(churchStylesSnapshotFromPrefs({ scriptureStyleUpdatedAt: new Date("2026-09-17T10:00:00Z") }).scriptureStyleUpdatedAt, "2026-09-17T10:00:00.000Z");
   });
 

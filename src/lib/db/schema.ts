@@ -516,6 +516,7 @@ export const churchPreferences = pgTable("church_preferences", {
   contentTypeStyles: jsonb("content_type_styles").notNull().default({}), // { song?: themeId, scripture?: themeId }
   scriptureStyle: jsonb("scripture_style"),                               // ScriptureDesign | null
   scriptureStyleUpdatedAt: timestamp("scripture_style_updated_at", { withTimezone: true }),
+  contentTypeStylesUpdatedAt: timestamp("content_type_styles_updated_at", { withTimezone: true }), // null = never set
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

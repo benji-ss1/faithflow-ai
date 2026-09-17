@@ -43,6 +43,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
         scriptureStyle?: unknown;
         contentTypeStyles?: unknown;
         scriptureStyleUpdatedAt?: Date | null;
+        contentTypeStylesUpdatedAt?: Date | null;
       }
     | null = null;
   let translationCode = "KJV";
@@ -77,7 +78,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
       scenesEnabled={prefs?.scenesEnabled ?? false}
-      initialChurchStyles={prefs ? churchStylesSnapshotFromPrefs(prefs) : null}
+      initialChurchStyles={churchStylesSnapshotFromPrefs(prefs)}
       layersV2={layersV2}
       initialShell={initialShell}
     />

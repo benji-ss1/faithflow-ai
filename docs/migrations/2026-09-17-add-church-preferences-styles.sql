@@ -18,6 +18,7 @@
 -- END $$;
 -- ALTER TABLE church_preferences DROP CONSTRAINT IF EXISTS church_preferences_content_type_styles_object;
 -- ALTER TABLE church_preferences DROP CONSTRAINT IF EXISTS church_preferences_scripture_style_object;
+-- ALTER TABLE church_preferences DROP COLUMN IF EXISTS content_type_styles_updated_at;
 -- ALTER TABLE church_preferences DROP COLUMN IF EXISTS scripture_style_updated_at;
 -- ALTER TABLE church_preferences DROP COLUMN IF EXISTS scripture_style;
 -- ALTER TABLE church_preferences DROP COLUMN IF EXISTS content_type_styles;
@@ -26,6 +27,9 @@
 ALTER TABLE church_preferences ADD COLUMN IF NOT EXISTS content_type_styles jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE church_preferences ADD COLUMN IF NOT EXISTS scripture_style jsonb;
 ALTER TABLE church_preferences ADD COLUMN IF NOT EXISTS scripture_style_updated_at timestamptz;
+-- NULL = the church never set its content-type themes (lets a client tell
+-- "never set" from "deliberately emptied", and gates the one-time migration).
+ALTER TABLE church_preferences ADD COLUMN IF NOT EXISTS content_type_styles_updated_at timestamptz;
 
 -- Shape guards. NOT VALID = no table scan / no lock-heavy validation of existing
 -- rows (all existing rows get the '{}' default / NULL anyway). New writes are checked.
