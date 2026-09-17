@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.450",
+    "version": "0.1.452",
     "date": "2026-09-17",
     "headline": "Fonts you pick now really show on the projector",
     "highlights": [
@@ -14,6 +14,15 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "The fonts are built into PresentFlow, so they keep working with no internet once they have loaded, on Windows as well as Mac.",
       "Text is measured after its font has loaded, so a slide no longer resizes a moment after it goes live — and lyrics still never get cut off.",
       "Your saved themes and slides are untouched: whatever font you picked before is still picked, and a font we do not recognise is offered as \"Keep current\" instead of being swapped out."
+    ]
+  },
+  {
+    "version": "0.1.450",
+    "date": "2026-09-17",
+    "headline": "Songs now open with your chosen song look, even on the first slide of a fresh session",
+    "highlights": [
+      "Sometimes the very first song you put up in a new session came out in the plain default look — white text, no background — until you clicked away to another item and back. That's fixed.",
+      "If your church's themes are slow to load when the console opens, PresentFlow now keeps trying for a few seconds and applies your song look as soon as they arrive. The screen updates in place, with no re-cut or flash."
     ]
   },
   {
@@ -61,7 +70,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-09-17",
     "headline": "Pictures and videos fill the screen, and the lower-third band is easier to see",
     "highlights": [
-      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.443)",
+      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.445)",
       "The lower-third band is easier to see. If you haven't picked your own band colour, it is now a soft dark bar you can see on a black screen and over pictures. Your own band colour stays the same.",
       "Captions you set on a picture or video still show in the band, and are always easy to read.",
       "Small pictures are no longer blown up until they look blurry."
@@ -214,7 +223,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "The clear buttons beside the preview now match ProPresenter — Messages, Props, Announcements, Slide, Media and Video Input (Audio is coming soon). Each one clears only its own layer.",
       "Full layer controls (show/hide each layer) are still under the Layers icon on the right.",
       "The white ✕ clears everything. The column turns red while something is live, and each live layer is highlighted.",
-      "(Changed in 0.1.438: clicking an image or video in the Media Bin now puts it on the screen. Use the Bg button to put it behind your words.)",
+      "(Changed in 0.1.441: clicking an image or video in the Media Bin now puts it on the screen. Use the Bg button to put it behind your words.)",
       "Keyboard: F1 clears all, F2 slide, F3 media, F4 props, F6 messages, F7 announcements. On a Mac, hold Fn — or turn on \"Use F1, F2, etc. keys as standard function keys\" in Keyboard settings.",
       "With a camera live, media now shows over the camera and under the words, like ProPresenter. Press Clear Media (F3) to see the camera again."
     ]
