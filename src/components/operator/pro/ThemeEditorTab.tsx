@@ -96,7 +96,7 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
   isDefault: boolean;
 }) {
   const [paletteBusy, setPaletteBusy] = useState(false);
-  // PR 2: a saved Scripture Style on THIS computer overrides the theme's
+  // PR 2: the church's saved Scripture Style (PR B: shared per church) overrides the theme's
   // scripture boxes (decision 4) — say so, and offer to clear it.
   const [savedScripture, setSavedScripture] = useState(false);
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -107,7 +107,7 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
     return () => window.removeEventListener("pf-scripture-style-changed", read);
   }, [churchId]);
   const resetSavedScripture = async () => {
-    const ok = await confirm({ title: "Clear the saved Scripture Style?", description: "Scripture on this computer will use this theme's scripture boxes and options instead. This can't be undone.", confirmLabel: "Clear", danger: true });
+    const ok = await confirm({ title: "Clear the saved Scripture Style?", description: "Scripture on every computer in your church will use this theme's scripture boxes and options instead. This can't be undone.", confirmLabel: "Clear", danger: true });
     if (!ok) return;
     clearScriptureStyle(churchId);
     toast.success("Saved Scripture Style cleared");
@@ -282,7 +282,7 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
       <Section title="Scripture">
         {savedScripture && (
           <div role="note" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] leading-snug text-[var(--color-foreground)]">
-            This computer has a saved Scripture Style, which overrides this theme&apos;s scripture boxes.
+            Your church has a saved Scripture Style, which overrides this theme&apos;s scripture boxes.
             <button type="button" onClick={() => void resetSavedScripture()} className="mt-1.5 block h-7 px-3 rounded-md border text-[10px] font-semibold" style={segOff}>
               Clear saved Scripture Style
             </button>
