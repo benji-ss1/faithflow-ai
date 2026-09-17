@@ -4,6 +4,16 @@
 // built .node into the app bundle (see electron/ndi/NDIService.ts for the
 // resolve strategy in production).
 "use strict";
+const path = require("path");
+// On Windows the addon depends on Processing.NDI.Lib.x64.dll. electron-builder
+// bundles that DLL next to the .node (build/Release); prepend that dir to PATH
+// before the require so the OS loader finds it (mirrors ndi-receiver/index.js).
+if (process.platform === "win32") {
+  try {
+    const relDir = path.join(__dirname, "build", "Release");
+    process.env.PATH = relDir + path.delimiter + (process.env.PATH || "");
+  } catch { /* ignore */ }
+}
 let native = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports

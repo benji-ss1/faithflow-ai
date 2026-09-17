@@ -4,7 +4,7 @@
 
 Wired `electron-updater` so packaged tester builds auto-update from the
 GitHub Release feed at
-`https://github.com/benji-ss1/faithflow-ai/releases/latest`. Testers install
+`https://github.com/benji-ss1/presentflow-releases/releases/latest`. Testers install
 once and thereafter get silent background downloads + a click-to-restart
 banner — no more manual redistribution.
 

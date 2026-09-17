@@ -12,7 +12,11 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "You can now see what's happening — uploading the deck, converting it (with a timer), then preparing and uploading each slide.",
       "Big, photo-heavy presentations now import properly instead of failing partway through.",
       "Press Cancel import to stop at any point.",
-      "Broken, password-protected, or non-PowerPoint files now show a clear message telling you what to do, and files over 150 MB are turned away before uploading."
+      "Broken, password-protected, or non-PowerPoint files now show a clear message telling you what to do, and files over 150 MB are turned away before uploading.",
+      "In the Windows app, the Audio panel lists NDI network audio: pick your OBS (DistroAV) source and the AI listens to the service over the network, no USB cable from the mixer needed.",
+      "If OBS closes, PresentFlow shows that the NDI feed was lost and carries on when OBS comes back.",
+      "The Windows app appears as \"PresentFlow - NDI 1\", so OBS and other NDI tools can pick up your slides.",
+      "Download the latest Windows app from your dashboard to get this. Windows apps already installed update on their own."
     ]
   },
   {

@@ -25,8 +25,8 @@ import { useEffect, useRef, useState } from "react";
 import type { SlidePayload } from "@/lib/broadcast";
 import { DESKTOP_DOWNLOAD_ARM64_URL, DESKTOP_DOWNLOAD_X64_URL } from "@/lib/desktop-download";
 
-const GITHUB_LATEST_URL = "https://api.github.com/repos/benji-ss1/faithflow-ai/releases/latest";
-const GITHUB_RELEASE_PAGE = "https://github.com/benji-ss1/faithflow-ai/releases/latest";
+const GITHUB_LATEST_URL = "https://api.github.com/repos/benji-ss1/presentflow-releases/releases/latest";
+const GITHUB_RELEASE_PAGE = "https://github.com/benji-ss1/presentflow-releases/releases/latest";
 const MANUAL_POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 min
 const MANUAL_POLL_INITIAL_DELAY_MS = 15 * 1000; // 15s after mount
 // Per-version dismissal — once the user X's the banner for 0.1.102, don't
