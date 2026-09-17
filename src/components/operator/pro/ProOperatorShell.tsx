@@ -5120,7 +5120,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <AudioDebugOverlay audio={ctx.audio} />
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
       <WhatsNewModal />
-      <SettingsWindow />
+      <SettingsWindow ctx={ctx} />
       <SarahOverlay live={sarahLive} />
     </div>
   );
