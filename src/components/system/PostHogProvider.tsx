@@ -17,9 +17,10 @@
  */
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import posthog from "posthog-js";
 
-let inited = false;
+type PostHog = typeof import("posthog-js").default;
+let client: PostHog | null = null;
+let loading: Promise<PostHog | null> | null = null;
 
 const CONSENT_KEY = "pf.cookie.consent.v1";
 
@@ -42,64 +43,76 @@ export function setCookieConsent(accepted: boolean) {
     /* ignore */
   }
   if (accepted) {
-    ensureInit();
-    if (inited) {
-      try {
-        posthog.capture("$pageview", { $current_url: window.location.href });
-      } catch {
-        /* no-op */
-      }
-    }
+    const url = window.location.href;
+    void ensureInit().then((posthog) => {
+      if (getCookieConsent() !== "accepted") return;
+      try { posthog?.capture("$pageview", { $current_url: url }); } catch { /* no-op */ }
+    });
   }
 }
 
-function ensureInit() {
-  if (inited || typeof window === "undefined") return;
+function ensureInit(): Promise<PostHog | null> {
+  if (typeof window === "undefined") return Promise.resolve(null);
   // Analytics cookies require explicit consent.
-  if (getCookieConsent() !== "accepted") return;
+  if (getCookieConsent() !== "accepted") return Promise.resolve(null);
+  if (client) return Promise.resolve(client);
   const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-  if (!key) return;
-  posthog.init(key, {
-    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
-    capture_pageview: false, // we capture manually on route change (App Router)
-    capture_pageleave: true, // needed for form abandonment / drop-off funnels
-    person_profiles: "identified_only",
-  });
-  inited = true;
+  if (!key) return Promise.resolve(null);
+  if (!loading) {
+    // The large analytics SDK belongs to a separate chunk. It is requested
+    // only after consent, without delaying the app's first interaction.
+    loading = import("posthog-js").then(({ default: posthog }) => {
+      if (getCookieConsent() !== "accepted") {
+        loading = null;
+        return null;
+      }
+      posthog.init(key, {
+        api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
+        capture_pageview: false,
+        capture_pageleave: true,
+        person_profiles: "identified_only",
+      });
+      client = posthog;
+      return posthog;
+    }).catch(() => {
+      loading = null;
+      return null;
+    });
+  }
+  return loading;
 }
 
 export function track(event: string, props?: Record<string, unknown>) {
   if (typeof window === "undefined") return;
-  try {
-    ensureInit();
-    if (inited) posthog.capture(event, props);
-  } catch {
-    /* analytics must never break the UI */
-  }
+  void ensureInit().then((posthog) => {
+    if (getCookieConsent() !== "accepted") return;
+    try { posthog?.capture(event, props); } catch { /* analytics must never break the UI */ }
+  });
 }
 
 /** Turn an anonymous visitor into a known lead (fired the moment we have an email). */
 export function identifyLead(email: string, props?: Record<string, unknown>) {
   if (typeof window === "undefined" || !email) return;
-  try {
-    ensureInit();
-    if (inited) posthog.identify(email, props);
-  } catch {
-    /* no-op */
-  }
+  void ensureInit().then((posthog) => {
+    if (getCookieConsent() !== "accepted") return;
+    try { posthog?.identify(email, props); } catch { /* analytics must never break the UI */ }
+  });
 }
 
 export function PostHogProvider() {
   const pathname = usePathname();
 
   useEffect(() => {
-    ensureInit();
+    void ensureInit();
   }, []);
 
   // Manual pageview capture for App Router client navigations.
   useEffect(() => {
-    if (!inited) return;
-    posthog.capture("$pageview", { $current_url: window.location.href });
+    const url = window.location.href;
+    void ensureInit().then((posthog) => {
+      if (getCookieConsent() !== "accepted") return;
+      try { posthog?.capture("$pageview", { $current_url: url }); } catch { /* no-op */ }
+    });
   }, [pathname]);
 
   return null;

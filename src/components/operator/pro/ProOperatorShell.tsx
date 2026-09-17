@@ -24,6 +24,7 @@
 import { isWindowsUA } from "@/lib/platform";
 import { leftPanelMaxWidth } from "@/lib/panelLayout";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { Quote, X } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
@@ -41,12 +42,9 @@ import { SlideGrid } from "./center/SlideGrid";
 import { ArrangementStrip } from "./center/ArrangementStrip";
 import { DesktopSlideEditorModal } from "./DesktopSlideEditorModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { MediaImageEditor } from "./center/MediaImageEditor";
 import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
 import { SONG_OPEN_EVENT, type SongSelection } from "@/lib/song-selection";
-import { MediaBrowser } from "./center/MediaBrowser";
-import { OpenFlowPanel } from "@/components/operator/openflow/OpenFlowPanel";
 import { OpenFlowSidebar } from "@/components/operator/openflow/OpenFlowSidebar";
 import { LivePreviewPanel } from "./right/LivePreviewPanel";
 import { SceneRail } from "./right/SceneRail";
@@ -90,6 +88,16 @@ import { parseContextCommand, navCommandWordCount } from "@/lib/context-parser";
 import { GUARDIAN_STATE_EVENT, type GuardianStatus } from "@/lib/audio/audioGuardian";
 import { shouldHoldSongAutoSwitch, liveOriginKey, resolveLyricIndex } from "@/lib/song-switch-guard";
 import { songSlidesChangedPlan, refreshTrackedSong, relocateLyricIndex, type SongSlidesChangedDetail } from "@/lib/song-slides-changed";
+
+// Load optional workspaces on first use. The slide grid and live controls stay
+// in the initial bundle so opening the operator never waits on an editor.
+const MediaBrowser = dynamic(() => import("./center/MediaBrowser").then((m) => m.MediaBrowser), {
+  loading: () => <div role="status" className="p-4 text-sm text-[var(--color-muted-foreground)]">Opening media library…</div>,
+});
+const OpenFlowPanel = dynamic(() => import("@/components/operator/openflow/OpenFlowPanel").then((m) => m.OpenFlowPanel), {
+  loading: () => <div role="status" className="p-4 text-sm text-[var(--color-muted-foreground)]">Opening OpenFlow…</div>,
+});
+const MediaImageEditor = dynamic(() => import("./center/MediaImageEditor").then((m) => m.MediaImageEditor));
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.

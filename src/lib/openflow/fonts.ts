@@ -17,6 +17,7 @@ export const ofSerif = Fraunces({
   style: ["normal", "italic"],
   variable: "--of-font-serif",
   display: "swap",
+  preload: false,
 });
 
 export const ofScript = Allura({
@@ -24,18 +25,21 @@ export const ofScript = Allura({
   weight: "400",
   variable: "--of-font-script",
   display: "swap",
+  preload: false,
 });
 
 export const ofSans = Inter({
   subsets: ["latin"],
   variable: "--of-font-sans",
   display: "swap",
+  preload: false,
 });
 
 export const ofMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--of-font-mono",
   display: "swap",
+  preload: false,
 });
 
 /** The combined font-variable classNames to spread onto the OpenFlow root. */
