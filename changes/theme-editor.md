@@ -1,7 +1,7 @@
 ---
 headline: Edit a theme the same way you edit a slide
 audience: operator
-version: 0.1.438
+version: 0.1.439
 date: 2026-09-17
 highlights:
   - In the Themes popover, the pencil (or right-click → Edit…) now opens the full-screen slide editor on that theme.
