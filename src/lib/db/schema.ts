@@ -510,6 +510,12 @@ export const churchPreferences = pgTable("church_preferences", {
   // so an already-published scene still renders on every output surface.
   // Same migration-first requirement as layersV2 above.
   scenesEnabled: boolean("scenes_enabled").notNull().default(false),
+  // Per-church styles (2026-09-17, docs/migrations/2026-09-17-add-church-preferences-styles.sql).
+  // Written ONLY by setScriptureStyle / setContentTypeStyles (never updatePreferences).
+  // Same migration-first requirement as layersV2 above.
+  contentTypeStyles: jsonb("content_type_styles").notNull().default({}), // { song?: themeId, scripture?: themeId }
+  scriptureStyle: jsonb("scripture_style"),                               // ScriptureDesign | null
+  scriptureStyleUpdatedAt: timestamp("scripture_style_updated_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

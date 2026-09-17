@@ -214,7 +214,7 @@ async function main() {
   });
   await check("theme editor warns when a saved Scripture Style overrides the theme", () => {
     const te = src("src/components/operator/pro/ThemeEditorTab.tsx");
-    assert.ok(te.includes("This computer has a saved Scripture Style, which overrides this theme&apos;s scripture boxes."));
+    assert.ok(te.includes("Your church has a saved Scripture Style, which overrides this theme&apos;s scripture boxes."));
     assert.ok(te.includes("clearScriptureStyle(churchId)"));
   });
 

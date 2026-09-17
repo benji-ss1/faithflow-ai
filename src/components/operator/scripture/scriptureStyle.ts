@@ -5,47 +5,18 @@
 // the template, so "Save (all slides)" reproduces the exact layout per verse.
 
 import { projectableTextSlide, type SlidePayload, type ScriptureBandWire } from "@/lib/broadcast";
-import { newObjectId, CANVAS_W, CANVAS_H, type EditableSlide, type SlideObject, type TextObject } from "@/lib/slide-objects";
+import { newObjectId, type EditableSlide, type SlideObject, type TextObject } from "@/lib/slide-objects";
 import { designFromThemeScripture, type ThemeScriptureOptions } from "@/lib/theme-scripture";
+import { DEFAULT_SCRIPTURE_DESIGN, sanitizeBandStyle, clampNum, type TextStyle, type BandStyle, type ScriptureDesign } from "@/lib/scripture-design";
+import { getScriptureStyle, setLocalScriptureStyle } from "@/lib/church-styles-store";
 
-export type TextStyle = {
-  x: number; y: number; w: number; h: number;
-  fontFamily: string; fontSize: number; fontWeight: number;
-  color: string; align: "left" | "center" | "right";
-  italic: boolean; uppercase: boolean; shadow: boolean;
-  stroke: string; strokeWidth: number; lineHeight: number; letterSpacing: number;
-};
-
-// Scripture projection layout. "fullscreen" = the classic full-canvas verse
-// (styled per-object, drag-editable). "lowerThird" = Christ Embassy's lower-
-// third mode: a big verse confined to a bottom band (optionally coloured), so a
-// verse can be composited over the church's own content. The band's geometry is
-// owned by the renderer; the design only carries the band paint + which layout.
-export type ScriptureLayout = "fullscreen" | "lowerThird";
-
-// Which third of the screen the band sits in. Christ Embassy's real projectors
-// are mounted high and the very bottom is blocked, so a bottom-third caption
-// reads too low — they need to move it up (mid/upper) and nudge it.
-export type ThirdPosition = "upper" | "mid" | "lower";
-
-// The scripture band. mode "none" = transparent (verse floats with a shadow —
-// for compositing over a busy feed); "solid" = flat colour; "gradient" = colour
-// → color2. Default is a BLACK solid band (safest legibility). `position` +
-// `offsetY` place it in/around a third; `heightPct` sets how tall the band is;
-// `fontScale` scales the verse text so it can be made much bigger/readable.
-export type BandStyle = {
-  mode: "none" | "solid" | "gradient";
-  color: string;
-  color2: string;
-  angle: number;   // gradient angle in degrees
-  opacity: number; // 0..1
-  position: ThirdPosition;
-  offsetY: number;   // fine vertical nudge, % of screen height (−25..25); + = down
-  heightPct: number; // band height, % of screen height (16..48)
-  fontScale: number; // verse size multiplier (0.6..2)
-};
-
-const clampNum = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+// Types, defaults and sanitizers live in the pure, server-safe
+// src/lib/scripture-design.ts (so server actions validate identically); they are
+// re-exported here so every existing import keeps working.
+export {
+  BAND_DEFAULT, DEFAULT_SCRIPTURE_DESIGN, sanitizeBandStyle, sanitizeScriptureDesign,
+  type TextStyle, type ScriptureLayout, type ThirdPosition, type BandStyle, type ScriptureDesign,
+} from "@/lib/scripture-design";
 
 // The band's top edge (%), derived from position + nudge, clamped on-screen.
 export function bandTopPct(b: BandStyle): number {
@@ -55,46 +26,6 @@ export function bandTopPct(b: BandStyle): number {
     100 - b.heightPct - 2; // lower: 2% bottom margin
   return clampNum(base + b.offsetY, 0, 100 - b.heightPct);
 }
-
-// NOTE: scripture slides deliberately carry NO per-slide background. The
-// background always comes from the active theme / overall picked background
-// (user directive 2026-08-24) — so a scripture slide styles TEXT only and lets
-// the theme show through, exactly like every other slide. (The lower-third band
-// is NOT a background — it is a foreground scrim drawn behind the verse text
-// only, so the theme/camera still shows above and below it.)
-export type ScriptureDesign = {
-  layout: ScriptureLayout;
-  verse: TextStyle;
-  reference: TextStyle & { show: boolean; showTranslation: boolean };
-  band: BandStyle;
-};
-
-const VERSE_DEFAULT: TextStyle = {
-  x: 80, y: 60, w: CANVAS_W - 160, h: CANVAS_H - 260,
-  fontFamily: "Sora", fontSize: 96, fontWeight: 700, color: "#ffffff", align: "center",
-  italic: false, uppercase: false, shadow: true, stroke: "#000000", strokeWidth: 0,
-  lineHeight: 1.15, letterSpacing: 0,
-};
-const REF_DEFAULT: TextStyle & { show: boolean; showTranslation: boolean } = {
-  x: 80, y: CANVAS_H - 150, w: CANVAS_W - 160, h: 110,
-  fontFamily: "Sora", fontSize: 44, fontWeight: 500, color: "#ffffff", align: "center",
-  italic: false, uppercase: false, shadow: true, stroke: "#000000", strokeWidth: 0,
-  lineHeight: 1.1, letterSpacing: 1,
-  show: true, showTranslation: true,
-};
-
-// Black band by default — legible over ANY content the church runs underneath.
-export const BAND_DEFAULT: BandStyle = {
-  mode: "solid", color: "#000000", color2: "#000000", angle: 180, opacity: 0.72,
-  position: "lower", offsetY: 0, heightPct: 30, fontScale: 1,
-};
-
-export const DEFAULT_SCRIPTURE_DESIGN: ScriptureDesign = {
-  layout: "fullscreen",
-  verse: { ...VERSE_DEFAULT },
-  reference: { ...REF_DEFAULT },
-  band: { ...BAND_DEFAULT },
-};
 
 // The wire band for a design, or undefined when the band shouldn't paint
 // (fullscreen layout, or a transparent "none" lower-third). Only the paint is
@@ -382,69 +313,25 @@ export function designFromSlide(slide: EditableSlide, prev: ScriptureDesign): Sc
 }
 
 // ---- Persistence (active style per church) --------------------------------
-
-const KEY = (churchId?: string) => `pf.scriptureStyle.v2.${churchId || "default"}`;
-
-// A corrupted / hand-edited saved band (e.g. heightPct:500, fontScale:NaN,
-// opacity:9, color:"red") would otherwise produce an INVALID wire band on EVERY
-// slide (applyChurchLayout runs on every send) → receivers drop the band/media.
-// Clamp every field to the editor's ranges; bad values fall back to BAND_DEFAULT.
-export function sanitizeBandStyle(raw: unknown): BandStyle {
-  const b = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const D = BAND_DEFAULT;
-  const num = (v: unknown, lo: number, hi: number, def: number) =>
-    typeof v === "number" && Number.isFinite(v) ? clampNum(v, lo, hi) : def;
-  const hex = (v: unknown, def: string) =>
-    typeof v === "string" && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v) ? v : def;
-  return {
-    mode: b.mode === "none" || b.mode === "solid" || b.mode === "gradient" ? b.mode : D.mode,
-    color: hex(b.color, D.color),
-    color2: hex(b.color2, D.color2),
-    angle: num(b.angle, 0, 360, D.angle),
-    opacity: num(b.opacity, 0, 1, D.opacity),
-    position: b.position === "upper" || b.position === "mid" || b.position === "lower" ? b.position : D.position,
-    offsetY: num(b.offsetY, -25, 25, D.offsetY),
-    heightPct: num(b.heightPct, 10, 60, D.heightPct),
-    fontScale: num(b.fontScale, 0.5, 2, D.fontScale),
-  };
-}
+// PR B (2026-09-17): the style is stored per CHURCH on the server
+// (church_preferences.scripture_style) and cached synchronously in
+// church-styles-store. Signatures are unchanged and still synchronous; the
+// legacy per-machine key pf.scriptureStyle.v2.<churchId> is a READ-ONLY
+// fallback until the store is hydrated (kept one release).
 
 export function loadScriptureStyle(churchId?: string): ScriptureDesign {
-  if (typeof window === "undefined") return DEFAULT_SCRIPTURE_DESIGN;
-  try {
-    const raw = window.localStorage.getItem(KEY(churchId));
-    if (!raw) return DEFAULT_SCRIPTURE_DESIGN;
-    const parsed = JSON.parse(raw) as Partial<ScriptureDesign>;
-    if (!parsed || typeof parsed !== "object") return DEFAULT_SCRIPTURE_DESIGN;
-    return {
-      // back-compat: pre-lower-third saved styles have no layout/band → default
-      // to fullscreen + the black band, so an existing church is unchanged.
-      layout: parsed.layout === "lowerThird" ? "lowerThird" : "fullscreen",
-      verse: { ...DEFAULT_SCRIPTURE_DESIGN.verse, ...parsed.verse },
-      reference: { ...DEFAULT_SCRIPTURE_DESIGN.reference, ...parsed.reference },
-      band: sanitizeBandStyle(parsed.band),
-    };
-  } catch { return DEFAULT_SCRIPTURE_DESIGN; }
+  return getScriptureStyle(churchId) ?? DEFAULT_SCRIPTURE_DESIGN;
 }
 
 export function saveScriptureStyle(churchId: string | undefined, design: ScriptureDesign): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(KEY(churchId), JSON.stringify(design));
-    window.dispatchEvent(new CustomEvent("pf-scripture-style-changed"));
-  } catch { /* ignore */ }
+  setLocalScriptureStyle(churchId, design);
 }
 
-/** Remove this machine's saved Scripture Style (so a theme's scripture boxes apply). */
+/** Remove the church's saved Scripture Style (so a theme's scripture boxes apply). */
 export function clearScriptureStyle(churchId: string | undefined): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(KEY(churchId));
-    window.dispatchEvent(new CustomEvent("pf-scripture-style-changed"));
-  } catch { /* ignore */ }
+  setLocalScriptureStyle(churchId, null);
 }
 
 export function hasSavedScriptureStyle(churchId?: string): boolean {
-  if (typeof window === "undefined") return false;
-  try { return !!window.localStorage.getItem(KEY(churchId)); } catch { return false; }
+  return getScriptureStyle(churchId) !== null;
 }

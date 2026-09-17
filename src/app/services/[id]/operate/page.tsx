@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db/client";
 import { churchPreferences, bibleTranslations } from "@/lib/db/schema";
 import { getExpandedServicePlan } from "@/lib/server/services";
 import { OperatorConsole } from "@/components/operator/OperatorConsole";
+import { churchStylesSnapshotFromPrefs } from "@/lib/church-styles-store";
 import { SessionKeepAlive } from "@/components/auth/SessionKeepAlive";
 
 export default async function OperatePage({ params }: { params: Promise<{ id: string }> }) {
@@ -39,6 +40,9 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
         autoSendToLive: boolean | null;
         layersV2?: boolean | null;
         scenesEnabled?: boolean | null;
+        scriptureStyle?: unknown;
+        contentTypeStyles?: unknown;
+        scriptureStyleUpdatedAt?: Date | null;
       }
     | null = null;
   let translationCode = "KJV";
@@ -73,6 +77,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
       scenesEnabled={prefs?.scenesEnabled ?? false}
+      initialChurchStyles={prefs ? churchStylesSnapshotFromPrefs(prefs) : null}
       layersV2={layersV2}
       initialShell={initialShell}
     />

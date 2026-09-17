@@ -1055,7 +1055,14 @@ function SortableThemeCard({
 // item's TYPE → this theme when the item has no explicit override.
 function ContentTypeStyleBar({ themes }: { themes: ThemeRow[] }) {
   const [styles, setStyles] = useState<ContentTypeStyles>({});
-  useEffect(() => { setStyles(loadContentTypeStyles()); }, []);
+  // PR B: church-scoped (the operator console hydrated this church's styles);
+  // follows changes from other computers / windows.
+  useEffect(() => {
+    const load = () => setStyles(loadContentTypeStyles());
+    load();
+    window.addEventListener("presentflow:content-type-styles-changed", load);
+    return () => window.removeEventListener("presentflow:content-type-styles-changed", load);
+  }, []);
   const set = (type: ContentStyleType, themeId: string) => {
     const next: ContentTypeStyles = { ...styles };
     if (themeId) next[type] = themeId; else delete next[type];

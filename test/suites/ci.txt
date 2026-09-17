@@ -143,3 +143,6 @@ test/voice-commands.test.ts
 test/whats-new.test.ts
 test/pptx-convert.test.ts
 test/media-click-sends-live.test.ts
+test/adversarial/church-styles-scope.test.ts
+test/church-styles-store.test.ts
+test/scripture-design-sanitize.test.ts

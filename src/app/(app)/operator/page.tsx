@@ -8,6 +8,7 @@ import { getTodayInChurchTz } from "@/lib/dates";
 import { getExpandedServicePlan, type ExpandedPlan } from "@/lib/server/services";
 import { presignGet } from "@/lib/s3";
 import { OperatorConsole } from "@/components/operator/OperatorConsole";
+import { churchStylesSnapshotFromPrefs } from "@/lib/church-styles-store";
 import { OfflineState } from "./OfflineState";
 
 // Desktop landing surface (PropPresenter-style single view). ALWAYS renders
@@ -43,6 +44,9 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
     autoSendToLive: boolean | null;
     layersV2?: boolean | null;
     scenesEnabled?: boolean | null;
+    scriptureStyle?: unknown;
+    contentTypeStyles?: unknown;
+    scriptureStyleUpdatedAt?: Date | null;
   } | null = null;
   let translationCode = "KJV";
   let logoUrl: string | undefined;
@@ -147,6 +151,7 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
       autoApprove={autoApprove}
       layersV2={prefs?.layersV2 ?? true}
       scenesEnabled={prefs?.scenesEnabled ?? false}
+      initialChurchStyles={churchStylesSnapshotFromPrefs(prefs)}
       initialShell={initialShell}
     />
   );
