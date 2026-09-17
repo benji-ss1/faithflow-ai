@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.448",
+    "version": "0.1.449",
     "date": "2026-09-17",
     "headline": "Your Scripture Style and default song and Bible themes are now shared across every computer in your church",
     "highlights": [
