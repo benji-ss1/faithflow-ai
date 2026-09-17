@@ -52,13 +52,13 @@ check("stripVideoDecor removes video decor only", () => {
 });
 
 // 🔴 review fix: Esc with a selection must NOT reach the global kill-live hotkey.
-function escRig(selectionCount: number) {
+function escRig(selectionCount: number, overlay = false) {
   const dom = new JSDOM("<!doctype html><body><div id=g tabindex=0></div></body>");
   const w = dom.window;
   let killed = 0, cleared = 0;
   // Global hotkeys (useOperatorHotkeys / OperatorConsole) listen in the bubble phase.
   w.addEventListener("keydown", (e: Event) => { if ((e as KeyboardEvent).key === "Escape") killed++; });
-  w.addEventListener("keydown", (e: Event) => { consumeSelectionEscape(e as KeyboardEvent, selectionCount, w.document.activeElement as HTMLElement, () => { cleared++; }); }, true);
+  w.addEventListener("keydown", (e: Event) => { consumeSelectionEscape(e as KeyboardEvent, selectionCount, w.document.activeElement as HTMLElement, () => { cleared++; }, overlay); }, true);
   const ev = new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
   w.document.getElementById("g")!.dispatchEvent(ev);
   return { killed, cleared, prevented: ev.defaultPrevented };
@@ -68,6 +68,15 @@ check("Esc with a selection clears it and never fires kill-live", () => {
 });
 check("Esc with NO selection is untouched: kill-live fires exactly as before", () => {
   assert.deepEqual(escRig(0), { killed: 1, cleared: 0, prevented: false });
+});
+check("Esc with a selection while a menu/dialog is open: not consumed, selection kept (menu closes)", () => {
+  const r = escRig(2, true);
+  assert.equal(r.cleared, 0);
+  assert.equal(r.prevented, false);
+});
+check("SlideGrid passes anyOverlayOpen() to the Esc handler", () => {
+  const src = readFileSync(new URL("../src/components/operator/pro/center/SlideGrid.tsx", import.meta.url), "utf8");
+  assert.ok(src.includes("setSelectedSlideIds([]), anyOverlayOpen())"));
 });
 check("Esc while typing in a field is not consumed", () => {
   let c = 0;

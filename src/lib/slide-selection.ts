@@ -68,8 +68,10 @@ export function consumeSelectionEscape(
   selectionCount: number,
   activeEl: { tagName?: string; isContentEditable?: boolean } | null,
   clear: () => void,
+  /** A Radix menu/dialog is open: let IT take Esc (closes) and keep the selection. */
+  overlayOpen = false,
 ): boolean {
-  if (e.key !== "Escape" || selectionCount === 0) return false;
+  if (e.key !== "Escape" || selectionCount === 0 || overlayOpen) return false;
   if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.isContentEditable)) return false;
   e.preventDefault();
   e.stopImmediatePropagation();
