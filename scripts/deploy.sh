@@ -33,32 +33,34 @@ case "${1:-help}" in
     fi
 
     step "2/4 — Ensure app exists"
-    if ! flyctl apps list 2>/dev/null | grep -q faithflow-audio; then
-      flyctl apps create faithflow-audio --org personal
+    CREATED_APP=0
+    if ! flyctl apps list 2>/dev/null | grep -q faithflow-convert; then
+      flyctl apps create faithflow-convert --org personal
+      CREATED_APP=1
     else
-      ok "app faithflow-audio exists"
+      ok "app faithflow-convert exists"
     fi
 
-    step "3/4 — Set secrets (audio keys from .env.local, DATABASE_URL from environment)"
-    DG=$(grep '^DEEPGRAM_API_KEY=' .env.local | cut -d= -f2-)
-    AS=$(grep '^AUTH_SECRET='     .env.local | cut -d= -f2-)
-    # Supply DATABASE_URL from the approved production secret store:
-    #   DATABASE_URL='...' ./scripts/deploy.sh audio
-    # Never read a production database credential from a tracked file.
-    DB="${DATABASE_URL:-}"
-    if [ -z "$DG" ] || [ -z "$AS" ] || [ -z "$DB" ]; then
-      echo "Missing DEEPGRAM_API_KEY/AUTH_SECRET in .env.local or DATABASE_URL in the environment"
+    step "3/4 — Shared secret (auth between Vercel and the converter)"
+    # NEVER rotate an existing secret on redeploy — Vercel holds the matching
+    # value and a silent rotation would break every PowerPoint import in prod.
+    if flyctl secrets list -a faithflow-convert 2>/dev/null | grep -qE '^[[:space:]]*CONVERT_SHARED_SECRET([[:space:]]|$)'; then
+      ok "CONVERT_SHARED_SECRET already set on Fly — keeping it (not regenerating)."
+      echo "   To rotate deliberately: flyctl secrets set CONVERT_SHARED_SECRET=... -a faithflow-convert, then update Vercel."
+    elif [ "$CREATED_APP" = "1" ] || [ -n "${CONVERT_SHARED_SECRET:-}" ]; then
+      SECRET="${CONVERT_SHARED_SECRET:-}"
+      if [ -z "$SECRET" ]; then
+        SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+        warn "First-time setup: generated CONVERT_SHARED_SECRET. Set the SAME value on Vercel:"
+        echo "   CONVERT_SHARED_SECRET=$SECRET"
+        echo "   CONVERT_SERVICE_URL=https://faithflow-convert.fly.dev"
+      fi
+      flyctl secrets set CONVERT_SHARED_SECRET="$SECRET" --stage --app faithflow-convert
+    else
+      warn "App exists but has no CONVERT_SHARED_SECRET (or 'flyctl secrets list' failed). Refusing to mint one silently."
+      echo "   Re-run with: CONVERT_SHARED_SECRET=<the value on Vercel> ./scripts/deploy.sh convert"
       exit 1
     fi
-    if [[ "$DB" == *localhost* ]]; then
-      echo "DATABASE_URL points at localhost — Fly can't reach it. Supply the hosted pooler URL."
-      exit 1
-    fi
-    flyctl secrets set \
-      DEEPGRAM_API_KEY="$DG" \
-      AUTH_SECRET="$AS" \
-      DATABASE_URL="$DB" \
-      --stage --app faithflow-audio
 
     step "4/4 — Deploy"
     flyctl deploy --app faithflow-audio --now
@@ -103,24 +105,35 @@ case "${1:-help}" in
     fi
 
     step "2/4 — Ensure app exists"
+    CREATED_APP=0
     if ! flyctl apps list 2>/dev/null | grep -q faithflow-convert; then
       flyctl apps create faithflow-convert --org personal
+      CREATED_APP=1
     else
       ok "app faithflow-convert exists"
     fi
 
-    step "3/4 — Set shared secret (auth between Vercel and the converter)"
-    # Reuse CONVERT_SHARED_SECRET from the environment if provided, else mint
-    # one. Whatever value ends up here MUST also be set on Vercel (along with
-    # CONVERT_SERVICE_URL) or the app can't call the converter.
-    SECRET="${CONVERT_SHARED_SECRET:-}"
-    if [ -z "$SECRET" ]; then
-      SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-      warn "Generated a new CONVERT_SHARED_SECRET. Set the SAME value on Vercel:"
-      echo "   CONVERT_SHARED_SECRET=$SECRET"
-      echo "   CONVERT_SERVICE_URL=https://faithflow-convert.fly.dev"
+    step "3/4 — Shared secret (auth between Vercel and the converter)"
+    # NEVER rotate an existing secret on redeploy — Vercel holds the matching
+    # value and a silent rotation would break every PowerPoint import in prod.
+    if flyctl secrets list -a faithflow-convert 2>/dev/null | grep -qE '^[[:space:]]*CONVERT_SHARED_SECRET([[:space:]]|$)'; then
+      ok "CONVERT_SHARED_SECRET already set on Fly — keeping it (not regenerating)."
+      echo "   To rotate deliberately: flyctl secrets set CONVERT_SHARED_SECRET=... -a faithflow-convert, then update Vercel."
+    elif [ "$CREATED_APP" = "1" ] || [ -n "${CONVERT_SHARED_SECRET:-}" ]; then
+      # First-time setup (or an explicit value passed in the environment).
+      SECRET="${CONVERT_SHARED_SECRET:-}"
+      if [ -z "$SECRET" ]; then
+        SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+        warn "First-time setup: generated CONVERT_SHARED_SECRET. Set the SAME value on Vercel:"
+        echo "   CONVERT_SHARED_SECRET=$SECRET"
+        echo "   CONVERT_SERVICE_URL=https://faithflow-convert.fly.dev"
+      fi
+      flyctl secrets set CONVERT_SHARED_SECRET="$SECRET" --stage --app faithflow-convert
+    else
+      warn "App exists but has no CONVERT_SHARED_SECRET (or 'flyctl secrets list' failed). Refusing to mint one silently."
+      echo "   Re-run with: CONVERT_SHARED_SECRET=<the value on Vercel> ./scripts/deploy.sh convert"
+      exit 1
     fi
-    flyctl secrets set CONVERT_SHARED_SECRET="$SECRET" --stage --app faithflow-convert
 
     step "4/4 — Deploy"
     flyctl deploy --config fly.convert.toml --app faithflow-convert --now
@@ -128,7 +141,7 @@ case "${1:-help}" in
     echo
     ok "Converter deployed"
     echo "   Set on Vercel:  CONVERT_SERVICE_URL=https://faithflow-convert.fly.dev"
-    echo "                   CONVERT_SHARED_SECRET=<the value above>"
+    echo "                   CONVERT_SHARED_SECRET=<unchanged unless first-time setup printed a new one>"
     ;;
 
   full)

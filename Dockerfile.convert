@@ -29,13 +29,14 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Only the converter's runtime deps are needed. Copy manifests first for cache
-# efficiency; --ignore-scripts skips Electron/sharp postinstall we don't use.
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts && npm i tsx
+# The converter imports ONLY Node built-ins + its sibling scripts, so the sole
+# runtime dependency is tsx (runs the TypeScript directly, as before). Install
+# just that into a tiny standalone manifest — not the whole app's dependency
+# tree (Next, Electron, sharp…), which bloated the image and its attack surface.
+RUN npm init -y >/dev/null && npm install --no-audit --no-fund --ignore-scripts tsx@4.23.0
 
 # The converter script + tsconfig (tsx transpiles TS on the fly).
-COPY scripts/convert-server.ts scripts/convert-lib.ts scripts/convert-warmup.pptx ./scripts/
+COPY scripts/convert-server.ts scripts/convert-lib.ts scripts/convert-auth.ts scripts/convert-warmup.pptx ./scripts/
 COPY tsconfig.json ./
 
 ENV NODE_ENV=production

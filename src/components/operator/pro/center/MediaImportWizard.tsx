@@ -305,9 +305,13 @@ interface Props {
   // dropped files are pre-queued and this library is preselected as the target.
   initialFiles?: File[];
   initialLibraryId?: string | null;
+  // Only the Media Bin passes this: decks DROPPED there start importing straight
+  // away. Every other opener (Media browser, Songs panel) and the wizard's own
+  // drop zone keep the manual Preview → Import flow.
+  autoStartDecks?: boolean;
 }
 
-export function MediaImportWizard({ open, onClose, onImported, initialFiles, initialLibraryId = null }: Props) {
+export function MediaImportWizard({ open, onClose, onImported, initialFiles, initialLibraryId = null, autoStartDecks = false }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -315,6 +319,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
   const [doneMedia, setDoneMedia] = useState(0);
   const [doneSongs, setDoneSongs] = useState(0);
   const [errorCount, setErrorCount] = useState(0);
+  const [cancelling, setCancelling] = useState(false);
   const deckAbortRef = useRef<AbortController | null>(null); // cancels an in-flight deck render on close
   const cancelRef = useRef(false); // operator pressed Cancel during an import
   // Set when files arrive by DROP (onto the wizard or the Media Bin): if every
@@ -431,16 +436,19 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
     if (!open) { seededFilesRef.current = null; return; }
     if (initialFiles && initialFiles.length > 0 && seededFilesRef.current !== initialFiles) {
       seededFilesRef.current = initialFiles;
-      enqueueFiles(initialFiles, { autoStart: true });
+      enqueueFiles(initialFiles, { autoStart: autoStartDecks });
     }
-  }, [open, initialFiles, enqueueFiles]);
+  }, [open, initialFiles, enqueueFiles, autoStartDecks]);
 
   // Decks dropped in start importing immediately (see autoStartRef).
   useEffect(() => {
-    if (!autoStartRef.current || !open) return;
+    if (!autoStartRef.current) return;
+    // Can't auto-start now (closed / already past step 1 / an import running) →
+    // drop the request so it can't fire later on an unrelated queue change.
+    if (!open || step !== 1 || uploading) { autoStartRef.current = false; return; }
     // Wait for the enqueue's state update to land (this effect also runs in the
     // same commit as the enqueue, while `queue` is still the old value).
-    if (step !== 1 || uploading || queue.length === 0) return;
+    if (queue.length === 0) return;
     autoStartRef.current = false;
     if (isDeckOnlyQueue(queue)) void uploadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -457,12 +465,14 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
   // ── Upload ───────────────────────────────────────────────────────────────────
 
   const cancelImport = () => {
+    setCancelling(true);
     cancelRef.current = true;
     deckAbortRef.current?.abort();
   };
 
   const uploadAll = async () => {
     cancelRef.current = false;
+    setCancelling(false);
     setUploading(true);
     setStep(3);
     let media = 0;
@@ -701,7 +711,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                   htmlFor="media-import-input"
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
-                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); enqueueFiles(Array.from(e.dataTransfer.files), { autoStart: true }); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); enqueueFiles(Array.from(e.dataTransfer.files)); }}
                   className={cn(
                     "flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed px-6 py-14 text-center cursor-pointer transition-colors",
                     dragOver
@@ -851,13 +861,14 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                     <li key={q.key} className="flex items-center gap-3 px-3 py-2 bg-[var(--color-elevated)]">
                       <div className="shrink-0">
                         {q.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-400" />}
-                        {q.status === "error" && <AlertCircle className="h-4 w-4 text-red-400" />}
+                        {q.status === "error" && q.error === "Cancelled" && <X className="h-4 w-4 text-[var(--color-muted-foreground)]" />}
+                        {q.status === "error" && q.error !== "Cancelled" && <AlertCircle className="h-4 w-4 text-red-400" />}
                         {q.status === "uploading" && <div className="h-4 w-4 rounded-full border-2 border-[var(--color-brand)] border-t-transparent animate-spin" />}
                         {q.status === "pending" && <div className="h-4 w-4 rounded-full border-2 border-[var(--color-border)]" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <span className="text-xs text-[var(--color-foreground)] truncate block">{q.file.name}</span>
-                        {q.status === "error" && q.error && <span className="text-[10px] text-red-400">{q.error}</span>}
+                        {q.status === "error" && q.error && <span className={cn("text-[10px]", q.error === "Cancelled" ? "text-[var(--color-muted-foreground)]" : "text-red-400")}>{q.error}</span>}
                         {q.tag === "media" && q.deck && q.status === "uploading" && q.progress && (
                           <span className="text-[10px] text-[var(--color-muted-foreground)]" aria-live="polite">{q.progress}</span>
                         )}
@@ -888,9 +899,9 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
 
                 {uploading && (
                   <div className="flex gap-2 pt-1">
-                    <button type="button" onClick={cancelImport}
-                      className="inline-flex h-10 items-center rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-white/5 transition-colors">
-                      Cancel import
+                    <button type="button" onClick={cancelImport} disabled={cancelling}
+                      className="inline-flex h-10 items-center rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                      {cancelling ? "Cancelling…" : "Cancel import"}
                     </button>
                   </div>
                 )}

@@ -99,6 +99,7 @@ export function MediaBinSection({
   const [libs, setLibs] = useState<LibraryRow[]>([]);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardFiles, setWizardFiles] = useState<File[] | undefined>(undefined);
+  const [wizardFromDrop, setWizardFromDrop] = useState(false); // decks auto-start only for OS drops
   const [preview, setPreview] = useState<Asset | null>(null);
   // E2: the image being edited in the crop/frame editor (opened from the menu).
   const [editAsset, setEditAsset] = useState<{ id: string; url: string; fileName: string } | null>(null);
@@ -258,6 +259,7 @@ export function MediaBinSection({
     e.target.value = ""; // allow re-picking the same file
     if (files.length === 0) return;
     setWizardFiles(files);
+    setWizardFromDrop(false);
     setWizardOpen(true);
   };
 
@@ -283,6 +285,7 @@ export function MediaBinSection({
   }, []);
   const openWizardWith = useCallback((files: File[]) => {
     setWizardFiles(files);
+    setWizardFromDrop(true);
     setWizardOpen(true);
   }, []);
 
@@ -696,6 +699,7 @@ export function MediaBinSection({
         onClose={() => { setWizardOpen(false); setWizardFiles(undefined); }}
         onImported={() => { void load(); window.dispatchEvent(new CustomEvent("presentflow:libraries-changed")); }}
         initialFiles={wizardFiles}
+        autoStartDecks={wizardFromDrop}
       />
 
       {/* Double-click quick preview (item 4) */}

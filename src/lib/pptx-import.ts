@@ -18,9 +18,21 @@ export function responseKind(contentType: string | null | undefined): "pdf" | "j
   return /application\/pdf/i.test(contentType || "") ? "pdf" : "json";
 }
 
-/** Statuses that mean "try again shortly": busy machine, Fly proxy cold start. */
-export function isRetryableStatus(status: number): boolean {
+/**
+ * Transient converter failures worth retrying: a busy machine, or a Fly proxy /
+ * connection hiccup (502/503) that carries NO converter error code. A 502/503
+ * WITH a converter code (upload_failed, source_unavailable…) is a real answer
+ * and is never retried; only code "busy" is. Connection errors (no response)
+ * are handled by the caller as retryable.
+ */
+export function isRetryableConverterReply(status: number, code?: unknown): boolean {
+  if (typeof code === "string" && code) return code === "busy";
   return status === 429 || status === 502 || status === 503;
+}
+
+/** Back-compat alias: status-only view (no converter code known). */
+export function isRetryableStatus(status: number): boolean {
+  return isRetryableConverterReply(status);
 }
 
 /** Backoff before retry `attempt` (0-based): 2s, 4s, 8s, then every 15s. */
@@ -42,7 +54,7 @@ const KNOWN = new Set(Object.keys(CONVERT_MESSAGES));
  */
 export function operatorConvertError(status: number, detail: { error?: unknown; code?: unknown } | null | undefined): string {
   const code = typeof detail?.code === "string" && KNOWN.has(detail.code) ? (detail.code as ConvertErrorCode) : null;
-  if (code === "busy" || (!code && status === 429)) return "The converter is busy with other presentations. Please try again in a minute.";
+  if (code === "busy" || (!code && status === 429)) return CONVERT_MESSAGES.busy;
   if (code) return CONVERT_MESSAGES[code];
   if (status === 504) return CONVERT_MESSAGES.timeout;
   return GENERIC_CONVERT_ERROR;
@@ -79,4 +91,14 @@ export function deckStageLabel(s: DeckStage): string {
 /** True when every queued file is a slide deck (PowerPoint or PDF). */
 export function isDeckOnlyQueue(items: Array<{ deck?: boolean; tag?: string }>): boolean {
   return items.length > 0 && items.every((i) => i.tag !== "pro" && i.deck === true);
+}
+
+/**
+ * What the cleanup DELETE may remove for an already church-scoped temp key:
+ *  - "pdf": a converted output — always deletable.
+ *  - "source-if-unreferenced": a .pptx/.ppt — deletable ONLY if no legacy
+ *    pptx_imports row points at it (the library's Retry needs that source).
+ */
+export function pptxDeleteKind(key: string): "pdf" | "source-if-unreferenced" {
+  return /\.pdf$/i.test(key) ? "pdf" : "source-if-unreferenced";
 }

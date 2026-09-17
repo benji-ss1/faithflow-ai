@@ -26,19 +26,22 @@
  * x-convert-secret header (fail closed). No DB, no S3 credentials — it only
  * touches the exact presigned URLs the trusted Next app gives it.
  */
-import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse, type RequestOptions } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, promises as fsp, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIP, type LookupFunction } from "node:net";
 import { join } from "node:path";
-import { Readable, Transform } from "node:stream";
+import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
-  CONVERT_MESSAGES, isAllowedUrl, mapSofficeFailure, sniffDeckSignature, statusForCode,
-  type ConvertErrorCode,
+  CONVERT_MESSAGES, MAX_OUTPUT_PDF_BYTES, checkZipCentralDirectory, findZipEocd, isAllowedUrl, isIpAllowed,
+  mapSofficeFailure, sniffDeckSignature, statusForCode, type ConvertErrorCode,
 } from "./convert-lib";
+import { secretMatches } from "./convert-auth";
 
 const PORT = Number(process.env.CONVERT_PORT || 3002);
 const SECRET = process.env.CONVERT_SHARED_SECRET || "";
@@ -79,19 +82,63 @@ function sendError(res: ServerResponse, code: ConvertErrorCode) {
   sendJson(res, statusForCode(code), { error: CONVERT_MESSAGES[code], code });
 }
 
+/**
+ * SSRF guard: resolve the URL's host ONCE, refuse any non-public address
+ * (private, loopback, link-local/metadata, CGNAT, ULA incl. Fly 6PN…), and
+ * return a `lookup` that PINS the socket to that vetted address — so a DNS
+ * rebind between check and connect can't redirect us inside the network.
+ * Loopback is allowed only under CONVERT_ALLOW_HTTP=1 (local dev).
+ */
+async function vetUrl(url: string): Promise<{ u: URL; lookup: LookupFunction }> {
+  const u = new URL(url);
+  const host = u.hostname.replace(/^\[|\]$/g, "");
+  let address: string;
+  let family: number;
+  if (isIP(host)) {
+    address = host; family = isIP(host);
+    if (!isIpAllowed(address, ALLOW_HTTP)) throw new ConvertError("bad_request", `blocked ip ${address}`);
+  } else {
+    let addrs: Array<{ address: string; family: number }>;
+    try { addrs = await dnsLookup(host, { all: true, verbatim: true }); }
+    catch (e) { throw new ConvertError("source_unavailable", `dns ${String(e)}`); }
+    if (!addrs.length || addrs.some((a) => !isIpAllowed(a.address, ALLOW_HTTP))) {
+      throw new ConvertError("bad_request", `blocked host ${host} -> ${addrs.map((a) => a.address).join(",")}`);
+    }
+    ({ address, family } = addrs[0]);
+  }
+  const lookup = ((_h: string, opts: { all?: boolean }, cb: (...a: unknown[]) => void) => {
+    if (opts && opts.all) cb(null, [{ address, family }]);
+    else cb(null, address, family);
+  }) as unknown as LookupFunction;
+  return { u, lookup };
+}
+
+/** Request a vetted URL with the pinned address. Never follows redirects. */
+function pinnedRequest(u: URL, lookup: LookupFunction, opts: RequestOptions, onResponse?: (res: IncomingMessage) => void) {
+  const fn = u.protocol === "https:" ? httpsRequest : httpRequest;
+  return onResponse ? fn(u, { ...opts, lookup }, onResponse) : fn(u, { ...opts, lookup });
+}
+
 /** Stream the presigned source to `dest`, enforcing the size cap mid-stream. */
 async function downloadTo(url: string, dest: string, signal: AbortSignal): Promise<number> {
-  let res: Response;
+  const { u, lookup } = await vetUrl(url);
+  const dlSignal = AbortSignal.any([signal, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)]);
+  let res: IncomingMessage;
   try {
-    // redirect:"error" — never follow a redirect to a different (possibly internal) host.
-    res = await fetch(url, { redirect: "error", signal: AbortSignal.any([signal, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)]) });
+    res = await new Promise<IncomingMessage>((resolve, reject) => {
+      const req = pinnedRequest(u, lookup, { method: "GET", signal: dlSignal });
+      req.on("response", resolve);
+      req.on("error", reject);
+      req.end();
+    });
   } catch (e) {
     if (signal.aborted) throw e;
     throw new ConvertError("source_unavailable", String(e));
   }
-  if (!res.ok || !res.body) throw new ConvertError("source_unavailable", `source fetch ${res.status}`);
-  const len = Number(res.headers.get("content-length") || 0);
-  if (len && len > MAX_SOURCE_BYTES) throw new ConvertError("too_large");
+  const sc = res.statusCode ?? 0;
+  if (sc < 200 || sc >= 300) { res.resume(); throw new ConvertError("source_unavailable", `source fetch ${sc}`); }
+  const len = Number(res.headers["content-length"] || 0);
+  if (len && len > MAX_SOURCE_BYTES) { res.destroy(); throw new ConvertError("too_large"); }
   let total = 0;
   const cap = new Transform({
     transform(chunk: Buffer, _enc, cb) {
@@ -101,12 +148,28 @@ async function downloadTo(url: string, dest: string, signal: AbortSignal): Promi
     },
   });
   try {
-    await pipeline(Readable.fromWeb(res.body as import("node:stream/web").ReadableStream), cap, createWriteStream(dest));
+    await pipeline(res, cap, createWriteStream(dest), { signal: dlSignal });
   } catch (e) {
     if (e instanceof ConvertError || signal.aborted) throw e;
     throw new ConvertError("source_unavailable", String(e));
   }
   return total;
+}
+
+/** Reject ZIP decompression bombs before LibreOffice inflates them. */
+async function assertNotZipBomb(path: string, size: number, tail: Uint8Array): Promise<void> {
+  const eocd = findZipEocd(tail, size);
+  if (!eocd) throw new ConvertError("corrupt", "no zip EOCD");
+  if (eocd.cdSize > 64 * 1024 * 1024) throw new ConvertError("corrupt", `central dir ${eocd.cdSize}`);
+  const fh = await fsp.open(path, "r");
+  try {
+    const cd = Buffer.alloc(eocd.cdSize);
+    await fh.read(cd, 0, eocd.cdSize, eocd.cdOffset);
+    const v = checkZipCentralDirectory(cd, eocd.entries);
+    if (!v.ok) throw new ConvertError("corrupt", `zip bomb: ${v.reason}`);
+  } finally {
+    await fh.close();
+  }
 }
 
 async function readHeadTail(path: string, size: number): Promise<{ head: Uint8Array; tail: Uint8Array }> {
@@ -145,10 +208,19 @@ function runSoffice(input: string, outDir: string, profileDir: string, signal: A
     let settled = false;
     const onAbort = () => { killTree(child); finish(() => reject(new DOMException("Aborted", "AbortError"))); };
     const timer = setTimeout(() => { killTree(child); finish(() => reject(new ConvertError("timeout"))); }, timeoutMs);
+    // Output cap: a pathological deck can balloon the PDF; stop at MAX_OUTPUT_PDF_BYTES.
+    const sizePoll = setInterval(() => {
+      void fsp.readdir(outDir).then(async (names) => {
+        let sum = 0;
+        for (const n of names) sum += (await fsp.stat(join(outDir, n)).catch(() => ({ size: 0 }))).size;
+        if (sum > MAX_OUTPUT_PDF_BYTES) { killTree(child); finish(() => reject(new ConvertError("too_large", `pdf ${sum}`))); }
+      }).catch(() => {});
+    }, 2000);
     function finish(fn: () => void) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearInterval(sizePoll);
       signal.removeEventListener("abort", onAbort);
       fn();
     }
@@ -171,10 +243,9 @@ function runSoffice(input: string, outDir: string, profileDir: string, signal: A
 /** PUT the file to a presigned URL with an explicit content-length (S3 rejects chunked PUTs). */
 async function putFile(url: string, path: string, signal: AbortSignal): Promise<void> {
   const { size } = await fsp.stat(path);
-  const u = new URL(url);
-  const reqFn = u.protocol === "https:" ? httpsRequest : httpRequest;
+  const { u, lookup } = await vetUrl(url);
   await new Promise<void>((resolve, reject) => {
-    const req = reqFn(u, {
+    const req = pinnedRequest(u, lookup, {
       method: "PUT",
       headers: { "content-type": "application/pdf", "content-length": String(size) },
       timeout: UPLOAD_TIMEOUT_MS,
@@ -196,9 +267,8 @@ async function putFile(url: string, path: string, signal: AbortSignal): Promise<
 let busy = false;
 
 async function handleConvert(req: IncomingMessage, res: ServerResponse) {
-  // Constant-work secret check; empty server secret = deny all (fail closed).
-  const provided = req.headers["x-convert-secret"];
-  if (!SECRET || provided !== SECRET) {
+  // Timing-safe secret check; empty server secret / array header = deny (fail closed).
+  if (!secretMatches(req.headers["x-convert-secret"], SECRET)) {
     sendJson(res, 401, { error: "unauthorized" });
     return;
   }
@@ -225,6 +295,9 @@ async function handleConvert(req: IncomingMessage, res: ServerResponse) {
     }
     const requestedExt = body.ext === ".ppt" ? ".ppt" : ".pptx";
 
+    // Vet the output target up front (resolved-IP check) so a bad URL fails fast;
+    // putFile re-vets and pins at upload time.
+    if (typeof outputPutUrl === "string") await vetUrl(outputPutUrl);
     await fsp.mkdir(workDir, { recursive: true });
     const raw = join(workDir, "source.bin");
     const size = await downloadTo(url, raw, ac.signal);
@@ -234,6 +307,7 @@ async function handleConvert(req: IncomingMessage, res: ServerResponse) {
     const sig = sniffDeckSignature(head, tail);
     if (sig === null) throw new ConvertError("not_presentation");
     if (sig === "encrypted") throw new ConvertError("password");
+    if (sig === "pptx") await assertNotZipBomb(raw, size, tail);
     // The signature wins over the claimed extension (a renamed .ppt/.pptx still
     // converts); requestedExt only matters if the sniff ever widens.
     const ext = sig === "pptx" ? ".pptx" : sig === "ppt" ? ".ppt" : requestedExt;
@@ -245,6 +319,7 @@ async function handleConvert(req: IncomingMessage, res: ServerResponse) {
     const pdfPath = await runSoffice(input, outDir, profileDir, ac.signal);
     await fsp.rm(input, { force: true }); // free disk before the upload
     const pdfSize = (await fsp.stat(pdfPath)).size;
+    if (pdfSize > MAX_OUTPUT_PDF_BYTES) throw new ConvertError("too_large", `pdf ${pdfSize}`);
 
     if (typeof outputPutUrl === "string") {
       await putFile(outputPutUrl, pdfPath, ac.signal);
@@ -293,10 +368,12 @@ server.requestTimeout = 0;
 server.listen(PORT, () => {
   console.log(`[convert] listening on :${PORT}`);
   // Warm LibreOffice once in the background (loads binaries + fonts into the
-  // page cache) so the first real deck after a cold start is faster. Best-effort;
-  // does not hold the busy slot.
+  // page cache) so the first real deck after a cold start is faster. Best-effort.
+  // It HOLDS the busy slot (two soffice runs on 2GB is what the slot prevents):
+  // a request arriving mid-warm-up gets 429 "busy", which the Next route retries.
   const warm = process.env.CONVERT_WARMUP_FILE || join(__dirname, "convert-warmup.pptx");
   if (process.env.CONVERT_WARMUP !== "0" && existsSync(warm)) {
+    busy = true;
     void (async () => {
       const id = `warm-${randomUUID()}`;
       const dir = join(tmpdir(), `convert-${id}`);
@@ -312,6 +389,7 @@ server.listen(PORT, () => {
       } finally {
         await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
         await fsp.rm(prof, { recursive: true, force: true }).catch(() => {});
+        busy = false;
       }
     })();
   }

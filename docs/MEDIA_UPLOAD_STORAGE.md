@@ -39,6 +39,22 @@ when the tab is closed mid-upload (`pagehide`), so most orphans are released
 immediately. The lifecycle rule (or cleanup job, below) is the backstop for
 crashes / power loss.
 
+## 2b. PowerPoint temp objects (`*/pptx/*.pdf` orphans)
+
+The operator PowerPoint import (`/api/pptx/to-pdf`) writes two short-lived
+objects per deck: the uploaded source `${churchId}/pptx/<uuid>.pptx|.ppt` and
+the converted `${churchId}/pptx/<uuid>.pdf`. The route deletes the source when
+conversion ends (unless a legacy `pptx_imports` row still references it — the
+library Retry needs it) and deletes the PDF on failure; the browser DELETEs the
+PDF after fetching it. A closed tab / crash between those steps leaves an
+orphan PDF (up to ~1 GB). Backstop: on AWS/R2/MinIO add an expiration rule for
+the `pptx/` objects ending `.pdf` older than 1 day (filters are prefix-based,
+so scope per church prefix or use a bucket-wide cleanup job that matches
+`^[^/]+/pptx/[0-9a-f-]{36}\.pdf$`). NEVER expire `pptx/<uuid>/slide-*.png`
+(library import slides) or `.pptx` sources referenced by `pptx_imports`. On
+Supabase (no lifecycle rules) this needs the same cleanup cron as §Provider
+caveats — follow-up, not built.
+
 ## 3. Server credentials
 
 `registerMediaAsset` now HEADs the object and does a ranged GET of the first

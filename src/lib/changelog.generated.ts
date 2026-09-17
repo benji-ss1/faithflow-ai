@@ -4,15 +4,22 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.438",
+    "version": "0.1.439",
     "date": "2026-09-17",
     "headline": "PowerPoint imports are faster and more reliable",
     "highlights": [
-      "Drop a PowerPoint (or PDF) onto the Media Bin and it starts importing straight away — no extra Preview or Import clicks.",
+      "Drop a PowerPoint (or PDF) onto the Media Bin and it starts importing by itself — no extra Preview or Import clicks. (Adding files anywhere else still lets you check them first.)",
       "You can now see what's happening — uploading the deck, converting it (with a timer), then preparing and uploading each slide.",
       "Big, photo-heavy presentations now import properly instead of failing partway through.",
-      "Press Cancel import to stop at any point.",
-      "Broken, password-protected, or non-PowerPoint files now show a clear message telling you what to do, and files over 150 MB are turned away before uploading.",
+      "Press Cancel import to stop at any point — cancelled files are shown as cancelled, not as errors.",
+      "Broken, password-protected, or non-PowerPoint files now show a clear message telling you what to do, and files over 150 MB are turned away before uploading."
+    ]
+  },
+  {
+    "version": "0.1.438",
+    "date": "2026-09-17",
+    "headline": "The Windows app can now take audio from OBS over NDI and send your slides out over NDI",
+    "highlights": [
       "In the Windows app, the Audio panel lists NDI network audio: pick your OBS (DistroAV) source and the AI listens to the service over the network, no USB cable from the mixer needed.",
       "If OBS closes, PresentFlow shows that the NDI feed was lost and carries on when OBS comes back.",
       "The Windows app appears as \"PresentFlow - NDI 1\", so OBS and other NDI tools can pick up your slides.",

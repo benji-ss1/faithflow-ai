@@ -4,7 +4,13 @@
 # Runs scripts/convert-server.ts as a Node process on port 3002. Unlike the
 # audio bridge, this scales to ZERO when idle (auto_stop_machines = "stop",
 # min_machines_running = 0) — conversions are bursty and infrequent, so an idle
-# converter costs nothing; Fly cold-starts it on the next request (~1-2s).
+# converter costs nothing; Fly cold-starts it on the next request. A cold start
+# is typically 5-15s (machine boot + LibreOffice warm-up, which holds the busy
+# slot — the Next route retries 429/connection errors with backoff meanwhile).
+#
+# Capacity: hard_limit=1 means one deck per machine. For parallel imports, run
+# a second machine:  fly scale count 2 -a faithflow-convert
+# (both still scale to zero when idle).
 #
 # The Next app reaches it at https://faithflow-convert.fly.dev and authenticates
 # every /convert with the CONVERT_SHARED_SECRET set as a Fly secret (and the
