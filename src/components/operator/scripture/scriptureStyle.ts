@@ -211,7 +211,8 @@ export function songLowerThirdPayload(text: string, d: ScriptureDesign): SlidePa
 //     the slide exactly as-is (existing behaviour, zero regression).
 //   • a slide that already carries a per-slide `scriptureLayout` is an explicit
 //     override and is left untouched (per-slide wins over the church default).
-//   • media (image/video) is left to its own path (handled elsewhere).
+//   • media (image/video) is NEVER banded by the church default (full screen
+//     always); only an explicit per-slide media layout bands it.
 // Deterministic + never throws (a failure falls back to the original slide) so a
 // live send is never broken, and the identity guarding the already-live skip /
 // fade-pulse stays stable across heartbeats.
@@ -221,15 +222,11 @@ export function applyChurchLayout(slide: SlidePayload, churchId: string, themeOp
   const scriptured = styleScriptureSlide(slide, churchId, themeOpts);
   if (scriptured !== slide) return scriptured;
   try {
-    // Media (image/video): when the church default is lower-third, confine the
-    // media into the same band (default "fit" = shrink into the third). A
-    // per-slide layout (set in the media editor, e.g. a caption) wins.
-    if (slide.kind === "image" || slide.kind === "video") {
-      if (slide.layout) return slide;
-      const d = loadScriptureStyle(churchId);
-      if (d.layout !== "lowerThird") return slide;
-      return { ...slide, layout: "third", band: bandWireFromDesign(d), bandMode: slide.bandMode ?? "fit" };
-    }
+    // Media (image/video): ALWAYS full screen, like ProPresenter (2026-09-17
+    // owner decision) — the church lower-third default is for WORDS only. A
+    // per-slide layout set explicitly in the media editor (e.g. caption) is
+    // carried as-is and still renders in the band.
+    if (slide.kind === "image" || slide.kind === "video") return slide;
     if (slide.kind !== "text") return slide;
     if (slide.reference) return slide;            // scripture (already handled)
     if (slide.scriptureLayout) return slide;      // per-slide override wins
@@ -253,7 +250,8 @@ export function applyChurchLayout(slide: SlidePayload, churchId: string, themeOp
 //     the saved design + current layout are re-applied fresh (both directions).
 //   • songs/plain text carrying a band → drop the band, KEEP any designed objects
 //     (a designed song keeps its design when it goes back to full screen).
-//   • image/video carrying a third layout → drop layout/band/mode/caption.
+//   • image/video → returned unchanged: plain media stays full screen and an
+//     explicit per-slide layout (media editor) is kept, so the toggle is a no-op.
 // Anything not styled is returned unchanged.
 export function sourceForRelayout(slide: SlidePayload): SlidePayload {
   if (slide.kind === "text") {
@@ -263,25 +261,6 @@ export function sourceForRelayout(slide: SlidePayload): SlidePayload {
       if (slide.bgColor) p.bgColor = slide.bgColor;
       if (slide.bgImageUrl) p.bgImageUrl = slide.bgImageUrl;
       if (slide.objects && slide.objects.length) p.objects = slide.objects;
-      return p;
-    }
-    return slide;
-  }
-  if (slide.kind === "image") {
-    if (slide.layout || slide.band) {
-      const p: Extract<SlidePayload, { kind: "image" }> = { kind: "image", url: slide.url };
-      if (slide.fit) p.fit = slide.fit;
-      if (slide.blurFill) p.blurFill = slide.blurFill;
-      return p;
-    }
-    return slide;
-  }
-  if (slide.kind === "video") {
-    if (slide.layout || slide.band) {
-      const p: Extract<SlidePayload, { kind: "video" }> = { kind: "video", url: slide.url };
-      if (slide.fit) p.fit = slide.fit;
-      if (slide.loop !== undefined) p.loop = slide.loop;
-      if (slide.volume !== undefined) p.volume = slide.volume;
       return p;
     }
     return slide;

@@ -1,7 +1,7 @@
 ---
 headline: Your Scripture Style and default song and Bible themes are now shared across every computer in your church
 audience: operator
-version: 0.1.445
+version: 0.1.446
 date: 2026-09-17
 highlights:
   - Set the Scripture Style (full screen or lower third, band colour, text size) once and every computer in your church uses it. Before, each computer kept its own.

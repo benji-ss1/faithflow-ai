@@ -4,6 +4,7 @@
 // per-church style server actions validate with exactly the same rules the
 // client has always applied to a saved style.
 import { CANVAS_W, CANVAS_H } from "./slide-objects";
+import { BAND_DEFAULT_COLOR } from "./band-media";
 
 export type TextStyle = {
   x: number; y: number; w: number; h: number;
@@ -58,9 +59,9 @@ const REF_DEFAULT: TextStyle & { show: boolean; showTranslation: boolean } = {
   show: true, showTranslation: true,
 };
 
-// Black band by default — legible over ANY content the church runs underneath.
+// Soft charcoal band by default (BAND_DEFAULT_COLOR, PR #56) — legible over ANY content the church runs underneath.
 export const BAND_DEFAULT: BandStyle = {
-  mode: "solid", color: "#000000", color2: "#000000", angle: 180, opacity: 0.72,
+  mode: "solid", color: BAND_DEFAULT_COLOR, color2: BAND_DEFAULT_COLOR, angle: 180, opacity: 0.72,
   position: "lower", offsetY: 0, heightPct: 30, fontScale: 1,
 };
 
