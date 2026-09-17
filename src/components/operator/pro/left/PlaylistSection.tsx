@@ -43,7 +43,9 @@ import { cn } from "@/lib/utils";
 import { loadMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
 import { projectableTextSlide } from "@/lib/broadcast";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset, addPlaylistHeader, setHeaderColor, setServiceItemArrangement } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset, addPlaylistHeader, setHeaderColor, setServiceItemArrangement, applyThemeToPlan } from "@/lib/actions";
+import { BUILTIN_THEMES } from "@/lib/builtin-themes";
+import { loadContentTypeStyles, saveContentTypeStyles } from "@/lib/content-type-styles";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 
 // ProPresenter service-section taxonomy (Ch 13). Palette + default live in
@@ -234,6 +236,7 @@ function SortablePlaylistItem({
   themes = [],
   currentThemeId = null,
   onSetTheme,
+  onUseForAllScripture,
   arrangements = [],
   currentArrangementId = null,
   onSetArrangement,
@@ -261,6 +264,8 @@ function SortablePlaylistItem({
   themes?: { id: string; name: string }[];
   currentThemeId?: string | null;
   onSetTheme?: (themeId: string | null) => void;
+  // Bible items: make a theme the per-computer default for ALL Bible verses.
+  onUseForAllScripture?: (themeId: string) => void;
   // Groups & Arrangements (wave 6D): pin which arrangement this song item uses.
   arrangements?: { id: string; name: string }[];
   currentArrangementId?: string | null;
@@ -482,7 +487,7 @@ function SortablePlaylistItem({
             {onSetTheme && themes.length > 0 && (
               <ContextMenu.Sub>
                 <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]">
-                  <span>Section theme</span><ChevronRight className="w-3.5 h-3.5 opacity-60" />
+                  <span>{item.type === "scripture" ? "Theme" : "Section theme"}</span><ChevronRight className="w-3.5 h-3.5 opacity-60" />
                 </ContextMenu.SubTrigger>
                 <ContextMenu.Portal>
                   <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px] max-h-[300px] overflow-y-auto">
@@ -502,6 +507,26 @@ function SortablePlaylistItem({
                         <span className="truncate">{t.name}</span>{currentThemeId === t.id && <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />}
                       </ContextMenu.Item>
                     ))}
+                    {onUseForAllScripture && (
+                      <>
+                        <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                        <ContextMenu.Sub>
+                          <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]">
+                            <span>Use for all Bible verses</span><ChevronRight className="w-3.5 h-3.5 opacity-60" />
+                          </ContextMenu.SubTrigger>
+                          <ContextMenu.Portal>
+                            <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px] max-h-[300px] overflow-y-auto">
+                              <div className="px-3 py-1 text-[10px] text-[var(--color-muted-foreground)]">Saved on this computer for now</div>
+                              {themes.map((t) => (
+                                <ContextMenu.Item key={t.id} onSelect={() => onUseForAllScripture(t.id)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer truncate">
+                                  {t.name}
+                                </ContextMenu.Item>
+                              ))}
+                            </ContextMenu.SubContent>
+                          </ContextMenu.Portal>
+                        </ContextMenu.Sub>
+                      </>
+                    )}
                   </ContextMenu.SubContent>
                 </ContextMenu.Portal>
               </ContextMenu.Sub>
@@ -659,12 +684,18 @@ export function PlaylistSection({
 
   // Themes 2c — church themes for the per-item "section theme" submenu.
   const [themes, setThemes] = useState<{ id: string; name: string }[]>([]);
+  const [canEditLibrary, setCanEditLibrary] = useState(false);
   useEffect(() => {
     let m = true;
-    fetch("/api/themes").then((r) => r.json()).then((d: { themes?: { id: string; name: string }[] }) => {
-      if (m) setThemes((d.themes ?? []).map((t) => ({ id: t.id, name: t.name })));
+    const load = () => fetch("/api/themes").then((r) => r.json()).then((d: { themes?: { id: string; name: string }[]; canEdit?: boolean }) => {
+      if (!m) return;
+      setThemes((d.themes ?? []).map((t) => ({ id: t.id, name: t.name })));
+      setCanEditLibrary(d.canEdit === true);
     }).catch(() => { /* no themes */ });
-    return () => { m = false; };
+    void load();
+    // Built-ins materialized elsewhere show up here without a reload.
+    window.addEventListener("presentflow:themes-changed", load);
+    return () => { m = false; window.removeEventListener("presentflow:themes-changed", load); };
   }, []);
 
   // ── Result handler ────────────────────────────────────────────────────────
@@ -686,6 +717,45 @@ export function PlaylistSection({
       return true;
     }
     return false;
+  };
+
+  // "Use for all Bible verses" — the per-content-type default (this computer).
+  const useThemeForAllScripture = (themeId: string) => {
+    const prev = loadContentTypeStyles();
+    saveContentTypeStyles({ ...prev, scripture: themeId });
+    const name = themes.find((t) => t.id === themeId)?.name ?? "Theme";
+    toast.success(`"${name}" now styles all Bible verses on this computer`, {
+      action: { label: "Undo", onClick: () => { const cur = loadContentTypeStyles(); const next = { ...cur }; if (prev.scripture) next.scripture = prev.scripture; else delete next.scripture; saveContentTypeStyles(next); } },
+    });
+  };
+
+  // Plan menu — "Apply theme to all items…". Built-ins are materialized first.
+  // Does NOT fire presentflow:apply-theme-to-song (that listener would restyle
+  // the current song a second time).
+  const applyThemeToWholePlan = async (themeIdOrBuiltin: string, includeSongs: boolean) => {
+    if (blockedIfOffline()) return;
+    let themeId = themeIdOrBuiltin;
+    if (themeIdOrBuiltin.startsWith("builtin:")) {
+      const { materializeBuiltinClient } = await import("../ThemePopover");
+      const t = await materializeBuiltinClient(themeIdOrBuiltin);
+      if (!t) return;
+      themeId = t.id;
+    }
+    const res = await applyThemeToPlan(ctx.planId, themeId, { includeSongs });
+    if (!res.ok || !res.data) { toast.error((!res.ok && res.error) || "Couldn't apply theme to the plan"); return; }
+    router.refresh();
+    const { previous, songs: bakedSongs } = res.data;
+    undoToast(`Theme applied to ${previous.length} item${previous.length === 1 ? "" : "s"}${includeSongs ? ` and ${bakedSongs.length} song${bakedSongs.length === 1 ? "" : "s"}` : ""}`, async () => {
+      for (const p of previous) {
+        const r = await setServiceItemTheme(ctx.planId, p.itemId, p.themeId);
+        if (!r.ok) return r;
+      }
+      for (const sg of bakedSongs) {
+        const r = sg.previousThemeId ? await applyThemeToSong(sg.previousThemeId, sg.songId) : await revertSongTheme(sg.songId);
+        if (!r.ok) return r;
+      }
+      return { ok: true };
+    });
   };
 
   const setTheme = async (itemId: string, themeId: string | null) => {
@@ -1118,6 +1188,50 @@ export function PlaylistSection({
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
+        {/* Plan menu */}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              aria-label="Playlist options"
+              title="Playlist options"
+              className="w-[22px] h-[22px] grid place-items-center rounded-md border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-muted-foreground)] hover:text-[var(--color-brand)]"
+            >
+              <MoreVertical className="w-3.5 h-3.5" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content align="end" className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[200px]">
+              <DropdownMenu.Sub>
+                <DropdownMenu.SubTrigger disabled={items.length === 0} className="px-3 py-1.5 rounded outline-none cursor-pointer flex items-center justify-between data-[highlighted]:bg-[var(--color-panel)] data-[state=open]:bg-[var(--color-panel)] data-[disabled]:opacity-50">
+                  <span>Apply theme to all items…</span><ChevronRight className="w-3.5 h-3.5 opacity-60" />
+                </DropdownMenu.SubTrigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px] max-h-[340px] overflow-y-auto">
+                    {[...themes, ...BUILTIN_THEMES.map((b) => ({ id: b.id, name: b.name }))].map((t, ti) => (
+                      <div key={t.id}>
+                        {ti === themes.length && <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Built-in</div>}
+                        <DropdownMenu.Sub>
+                          <DropdownMenu.SubTrigger className="px-3 py-1.5 rounded outline-none cursor-pointer flex items-center justify-between data-[highlighted]:bg-[var(--color-panel)] data-[state=open]:bg-[var(--color-panel)]">
+                            <span className="truncate">{t.name}</span><ChevronRight className="w-3.5 h-3.5 opacity-60" />
+                          </DropdownMenu.SubTrigger>
+                          <DropdownMenu.Portal>
+                            <DropdownMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[200px]">
+                              <DropdownMenu.Item onSelect={() => void applyThemeToWholePlan(t.id, false)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">Items only</DropdownMenu.Item>
+                              {canEditLibrary && (
+                                <DropdownMenu.Item onSelect={() => void applyThemeToWholePlan(t.id, true)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">Items + restyle song slides</DropdownMenu.Item>
+                              )}
+                            </DropdownMenu.SubContent>
+                          </DropdownMenu.Portal>
+                        </DropdownMenu.Sub>
+                      </div>
+                    ))}
+                  </DropdownMenu.SubContent>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Sub>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </header>
 
       {/* Drop overlay — shown when dragging a song/media card over the sidebar */}
@@ -1183,6 +1297,7 @@ export function PlaylistSection({
                   themes={themes}
                   currentThemeId={(it as { themeId?: string }).themeId ?? null}
                   onSetTheme={it.id ? (themeId) => void setTheme(it.id!, themeId) : undefined}
+                  onUseForAllScripture={it.type === "scripture" ? useThemeForAllScripture : undefined}
                   arrangements={(it as { arrangements?: { id: string; name: string }[] }).arrangements ?? []}
                   currentArrangementId={(it as { arrangementId?: string }).arrangementId ?? null}
                   onSetArrangement={it.type === "song" && it.id && ((it as { arrangements?: unknown[] }).arrangements?.length ?? 0) > 0 ? (arrangementId) => void setArrangement(it.id!, arrangementId) : undefined}
