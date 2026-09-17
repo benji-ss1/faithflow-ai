@@ -89,7 +89,8 @@ check("numeric clamps", () => {
   assert.equal(clampThemeNumber("0.5", 0, 1), undefined);
 });
 check("sanitizeThemeConfig wires the dedicated validators", () => {
-  const src = readFileSync("src/lib/actions.ts", "utf8");
+  const src = readFileSync("src/lib/theme-config.ts", "utf8");
+  assert.match(readFileSync("src/lib/actions.ts", "utf8"), /import \{ sanitizeThemeConfig, type ThemeConfig \} from "\.\/theme-config"/);
   assert.match(src, /"layout", "bgAngle", "dim", "logoOpacity"/);
   assert.match(src, /sanitizeThemeLayout\(obj\[k\]\)/);
   assert.match(src, /k in THEME_NUMBER_RANGES/);

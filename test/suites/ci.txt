@@ -12,6 +12,7 @@ test/adversarial/media-register-scope.test.ts
 test/adversarial/sermon-backfill-cross-church.test.ts
 test/adversarial/song-chunk-scope.test.ts
 test/adversarial/theme-reapply-scope.test.ts
+test/adversarial/theme-gaps-scope.test.ts
 test/ai-pipeline.test.ts
 test/allusion-matcher.test.ts
 test/allusion-precision.test.ts
@@ -123,6 +124,7 @@ test/spring-load.test.ts
 test/stale-action.test.ts
 test/stress-wave6-3.test.ts
 test/text-size-freedom.test.ts
+test/builtin-themes.test.ts
 test/theme-appearance.test.ts
 test/theme-bake.test.ts
 test/theme-decor.test.ts
@@ -143,3 +145,5 @@ test/voice-commands.test.ts
 test/whats-new.test.ts
 test/pptx-convert.test.ts
 test/media-click-sends-live.test.ts
+test/theme-decor-designed.test.ts
+test/theme-decor-layer.test.ts
