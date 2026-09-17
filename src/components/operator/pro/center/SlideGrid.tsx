@@ -949,7 +949,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 selected={idx === ctx.previewSlideIdx}
                 canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
                 onSendLive={() => {
-                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, itemSendOpts); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
+                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, { ...(itemSendOpts ?? {}), sourceItemIdx: ctx.previewItemIdx }); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
                 }}
                 onSelect={() => {
                   console.log("[click] slide", { id: slideIds[idx], idx, safeMode: safeMode() });
@@ -967,7 +967,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     // Fix-loop 2026-07-27: dedupe key includes the playlist
                     // item — the `slide-${i}` fallback collides across items
                     // and across reorders.
-                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, itemSendOpts); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
+                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, { ...(itemSendOpts ?? {}), sourceItemIdx: ctx.previewItemIdx }); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
                   }
                 }}
                 onDouble={() => {
@@ -992,7 +992,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                       return;
                     }
                   }
-                  if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, itemSendOpts));
+                  if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, { ...(itemSendOpts ?? {}), sourceItemIdx: ctx.previewItemIdx }));
                 }}
                 onDelete={() => {
                   // Delete THIS slide immediately by its DB id (works for designed
