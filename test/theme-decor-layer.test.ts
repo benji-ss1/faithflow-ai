@@ -105,6 +105,18 @@ async function main() {
     assert.ok(iBg >= 0 && iDecor > iBg && iText > iDecor, html.slice(0, 900));
     assert.equal(html.split(VID).length - 1, 1);
   });
+  await check("full-screen camera + decor: scrim sits BEFORE the decor, not on the words container", () => {
+    const html = renderToStaticMarkup(React.createElement(OutputSlide, { slide: LYRIC, appearance: DECOR_APP, videoInput: { deviceId: "d", overlay: "full" } as never }));
+    const iScrim = html.indexOf("data-camera-scrim"), iDecor = html.indexOf("data-theme-decor-layer"), iText = html.indexOf("Amazing grace");
+    assert.ok(iScrim >= 0 && iDecor > iScrim && iText > iDecor, html.slice(0, 900));
+    assert.equal(html.split("bg-black/45").length - 1, 1, "scrim rendered once");
+  });
+  await check("full-screen camera WITHOUT decor: scrim stays on the container (DOM unchanged)", () => {
+    const { layout: _l, ...noDecor } = DECOR_APP; void _l;
+    const html = renderToStaticMarkup(React.createElement(OutputSlide, { slide: LYRIC, appearance: noDecor, videoInput: { deviceId: "d", overlay: "full" } as never }));
+    assert.ok(!html.includes("data-camera-scrim"));
+    assert.ok(html.includes("absolute inset-0 flex items-center justify-center bg-black/45"));
+  });
   await check("over camera lower-third: no decor (band)", () => {
     const html = renderToStaticMarkup(React.createElement(OutputSlide, { slide: LYRIC, appearance: DECOR_APP, videoInput: { deviceId: "d", overlay: "lowerThird" } as never }));
     assert.ok(!html.includes(VID));

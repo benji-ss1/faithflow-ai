@@ -67,8 +67,12 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
     const decorFlags = { overVideo: true, verticalAlign, fitBandFraction, ignoreThemeLayout } as const;
     const decorEligible = !ignoreThemeLayout && themeHasDecor(appearance) && (!videoInput || (videoInput.overlay === "full" && verticalAlign === "center"));
     const decorPlan = decorEligible && isOverlayKind ? themeDecorPlan(slide, appearance, decorFlags) : null;
+    // Full-screen camera + theme decor: the readability scrim moves to a sibling
+    // BEFORE the decor so it darkens the camera only, not the theme decor. With
+    // no decor the container keeps its scrim class (DOM unchanged).
+    const scrimAsSibling = decorEligible && videoInput?.overlay === "full";
     const containerClass = videoInput
-      ? overlayClass(videoInput.overlay)
+      ? (scrimAsSibling ? "absolute inset-0 flex items-center justify-center" : overlayClass(videoInput.overlay))
       : "absolute inset-0 flex items-center justify-center";
     return (
       <div className="absolute inset-0">
@@ -76,6 +80,7 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
           ? <LiveVideoLayer input={videoInput} />
           : <ThemeVideoBackground url={themeVideoUrl!} dim={appearance?.dim} />}
         {videoInput && mediaNode ? <div className="absolute inset-0">{mediaNode}</div> : null}
+        {scrimAsSibling ? <div data-camera-scrim="" className="absolute inset-0 bg-black/45 pointer-events-none" /> : null}
         {decorEligible ? <ThemeDecorLayer appearance={appearance} plan={decorPlan} overVideo frozen={previewFrozen} /> : null}
         {slide.kind !== "empty" && (
           isOverlayKind ? (
