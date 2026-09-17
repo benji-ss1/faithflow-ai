@@ -94,7 +94,7 @@ export const BUILTIN_THEMES: readonly BuiltinTheme[] = Object.freeze([
   make("default", "Default", { font: "Inter", size: 72, scriptureSize: 60, weight: 600, text: "#ffffff", shadow: true, bgType: "solid", bg: "#000000" }),
   make("classic", "Classic", { font: "Georgia", size: 70, scriptureSize: 58, weight: 500, text: "#f5efe0", shadow: true, bgType: "gradient", bg: "#1b1f3a", bg2: "#0a0c1a", angle: 180, refColor: "#d9c38c" }),
   make("modern", "Modern", { font: "Montserrat", bodyFont: "Inter", size: 76, scriptureSize: 58, weight: 700, text: "#ffffff", bgType: "gradient", bg: "#2b1055", bg2: "#7597de", angle: 135 }),
-  make("minimal", "Minimal", { font: "Helvetica", size: 64, scriptureSize: 54, weight: 400, text: "#e8e8e8", bgType: "solid", bg: "#111111" }),
+  make("minimal", "Minimal", { font: "Inter", size: 64, scriptureSize: 54, weight: 400, text: "#e8e8e8", bgType: "solid", bg: "#111111" }),
   make("church", "Church", { font: "Playfair Display", bodyFont: "Spectral", size: 72, scriptureSize: 58, weight: 600, text: "#fff8e7", shadow: true, bgType: "gradient", bg: "#3b1d0e", bg2: "#12070a", angle: 160, refColor: "#e6c27a" }),
   make("dark", "Dark", { font: "Sora", size: 72, scriptureSize: 58, weight: 600, text: "#f2f2f2", bgType: "gradient", bg: "#0d0d12", bg2: "#1c1c26", angle: 180 }),
   make("light", "Light", { font: "Plus Jakarta Sans", size: 70, scriptureSize: 56, weight: 600, text: "#111827", bgType: "solid", bg: "#f8f7f2", refColor: "#374151" }),

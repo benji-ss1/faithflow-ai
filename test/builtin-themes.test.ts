@@ -66,6 +66,14 @@ check("builtinId is STRIPPED by default (create/update/import) and by duplicate"
   assert.ok(/materializeBuiltinTheme[\s\S]*allowBuiltinId: true/.test(src));
   assert.ok(src.includes("config: stripBuiltinId(existing.config"), "duplicateTheme strips builtinId");
 });
+check("fonts are app-bundled web fonts (or Georgia, present on Windows + macOS) so wrapping matches on Windows", () => {
+  const BUNDLED = new Set(["Inter", "Sora", "Plus Jakarta Sans", "Playfair Display", "Cormorant Garamond", "Fraunces", "Spectral", "Montserrat", "DM Serif Display", "Georgia"]);
+  const json = JSON.stringify(BUILTIN_THEMES);
+  assert.ok(!/Helvetica|Arial|Times New Roman/.test(json), "no OS-specific fonts");
+  const fams = [...json.matchAll(/"fontFamily":"([^"]+)"/g)].map((m) => m[1]!.split(",")[0]!.trim());
+  assert.ok(fams.length > 0);
+  for (const f of fams) assert.ok(BUNDLED.has(f), `unbundled font ${f}`);
+});
 check("builtinThemeConfig returns an independent copy", () => {
   const c = builtinThemeConfig("builtin:default")!;
   c.textColor = "#ff0000";

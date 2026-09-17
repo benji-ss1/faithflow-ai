@@ -1208,7 +1208,7 @@ export function PlaylistSection({
                   <span>Apply theme to all items…</span><ChevronRight className="w-3.5 h-3.5 opacity-60" />
                 </DropdownMenu.SubTrigger>
                 <DropdownMenu.Portal>
-                  <DropdownMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px] max-h-[340px] overflow-y-auto">
+                  <DropdownMenu.SubContent collisionPadding={8} className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px] max-h-[min(340px,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto">
                     {[...themes, ...BUILTIN_THEMES.map((b) => ({ id: b.id, name: b.name }))].map((t, ti) => (
                       <div key={t.id}>
                         {ti === themes.length && <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Built-in</div>}

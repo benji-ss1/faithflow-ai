@@ -11,6 +11,7 @@ import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard, setTextClipboard, useTextClipboard, getTextClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
 import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, setServiceItemSlideActions,clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme, applyThemeToSongSlides, removeThemeFromSongSlide } from "@/lib/actions";
+import { anyOverlayOpen } from "@/hooks/useOperatorHotkeys";
 import { nextSlideSelection, stripVideoDecor, consumeSelectionEscape } from "@/lib/slide-selection";
 import { BUILTIN_THEMES } from "@/lib/builtin-themes";
 import { BUILT_IN_BACKGROUNDS } from "@/backgrounds/presets/defaultTemplates";
@@ -671,7 +672,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     // Capture phase + stopImmediatePropagation: Esc clears the selection ONLY —
     // the global Esc = kill-live hotkey (bubble listeners) must not also fire.
     const onKey = (e: KeyboardEvent) => {
-      consumeSelectionEscape(e, selectedSlideIds.length, document.activeElement as HTMLElement | null, () => setSelectedSlideIds([]));
+      consumeSelectionEscape(e, selectedSlideIds.length, document.activeElement as HTMLElement | null, () => setSelectedSlideIds([]), anyOverlayOpen());
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -1740,7 +1741,7 @@ function SlideCard({
                 <ChevronRight className="w-3.5 h-3.5 opacity-60" />
               </ContextMenu.SubTrigger>
               <ContextMenu.Portal>
-                <ContextMenu.SubContent className="min-w-[210px] max-h-[380px] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                <ContextMenu.SubContent collisionPadding={8} className="min-w-[210px] max-h-[min(380px,var(--radix-context-menu-content-available-height))] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
                   <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Looks · projector</div>
                   {themeMenu.looks.map((l) => (
                     <ContextMenu.Item
