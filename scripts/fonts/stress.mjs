@@ -121,7 +121,20 @@ async function main() {
           } catch (e) {
             loadErr = String(e);
           }
-          const checked = document.fonts.check(spec, LATIN);
+          let checked = document.fonts.check(spec, LATIN);
+          if (!checked) {
+            // Under `next dev` the first request for a face can still be in
+            // flight when load() settles. Give it one honest retry before
+            // calling it a failure (a genuinely missing face never passes).
+            try {
+              await document.fonts.ready;
+              await document.fonts.load(spec, LATIN);
+              await new Promise((r) => setTimeout(r, 250));
+            } catch (e) {
+              loadErr = String(e);
+            }
+            checked = document.fonts.check(spec, LATIN);
+          }
           const wReal = width(spec, LATIN);
           const wFallback = width(fallbackSpec, LATIN);
           const entry = {
