@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { registerMediaAsset } from "@/lib/actions";
 import { isPdfFile, renderPdfToImages } from "@/lib/pdf-to-images";
+import { CONVERT_CLIENT_TIMEOUT_MS, PPTX_MAX_BYTES, deckStageLabel, isDeckOnlyQueue, responseKind, type DeckStage } from "@/lib/pptx-import";
 import { finalizeImport } from "@/lib/import-actions";
 import { classifyDroppedFile, MEDIA_BIN_MAX_BYTES, type DroppedFileRoute } from "@/lib/media-bin-drop";
 import { cachedAudioSupport, convertHeicToJpeg, isHeicFile, loadMediaCapabilities, shouldUseMultipart, uploadMultipart } from "@/lib/media-upload-client";
@@ -114,15 +115,38 @@ function isPptxFile(file: { name: string }): boolean {
   return /\.pptx?$/i.test(file.name);
 }
 
+/** Best-effort delete of a temp PowerPoint/PDF object (church-scoped server-side). */
+function deletePptxTemp(key: string): void {
+  void fetch("/api/pptx/to-pdf", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+/** A signal that aborts when `signal` does OR after `ms` (tagged so we can tell them apart). */
+function withTimeout(signal: AbortSignal | undefined, ms: number): { signal: AbortSignal; timedOut: () => boolean; clear: () => void } {
+  const ac = new AbortController();
+  let timedOut = false;
+  const t = setTimeout(() => { timedOut = true; ac.abort(); }, ms);
+  const onAbort = () => ac.abort();
+  if (signal?.aborted) ac.abort(); else signal?.addEventListener("abort", onAbort, { once: true });
+  return { signal: ac.signal, timedOut: () => timedOut, clear: () => { clearTimeout(t); signal?.removeEventListener("abort", onAbort); } };
+}
+
+/** What renderPdfToImages needs: a name and the bytes (read ONCE). */
+type PdfSource = Pick<File, "name" | "arrayBuffer">;
+
 /**
  * Convert a PowerPoint to a PDF via the server (LibreOffice on Fly): upload the
- * PPTX to S3, ask /api/pptx/to-pdf to convert it, and return the PDF as a File.
- * The caller then feeds that File into the SAME renderPdfToImages deck path —
- * so PPTX and PDF share one render+upload pipeline. Throws with a clear message
- * (e.g. the 503 when the converter isn't configured) so the caller can surface
- * it and the operator can fall back to exporting a PDF.
+ * PPTX to S3 (with byte progress), ask /api/pptx/to-pdf to convert it, then get
+ * the PDF — either from storage via the returned `pdfUrl` (new converter; the
+ * PDF never passes through Vercel) or as the response body (older converter).
+ * The caller feeds the result into the SAME renderPdfToImages deck path. Throws
+ * with a clear, operator-facing message; AbortError when cancelled.
  */
-async function convertPptxToPdf(file: File): Promise<File> {
+async function convertPptxToPdf(file: File, signal: AbortSignal, onStage: (s: DeckStage) => void): Promise<PdfSource> {
   const isLegacy = /\.ppt$/i.test(file.name);
   const ext = isLegacy ? ".ppt" : ".pptx";
   // Send a CANONICAL office contentType by extension — file.type is unreliable
@@ -131,31 +155,78 @@ async function convertPptxToPdf(file: File): Promise<File> {
     ? "application/vnd.ms-powerpoint"
     : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
+  onStage({ kind: "upload-source", fraction: 0 });
   const presignRes = await fetch("/api/media/presign", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fileName: file.name, contentType, size: file.size, purpose: "pptx" }),
+    signal,
   });
   if (!presignRes.ok) {
     const err = (await presignRes.json().catch(() => ({}))) as { error?: string };
     throw new Error(err.error ?? `Presign failed (${presignRes.status})`);
   }
   const { url: uploadUrl, key } = (await presignRes.json()) as { url: string; key: string };
-  const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: file });
-  if (!putRes.ok) throw new Error("Storage upload failed");
+  try {
+    await putWithProgress(uploadUrl, file, contentType, (f) => onStage({ kind: "upload-source", fraction: f }), signal);
 
-  const convRes = await fetch("/api/pptx/to-pdf", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key, ext }),
-  });
-  if (!convRes.ok) {
-    const err = (await convRes.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Conversion failed (${convRes.status})`);
+    // Conversion: tick an elapsed timer so a long convert never looks frozen.
+    const t0 = Date.now();
+    onStage({ kind: "convert", elapsedSec: 0 });
+    const tick = setInterval(() => onStage({ kind: "convert", elapsedSec: (Date.now() - t0) / 1000 }), 1000);
+    const to = withTimeout(signal, CONVERT_CLIENT_TIMEOUT_MS);
+    let convRes: Response;
+    try {
+      convRes = await fetch("/api/pptx/to-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, ext }),
+        signal: to.signal,
+      });
+    } catch (e) {
+      if (to.timedOut()) throw new Error("This presentation took too long to convert. Try again, or export it as PDF from PowerPoint and drop that in.");
+      throw e;
+    } finally {
+      clearInterval(tick);
+      to.clear();
+    }
+    if (!convRes.ok) {
+      const err = (await convRes.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `Conversion failed (${convRes.status})`);
+    }
+
+    const pdfName = file.name.replace(/\.pptx?$/i, ".pdf");
+    let buf: ArrayBuffer;
+    if (responseKind(convRes.headers.get("content-type")) === "pdf") {
+      // Older converter: the PDF came back in the response body.
+      buf = await convRes.arrayBuffer();
+    } else {
+      const { pdfUrl, key: pdfKey } = (await convRes.json()) as { pdfUrl?: string; key?: string };
+      if (!pdfUrl || !pdfKey) throw new Error("Conversion failed — please try again.");
+      onStage({ kind: "download-pdf" });
+      try {
+        const pdfRes = await fetch(pdfUrl, { signal });
+        if (!pdfRes.ok) throw new Error("Couldn't download the converted slides — please try again.");
+        buf = await pdfRes.arrayBuffer();
+      } finally {
+        deletePptxTemp(pdfKey); // fetched (or failed) — the temp PDF is no longer needed
+      }
+    }
+    // Hand the bytes over exactly once; pdf.js takes ownership of the buffer.
+    let once: ArrayBuffer | null = buf;
+    return {
+      name: pdfName,
+      arrayBuffer: async () => {
+        if (!once) throw new Error("PDF already consumed");
+        const b = once; once = null; return b;
+      },
+    };
+  } catch (e) {
+    // Cancelled/failed → make sure the uploaded source is gone (the server also
+    // deletes it once conversion was requested; a second delete is harmless).
+    deletePptxTemp(key);
+    throw e;
   }
-  const pdfBlob = await convRes.blob();
-  const pdfName = file.name.replace(/\.pptx?$/i, ".pdf");
-  return new File([pdfBlob], pdfName, { type: "application/pdf" });
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -245,6 +316,11 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
   const [doneSongs, setDoneSongs] = useState(0);
   const [errorCount, setErrorCount] = useState(0);
   const deckAbortRef = useRef<AbortController | null>(null); // cancels an in-flight deck render on close
+  const cancelRef = useRef(false); // operator pressed Cancel during an import
+  // Set when files arrive by DROP (onto the wizard or the Media Bin): if every
+  // queued file is a slide deck, the import starts straight away (no Preview /
+  // Import clicks). Browse-picked files and mixed queues keep the manual flow.
+  const autoStartRef = useRef(false);
 
   // Audio-enabled check (cached) so audio is routed before any upload.
   useEffect(() => { if (open) void loadMediaCapabilities(); }, [open]);
@@ -252,6 +328,8 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
   // Reset on close
   useEffect(() => {
     if (!open) {
+      autoStartRef.current = false;
+      cancelRef.current = true;
       deckAbortRef.current?.abort(); // stop any in-flight deck render/upload
       setTimeout(() => {
         setStep(1);
@@ -278,7 +356,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
 
   // ── Queue management ────────────────────────────────────────────────────────
 
-  const enqueueFiles = useCallback((incoming: File[]) => {
+  const enqueueFiles = useCallback((incoming: File[], opts?: { autoStart?: boolean }) => {
     const valid: QueuedFile[] = [];
     for (const file of incoming) {
       let routed: DroppedFileRoute;
@@ -306,6 +384,10 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
       } else if (isPdfFile(file)) {
         // PDF deck → each page becomes a slide image on upload (B2).
         valid.push({ tag: "media", key, file, previewUrl: null, status: "pending", deck: true });
+      } else if (isPptxFile(file) && file.size > PPTX_MAX_BYTES) {
+        // Checked BEFORE any upload — the server would refuse it anyway.
+        toast.error(`"${file.name}" is bigger than 150 MB — PowerPoints must be 150 MB or less. Compress its pictures in PowerPoint, or export it as PDF.`);
+        continue;
       } else if (isPptxFile(file)) {
         // PowerPoint → convert to PDF server-side, then reuse the deck path.
         valid.push({ tag: "media", key, file, previewUrl: null, status: "pending", deck: true, pptx: true });
@@ -334,6 +416,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
       }
     }
     if (valid.length === 0) return;
+    if (opts?.autoStart) autoStartRef.current = true;
     setQueue((prev) => {
       const existing = new Set(prev.map((q) => q.key));
       return [...prev, ...valid.filter((v) => !existing.has(v.key))];
@@ -348,9 +431,20 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
     if (!open) { seededFilesRef.current = null; return; }
     if (initialFiles && initialFiles.length > 0 && seededFilesRef.current !== initialFiles) {
       seededFilesRef.current = initialFiles;
-      enqueueFiles(initialFiles);
+      enqueueFiles(initialFiles, { autoStart: true });
     }
   }, [open, initialFiles, enqueueFiles]);
+
+  // Decks dropped in start importing immediately (see autoStartRef).
+  useEffect(() => {
+    if (!autoStartRef.current || !open) return;
+    // Wait for the enqueue's state update to land (this effect also runs in the
+    // same commit as the enqueue, while `queue` is still the old value).
+    if (step !== 1 || uploading || queue.length === 0) return;
+    autoStartRef.current = false;
+    if (isDeckOnlyQueue(queue)) void uploadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue, step, uploading, open]);
 
   const removeFromQueue = (key: string) => {
     setQueue((prev) => {
@@ -362,7 +456,13 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
 
   // ── Upload ───────────────────────────────────────────────────────────────────
 
+  const cancelImport = () => {
+    cancelRef.current = true;
+    deckAbortRef.current?.abort();
+  };
+
   const uploadAll = async () => {
+    cancelRef.current = false;
     setUploading(true);
     setStep(3);
     let media = 0;
@@ -370,6 +470,10 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
     let errors = 0;
 
     for (const item of queue) {
+      if (cancelRef.current) {
+        setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "error", error: "Cancelled", progress: undefined } : q));
+        continue;
+      }
       setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "uploading" } : q));
 
       if (item.tag === "media" && item.deck) {
@@ -386,13 +490,21 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
         // otherwise a cancel would leave already-dispatched page uploads running
         // and leaking media rows the operator thought they cancelled.
         const pending: Array<Promise<void>> = [];
+        let lastLabel = "";
+        const setStage = (st: DeckStage) => {
+          const label = deckStageLabel(st);
+          if (label === lastLabel) return; // XHR progress fires often — only re-render on change
+          lastLabel = label;
+          setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "uploading", progress: label } : q));
+        };
+        let renderDone = false;
+        let deckTotal = 0;
         try {
           // PowerPoint decks convert to PDF server-side FIRST (LibreOffice on
           // Fly), then flow through the identical PDF→images path below.
-          let deckFile = item.file;
+          let deckFile: Pick<File, "name" | "arrayBuffer"> = item.file;
           if (item.pptx) {
-            setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "uploading", progress: "converting PowerPoint…" } : q));
-            deckFile = await convertPptxToPdf(item.file);
+            deckFile = await convertPptxToPdf(item.file, ac.signal, setStage);
           }
           // Bounded-concurrency uploader: onPage acquires a slot (awaiting when
           // the pool is full — that await is the backpressure that keeps only a
@@ -412,17 +524,23 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
             deckFile,
             async (pageFile, index, total) => {
               await acquire();
-              setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "uploading", progress: `slide ${index}/${total}` } : q));
+              deckTotal = total;
+              setStage({ kind: "prepare", index, total });
               pending.push((async () => {
                 // ac.signal cancels the presign + PUT so a mid-import cancel
                 // actually stops the upload instead of leaking a media row.
                 try { await uploadMediaFile(pageFile, ac.signal, initialLibraryId); ok++; }
                 catch { failedPages++; }
-                finally { release(); }
+                finally {
+                  release();
+                  if (renderDone && !ac.signal.aborted) setStage({ kind: "upload-slides", done: ok + failedPages, total: deckTotal });
+                }
               })());
             },
             { signal: ac.signal },
           );
+          renderDone = true;
+          if (ok + failedPages < result.renderedPages) setStage({ kind: "upload-slides", done: ok + failedPages, total: result.renderedPages });
           await Promise.all(pending); // let every overlapped upload settle before tallying
           media += ok;
           if (ok === 0) {
@@ -583,7 +701,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                   htmlFor="media-import-input"
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
-                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); enqueueFiles(Array.from(e.dataTransfer.files)); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); enqueueFiles(Array.from(e.dataTransfer.files), { autoStart: true }); }}
                   className={cn(
                     "flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed px-6 py-14 text-center cursor-pointer transition-colors",
                     dragOver
@@ -741,7 +859,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                         <span className="text-xs text-[var(--color-foreground)] truncate block">{q.file.name}</span>
                         {q.status === "error" && q.error && <span className="text-[10px] text-red-400">{q.error}</span>}
                         {q.tag === "media" && q.deck && q.status === "uploading" && q.progress && (
-                          <span className="text-[10px] text-[var(--color-muted-foreground)]">Rendering deck — {q.progress}</span>
+                          <span className="text-[10px] text-[var(--color-muted-foreground)]" aria-live="polite">{q.progress}</span>
                         )}
                         {q.tag === "media" && q.deck && q.status === "done" && q.progress && (
                           <span className="text-[10px] text-green-400">{q.progress}</span>
@@ -767,6 +885,15 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                       style={{ width: `${Math.round((uploadedCount / queue.length) * 100)}%` }} />
                   </div>
                 </div>
+
+                {uploading && (
+                  <div className="flex gap-2 pt-1">
+                    <button type="button" onClick={cancelImport}
+                      className="inline-flex h-10 items-center rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-white/5 transition-colors">
+                      Cancel import
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
