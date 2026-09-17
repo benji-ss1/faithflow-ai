@@ -24,7 +24,8 @@ export type SlideObjectWire =
   | { kind: "text"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; text: string;
       fontFamily?: string; fontSize?: number; fontWeight?: number; color?: string;
       align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean; opacity?: number;
-      lineHeight?: number; letterSpacing?: number; uppercase?: boolean; shadow?: boolean; stroke?: string; strokeWidth?: number }
+      lineHeight?: number; letterSpacing?: number; uppercase?: boolean; shadow?: boolean; stroke?: string; strokeWidth?: number;
+      role?: "main" | "verse" | "reference" }
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
   | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; posX?: number; posY?: number; zoom?: number; opacity?: number; blurFill?: boolean; blur?: boolean }
@@ -261,6 +262,27 @@ export type ThemeAppearance = {
   logoPosition?: LogoPosition;
   logoSizePct?: number;    // logo width as % of the output width (2..50)
   logoOpacity?: number;    // 0..1
+  // Theme → Projector (PR 2): compact text-box geometry from the theme editor
+  // layout. Only present when the theme actually saved a (non-seed) layout, so
+  // every existing theme emits exactly the legacy appearance.
+  layout?: ThemeLayoutWire;
+};
+
+/** One theme text box, in 1920×1080 canvas px. */
+export type ThemeFrameWire = {
+  x: number; y: number; w: number; h: number;
+  fontFamily?: string;
+  fontSize?: number;      // canvas px — the fit CEILING (text still shrinks to fit)
+  fontWeight?: number;
+  color?: string;
+  align?: "left" | "center" | "right";
+  italic?: boolean;
+  uppercase?: boolean;
+  shadow?: boolean;
+};
+export type ThemeLayoutWire = {
+  lyrics?: { main?: ThemeFrameWire };
+  scripture?: { verse?: ThemeFrameWire; reference?: ThemeFrameWire };
 };
 
 // ── Live video input (Phase 2a) ───────────────────────────────────────────
@@ -889,6 +911,46 @@ function sanitizeLayers(v: unknown): LayerWire[] | undefined {
   return kept;
 }
 
+const THEME_FRAME_KEYS = new Set(["x", "y", "w", "h", "fontFamily", "fontSize", "fontWeight", "color", "align", "italic", "uppercase", "shadow"]);
+export const THEME_LAYOUT_WIRE_MAX_BYTES = 2048;
+
+/** Strict validator for one theme text-box frame (unknown keys rejected). */
+export function isValidThemeFrameWire(f: unknown): f is ThemeFrameWire {
+  if (!f || typeof f !== "object" || Array.isArray(f) || hasPollutionKey(f)) return false;
+  const p = f as Record<string, unknown>;
+  for (const k of Object.keys(p)) if (!THEME_FRAME_KEYS.has(k)) return false;
+  const fin = (v: unknown, lo: number, hi: number) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
+  if (!fin(p.x, -SLIDE_CANVAS_W, SLIDE_CANVAS_W) || !fin(p.y, -SLIDE_CANVAS_H, SLIDE_CANVAS_H)) return false;
+  if (!fin(p.w, 40, SLIDE_CANVAS_W * 2) || !fin(p.h, 40, SLIDE_CANVAS_H * 2)) return false;
+  if (p.fontFamily !== undefined && (typeof p.fontFamily !== "string" || !FONT_FAMILY_RE.test(p.fontFamily))) return false;
+  if (p.fontSize !== undefined && !fin(p.fontSize, 8, 400)) return false;
+  if (p.fontWeight !== undefined && !fin(p.fontWeight, 100, 900)) return false;
+  if (p.color !== undefined && !isValidColor(p.color)) return false;
+  if (p.align !== undefined && !["left", "center", "right"].includes(p.align as string)) return false;
+  for (const k of ["italic", "uppercase", "shadow"]) if (p[k] !== undefined && typeof p[k] !== "boolean") return false;
+  return true;
+}
+
+/** Strict validator for ThemeAppearance.layout: known keys only, valid frames, byte cap. */
+export function isValidThemeLayoutWire(l: unknown): l is ThemeLayoutWire {
+  if (!l || typeof l !== "object" || Array.isArray(l) || hasPollutionKey(l)) return false;
+  const p = l as Record<string, unknown>;
+  for (const k of Object.keys(p)) if (k !== "lyrics" && k !== "scripture") return false;
+  const group = (g: unknown, keys: string[]) => {
+    if (g === undefined) return true;
+    if (!g || typeof g !== "object" || Array.isArray(g) || hasPollutionKey(g)) return false;
+    const gp = g as Record<string, unknown>;
+    for (const k of Object.keys(gp)) {
+      if (!keys.includes(k)) return false;
+      if (gp[k] !== undefined && !isValidThemeFrameWire(gp[k])) return false;
+    }
+    return true;
+  };
+  if (!group(p.lyrics, ["main"]) || !group(p.scripture, ["verse", "reference"])) return false;
+  try { if (JSON.stringify(l).length > THEME_LAYOUT_WIRE_MAX_BYTES) return false; } catch { return false; }
+  return true;
+}
+
 export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
   if (a === null) return true;
   if (!a || typeof a !== "object") return false;
@@ -912,6 +974,7 @@ export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
   if (p.logoPosition !== undefined && !LOGO_POSITIONS.has(p.logoPosition as string)) return false;
   if (p.logoSizePct !== undefined && (typeof p.logoSizePct !== "number" || !Number.isFinite(p.logoSizePct) || p.logoSizePct < 2 || p.logoSizePct > 50)) return false;
   if (p.logoOpacity !== undefined && (typeof p.logoOpacity !== "number" || !Number.isFinite(p.logoOpacity) || p.logoOpacity < 0 || p.logoOpacity > 1)) return false;
+  if (p.layout !== undefined && !isValidThemeLayoutWire(p.layout)) return false;
   return true;
 }
 
@@ -1038,7 +1101,9 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
   }
   if (s.objects?.length) {
     sig += "|o" + s.objects.length + ":" + s.objects.map((o) => {
-      const base = `${o.kind[0]}${Math.round(o.x)},${Math.round(o.y)},${Math.round(o.w)},${Math.round(o.h)}${o.rotation ? "@" + Math.round(o.rotation) : ""}`;
+      // `h` only when hidden (theme scripture hides its reference object) — a
+      // visible object's signature is byte-identical to before.
+      const base = `${o.kind[0]}${Math.round(o.x)},${Math.round(o.y)},${Math.round(o.w)},${Math.round(o.h)}${o.rotation ? "@" + Math.round(o.rotation) : ""}${o.hidden ? "h" : ""}`;
       // Include the visual text style so a style-only edit (font/size/weight/
       // align/uppercase) changes the identity — otherwise the already-live skip
       // in sendSlideToLive silently swallows it for callers that don't force.

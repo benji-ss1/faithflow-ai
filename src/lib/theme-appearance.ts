@@ -5,8 +5,10 @@
 // result is guaranteed to pass the wire validator — otherwise a malformed
 // config would make the projector reject the whole OutputState and not update.
 // Client-safe (no server imports); usable in the operator and in previews.
-import type { ThemeAppearance } from "@/lib/broadcast";
+import { isValidThemeLayoutWire, type ThemeAppearance, type ThemeFrameWire, type ThemeLayoutWire } from "@/lib/broadcast";
 import { isRenderableUrl } from "./render-url";
+import { mainTextOf, verseTextOf } from "./theme-editor-model";
+import type { SlideObject, TextObject } from "./slide-objects";
 
 const COLOR_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\(\s*\d+(?:\s*,\s*\d+){2}\s*(?:,\s*(?:0|1|0?\.\d+))?\s*\))$/;
 const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
@@ -137,9 +139,85 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
     if (typeof c.logoOpacity === "number" && Number.isFinite(c.logoOpacity)) a.logoOpacity = clamp(c.logoOpacity, 0, 1);
   }
 
+  // ── Theme → Projector (PR 2): text-box layout ──
+  const layout = themeLayoutFromConfig(c);
+  if (layout) a.layout = layout;
+
   // Nothing meaningful beyond the implicit bgType:"solid"? Treat as no theme.
   const meaningful =
-    a.bgColor || a.bgImageUrl || a.bgVideoUrl || a.logoUrl || a.textColor || a.fontFamily ||
+    !!a.layout || a.bgColor || a.bgImageUrl || a.bgVideoUrl || a.logoUrl || a.textColor || a.fontFamily ||
     a.fontWeight !== undefined || a.textShadow !== undefined || a.align || a.bgType === "gradient" || a.dim !== undefined || a.bgAnimation !== undefined;
   return meaningful ? a : null;
+}
+
+// ── Theme → Projector (PR 2) ───────────────────────────────────────────────
+// The seed box the theme editor shows for a theme with no saved layout
+// (theme-editor-model seedThemeSlide). Saving the editor without moving it
+// must NOT turn into a projector frame — that would shrink every existing
+// church's lyrics into a 400px band on its first save.
+const SEED_MAIN = { id: "theme_main_text", x: 80, y: 340, w: 1760, h: 400 };
+function isUnchangedSeed(t: TextObject): boolean {
+  return t.id === SEED_MAIN.id && Math.round(t.x) === SEED_MAIN.x && Math.round(t.y) === SEED_MAIN.y
+    && Math.round(t.w) === SEED_MAIN.w && Math.round(t.h) === SEED_MAIN.h;
+}
+
+/** A text object → a wire-valid frame, or null when unusable (hidden/tiny/NaN). */
+export function frameFromTextObject(t: TextObject | null | undefined): ThemeFrameWire | null {
+  if (!t || t.kind !== "text" || t.hidden) return null;
+  const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+  if (!fin(t.x) || !fin(t.y) || !fin(t.w) || !fin(t.h)) return null;
+  if (t.w < 40 || t.h < 40) return null;
+  const f: ThemeFrameWire = {
+    x: Math.round(clamp(t.x, -1920, 1920)),
+    y: Math.round(clamp(t.y, -1080, 1080)),
+    w: Math.round(clamp(t.w, 40, 3840)),
+    h: Math.round(clamp(t.h, 40, 2160)),
+  };
+  if (typeof t.fontFamily === "string" && FONT_FAMILY_RE.test(t.fontFamily)) {
+    const fam = withGenericFallback(t.fontFamily);
+    if (FONT_FAMILY_RE.test(fam)) f.fontFamily = fam;
+  }
+  if (fin(t.fontSize)) f.fontSize = Math.round(clamp(t.fontSize, 8, 400));
+  if (fin(t.fontWeight)) f.fontWeight = clamp(Math.round(t.fontWeight), 100, 900);
+  if (isColor(t.color)) f.color = t.color.trim();
+  if (t.align === "left" || t.align === "center" || t.align === "right") f.align = t.align;
+  if (typeof t.italic === "boolean") f.italic = t.italic;
+  if (typeof t.uppercase === "boolean") f.uppercase = t.uppercase;
+  if (typeof t.shadow === "boolean") f.shadow = t.shadow;
+  return f;
+}
+
+type LayoutSlide = { id?: unknown; role?: unknown; objects?: unknown };
+function objectsOf(s: LayoutSlide | undefined): SlideObject[] {
+  return s && Array.isArray(s.objects) ? (s.objects.filter((o) => o && typeof o === "object") as SlideObject[]) : [];
+}
+
+/**
+ * The compact projector layout for a saved theme config, or undefined when the
+ * theme has no saved (version 3) layout or only the untouched seed box.
+ * Always passes isValidThemeLayoutWire (test-locked).
+ */
+export function themeLayoutFromConfig(c: Record<string, unknown>): ThemeLayoutWire | undefined {
+  const raw = c.layout as { version?: unknown; slides?: unknown } | undefined;
+  if (!raw || typeof raw !== "object" || raw.version !== 3 || !Array.isArray(raw.slides)) return undefined;
+  const slides = raw.slides.filter((s) => s && typeof s === "object") as LayoutSlide[];
+  const out: ThemeLayoutWire = {};
+  const lyricSlide = slides.find((s) => s.role === "lyrics") ?? slides.find((s) => s.role !== "scripture");
+  const main = mainTextOf(objectsOf(lyricSlide));
+  if (main && !isUnchangedSeed(main)) {
+    const f = frameFromTextObject(main);
+    if (f) out.lyrics = { main: f };
+  }
+  const scriptureSlide = slides.find((s) => s.role === "scripture");
+  if (scriptureSlide) {
+    const objs = objectsOf(scriptureSlide);
+    const verse = frameFromTextObject(verseTextOf(objs));
+    if (verse) {
+      const refObj = objs.find((o): o is TextObject => o.kind === "text" && o.role === "reference") ?? null;
+      const reference = frameFromTextObject(refObj);
+      out.scripture = reference ? { verse, reference } : { verse };
+    }
+  }
+  if (!out.lyrics && !out.scripture) return undefined;
+  return isValidThemeLayoutWire(out) ? out : undefined;
 }
