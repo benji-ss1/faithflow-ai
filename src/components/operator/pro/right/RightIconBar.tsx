@@ -36,6 +36,9 @@ import * as Popover from "@radix-ui/react-popover";
 import { BookOpen, Music, Link2, Layers as LayersIcon, Timer as TimerIcon, MessageSquare } from "lucide-react";
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { LayersPanel } from "./LayersPanel";
+import { Pp7LayersPanel } from "./Pp7LayersPanel";
+import { usePp7Layers } from "@/lib/pp7-layers-flag";
+import { usePp7Messages } from "./usePp7Layers";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { TimerApi, MessagesApi, TimersApi, MessagesBoardApi } from "../hooks";
@@ -68,6 +71,11 @@ export function RightIconBar({
   timers: TimersApi;
   messagesBoard: MessagesBoardApi;
 }) {
+  // PP7 Layers panel (2026-09-17). Flag OFF ⇒ the legacy LayersPanel renders
+  // exactly as before — `NEXT_PUBLIC_PP7_LAYERS=0` / localStorage
+  // `presentflow.pp7Layers.v1="0"` is a true reversal.
+  const pp7Layers = usePp7Layers();
+  const pp7Messages = usePp7Messages({ messages, messagesBoard, timer, timers });
   const [openKey, setOpenKeyInner] = useState<PopoverKey | null>(null);
   // JPD Fix 5 (2026-07-27): restore the last-open sidebar popover on
   // relaunch and persist changes. Restore runs post-mount (no SSR/hydration
@@ -235,7 +243,9 @@ export function RightIconBar({
           renders and the icon-bar row is clean. */}
       {LAYERS_V2 && openKey === "layers" && (
         <PopoverShell title="Layers" onClose={() => setOpenKey(null)}>
-          <LayersPanel ctx={ctx} />
+          {pp7Layers
+            ? <Pp7LayersPanel ctx={ctx} messagesActive={pp7Messages.active} onClearMessages={pp7Messages.clear} />
+            : <LayersPanel ctx={ctx} />}
         </PopoverShell>
       )}
       {openKey === "timers" && (

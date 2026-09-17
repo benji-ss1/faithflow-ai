@@ -20,6 +20,13 @@ assert.equal(decodePp7ClearKey({ key: "F10", shiftKey: true }), null, "Shift+F10
 assert.equal(decodePp7ClearKey({ key: "F5", metaKey: true }), null, "modifiers ignored");
 assert.equal(PP7_CLEAR_KEY.slide, "F2");
 
+// Second Clear All binding (2026-09-17) — F1 is brightness on a default Mac.
+assert.equal(decodePp7ClearKey({ key: "C", metaKey: true, shiftKey: true }), "all", "⌘⇧C = Clear All");
+assert.equal(decodePp7ClearKey({ key: "c", ctrlKey: true, shiftKey: true }), "all", "Ctrl+Shift+C = Clear All (lower case too)");
+assert.equal(decodePp7ClearKey({ key: "C", metaKey: true }), null, "⌘C (copy) is NOT a clear");
+assert.equal(decodePp7ClearKey({ key: "C", shiftKey: true }), null, "Shift+C alone is not a clear");
+assert.equal(decodePp7ClearKey({ key: "C", metaKey: true, shiftKey: true, altKey: true }), null, "no Alt variant");
+
 assert.equal(isMediaSlideKind("image"), true);
 assert.equal(isMediaSlideKind("video"), true);
 assert.equal(isMediaSlideKind("text"), false);
