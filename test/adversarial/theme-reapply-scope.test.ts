@@ -63,3 +63,12 @@ const dup = body("duplicateSongSlide");
 ok(/eq\(songs\.id, src\.songId\), eq\(songs\.churchId, user\.churchId\)/.test(dup), "duplicate backup copy is church-filtered");
 
 console.log(`theme-reapply-scope: all ${n} assertions passed`);
+
+// Media re-sign is scoped to the caller's church key prefix.
+{
+  const theming = readFileSync("src/lib/server/theming.ts", "utf8");
+  assert.match(theming, /key\.startsWith\(`\$\{churchId\}\/`\)/, "re-sign refuses keys outside the church prefix");
+  assert.match(readFileSync("src/app/api/themes/route.ts", "utf8"), /refreshThemeMediaUrls\(r\.config, user\.churchId\)/, "api/themes passes churchId");
+  assert.match(readFileSync("src/app/(app)/library/themes/page.tsx", "utf8"), /refreshThemeMediaUrls\(r\.config, user\.churchId\)/, "library themes page passes churchId");
+  console.log("theme media re-sign scope: passed");
+}

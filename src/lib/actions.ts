@@ -1055,13 +1055,17 @@ export async function duplicateSongSlide(slideId: string): Promise<Result<{ id: 
   }).returning({ id: songSlides.id });
   // Theme Editor PR 1: the copy inherits the source slide's pre-theme snapshot,
   // so re-apply/revert treat it like the original (not an already-themed look).
-  const [songRow] = await db.select({ settings: songs.settings }).from(songs)
-    .where(and(eq(songs.id, src.songId), eq(songs.churchId, user.churchId))).limit(1);
-  const withCopy = songRow ? copyThemeBackupForDuplicate(songRow.settings, slideId, row.id) : null;
-  if (withCopy) {
-    await db.update(songs).set({ settings: withCopy })
-      .where(and(eq(songs.id, src.songId), eq(songs.churchId, user.churchId)));
-  }
+  // Same row lock as apply/revert/re-apply so a concurrent theme write can't
+  // overwrite (or be overwritten by) this backup copy.
+  await db.transaction(async (tx) => {
+    const [songRow] = await tx.select({ settings: songs.settings }).from(songs)
+      .where(and(eq(songs.id, src.songId), eq(songs.churchId, user.churchId))).limit(1).for("update");
+    const withCopy = songRow ? copyThemeBackupForDuplicate(songRow.settings, slideId, row.id) : null;
+    if (withCopy) {
+      await tx.update(songs).set({ settings: withCopy })
+        .where(and(eq(songs.id, src.songId), eq(songs.churchId, user.churchId)));
+    }
+  });
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true, data: { id: row.id } };
 }

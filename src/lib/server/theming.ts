@@ -2,7 +2,7 @@
 import { eq, asc, and } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { announcements, announcementPresets, themes } from "../db/schema";
-import { refreshPresignedUrl } from "../s3";
+import { refreshPresignedUrl, keyFromPresignedUrl } from "../s3";
 
 export async function listAnnouncements(churchId: string) {
   const db = getDb();
@@ -31,13 +31,22 @@ export async function listThemes(churchId: string) {
  * External (non-presigned) URLs pass through untouched. Call at every point a
  * theme config is loaded for consumption (operator + web).
  */
-export async function refreshThemeMediaUrls(config: unknown): Promise<unknown> {
+export async function refreshThemeMediaUrls(config: unknown, churchId?: string): Promise<unknown> {
   if (!config || typeof config !== "object") return config;
+  // Only re-sign objects stored under this church's key prefix — a theme config
+  // can't be used to mint a fresh link to another church's file.
+  const resign = async (url: string): Promise<string> => {
+    if (churchId) {
+      const key = keyFromPresignedUrl(url);
+      if (key && !key.startsWith(`${churchId}/`)) return url;
+    }
+    return refreshPresignedUrl(url);
+  };
   const c = config as Record<string, unknown>;
   const out: Record<string, unknown> = { ...c };
   for (const field of ["bgImageUrl", "logoUrl", "bgVideoUrl"] as const) {
     const v = out[field];
-    if (typeof v === "string" && v) out[field] = await refreshPresignedUrl(v);
+    if (typeof v === "string" && v) out[field] = await resign(v);
   }
   // Theme Editor layout (PR 1): slide background images and image/video
   // objects inside config.layout are presigned too — re-sign them so layout
@@ -47,13 +56,13 @@ export async function refreshThemeMediaUrls(config: unknown): Promise<unknown> {
     const slides = await Promise.all(layout.slides.map(async (sl) => {
       if (!sl || typeof sl !== "object") return sl;
       const slide = { ...(sl as Record<string, unknown>) };
-      if (typeof slide.bgImageUrl === "string" && slide.bgImageUrl) slide.bgImageUrl = await refreshPresignedUrl(slide.bgImageUrl);
+      if (typeof slide.bgImageUrl === "string" && slide.bgImageUrl) slide.bgImageUrl = await resign(slide.bgImageUrl);
       if (Array.isArray(slide.objects)) {
         slide.objects = await Promise.all(slide.objects.map(async (o) => {
           if (!o || typeof o !== "object") return o;
           const obj = o as Record<string, unknown>;
           if ((obj.kind === "image" || obj.kind === "video") && typeof obj.url === "string" && obj.url) {
-            return { ...obj, url: await refreshPresignedUrl(obj.url) };
+            return { ...obj, url: await resign(obj.url) };
           }
           return obj;
         }));

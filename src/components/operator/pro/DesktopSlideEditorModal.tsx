@@ -507,7 +507,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                 title={themeMode ? "Stage this theme slide in Preview (never sent live)" : !isSong ? "Editing is available for songs" : "Send the current slide to Preview / Live"}
                 className="h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-brand)] border border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[var(--color-brand)] hover:bg-[var(--color-brand)]/10 hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none"
               >
-                <Play className="w-4 h-4" /> Show
+                <Play className="w-4 h-4" /> {themeMode ? "Preview" : "Show"}
               </button>
               <button
                 onClick={requestClose}
@@ -869,7 +869,7 @@ function DesignPanel({ editor, themeMode = false }: { editor: Editor; themeMode?
           ))}
         </div></div>
       )}
-      {selected.kind === "text" && <TextProps o={selected} upd={upd} />}
+      {selected.kind === "text" && <TextProps o={selected} upd={upd} guardEmptySize={themeMode} />}
       {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
       {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}
       {selected.kind === "video" && <VideoProps o={selected} upd={upd} />}
@@ -1168,7 +1168,7 @@ function Toggle({ on, label, onClick, className }: { on: boolean; label: string;
   );
 }
 
-function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) => void }) {
+function TextProps({ o, upd, guardEmptySize = false }: { o: TextObject; upd: (p: Partial<SlideObject>) => void; /** Theme mode: ignore an empty/0 size so a cleared box can't drop the text box or bake 0 into songs. */ guardEmptySize?: boolean }) {
   return (
     <>
       <div><span className={rowCls}>Text</span>
@@ -1181,7 +1181,7 @@ function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) =
         </select>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div><span className={rowCls}>Size (px)</span><input type="number" min={8} max={800} value={o.fontSize ?? 96} onChange={(e) => upd({ fontSize: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>Size (px)</span><input type="number" min={8} max={800} value={o.fontSize ?? 96} onChange={(e) => { const n = Number(e.target.value); if (guardEmptySize && (e.target.value.trim() === "" || !Number.isFinite(n) || n < 1)) return; upd({ fontSize: n }); }} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
         <div><span className={rowCls}>Weight</span>
           <select value={String(o.fontWeight ?? 600)} onChange={(e) => upd({ fontWeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
             {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w} value={w}>{w}</option>)}

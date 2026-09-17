@@ -262,7 +262,7 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
                 <header className="h-12 shrink-0 flex items-center gap-2 px-3 border-b border-[var(--color-border)]">
                   <Palette className="w-5 h-5 text-[var(--color-brand)]" aria-hidden />
                   <div className="flex-1 text-center text-[14px] font-semibold text-[var(--color-foreground)]">Themes</div>
-                  {canEdit ? <button type="button" className={iconBtn} onClick={() => { onOpenChange(false); openThemeEditor(); }} aria-label="Open theme editor" title="Theme editor"><SlidersHorizontal className="w-4 h-4" /></button> : null}
+                  {canEdit ? <button type="button" className={iconBtn} onClick={() => { onOpenChange(false); openThemeEditor(); }} aria-label="All themes (classic screen)" title="All themes (classic screen)"><SlidersHorizontal className="w-4 h-4" /></button> : null}
                   {canEdit ? <button type="button" className={iconBtn} onClick={() => setNewOpen(true)} aria-label="New theme" title="New theme"><Plus className="w-5 h-5" /></button> : null}
                 </header>
                 <div className="flex-1 min-h-0 overflow-y-auto p-3 pf-transcript-scroll">
