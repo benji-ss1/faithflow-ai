@@ -4,6 +4,46 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.449",
+    "date": "2026-09-17",
+    "headline": "Song backgrounds from your theme now show on the live screen, matching the slide previews",
+    "highlights": [
+      "If you picked a theme for songs, its background now shows on the live screen and projector, not just on the slide previews.",
+      "When the same song is in your service more than once, the live screen uses the theme of the copy you actually clicked.",
+      "Theme logos that had stopped loading after a while now load again."
+    ]
+  },
+  {
+    "version": "0.1.448",
+    "date": "2026-09-17",
+    "headline": "Your Scripture Style and default song and Bible themes are now shared across every computer in your church",
+    "highlights": [
+      "Set the Scripture Style (full screen or lower third, band colour, text size) once and every computer in your church uses it. Before, each computer kept its own.",
+      "The default theme you pick for Songs and for Bible verses is now the same on every computer in your church.",
+      "A change made on one computer shows up on the others within about a minute, without reloading or changing what is on the screen.",
+      "Volunteers can still change the Scripture Style during a service. Changing the default song and Bible themes needs someone who can edit the library.",
+      "Your existing style carries over automatically the first time you open PresentFlow. If two computers had different styles, the first one to open wins."
+    ]
+  },
+  {
+    "version": "0.1.447",
+    "date": "2026-09-17",
+    "headline": "Intel Macs now update automatically, and the Windows pro audio driver is more reliable",
+    "highlights": [
+      "Intel Macs now get PresentFlow updates automatically, like Apple Silicon Macs and Windows. If you're on an Intel Mac and stuck on an older version, install the latest Intel (x64) download once and it will keep itself up to date from then on.",
+      "On Windows, the pro audio driver for USB mixers and interfaces stays switched on reliably instead of occasionally turning itself off at startup."
+    ]
+  },
+  {
+    "version": "0.1.446",
+    "date": "2026-09-17",
+    "headline": "Videos fill the screen like ProPresenter, plus a band tip",
+    "highlights": [
+      "Videos now fill the screen like ProPresenter. A smaller video (like 720p) grows to fit the screen instead of sitting small in the middle. It keeps its shape, with black bars if needed. Pick \"cover\" to fill and crop, or \"fill\" to stretch.",
+      "A tip in lower-third settings lets you try the more visible band. It only shows if your band is still plain black, and nothing changes unless you tap \"Try it\" and save."
+    ]
+  },
+  {
     "version": "0.1.445",
     "date": "2026-09-17",
     "headline": "Pictures and videos fill the screen, and the lower-third band is easier to see",

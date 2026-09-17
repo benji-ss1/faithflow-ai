@@ -52,7 +52,7 @@ const NDI_RE = /ndi/i;
 // Word-boundaries on the short SKU tokens (`sq`, `qu`, `mg`, `ur`) prevent
 // false matches like "sequel" or "murky".
 const MIXER_RE =
-  /\(22f0:|\(1397:|\(0499:|\(194f:|\(05fc:|\(1a19:|focusrite|scarlett|clarett|behringer|umc|u-phoria|presonus|audiobox|studio ?[12]?[46]|motu|apollo|volt|universal audio|audient|evo|steinberg|\bur[0-9]|mackie|onyx|roland|rubix|rme|fireface|babyface|apogee|duet|ensemble|symphony|ssl|solid state|arturia|minifuse|tascam|zoom livetrak|zoom h[0-9]|x32|xr[0-9]{2}|x-air|yamaha tf|\bmg[0-9]|allen.*heath|\bsq\b|dlive|\bqu\b|midas|m32|mr18|soundcraft|\bui[0-9]|signature|studiolive|touchmix|qsc|dl[0-9]+s|profx|usb audio codec|usb audio device|blackhole/i;
+  /\(22f0:|\(1397:|\(0499:|\(194f:|\(05fc:|\(1a19:|focusrite|scarlett|clarett|behringer|umc|u-phoria|presonus|audiobox|studio ?[12]?[46]|motu|apollo|volt|universal audio|audient|evo|steinberg|\bur[0-9]|mackie|onyx|roland|rubix|rme|fireface|babyface|apogee|duet|ensemble|symphony|ssl|solid state|arturia|minifuse|tascam|zoom livetrak|zoom h[0-9]|x32|xr[0-9]{2}|x-air|x-usb|dn32|\bwing\b|\btf[135]\b|tf-?rack|\bdm[37]\b|\bcq-?[0-9]|zedi|livetrak|\bl-(?:8|12|20)\b|avantis|\bahm\b|digiface|yamaha tf|\bmg[0-9]|allen.*heath|\bsq\b|dlive|\bqu\b|midas|m32|mr18|soundcraft|\bui[0-9]|signature|studiolive|touchmix|qsc|dl[0-9]+s|profx|usb audio codec|usb audio device|blackhole/i;
 
 const BT_RE =
   /bluetooth|airpods|beats|jabra|bose|sony wh|sennheiser momentum|galaxy buds|wh-1000/i;

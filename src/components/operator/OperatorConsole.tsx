@@ -19,6 +19,7 @@ import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/ope
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
 import { themeScriptureOptions, type ThemeScriptureOptions } from "@/lib/theme-scripture";
 import { themeConfigToAppearance } from "@/lib/theme-appearance";
+import { resolveItemThemeConfig, resolveLiveItemIdx, type LiveItemStamp } from "@/lib/live-item-theme";
 import { normalizeThemeTransition, resolveSendTransition, readOperatorTransitionsOff } from "@/lib/transition-resolve";
 import { inferLiveOrigin, type LiveOrigin, recallOrigin, rememberOrigin, carriedOrigin } from "@/lib/song-switch-guard";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
@@ -65,6 +66,8 @@ import { ZoneEditor } from "./zone/ZoneEditor";
 import { useShell } from "@/hooks/useShell";
 import { publishSongLibrary } from "@/lib/song-lyric-search-store";
 import { liveContentKey } from "@/lib/layer-store";
+import { hydrateChurchStylesInitial, setCanEditLibrary, getContentTypeStyles, CONTENT_TYPE_STYLES_EVENT, type ChurchStylesSnapshot } from "@/lib/church-styles-store";
+import { startChurchStylesSync } from "@/lib/church-styles-sync";
 
 type Cursor = { itemIdx: number; slideIdx: number };
 
@@ -112,7 +115,7 @@ const SERVICE_MODE_KEY = "presentflow.pro.serviceMode.v1";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, scenesEnabled: scenesEnabledProp = false, initialShell }: {
+export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, scenesEnabled: scenesEnabledProp = false, initialShell, initialChurchStyles = null, canEditLibrary }: {
   plan: ExpandedPlan;
   /** /operator only: the `?plan=` id no longer exists, so `plan` is a fallback to adopt. */
   pinnedPlanMissing?: boolean;
@@ -125,7 +128,21 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   layersV2?: boolean;
   scenesEnabled?: boolean;
   initialShell?: "desktop" | "web";
+  /** PR B: the church's Scripture Style + content-type themes from church_preferences. */
+  initialChurchStyles?: ChurchStylesSnapshot | null;
+  /** PR B: session has edit_library (content-type default themes picker). Undefined = unknown → server refusal path only. */
+  canEditLibrary?: boolean;
 }) {
+  // PR B (per-church styles): hydrate the synchronous style cache from server
+  // props in the FIRST render — before any hook below can send a slide — so
+  // applyChurchLayout/styleScriptureSlide read the church's style, not this
+  // machine's. useState initializer = runs exactly once per mount.
+  useState(() => {
+    hydrateChurchStylesInitial(churchId, initialChurchStyles);
+    if (typeof canEditLibrary === "boolean") setCanEditLibrary(churchId, canEditLibrary);
+    return null;
+  });
+  useEffect(() => startChurchStylesSync(churchId, initialChurchStyles ?? null), [churchId]); // eslint-disable-line react-hooks/exhaustive-deps
   const router = useRouter();
   // Voice command "give me NIV" (and future variants) can override the
   // active translation without reloading. Seeded from the server-provided
@@ -390,6 +407,13 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   const [liveSendSeq, setLiveSendSeq] = useState(0);
   const liveSendSeqRef = useRef(0);
   const livePosRef = useRef<string | null>(null);
+  // Exact plan item the live slide was sent from (stamped by grid/playlist/deck
+  // sends). Declared here, above liveItemIdx, so the memo can read it. Validated
+  // against the live slide's identity at read time, so any different send
+  // (Bible/media/AI/clear) naturally invalidates it. The seq state re-runs the
+  // memo when only the stamp changed (same song sent from a duplicate item).
+  const liveItemStampRef = useRef<LiveItemStamp | null>(null);
+  const [liveItemStampSeq, setLiveItemStampSeq] = useState(0);
   // ── Live projection UNDO / REDO (Google-Docs-style back/forward for the
   // output). History is recorded centrally by watching `live` (below), so it
   // captures EVERY path that changes the projector — manual sends, editor Show,
@@ -616,20 +640,22 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
 
   // Per-content-type default style (moved above the PR 2 resolvers + liveItemIdx,
   // which read it).
-  const [contentStyles, setContentStyles] = useState<import("@/lib/content-type-styles").ContentTypeStyles>({});
+  // PR B: church-scoped + synchronous (hydrated above), so the first send already
+  // sees the church's content-type themes.
+  const [contentStyles, setContentStyles] = useState<import("@/lib/content-type-styles").ContentTypeStyles>({}); // {} on first render = SSR parity
   useEffect(() => {
-    let alive = true;
-    const load = () => import("@/lib/content-type-styles").then(({ loadContentTypeStyles }) => { if (alive) setContentStyles(loadContentTypeStyles()); });
-    void load();
-    const onChange = () => void load();
-    window.addEventListener("presentflow:content-type-styles-changed", onChange);
-    return () => { alive = false; window.removeEventListener("presentflow:content-type-styles-changed", onChange); };
-  }, []);
+    const load = () => setContentStyles(getContentTypeStyles(churchId));
+    load();
+    window.addEventListener(CONTENT_TYPE_STYLES_EVENT, load);
+    return () => { window.removeEventListener(CONTENT_TYPE_STYLES_EVENT, load); };
+  }, [churchId]);
   // ── Theme → Projector (PR 2): synchronous send-time theme lookup ──────────
   // Refs only (no state reads) so sendSlideToLive stays stable and never waits
   // on a dynamic import (rule 10 latency). Memoised per theme config object.
   const contentStylesRef = useRef<import("@/lib/content-type-styles").ContentTypeStyles>({});
-  contentStylesRef.current = contentStyles;
+  // Send path reads the synchronous store (hydrated in the first render) so a
+  // send before the state effect runs still uses the church's themes.
+  contentStylesRef.current = typeof window === "undefined" ? contentStyles : getContentTypeStyles(churchId);
   const scriptureOptsMemoRef = useRef(new WeakMap<object, ThemeScriptureOptions | null>());
   const themeTransitionMemoRef = useRef(new WeakMap<object, import("@/lib/broadcast").TransitionSpec | null | undefined>());
   type ThemeItemRef = { type?: string; themeId?: string | null; songAppliedThemeId?: string | null } | undefined;
@@ -679,34 +705,13 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   }, [live]);
   const liveItemIdx = useMemo(() => {
     if (!liveKey) return -1;
-    for (let i = 0; i < plan.items.length; i++) {
-      const slides = plan.items[i].slides;
-      for (let j = 0; j < slides.length; j++) {
-        // Cheap kind check first — skip stringify on obvious mismatches.
-        if (slides[j].kind !== live.kind) continue;
-        try { if (JSON.stringify(slides[j]) === liveKey) return i; } catch { /* continue */ }
-      }
-    }
-    // 2026-09-14: every send is laid out (applyChurchLayout), so on a lower-third
-    // church the live slide is the BANDED form and never byte-equals the raw plan
-    // slide above. Fall back to content identity: the live slide reduced to its
-    // source (sourceForRelayout) vs the raw plan slide, or the live slide vs the
-    // plan slide run through the same church layout.
-    try {
-      const liveId = slideOutputIdentity(live);
-      const srcId = slideOutputIdentity(sourceForRelayout(live));
-      for (let i = 0; i < plan.items.length; i++) {
-        for (const ps of plan.items[i].slides) {
-          if (ps.kind !== live.kind) continue;
-          const pid = slideOutputIdentity(ps);
-          if (pid === srcId || pid === liveId) return i;
-          if (slideOutputIdentity(applyChurchLayout(ps, churchId, scriptureThemeOptsFor(ps, plan.items[i]))) === liveId) return i;
-        }
-      }
-    } catch { /* fall through */ }
-    return -1;
+    return resolveLiveItemIdx(plan.items as never, live, liveItemStampRef.current, {
+      identity: slideOutputIdentity,
+      source: sourceForRelayout,
+      layout: (ps, item) => applyChurchLayout(ps, churchId, scriptureThemeOptsFor(ps, item as never)),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan.items, live.kind, liveKey, churchId, themesVersion, contentStyles]);
+  }, [plan.items, live.kind, liveKey, churchId, themesVersion, contentStyles, liveItemStampSeq]);
 
   // Themes 2c — resolve the LIVE item's section-theme override (if any) into its
   // own appearance. Anchored to the LIVE item (not the preview cursor) so that
@@ -714,40 +719,23 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // projector theme — only what is actually LIVE (or, when nothing is live, the
   // applied church default `appearance`) drives it. When set it wins over the
   // default; unset (every existing plan, or nothing live) → null → default used.
-  // Item theme wins, then the song's own applied theme (PR 2), then content-type/default.
-  const currentItemThemeId = (plan.items[liveItemIdx] as { themeId?: string } | undefined)?.themeId
-    ?? (plan.items[liveItemIdx] as { songAppliedThemeId?: string } | undefined)?.songAppliedThemeId
-    ?? null;
-  const [itemAppearance, setItemAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
-  useEffect(() => {
-    if (!currentItemThemeId) { setItemAppearance(null); return; }
-    const cfg = themesByIdRef.current.get(currentItemThemeId);
-    if (!cfg) { setItemAppearance(null); return; }
-    let cancelled = false;
-    void import("@/lib/theme-appearance").then(({ themeConfigToAppearance }) => {
-      if (!cancelled) setItemAppearance(themeConfigToAppearance(cfg));
-    });
-    return () => { cancelled = true; };
-  }, [currentItemThemeId, themesVersion]);
-  // Per-content-type default style: when the LIVE item has no explicit per-item
-  // theme, its TYPE (song / scripture) selects a default theme; else the church
-  // default. Operator-machine setting (localStorage), same-machine event-driven.
-  const liveItemType = (plan.items[liveItemIdx] as { type?: string } | undefined)?.type;
-  const contentTypeThemeId = liveItemType === "song" ? (contentStyles.song ?? null) : liveItemType === "scripture" ? (contentStyles.scripture ?? null) : null;
-  const [contentTypeAppearance, setContentTypeAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
-  useEffect(() => {
-    if (!contentTypeThemeId) { setContentTypeAppearance(null); return; }
-    const cfg = themesByIdRef.current.get(contentTypeThemeId);
-    if (!cfg) { setContentTypeAppearance(null); return; }
-    let cancelled = false;
-    void import("@/lib/theme-appearance").then(({ themeConfigToAppearance }) => {
-      if (!cancelled) setContentTypeAppearance(themeConfigToAppearance(cfg));
-    });
-    return () => { cancelled = true; };
-  }, [contentTypeThemeId, themesVersion]);
-  // The appearance actually emitted: per-item theme wins, then the content-type
-  // default for the live item, then the church default.
-  const effectiveAppearance = itemAppearance ?? contentTypeAppearance ?? appearance;
+  // ONE resolver for live AND thumbnails (live-item-theme.ts): item theme →
+  // song's applied theme → content-type style → church default.
+  const appearanceMemoRef = useRef(new WeakMap<object, import("@/lib/broadcast").ThemeAppearance | null>());
+  const appearanceForConfig = useCallback((cfg: unknown): import("@/lib/broadcast").ThemeAppearance | null => {
+    if (!cfg || typeof cfg !== "object") return null;
+    const memo = appearanceMemoRef.current;
+    if (!memo.has(cfg)) memo.set(cfg, themeConfigToAppearance(cfg));
+    return memo.get(cfg) ?? null;
+  }, []);
+  const liveItemThemeConfig = resolveItemThemeConfig(plan.items[liveItemIdx] as never, contentStyles, (id) => themesByIdRef.current.get(id));
+  // The appearance actually emitted: the live item's resolved theme, else the church default.
+  const effectiveAppearance = useMemo(
+    () => (liveItemThemeConfig ? appearanceForConfig(liveItemThemeConfig) : null) ?? appearance,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [liveItemThemeConfig, appearance, themesVersion],
+  );
+
 
   // Mutual-exclusivity heal against the EFFECTIVE appearance (2026-08-29): the
   // mount + theme-changed heals only cleared a Background Template when the
@@ -1039,8 +1027,21 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     if (posKey !== null || idChanged) livePosRef.current = posKey;
     if (changed) { liveSendSeqRef.current += 1; setLiveSendSeq(liveSendSeqRef.current); }
   }, []);
+  // Record (or clear) which plan item the slide about to go live came from.
+  const stampLiveItem = useCallback((itemIdx: number | null | undefined, slide: SlidePayload) => {
+    let next: LiveItemStamp | null = null;
+    if (typeof itemIdx === "number" && itemIdx >= 0) {
+      try { next = { itemIdx, identity: slideOutputIdentity(slide) }; } catch { next = null; }
+    }
+    const prev = liveItemStampRef.current;
+    if (prev?.itemIdx === next?.itemIdx && prev?.identity === next?.identity) return;
+    liveItemStampRef.current = next;
+    setLiveItemStampSeq((n) => n + 1);
+  }, []);
   const setLive = useCallback((slide: SlidePayload, pos?: LivePos | null) => {
     const prevLive = liveRef.current;
+    // Deck-position sends (next/prev, jump, autoSend) know their exact item.
+    if (pos) stampLiveItem(pos.itemIdx, slide);
     noteLiveSend(slide, pos);
     setLiveRaw(slide);
     // R1b re-arm, centralised 2026-09-16 so EVERY send path (operator slide click,
@@ -1054,7 +1055,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       && liveContentKey(slide) !== liveContentKey(prevLive)) {
       liveLayersRef.current.rearmSlide();
     }
-  }, [noteLiveSend]);
+  }, [noteLiveSend, stampLiveItem]);
   // The PRE-layout source of whatever is currently live — captured at
   // sendSlideToLive entry (before applyChurchLayout). Re-sending THIS through the
   // pipeline re-applies the CURRENT church layout, so a full↔third toggle can
@@ -1380,7 +1381,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   const sendSlideToLive = useCallback((
     slide: SlidePayload,
     spec?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: LiveOrigin; carryLiveOrigin?: boolean; position?: LivePos },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: LiveOrigin; carryLiveOrigin?: boolean; position?: LivePos; sourceItemIdx?: number },
   ) => {
     // 2026-07-25 — added tracing + defensive guards after a field report
     // that "clicking a song slide does nothing" (v0.1.42 hunt). The pipeline
@@ -1405,6 +1406,13 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // theme lookup for scripture options + the theme transition (PR 2).
     const sendItem = options?.position ? (planItemsRef.current[options.position.itemIdx] as { type?: string; themeId?: string | null } | undefined) : undefined;
     slide = applyChurchLayout(slide, churchId, scriptureThemeOptsFor(slide, sendItem));
+    // Live theme resolution (live-item-theme.ts): stamp the exact plan item this
+    // came from; any send that names no item (Bible/media/AI/chip) clears it so
+    // liveItemIdx falls back to the content match. A restyle of what's already
+    // live (carryLiveOrigin) keeps the existing stamp. Not part of identity.
+    if (typeof options?.sourceItemIdx === "number") stampLiveItem(options.sourceItemIdx, slide);
+    else if (options?.position) stampLiveItem(options.position.itemIdx, slide);
+    else if (!options?.carryLiveOrigin) stampLiveItem(null, slide);
     lastSourceLiveIdRef.current = slideOutputIdentity(slide);
     // Record what KIND of content this is for the song auto-switch guard. On the
     // already-live skip below the identity is unchanged, so a re-stamp only ever
@@ -1461,20 +1469,13 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     if (!options?.instant) {
       try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
     }
-  }, [churchId, stampLiveOrigin, noteLiveSend, setLive, scriptureThemeOptsFor, themeTransitionFor]);
-  const appearanceMemoRef = useRef(new WeakMap<object, import("@/lib/broadcast").ThemeAppearance | null>());
+  }, [churchId, stampLiveOrigin, noteLiveSend, setLive, scriptureThemeOptsFor, themeTransitionFor, stampLiveItem]);
   const appearanceForItem = useCallback((itemIdx: number): import("@/lib/broadcast").ThemeAppearance | null => {
-    const item = plan.items[itemIdx] as { type?: string; themeId?: string; songAppliedThemeId?: string } | undefined;
-    const byId = (id: string | null | undefined) => (id ? themesByIdRef.current.get(id) : undefined);
-    const ct = item?.type === "song" ? contentStyles.song : item?.type === "scripture" ? contentStyles.scripture : undefined;
-    const cfg = byId(item?.themeId) ?? byId(item?.songAppliedThemeId) ?? byId(ct) ?? null;
-    // No item-specific theme → exactly what the live output uses today.
-    if (!cfg || typeof cfg !== "object") return effectiveAppearance;
-    const memo = appearanceMemoRef.current;
-    if (!memo.has(cfg)) memo.set(cfg, themeConfigToAppearance(cfg));
-    return memo.get(cfg) ?? null;
+    // Same resolver as the live output (effectiveAppearance) — never diverges.
+    const cfg = resolveItemThemeConfig(plan.items[itemIdx] as never, contentStyles, (id) => themesByIdRef.current.get(id));
+    return (cfg ? appearanceForConfig(cfg) : null) ?? appearance;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan.items, contentStyles, effectiveAppearance, themesVersion]);
+  }, [plan.items, contentStyles, appearance, appearanceForConfig, themesVersion]);
   const layoutPreviewSlide = useCallback((slide: SlidePayload): SlidePayload => {
     try { return applyChurchLayout(slide, churchId, scriptureThemeOptsFor(slide, undefined)); } catch { return slide; }
   }, [churchId, scriptureThemeOptsFor]);

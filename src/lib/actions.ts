@@ -1826,6 +1826,127 @@ export async function setLayersEngineEnabled(enabled: boolean): Promise<Result> 
   return { ok: true };
 }
 
+// ── Per-church styles (PR B, 2026-09-17) ────────────────────────────────────
+// Scripture Style + per-content-type default themes, stored on the church's
+// church_preferences row (never through updatePreferences). hasCap + {ok:false}
+// instead of requireCap: a redirect from inside the live operator console would
+// navigate away mid-service. Every read/write is church_id-scoped.
+// `expectedChurchId` (optional): a write queued on this computer for church X
+// must never land on church Y after a sign-in switch → refused as WRONG_CHURCH.
+type ChurchStylesRead = {
+  churchId: string;
+  scriptureStyle: unknown | null;
+  contentTypeStyles: unknown;
+  scriptureStyleUpdatedAt: string | null;
+  contentTypeStylesUpdatedAt: string | null;
+};
+type ChurchStylesData = ChurchStylesRead & { applied: boolean };
+
+async function readChurchStyles(churchId: string): Promise<ChurchStylesRead> {
+  const db = getDb();
+  const [row] = await db.select({
+    scriptureStyle: churchPreferences.scriptureStyle,
+    contentTypeStyles: churchPreferences.contentTypeStyles,
+    scriptureStyleUpdatedAt: churchPreferences.scriptureStyleUpdatedAt,
+    contentTypeStylesUpdatedAt: churchPreferences.contentTypeStylesUpdatedAt,
+  }).from(churchPreferences).where(eq(churchPreferences.churchId, churchId)).limit(1);
+  const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
+  return {
+    churchId,
+    scriptureStyle: row?.scriptureStyle ?? null,
+    contentTypeStyles: row?.contentTypeStyles ?? {},
+    scriptureStyleUpdatedAt: iso(row?.scriptureStyleUpdatedAt),
+    contentTypeStylesUpdatedAt: iso(row?.contentTypeStylesUpdatedAt),
+  };
+}
+
+async function ensurePreferencesRow(churchId: string): Promise<void> {
+  // Unique church_id → concurrent first writes can't double-insert.
+  await getDb().insert(churchPreferences).values({ churchId }).onConflictDoNothing({ target: churchPreferences.churchId });
+}
+
+const CHURCH_STYLES_NOT_PERMITTED = "Not permitted";
+const CHURCH_STYLES_WRONG_CHURCH = "Wrong church";
+
+export async function getChurchStyles(): Promise<Result<ChurchStylesRead>> {
+  const user = await requireUser();
+  if (!hasCap(user.role, "operate_services")) return { ok: false, error: CHURCH_STYLES_NOT_PERMITTED };
+  return { ok: true, data: await readChurchStyles(user.churchId) };
+}
+
+/**
+ * Save (or clear, with null) the church's Scripture Style. Any role that can
+ * operate services may change it (volunteers mid-service — signed-off).
+ * `ifEmpty` = one-time legacy migration: an ATOMIC conditional update that only
+ * lands when the church has never had a style (NULL value AND NULL updated_at,
+ * so a deliberate clear is never overwritten) → first computer wins; losers get
+ * the current server value back with applied:false.
+ */
+export async function setScriptureStyle(design: unknown, opts: { ifEmpty?: boolean; expectedChurchId?: string } = {}): Promise<Result<ChurchStylesData>> {
+  const user = await requireUser();
+  if (!hasCap(user.role, "operate_services")) return { ok: false, error: CHURCH_STYLES_NOT_PERMITTED };
+  if (opts?.expectedChurchId !== undefined && opts.expectedChurchId !== user.churchId) return { ok: false, error: CHURCH_STYLES_WRONG_CHURCH };
+  const { sanitizeScriptureDesign, SCRIPTURE_DESIGN_MAX_BYTES } = await import("./scripture-design");
+  let value: ReturnType<typeof sanitizeScriptureDesign> = null;
+  if (design !== null) {
+    let size = 0;
+    try { size = JSON.stringify(design)?.length ?? 0; } catch { return { ok: false, error: "Invalid style" }; }
+    if (size > SCRIPTURE_DESIGN_MAX_BYTES) return { ok: false, error: "Style too large" };
+    value = sanitizeScriptureDesign(design);
+    if (!value) return { ok: false, error: "Invalid style" };
+  }
+  const ifEmpty = opts?.ifEmpty === true;
+  if (ifEmpty && value === null) return { ok: false, error: "Nothing to migrate" };
+  const db = getDb();
+  await ensurePreferencesRow(user.churchId);
+  const where = ifEmpty
+    ? and(eq(churchPreferences.churchId, user.churchId), sql`${churchPreferences.scriptureStyle} IS NULL`, sql`${churchPreferences.scriptureStyleUpdatedAt} IS NULL`)
+    : eq(churchPreferences.churchId, user.churchId);
+  const updated = await db.update(churchPreferences)
+    .set({ scriptureStyle: value, scriptureStyleUpdatedAt: sql`now()`, updatedAt: new Date() })
+    .where(where)
+    .returning({ id: churchPreferences.id });
+  revalidatePath("/operator");
+  return { ok: true, data: { ...(await readChurchStyles(user.churchId)), applied: updated.length > 0 } };
+}
+
+/**
+ * Save the church's per-content-type default themes. A normal save needs
+ * edit_library. The one-time legacy migration (`ifEmpty`) is allowed for
+ * operate_services (a volunteer's computer may be the first to open) because it
+ * can only fill a church that has NEVER set them, and only with this church's
+ * own theme ids. Keys limited to song|scripture, values must be uuids of THIS
+ * church's themes (foreign / unknown ids are dropped, never stored).
+ * `ifEmpty` lands only while content_type_styles_updated_at IS NULL (atomic).
+ */
+export async function setContentTypeStyles(next: unknown, opts: { ifEmpty?: boolean; expectedChurchId?: string } = {}): Promise<Result<ChurchStylesData>> {
+  const user = await requireUser();
+  const ifEmpty = opts?.ifEmpty === true;
+  if (!hasCap(user.role, ifEmpty ? "operate_services" : "edit_library")) return { ok: false, error: CHURCH_STYLES_NOT_PERMITTED };
+  if (opts?.expectedChurchId !== undefined && opts.expectedChurchId !== user.churchId) return { ok: false, error: CHURCH_STYLES_WRONG_CHURCH };
+  const { sanitizeContentTypeStyles } = await import("./scripture-design");
+  const clean = sanitizeContentTypeStyles(next);
+  const ids = [...new Set(Object.values(clean).filter((v): v is string => typeof v === "string"))];
+  const db = getDb();
+  if (ids.length > 0) {
+    const owned = await db.select({ id: themes.id }).from(themes).where(and(eq(themes.churchId, user.churchId), inArray(themes.id, ids)));
+    const ownedIds = new Set(owned.map((r: { id: string }) => r.id));
+    for (const k of ["song", "scripture"] as const) {
+      if (clean[k] && !ownedIds.has(clean[k]!)) delete clean[k];
+    }
+  }
+  await ensurePreferencesRow(user.churchId);
+  const where = ifEmpty
+    ? and(eq(churchPreferences.churchId, user.churchId), sql`${churchPreferences.contentTypeStylesUpdatedAt} IS NULL`, sql`${churchPreferences.contentTypeStyles} = '{}'::jsonb`)
+    : eq(churchPreferences.churchId, user.churchId);
+  const updated = (ifEmpty && Object.keys(clean).length === 0)
+    ? []
+    : await db.update(churchPreferences).set({ contentTypeStyles: clean, contentTypeStylesUpdatedAt: sql`now()`, updatedAt: new Date() }).where(where).returning({ id: churchPreferences.id });
+  revalidatePath("/operator");
+  revalidatePath("/library/themes");
+  return { ok: true, data: { ...(await readChurchStyles(user.churchId)), applied: updated.length > 0 } };
+}
+
 /** Team members + pending invites for the desktop Settings window (same data as
  *  /settings/team). Admin-only, returns an error instead of redirecting so the
  *  live operator is never navigated away. Church-scoped. */

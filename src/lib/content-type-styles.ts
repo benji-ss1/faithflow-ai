@@ -5,39 +5,31 @@
  * type in the Themes panel; when a live item has no explicit per-item theme, its
  * TYPE selects the theme here, falling back to the church default.
  *
- * Stored per operator machine (localStorage) — same class as fontScale/autopilot
- * prefs — so it ships without a DB migration and drives every output surface via
- * OperatorConsole's appearance resolution. Announcements keep their own style in
- * the announcement composer (a separate style model).
+ * PR B (2026-09-17): stored per CHURCH (church_preferences.content_type_styles),
+ * cached synchronously in church-styles-store. The old per-machine key
+ * `presentflow.contentTypeStyles.v1` had NO churchId (a cross-church leak on a
+ * shared computer); it is now only a READ-ONLY fallback before hydrate and a
+ * one-time migration source (kept one release). Announcements keep their own
+ * style in the announcement composer (a separate style model).
  */
-export type ContentStyleType = "song" | "scripture";
-export type ContentTypeStyles = Partial<Record<ContentStyleType, string>>; // type → themeId
+import { getContentTypeStyles, setLocalContentTypeStyles } from "./church-styles-store";
+export type { ContentStyleType, ContentTypeStyles } from "./scripture-design";
+import type { ContentTypeStyles } from "./scripture-design";
 
-const KEY = "presentflow.contentTypeStyles.v1";
-export const CONTENT_STYLE_TYPES: { key: ContentStyleType; label: string }[] = [
+export const CONTENT_STYLE_TYPES: { key: "song" | "scripture"; label: string }[] = [
   { key: "song", label: "Songs" },
   { key: "scripture", label: "Bible verses" },
 ];
 
-export function loadContentTypeStyles(): ContentTypeStyles {
-  try {
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem(KEY) : null;
-    if (!raw) return {};
-    const p = JSON.parse(raw) as ContentTypeStyles;
-    const out: ContentTypeStyles = {};
-    for (const { key } of CONTENT_STYLE_TYPES) {
-      if (typeof p[key] === "string" && p[key]) out[key] = p[key];
-    }
-    return out;
-  } catch { return {}; }
+/** Synchronous. `churchId` omitted → the church this window last hydrated. */
+export function loadContentTypeStyles(churchId?: string): ContentTypeStyles {
+  return getContentTypeStyles(churchId);
 }
 
-export function saveContentTypeStyles(next: ContentTypeStyles): void {
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(next));
-    // Same-machine broadcast so OperatorConsole re-resolves the live appearance.
-    window.dispatchEvent(new CustomEvent("presentflow:content-type-styles-changed"));
-  } catch { /* best effort */ }
+export function saveContentTypeStyles(next: ContentTypeStyles, churchId?: string): void {
+  // Updates the cache, dispatches presentflow:content-type-styles-changed (so
+  // OperatorConsole re-resolves the live appearance), BroadcastChannel + server.
+  setLocalContentTypeStyles(churchId, next);
 }
 
 /** Resolve the themeId that should style a given live item type, or null. */
