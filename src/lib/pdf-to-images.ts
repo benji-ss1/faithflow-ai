@@ -76,7 +76,9 @@ export function isPdfFile(file: { name: string; type: string }): boolean {
  * Returns a summary so the caller can tell the user when a deck was truncated.
  */
 export async function renderPdfToImages(
-  file: File,
+  // A File, or any {name, arrayBuffer()} — the PowerPoint path hands over the
+  // converted PDF's bytes this way so no duplicate Blob copy stays resident.
+  file: Pick<File, "name" | "arrayBuffer">,
   onPage: DeckPageHandler,
   opts: { signal?: AbortSignal } = {},
 ): Promise<DeckRenderResult> {

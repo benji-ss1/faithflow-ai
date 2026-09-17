@@ -40,7 +40,8 @@ import { snapshotBackgroundState, restoreBackgroundState, removeCustomBackground
 import { deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isImageAsset } from "@/lib/media-drop";
-import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide, shouldSendFramedSlide } from "../center/mediaFrame";
+import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
+import { mediaClickAction, AUDIO_NOT_PROJECTABLE_MESSAGE } from "@/lib/media-click";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { MediaImportWizard } from "../center/MediaImportWizard";
 import { isOsFileDrag, collectDroppedFiles, isFileInputTarget } from "@/lib/media-bin-drop";
@@ -48,7 +49,6 @@ import { isRealDragLeave } from "@/lib/spring-load";
 import { MediaBinUploadQueue, type MediaBinUploadQueueHandle } from "./MediaBinUploadQueue";
 import { MediaImageEditor } from "../center/MediaImageEditor";
 import { Pencil } from "lucide-react";
-import { usePp7Layers } from "@/lib/pp7-layers-flag";
 
 type Asset = {
   id: string;
@@ -61,8 +61,8 @@ type Asset = {
 
 /** Audio has no output path yet (no audio slide kind) — it must never be sent
  *  live, used as a background, or dragged onto a slide. */
-const isAudioAsset = (a: Asset) => (a.kind || "") === "audio";
-const AUDIO_NOT_PROJECTABLE = "Audio can't be shown on screen — playback from the Media Bin is coming soon";
+const isAudioAsset = (a: Asset) => mediaClickAction(a.kind) === "audio-blocked";
+const AUDIO_NOT_PROJECTABLE = AUDIO_NOT_PROJECTABLE_MESSAGE;
 
 // Popped-out preset height (used when the operator taps the pop-out button
 // instead of hand-dragging the resize handle).
@@ -99,6 +99,7 @@ export function MediaBinSection({
   const [libs, setLibs] = useState<LibraryRow[]>([]);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardFiles, setWizardFiles] = useState<File[] | undefined>(undefined);
+  const [wizardFromDrop, setWizardFromDrop] = useState(false); // decks auto-start only for OS drops
   const [preview, setPreview] = useState<Asset | null>(null);
   // E2: the image being edited in the crop/frame editor (opened from the menu).
   const [editAsset, setEditAsset] = useState<{ id: string; url: string; fileName: string } | null>(null);
@@ -181,19 +182,6 @@ export function MediaBinSection({
     return { kind: "image", url: a.url, fit: "contain" };
   };
 
-  // PP7 layers flag: a click puts media on the Media layer, BEHIND the words
-  // (the slide stays live; F3 / the rail's Media button clears only the media).
-  const pp7Layers = usePp7Layers();
-  const sendToMediaLayer = (a: Asset) => {
-    if (isAudioAsset(a)) { toast.error(AUDIO_NOT_PROJECTABLE); return; }
-    if (!a.url) { toast.error("This asset has no file to show"); return; }
-    setMediaAsBackground({
-      id: a.id, url: a.url, fileName: a.fileName || "Media",
-      kind: normalizeMediaKind(a.kind || "image"), mediaKey: a.mediaKey || undefined,
-    });
-    toast.success(`“${a.fileName || "Media"}” is on the Media layer`, { id: "pf-media-layer", description: ctx && ctx.liveLayers.rows.some((r) => r.id === "camera" && r.active) ? "It covers the live camera. Clear Media (F3) shows the camera again." : "Clear Media (F3) removes it. Your words stay." });
-  };
-
   const sendAsSlide = (a: Asset) => {
     if (isAudioAsset(a)) { toast.error(AUDIO_NOT_PROJECTABLE); return; }
     const slide = toSlide(a);
@@ -258,6 +246,7 @@ export function MediaBinSection({
     e.target.value = ""; // allow re-picking the same file
     if (files.length === 0) return;
     setWizardFiles(files);
+    setWizardFromDrop(false);
     setWizardOpen(true);
   };
 
@@ -283,6 +272,7 @@ export function MediaBinSection({
   }, []);
   const openWizardWith = useCallback((files: File[]) => {
     setWizardFiles(files);
+    setWizardFromDrop(true);
     setWizardOpen(true);
   }, []);
 
@@ -596,12 +586,13 @@ export function MediaBinSection({
                           if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
                           clickTimerRef.current = window.setTimeout(() => {
                             clickTimerRef.current = null;
-                            if (ctx) {
-                              // A saved frame can't ride the Media layer (plain full-screen) —
-                              // project it framed when no words are live.
-                              const framed = shouldSendFramedSlide(!!(a.url && loadMediaFrame(ctx.churchId, a.id)), (a.kind || "").startsWith("video"), ctx.liveSlide as { kind: string; text?: string } | null);
-                              if (pp7Layers && ctx.layersEngineOn && !framed) sendToMediaLayer(a); else sendAsSlide(a);
-                            } else onCenterMode?.("media");
+                            // A click ALWAYS sends the media live to the screen (framed if it
+                            // has a saved edit). Only the "Bg" button / "Set as background"
+                            // menu items change the background behind every slide
+                            // (user-directed 2026-09-17 — a click must never set a background).
+                            if (!ctx) { onCenterMode?.("media"); return; }
+                            if (mediaClickAction(a.kind) === "send-live") sendAsSlide(a);
+                            else toast.error(AUDIO_NOT_PROJECTABLE);
                           }, 250);
                         }}
                         onDoubleClick={(e) => {
@@ -696,6 +687,7 @@ export function MediaBinSection({
         onClose={() => { setWizardOpen(false); setWizardFiles(undefined); }}
         onImported={() => { void load(); window.dispatchEvent(new CustomEvent("presentflow:libraries-changed")); }}
         initialFiles={wizardFiles}
+        autoStartDecks={wizardFromDrop}
       />
 
       {/* Double-click quick preview (item 4) */}
