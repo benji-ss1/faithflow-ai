@@ -11,8 +11,8 @@ test/adversarial/learned-keyterms-cross-church.test.ts
 test/adversarial/media-register-scope.test.ts
 test/adversarial/sermon-backfill-cross-church.test.ts
 test/adversarial/song-chunk-scope.test.ts
-test/adversarial/theme-reapply-scope.test.ts
 test/adversarial/theme-gaps-scope.test.ts
+test/adversarial/theme-reapply-scope.test.ts
 test/ai-pipeline.test.ts
 test/allusion-matcher.test.ts
 test/allusion-precision.test.ts
@@ -44,6 +44,7 @@ test/bible-silence-advance.test.ts
 test/bible-stutter-combine.test.ts
 test/bible-verse-enum-phonetic.test.ts
 test/bible-verse-range.test.ts
+test/builtin-themes.test.ts
 test/changelog-generator.test.ts
 test/colorway.test.ts
 test/context-parser-nav.test.ts
@@ -69,6 +70,7 @@ test/login-guard.test.ts
 test/logo-key.test.ts
 test/media-as-background.stress.test.ts
 test/media-as-background.test.ts
+test/media-click-sends-live.test.ts
 test/media-drop.test.ts
 test/media-frame-slide.test.ts
 test/media-layout.test.ts
@@ -91,6 +93,7 @@ test/output-scenes.test.ts
 test/pd-search-and-actions.test.ts
 test/pdf-to-images.test.ts
 test/platform.test.ts
+test/pptx-convert.test.ts
 test/proclaim-order.test.ts
 test/projector-fontsize.test.ts
 test/projector-output.test.ts
@@ -112,6 +115,7 @@ test/slide-actions-remap.test.ts
 test/slide-paste.test.ts
 test/slide-renderer-empty.test.ts
 test/slide-renderer-quick-edit-blank.test.ts
+test/slide-selection.test.ts
 test/song-best-slide.test.ts
 test/song-chunk-import.test.ts
 test/song-chunk.test.ts
@@ -124,9 +128,10 @@ test/spring-load.test.ts
 test/stale-action.test.ts
 test/stress-wave6-3.test.ts
 test/text-size-freedom.test.ts
-test/builtin-themes.test.ts
 test/theme-appearance.test.ts
 test/theme-bake.test.ts
+test/theme-decor-designed.test.ts
+test/theme-decor-layer.test.ts
 test/theme-decor.test.ts
 test/theme-editor-model.test.ts
 test/theme-layout-sanitize.test.ts
@@ -143,7 +148,3 @@ test/videopsalm-parser.test.ts
 test/videopsalm.test.ts
 test/voice-commands.test.ts
 test/whats-new.test.ts
-test/pptx-convert.test.ts
-test/media-click-sends-live.test.ts
-test/theme-decor-designed.test.ts
-test/theme-decor-layer.test.ts
