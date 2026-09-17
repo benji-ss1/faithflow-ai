@@ -178,7 +178,7 @@ export function VocalChannelAutoDetectModal({
 
     (async () => {
       try {
-        const cap = await openMultiChannelCapture({ deviceId });
+        const cap = await openMultiChannelCapture({ deviceId, label: deviceLabel });
         if (cancelled) {
           cap.close();
           return;

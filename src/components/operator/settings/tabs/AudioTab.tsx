@@ -257,7 +257,7 @@ export function AudioTab() {
     let cancelled = false;
     (async () => {
       try {
-        const cap = await openMultiChannelCapture({ deviceId: selected.id, requestedChannels: Math.max(2, channelCount) });
+        const cap = await openMultiChannelCapture({ deviceId: selected.id, label: selected.label, requestedChannels: Math.max(2, channelCount) });
         if (cancelled) { try { cap.close(); } catch {} return; }
         captureRef.current = cap;
         setCaptureError(null);

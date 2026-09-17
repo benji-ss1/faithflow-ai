@@ -40,6 +40,7 @@ import { CenterHeader } from "./center/CenterHeader";
 import { SlideGrid } from "./center/SlideGrid";
 import { ArrangementStrip } from "./center/ArrangementStrip";
 import { DesktopSlideEditorModal } from "./DesktopSlideEditorModal";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImageEditor } from "./center/MediaImageEditor";
 import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
@@ -1885,9 +1886,49 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // { blank: true } so the modal drops in and selects a fresh empty slide.
   const [slideEditorBlank, setSlideEditorBlank] = useState(false);
   const [slideEditorAdd, setSlideEditorAdd] = useState(false);
+  // Theme Editor (PR 1): the Themes popover pencil dispatches { themeId } so the
+  // SAME editor opens on that theme (PP7-style). Mutually exclusive with a song.
+  const [slideEditorTargetTheme, setSlideEditorTargetTheme] =
+    useState<import("./DesktopSlideEditorModal").SlideEditorTargetTheme | null>(null);
+  // Unsaved theme edits (reported by the modal) → confirm before another
+  // open-slide-editor event replaces the theme being edited.
+  const themeEditorDirtyRef = useRef(false);
+  const onThemeEditorDirty = useCallback((dirty: boolean) => { themeEditorDirtyRef.current = dirty; }, []);
+  const { confirm: confirmEditorSwitch, dialog: editorSwitchDialog } = useConfirm();
+  const confirmEditorSwitchRef = useRef(confirmEditorSwitch);
+  confirmEditorSwitchRef.current = confirmEditorSwitch;
   useEffect(() => {
     const open = (e: Event) => {
-      const detail = (e as CustomEvent<{ songId?: string; title?: string; blank?: boolean; add?: boolean } | undefined>).detail;
+      if (themeEditorDirtyRef.current) {
+        void confirmEditorSwitchRef.current({
+          title: "Discard unsaved theme changes?",
+          description: "You're editing a theme with unsaved changes. Opening something else discards them.",
+          confirmLabel: "Discard and open",
+          danger: true,
+        }).then((ok) => { if (ok) { themeEditorDirtyRef.current = false; handleOpen(e); } });
+        return;
+      }
+      handleOpen(e);
+    };
+    const handleOpen = (e: Event) => {
+      const detail = (e as CustomEvent<{ songId?: string; title?: string; blank?: boolean; add?: boolean; themeId?: string } | undefined>).detail;
+      if (detail?.themeId) {
+        const themeId = detail.themeId;
+        setSlideEditorBlank(false);
+        setSlideEditorAdd(false);
+        fetch("/api/themes")
+          .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+          .then((data: { themes?: { id: string; name: string; isDefault?: boolean; config?: unknown }[] }) => {
+            const t = (data.themes ?? []).find((x) => x.id === themeId);
+            if (!t) { toast.error("Couldn't find that theme."); return; }
+            setSlideEditorTargetSong(null);
+            setSlideEditorTargetTheme({ id: t.id, name: t.name, isDefault: t.isDefault === true, config: (t.config && typeof t.config === "object" ? t.config : {}) as Record<string, unknown> });
+            setSlideEditorOpen(true);
+          })
+          .catch(() => { toast.error("Couldn't load that theme to edit."); });
+        return;
+      }
+      setSlideEditorTargetTheme(null);
       setSlideEditorBlank(!!detail?.blank);
       setSlideEditorAdd(!!detail?.add);
       if (detail?.songId) {
@@ -5045,7 +5086,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <SceneBuilderHost ctx={ctx} />
       <SongAutopilotStaging ctx={ctx} />
       <AITranscriptTicker ctx={ctx} />
-      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorBlank(false); setSlideEditorAdd(false); }} />
+      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} targetTheme={slideEditorTargetTheme} onThemeDirtyChange={onThemeEditorDirty} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorTargetTheme(null); setSlideEditorBlank(false); setSlideEditorAdd(false); themeEditorDirtyRef.current = false; }} />
+      {editorSwitchDialog}
       {mediaEdit ? (
         <MediaImageEditor
           asset={mediaEdit}

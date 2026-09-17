@@ -19,6 +19,13 @@ import { toast } from "sonner";
 import { applyThemeLive, readThemeRecents, type ClientTheme } from "@/lib/theme-apply-client";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
+// Theme Editor (PR 1): the pencil / "Edit…" open the PP7-style editor ON that
+// theme (the same full-screen slide editor). The sliders icon still opens the
+// old Themes screen until parity is verified.
+function openThemeSlideEditor(themeId: string) {
+  window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor", { detail: { themeId } }));
+}
+
 function openThemeEditor() {
   window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"));
 }
@@ -196,7 +203,7 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
             { label: "Apply", run: () => void apply(t) },
             { label: "Open", run: () => setDetailId(t.id) },
             ...(canEdit ? [
-              { label: "Edit…", run: () => { onOpenChange(false); openThemeEditor(); } },
+              { label: "Edit…", run: () => { onOpenChange(false); openThemeSlideEditor(t.id); } },
               { label: "Rename", run: () => { renameDone.current = false; setRenamingId(renameKey); } },
               { label: "Duplicate", run: () => void duplicate(t) },
             ] : []),
@@ -242,7 +249,7 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
                 <header className="h-12 shrink-0 flex items-center gap-2 px-3 border-b border-[var(--color-border)]">
                   <button type="button" className={iconBtn} onClick={() => setDetailId(null)} aria-label="Back to themes"><ChevronLeft className="w-5 h-5" /></button>
                   <div className="flex-1 min-w-0 text-center text-[14px] font-semibold text-[var(--color-foreground)] truncate">{detail.name}</div>
-                  {canEdit ? <button type="button" className={iconBtn} onClick={() => { onOpenChange(false); openThemeEditor(); }} aria-label={`Edit “${detail.name}”`} title="Edit theme"><Pencil className="w-4 h-4" /></button> : <span className="w-8" aria-hidden />}
+                  {canEdit ? <button type="button" className={iconBtn} onClick={() => { onOpenChange(false); openThemeSlideEditor(detail.id); }} aria-label={`Edit “${detail.name}”`} title="Edit theme"><Pencil className="w-4 h-4" /></button> : <span className="w-8" aria-hidden />}
                 </header>
                 <div className="p-4 overflow-y-auto pf-transcript-scroll">
                   <button type="button" onClick={() => void apply(detail)} title={`Apply “${detail.name}”`} className="block w-1/2 rounded-[4px] ring-1 ring-white/10 hover:ring-2 hover:ring-[var(--color-brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">
@@ -255,7 +262,7 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
                 <header className="h-12 shrink-0 flex items-center gap-2 px-3 border-b border-[var(--color-border)]">
                   <Palette className="w-5 h-5 text-[var(--color-brand)]" aria-hidden />
                   <div className="flex-1 text-center text-[14px] font-semibold text-[var(--color-foreground)]">Themes</div>
-                  {canEdit ? <button type="button" className={iconBtn} onClick={() => { onOpenChange(false); openThemeEditor(); }} aria-label="Open theme editor" title="Theme editor"><SlidersHorizontal className="w-4 h-4" /></button> : null}
+                  {canEdit ? <button type="button" className={iconBtn} onClick={() => { onOpenChange(false); openThemeEditor(); }} aria-label="All themes (classic screen)" title="All themes (classic screen)"><SlidersHorizontal className="w-4 h-4" /></button> : null}
                   {canEdit ? <button type="button" className={iconBtn} onClick={() => setNewOpen(true)} aria-label="New theme" title="New theme"><Plus className="w-5 h-5" /></button> : null}
                 </header>
                 <div className="flex-1 min-h-0 overflow-y-auto p-3 pf-transcript-scroll">

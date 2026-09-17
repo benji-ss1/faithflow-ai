@@ -4,12 +4,47 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.438",
+    "version": "0.1.441",
     "date": "2026-09-17",
     "headline": "Clicking a picture in the Media Bin puts it on the screen again",
     "highlights": [
       "Click a picture or video in the Media Bin or the Media library and it goes straight to the screen, just like before.",
       "A click no longer changes the background behind all your slides. To do that, use the Bg button on the picture (or right-click → Set as background)."
+    ]
+  },
+  {
+    "version": "0.1.440",
+    "date": "2026-09-16",
+    "headline": "Better sound from USB mixers, audio interfaces and Blackmagic devices",
+    "highlights": [
+      "New option in Audio → \"Separate channels from my mixer (USB)\". Turn it on for a USB mixer or interface (X32, XR18, SQ, Focusrite, ATEM Mini) so each channel reaches PresentFlow on its own instead of being squashed together. It turns on automatically for recognised mixers and interfaces (ordinary microphones keep standard processing), and you can switch it off per device.",
+      "Desktop app, new \"Pro audio driver\" (on by default, switch it off in Audio if needed): PresentFlow reads every input channel of your interface, including over ASIO on Windows, and shows the real channel count so you can pick the pastor's mic channel.",
+      "Desktop app, Blackmagic UltraStudio and DeckLink devices can send their SDI/HDMI audio to PresentFlow's AI listening. You need Blackmagic Desktop Video 14.3 or newer installed.",
+      "If a USB interface is unplugged during a service, PresentFlow now tries to reconnect it automatically."
+    ]
+  },
+  {
+    "version": "0.1.439",
+    "date": "2026-09-17",
+    "headline": "Edit a theme the same way you edit a slide",
+    "highlights": [
+      "In the Themes popover, the pencil (or right-click → Edit…) now opens the full-screen slide editor on that theme.",
+      "A theme can have up to 12 slides. Choose what each text box shows (Lyrics, Verse or Reference) under \"This text box shows\" in the Design tab. Text box positions and these choices take effect on the projector in the next update.",
+      "The new Theme tab holds the fonts, the background (colour, gradient with angle, image or video, dim, animation), the logo, scripture options and the transition. The canvas previews gradient and video backgrounds.",
+      "Show only puts a theme slide in Preview. It never goes live.",
+      "After you save, PresentFlow asks whether to restyle the songs that use the theme. Their lyrics are kept. If some songs can't be updated, you can press Retry.",
+      "The sliders button still opens the old theme screen for now."
+    ]
+  },
+  {
+    "version": "0.1.438",
+    "date": "2026-09-17",
+    "headline": "The Windows app can now take audio from OBS over NDI and send your slides out over NDI",
+    "highlights": [
+      "In the Windows app, the Audio panel lists NDI network audio: pick your OBS (DistroAV) source and the AI listens to the service over the network, no USB cable from the mixer needed.",
+      "If OBS closes, PresentFlow shows that the NDI feed was lost and carries on when OBS comes back.",
+      "The Windows app appears as \"PresentFlow - NDI 1\", so OBS and other NDI tools can pick up your slides.",
+      "Download the latest Windows app from your dashboard to get this. Windows apps already installed update on their own."
     ]
   },
   {

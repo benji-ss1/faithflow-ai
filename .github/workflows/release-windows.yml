@@ -58,6 +58,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
         run: npm version "${{ github.event.inputs.version }}" --no-git-tag-version
 
+      - name: Verify native audio module (RtAudio / audify) loads
+        # Hardware I/O Phase B (opt-in pro audio driver). NON-BLOCKING: the app
+        # degrades to standard capture without it, so a flaky prebuild download
+        # must never block a release — but the warning makes the gap visible.
+        continue-on-error: true
+        run: node -e "const {RtAudio}=require('audify'); new RtAudio(); console.log('audify OK', process.arch)"
+
       # NDI: the license-gated SDK isn't in the repo. Download NDI's own installer,
       # install it silently (Inno Setup), and build both native addons against
       # Electron's ABI. HARD FAIL if either addon is missing — a Windows installer
@@ -108,6 +115,37 @@ jobs:
           foreach ($f in @("native\ndi-receiver\build\Release\ndi_receiver.node", "native\ndi-sender\build\Release\ndi_sender.node")) {
             if (-not (Test-Path $f)) { throw "NDI addon missing: $f" }
           }
+
+      # Blackmagic embedded audio (native/decklink-audio). The Desktop Video SDK is
+      # Blackmagic-licensed and this repo is PUBLIC, so the zip lives as a release
+      # asset in the PRIVATE benji-ss1/presentflow-build-deps repo, read with the
+      # BUILD_DEPS_TOKEN secret (fine-grained PAT, Contents: read on that repo only).
+      # Skipped cleanly when the secret isn't set — the installer still ships with
+      # USB/ASIO audio; only Blackmagic audio is missing.
+      - name: Fetch Blackmagic Desktop Video SDK (private)
+        env:
+          BUILD_DEPS_TOKEN: ${{ secrets.BUILD_DEPS_TOKEN }}
+          GH_TOKEN: ${{ secrets.BUILD_DEPS_TOKEN }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not $env:BUILD_DEPS_TOKEN) { Write-Host "::warning::BUILD_DEPS_TOKEN not set - installer ships without Blackmagic audio"; exit 0 }
+          $dir = Join-Path $env:RUNNER_TEMP "decklink"
+          gh release download decklink-sdk-16.0 --repo benji-ss1/presentflow-build-deps --pattern "*.zip" --dir $dir
+          $zip = Get-ChildItem $dir -Filter *.zip | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath $dir -Force
+          $idl = Get-ChildItem $dir -Recurse -Filter "DeckLinkAPI.idl" | Where-Object { $_.DirectoryName -like "*Win*include*" } | Select-Object -First 1
+          if (-not $idl) { throw "DeckLinkAPI.idl not found in SDK zip" }
+          "DECKLINK_SDK_DIR=$($idl.Directory.Parent.Parent.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build Blackmagic audio addon
+        if: env.DECKLINK_SDK_DIR != ''
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set VSDIR=%%i
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat"
+          npm run decklink:rebuild:win
+          if not exist native\decklink-audio\build\Release\decklink_audio.node (echo Blackmagic addon missing & exit /b 1)
 
       - name: Compile Electron main
         run: npm run electron:build:tsc
