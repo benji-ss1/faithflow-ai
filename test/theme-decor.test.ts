@@ -68,7 +68,7 @@ async function main() {
     const live = renderToStaticMarkup(React.createElement(OutputCompositor, { mode: "livestream", slide: LYRIC, appearance: bugAppearance } as never));
     assert.ok(live.includes("<img"));
   });
-  await check("gated OFF: stage, OBS transparent, camera band, lower-third, designed slide, ignoreThemeLayout, blank", () => {
+  await check("gated OFF: stage, OBS transparent, camera band, lower-third, ignoreThemeLayout, blank (designed slides now ON — theme gaps PR A)", () => {
     const stage = renderToStaticMarkup(React.createElement(OutputCompositor, { mode: "stage", slide: LYRIC, appearance: bugAppearance } as never));
     assert.ok(!stage.includes("<img"), "stage");
     assert.ok(!r(LYRIC, { appearance: bugAppearance, transparentBg: true }).includes("<img"), "transparent");
@@ -76,7 +76,8 @@ async function main() {
     assert.ok(!r(LYRIC, { appearance: bugAppearance, ignoreThemeLayout: true }).includes("<img"), "ignore");
     assert.ok(!r({ kind: "text", text: "v", reference: "John 1:1", scriptureLayout: "lowerThird" }, { appearance: bugAppearance }).includes("<img"), "lower third");
     const designed: SlidePayload = { kind: "text", text: "x", objects: [{ kind: "shape", x: 0, y: 0, w: 10, h: 10, shape: "rect", fill: "#ff0000" }, { kind: "text", x: 0, y: 0, w: 900, h: 300, text: "x" }] };
-    assert.ok(!r(designed, { appearance: bugAppearance }).includes("<img"), "designed");
+    // Theme gaps (PR A, signed off 2026-09-17): designed slides now carry decor.
+    assert.ok(r(designed, { appearance: bugAppearance }).includes("<img"), "designed now shows decor");
     assert.ok(!r({ kind: "blank" }, { appearance: bugAppearance }).includes("<img"), "blank");
   });
   await check("ignoreThemeLayout / no-decor renders are byte-identical to no layout at all", () => {
