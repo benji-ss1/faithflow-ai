@@ -144,7 +144,13 @@ test/whats-new.test.ts
 test/band-media.test.ts
 test/pptx-convert.test.ts
 test/media-click-sends-live.test.ts
+<<<<<<< HEAD
 test/live-bg-theme-decor.test.ts
+=======
+test/adversarial/church-styles-scope.test.ts
+test/church-styles-store.test.ts
+test/scripture-design-sanitize.test.ts
+>>>>>>> origin/main
 test/video-fit-band-hint.test.ts
 test/live-item-theme.test.ts
 test/s3-key-nesting.test.ts

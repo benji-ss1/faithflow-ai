@@ -66,6 +66,8 @@ import { ZoneEditor } from "./zone/ZoneEditor";
 import { useShell } from "@/hooks/useShell";
 import { publishSongLibrary } from "@/lib/song-lyric-search-store";
 import { liveContentKey } from "@/lib/layer-store";
+import { hydrateChurchStylesInitial, setCanEditLibrary, getContentTypeStyles, CONTENT_TYPE_STYLES_EVENT, type ChurchStylesSnapshot } from "@/lib/church-styles-store";
+import { startChurchStylesSync } from "@/lib/church-styles-sync";
 
 type Cursor = { itemIdx: number; slideIdx: number };
 
@@ -113,7 +115,7 @@ const SERVICE_MODE_KEY = "presentflow.pro.serviceMode.v1";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, scenesEnabled: scenesEnabledProp = false, initialShell }: {
+export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, scenesEnabled: scenesEnabledProp = false, initialShell, initialChurchStyles = null, canEditLibrary }: {
   plan: ExpandedPlan;
   /** /operator only: the `?plan=` id no longer exists, so `plan` is a fallback to adopt. */
   pinnedPlanMissing?: boolean;
@@ -126,7 +128,21 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   layersV2?: boolean;
   scenesEnabled?: boolean;
   initialShell?: "desktop" | "web";
+  /** PR B: the church's Scripture Style + content-type themes from church_preferences. */
+  initialChurchStyles?: ChurchStylesSnapshot | null;
+  /** PR B: session has edit_library (content-type default themes picker). Undefined = unknown → server refusal path only. */
+  canEditLibrary?: boolean;
 }) {
+  // PR B (per-church styles): hydrate the synchronous style cache from server
+  // props in the FIRST render — before any hook below can send a slide — so
+  // applyChurchLayout/styleScriptureSlide read the church's style, not this
+  // machine's. useState initializer = runs exactly once per mount.
+  useState(() => {
+    hydrateChurchStylesInitial(churchId, initialChurchStyles);
+    if (typeof canEditLibrary === "boolean") setCanEditLibrary(churchId, canEditLibrary);
+    return null;
+  });
+  useEffect(() => startChurchStylesSync(churchId, initialChurchStyles ?? null), [churchId]); // eslint-disable-line react-hooks/exhaustive-deps
   const router = useRouter();
   // Voice command "give me NIV" (and future variants) can override the
   // active translation without reloading. Seeded from the server-provided
@@ -624,20 +640,22 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
 
   // Per-content-type default style (moved above the PR 2 resolvers + liveItemIdx,
   // which read it).
-  const [contentStyles, setContentStyles] = useState<import("@/lib/content-type-styles").ContentTypeStyles>({});
+  // PR B: church-scoped + synchronous (hydrated above), so the first send already
+  // sees the church's content-type themes.
+  const [contentStyles, setContentStyles] = useState<import("@/lib/content-type-styles").ContentTypeStyles>({}); // {} on first render = SSR parity
   useEffect(() => {
-    let alive = true;
-    const load = () => import("@/lib/content-type-styles").then(({ loadContentTypeStyles }) => { if (alive) setContentStyles(loadContentTypeStyles()); });
-    void load();
-    const onChange = () => void load();
-    window.addEventListener("presentflow:content-type-styles-changed", onChange);
-    return () => { alive = false; window.removeEventListener("presentflow:content-type-styles-changed", onChange); };
-  }, []);
+    const load = () => setContentStyles(getContentTypeStyles(churchId));
+    load();
+    window.addEventListener(CONTENT_TYPE_STYLES_EVENT, load);
+    return () => { window.removeEventListener(CONTENT_TYPE_STYLES_EVENT, load); };
+  }, [churchId]);
   // ── Theme → Projector (PR 2): synchronous send-time theme lookup ──────────
   // Refs only (no state reads) so sendSlideToLive stays stable and never waits
   // on a dynamic import (rule 10 latency). Memoised per theme config object.
   const contentStylesRef = useRef<import("@/lib/content-type-styles").ContentTypeStyles>({});
-  contentStylesRef.current = contentStyles;
+  // Send path reads the synchronous store (hydrated in the first render) so a
+  // send before the state effect runs still uses the church's themes.
+  contentStylesRef.current = typeof window === "undefined" ? contentStyles : getContentTypeStyles(churchId);
   const scriptureOptsMemoRef = useRef(new WeakMap<object, ThemeScriptureOptions | null>());
   const themeTransitionMemoRef = useRef(new WeakMap<object, import("@/lib/broadcast").TransitionSpec | null | undefined>());
   type ThemeItemRef = { type?: string; themeId?: string | null; songAppliedThemeId?: string | null } | undefined;

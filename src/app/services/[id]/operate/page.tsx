@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { eq } from "drizzle-orm";
-import { requireUser } from "@/lib/session";
+import { requireUser, hasCap } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { churchPreferences, bibleTranslations } from "@/lib/db/schema";
 import { getExpandedServicePlan } from "@/lib/server/services";
 import { OperatorConsole } from "@/components/operator/OperatorConsole";
+import { churchStylesSnapshotFromPrefs } from "@/lib/church-styles-store";
 import { SessionKeepAlive } from "@/components/auth/SessionKeepAlive";
 
 export default async function OperatePage({ params }: { params: Promise<{ id: string }> }) {
@@ -39,6 +40,10 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
         autoSendToLive: boolean | null;
         layersV2?: boolean | null;
         scenesEnabled?: boolean | null;
+        scriptureStyle?: unknown;
+        contentTypeStyles?: unknown;
+        scriptureStyleUpdatedAt?: Date | null;
+        contentTypeStylesUpdatedAt?: Date | null;
       }
     | null = null;
   let translationCode = "KJV";
@@ -73,6 +78,8 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
       scenesEnabled={prefs?.scenesEnabled ?? false}
+      initialChurchStyles={churchStylesSnapshotFromPrefs(prefs)}
+      canEditLibrary={hasCap(user.role, "edit_library")}
       layersV2={layersV2}
       initialShell={initialShell}
     />
