@@ -5,9 +5,9 @@
 // last resort — untouched here.
 //
 // Hardware I/O Phase B (2026-09-16): an OPT-IN "pro audio driver" tier —
-// RtAudio via audify (CoreAudio / WASAPI / ASIO). It is OFF by default so
-// existing churches are provably unchanged until it's field-verified; the
-// operator enables it in Audio settings (persisted in userData). When ON:
+// RtAudio via audify (CoreAudio / WASAPI / ASIO). ON by default (user sign-off
+// 2026-09-17); the operator can switch it off in Audio settings (persisted in
+// userData). When ON:
 //   macOS:   swift → rtaudio → ffmpeg   (field-proven Swift helper stays first)
 //   Windows: rtaudio → ffmpeg           (ASIO: every input channel)
 // Kill switch: PRESENTFLOW_AUDIO_TIER=ffmpeg|swift|rtaudio pins a tier.
@@ -37,11 +37,12 @@ function prefPath(): string {
 export function isProDriverEnabled(): boolean {
   if (process.env.PRESENTFLOW_AUDIO_TIER === "rtaudio") return true;
   if (proDriverCache !== null) return proDriverCache;
-  proDriverCache = false;
+  // 2026-09-17 (user-directed): ON by default; operators can switch it off.
+  proDriverCache = true;
   try {
     const p = prefPath();
-    if (p && fs.existsSync(p)) proDriverCache = JSON.parse(fs.readFileSync(p, "utf8"))?.proDriver === true;
-  } catch { /* corrupt file → off */ }
+    if (p && fs.existsSync(p)) proDriverCache = JSON.parse(fs.readFileSync(p, "utf8"))?.proDriver !== false;
+  } catch { /* corrupt file → default on */ }
   return proDriverCache;
 }
 

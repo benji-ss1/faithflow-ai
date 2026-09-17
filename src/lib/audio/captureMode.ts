@@ -55,12 +55,13 @@ export function isNdiAudioBridgePresent(): boolean {
 // Hardware I/O Phase B — opt-in "pro audio driver" (RtAudio: CoreAudio /
 // WASAPI / ASIO) in the Electron main process. Mirrored here so capture-mode
 // resolution can stay synchronous; the main process holds the source of truth
-// (userData) and the Audio tab re-syncs this on mount. OFF by default.
+// (userData) and the Audio tab re-syncs this on mount. ON by default.
 export const PRO_DRIVER_KEY = "presentflow.audio.proDriver.v1";
 
 export function readProDriverFlag(): boolean {
   if (!isBrowserEnv()) return false;
-  try { return localStorage.getItem(PRO_DRIVER_KEY) === "1"; } catch { return false; }
+  // ON unless explicitly switched off (2026-09-17 directive).
+  try { return localStorage.getItem(PRO_DRIVER_KEY) !== "0"; } catch { return true; }
 }
 export function writeProDriverFlag(enabled: boolean): void {
   if (!isBrowserEnv()) return;
