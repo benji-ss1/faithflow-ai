@@ -4,12 +4,23 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.445",
+    "version": "0.1.446",
     "date": "2026-09-17",
     "headline": "Intel Macs now update automatically, and the Windows pro audio driver is more reliable",
     "highlights": [
       "Intel Macs now get PresentFlow updates automatically, like Apple Silicon Macs and Windows. If you're on an Intel Mac and stuck on an older version, install the latest Intel (x64) download once and it will keep itself up to date from then on.",
       "On Windows, the pro audio driver for USB mixers and interfaces stays switched on reliably instead of occasionally turning itself off at startup."
+    ]
+  },
+  {
+    "version": "0.1.445",
+    "date": "2026-09-17",
+    "headline": "Pictures and videos fill the screen, and the lower-third band is easier to see",
+    "highlights": [
+      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.443)",
+      "The lower-third band is easier to see. If you haven't picked your own band colour, it is now a soft dark bar you can see on a black screen and over pictures. Your own band colour stays the same.",
+      "Captions you set on a picture or video still show in the band, and are always easy to read.",
+      "Small pictures are no longer blown up until they look blurry."
     ]
   },
   {
