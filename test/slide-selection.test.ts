@@ -1,7 +1,9 @@
 // Slide grid multi-select rules + thumbnail video strip.
 // Run: npx tsx test/slide-selection.test.ts
 import assert from "node:assert/strict";
-import { slideRange, nextSlideSelection, stripVideoDecor } from "../src/lib/slide-selection";
+import { slideRange, nextSlideSelection, stripVideoDecor, consumeSelectionEscape } from "../src/lib/slide-selection";
+import { JSDOM } from "jsdom";
+import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
 function check(name: string, fn: () => void) {
@@ -47,6 +49,36 @@ check("stripVideoDecor removes video decor only", () => {
   const plain = { bgColor: "#111" } as never;
   assert.equal(stripVideoDecor(plain), plain);
   assert.equal(stripVideoDecor(null), undefined);
+});
+
+// 🔴 review fix: Esc with a selection must NOT reach the global kill-live hotkey.
+function escRig(selectionCount: number) {
+  const dom = new JSDOM("<!doctype html><body><div id=g tabindex=0></div></body>");
+  const w = dom.window;
+  let killed = 0, cleared = 0;
+  // Global hotkeys (useOperatorHotkeys / OperatorConsole) listen in the bubble phase.
+  w.addEventListener("keydown", (e: Event) => { if ((e as KeyboardEvent).key === "Escape") killed++; });
+  w.addEventListener("keydown", (e: Event) => { consumeSelectionEscape(e as KeyboardEvent, selectionCount, w.document.activeElement as HTMLElement, () => { cleared++; }); }, true);
+  const ev = new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+  w.document.getElementById("g")!.dispatchEvent(ev);
+  return { killed, cleared, prevented: ev.defaultPrevented };
+}
+check("Esc with a selection clears it and never fires kill-live", () => {
+  assert.deepEqual(escRig(2), { killed: 0, cleared: 1, prevented: true });
+});
+check("Esc with NO selection is untouched: kill-live fires exactly as before", () => {
+  assert.deepEqual(escRig(0), { killed: 1, cleared: 0, prevented: false });
+});
+check("Esc while typing in a field is not consumed", () => {
+  let c = 0;
+  const ev = { key: "Escape", preventDefault() { throw new Error("no"); }, stopImmediatePropagation() { throw new Error("no"); } };
+  assert.equal(consumeSelectionEscape(ev, 3, { tagName: "INPUT" }, () => c++), false);
+  assert.equal(c, 0);
+});
+check("SlideGrid registers the Esc handler in the capture phase", () => {
+  const src = readFileSync(new URL("../src/components/operator/pro/center/SlideGrid.tsx", import.meta.url), "utf8");
+  assert.ok(src.includes('window.addEventListener("keydown", onKey, true)'));
+  assert.ok(src.includes("consumeSelectionEscape("));
 });
 
 console.log(`\nslide-selection: ${pass} passed, ${fail} failed`);

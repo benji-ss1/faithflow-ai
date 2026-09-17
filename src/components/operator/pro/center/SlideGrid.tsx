@@ -11,7 +11,7 @@ import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard, setTextClipboard, useTextClipboard, getTextClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
 import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, setServiceItemSlideActions,clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme, applyThemeToSongSlides, removeThemeFromSongSlide } from "@/lib/actions";
-import { nextSlideSelection, stripVideoDecor } from "@/lib/slide-selection";
+import { nextSlideSelection, stripVideoDecor, consumeSelectionEscape } from "@/lib/slide-selection";
 import { BUILTIN_THEMES } from "@/lib/builtin-themes";
 import { BUILT_IN_BACKGROUNDS } from "@/backgrounds/presets/defaultTemplates";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
@@ -668,14 +668,13 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   useEffect(() => { setSelectedSlideIds([]); }, [itemKey]);
   useEffect(() => {
     if (selectedSlideIds.length === 0) return;
+    // Capture phase + stopImmediatePropagation: Esc clears the selection ONLY —
+    // the global Esc = kill-live hotkey (bubble listeners) must not also fire.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const a = document.activeElement as HTMLElement | null;
-      if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
-      setSelectedSlideIds([]);
+      consumeSelectionEscape(e, selectedSlideIds.length, document.activeElement as HTMLElement | null, () => setSelectedSlideIds([]));
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedSlideIds.length]);
   const removeThemeThisSlide = (slideId: string | undefined) => {
     void (async () => {

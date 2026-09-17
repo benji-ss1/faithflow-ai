@@ -56,3 +56,23 @@ export function stripVideoDecor(a: ThemeAppearance | null | undefined): ThemeApp
     },
   };
 }
+
+/**
+ * Esc with a slide multi-selection: clears the selection and SWALLOWS the key so
+ * the global Esc = kill-live hotkey never fires (it would blank the projector).
+ * With no selection (or typing in a field) returns false and touches nothing, so
+ * Esc behaves exactly as before. Registered in the CAPTURE phase on window.
+ */
+export function consumeSelectionEscape(
+  e: { key: string; preventDefault(): void; stopImmediatePropagation(): void },
+  selectionCount: number,
+  activeEl: { tagName?: string; isContentEditable?: boolean } | null,
+  clear: () => void,
+): boolean {
+  if (e.key !== "Escape" || selectionCount === 0) return false;
+  if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.isContentEditable)) return false;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  clear();
+  return true;
+}
