@@ -6,11 +6,11 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
     "version": "0.1.443",
     "date": "2026-09-17",
-    "headline": "Pictures and videos in the lower-third band look cleaner",
+    "headline": "Pictures and videos fill the screen, and the lower-third band is easier to see",
     "highlights": [
-      "Pictures and videos in the lower-third band now look clean. They sit neatly in the middle of the band with softly rounded corners, and the band colour runs the full width of the screen behind them.",
-      "Videos fill their space properly, both in the band and when they play full screen with a caption.",
-      "Caption text is always easy to read. If your band has no colour, a soft dark shade is added behind the words, and very long captions stop after three lines.",
+      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.443)",
+      "The lower-third band is easier to see. If you haven't picked your own band colour, it is now a soft dark bar you can see on a black screen and over pictures. Your own band colour stays the same.",
+      "Captions you set on a picture or video still show in the band, and are always easy to read.",
       "Small pictures are no longer blown up until they look blurry."
     ]
   },

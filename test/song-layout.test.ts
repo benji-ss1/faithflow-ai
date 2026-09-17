@@ -128,11 +128,16 @@ test("sourceForRelayout keeps a designed SONG's objects (design survives a full-
   assert.equal(raw, designedSong, "no reference + no band → returned unchanged (design preserved)");
 });
 
-test("sourceForRelayout strips a media third layout so it can re-derive", () => {
-  const bandedImg = { kind: "image", url: "https://x/y.png", fit: "cover", layout: "third", band: { topPct: 68, heightPct: 30 }, bandMode: "fit" } as any;
-  const raw = sourceForRelayout(bandedImg) as any;
-  assert.equal(raw.layout, undefined);
-  assert.equal(raw.band, undefined);
-  assert.equal(raw.url, "https://x/y.png");
-  assert.equal(raw.fit, "cover");
+// 2026-09-17: media is never banded by the church default, so the live
+// Full⇄Third toggle is a no-op for media (replaces the old "strips media layout").
+test("sourceForRelayout leaves media unchanged (plain AND explicit per-slide layout)", () => {
+  const plain = { kind: "video", url: "https://x/y.mp4" } as any;
+  assert.equal(sourceForRelayout(plain), plain);
+  const captioned = { kind: "image", url: "https://x/y.png", layout: "third", bandMode: "caption", caption: "Hi", band: { topPct: 68, heightPct: 30 } } as any;
+  assert.equal(sourceForRelayout(captioned), captioned);
+  for (const l of ["lowerThird", "fullscreen"] as const) {
+    setChurchLayout(l);
+    assert.equal(applyChurchLayout(sourceForRelayout(plain), CHURCH), plain, `plain media full screen under ${l}`);
+    assert.equal(applyChurchLayout(sourceForRelayout(captioned), CHURCH), captioned, `explicit caption kept under ${l}`);
+  }
 });

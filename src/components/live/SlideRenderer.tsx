@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandMediaBox, fitMediaInBox } from "@/lib/band-media";
+import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, bandMediaBox, fitMediaInBox } from "@/lib/band-media";
 import type { SlidePayload, ThemeAppearance, ScriptureBandWire } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
 import { AutoFitText } from "./AutoFitText";
@@ -301,7 +301,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
         <div className={`${base} relative ${className || ""}`} style={ltBg}>
           {hasPaint && (
             <div className="absolute inset-x-0 pointer-events-none" aria-hidden
-              style={{ top: `${bandTop}%`, height: `${bandH}%`, background: bandBg, opacity: band!.opacity ?? 1 }} />
+              style={{ top: `${bandTop}%`, height: `${bandH}%`, background: bandBg, opacity: band!.opacity ?? 1, boxShadow: bandEdgeShadow(band!.color, band!.color2) }} />
           )}
           <div className="absolute" style={{ top: `${verseTop}%`, height: `${verseH}%`, left: "6%", width: "88%" }}>
             {/* projectorFit is deliberately OFF: the projector-fit path sizes vs the
@@ -599,7 +599,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     // fill already reach the edges). The blurred layer always matches because it
     // IS the same image.
     const showBlurFill = slide.blurFill === true && fitMode === "contain";
-    // THIRD-BAND image (church lower-third default, or a per-slide layout).
+    // THIRD-BAND image (explicit per-slide layout only; the church default no longer bands media).
     if (slide.layout === "third" && slide.url) {
       const objectFit = fitMode === "fill" ? "fill" : fitMode === "cover" ? "cover" : "contain";
       const fitEl = (onNatural: (w: number, h: number) => void, box: React.CSSProperties) => (
@@ -677,6 +677,7 @@ function mediaBandPaint(band?: ScriptureBandWire): React.CSSProperties | undefin
   return {
     background: band.color2 ? `linear-gradient(${band.angle ?? 180}deg, ${band.color}, ${band.color2})` : band.color,
     opacity: band.opacity ?? 1,
+    boxShadow: bandEdgeShadow(band.color, band.color2),
   };
 }
 
@@ -704,6 +705,15 @@ function ThirdBandMedia({ base, className, band, mode, caption, media, fullMedia
   const onNatural = useCallback((w: number, h: number) => {
     setNat((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
   }, []);
+  // Fallback: media that never reports its natural size (errored / stalled
+  // metadata) must not stay invisible — reveal it at box-fill size after 1.5s
+  // (or immediately on error via onNatural(0,0)).
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    if (nat) return;
+    const t = setTimeout(() => setRevealed(true), 1500);
+    return () => clearTimeout(t);
+  }, [nat]);
   if (mode === "caption") {
     // No band colour → default scrim so white caption text is legible on any photo.
     const scrim: React.CSSProperties = paint
@@ -722,7 +732,7 @@ function ThirdBandMedia({ base, className, band, mode, caption, media, fullMedia
     );
   }
   const box = bandMediaBox(topPct, heightPct);
-  const size = nat
+  const size = nat && nat.w > 0 && nat.h > 0
     ? fitMediaInBox(nat.w, nat.h, (box.widthPct / 100) * CANVAS_W, (box.heightPct / 100) * CANVAS_H)
     : { wPct: 100, hPct: 100 };
   const mediaBox: React.CSSProperties = { width: "100%", height: "100%", display: "block", borderRadius: `${Math.round(CANVAS_W * 0.006)}px`, overflow: "hidden" };
@@ -730,7 +740,7 @@ function ThirdBandMedia({ base, className, band, mode, caption, media, fullMedia
     <div className={`${base} relative overflow-hidden ${className || ""}`} style={themeBackgroundStyle(appearance, BAND_FALLBACK_BG)}>
       {paint ? <div aria-hidden style={{ position: "absolute", left: 0, right: 0, top: `${topPct}%`, height: `${heightPct}%`, ...paint }} /> : null}
       <div style={{ position: "absolute", left: `${box.leftPct}%`, width: `${box.widthPct}%`, top: `${box.topPct}%`, height: `${box.heightPct}%`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ position: "relative", width: `${size.wPct}%`, height: `${size.hPct}%`, opacity: nat ? 1 : 0 }}>
+        <div style={{ position: "relative", width: `${size.wPct}%`, height: `${size.hPct}%`, opacity: nat || revealed ? 1 : 0 }}>
           {media(onNatural, mediaBox)}
         </div>
       </div>
@@ -774,7 +784,7 @@ function VideoSlide({ slide, base, className, videoMuted, onVideoRef, fillBox, o
         muted={videoMuted}
         preload="auto"
         playsInline
-        onError={(e) => console.warn("[slide] video error:", (e.currentTarget as HTMLVideoElement).error?.message || "unknown")}
+        onError={(e) => { onNatural?.(0, 0); console.warn("[slide] video error:", (e.currentTarget as HTMLVideoElement).error?.message || "unknown"); }}
         ref={setRef}
         style={fillBox ? { ...fillBox, objectFit: slide.fit === "cover" ? "cover" : "contain", objectPosition: "center" } : {
           maxWidth: "100%",

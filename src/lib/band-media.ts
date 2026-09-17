@@ -6,6 +6,19 @@ export const CANVAS_W = 1920;
 export const CANVAS_H = 1080;
 /** Shared with the scripture text band (themeBackgroundStyle fallback). */
 export const BAND_FALLBACK_BG = "#0b0b0b";
+/**
+ * DEFAULT lower-third band colour (used only when a church never set its own).
+ * A soft charcoal (not pure black) so, at the default 0.72 opacity, the band is
+ * still visible on a black screen and reads as a subtle bar over pictures.
+ * Churches that saved an explicit colour keep it (2026-09-17 owner decision).
+ */
+export const BAND_DEFAULT_COLOR = "#1c1c22";
+/** Faint top highlight so the default band reads even on pure black. */
+export const BAND_DEFAULT_EDGE = "inset 0 2px 0 rgba(255,255,255,0.16)";
+/** Edge style for a band paint: only the untouched default colour gets the highlight. */
+export function bandEdgeShadow(color?: string, color2?: string): string | undefined {
+  return color && color.toLowerCase() === BAND_DEFAULT_COLOR && !color2 ? BAND_DEFAULT_EDGE : undefined;
+}
 /** Media is never upscaled beyond this multiple of its natural size. */
 export const MEDIA_MAX_UPSCALE = 1.5;
 /** Aspect (w/h) below which media counts as portrait/narrow. */
