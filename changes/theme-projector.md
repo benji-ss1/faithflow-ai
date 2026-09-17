@@ -1,7 +1,7 @@
 ---
 headline: Everything you design in a theme now shows on the projector, your songs and the theme previews
 audience: operator
-version: 0.1.440
+version: 0.1.441
 date: 2026-09-17
 highlights:
   - Images, shapes, extra text and slide backgrounds you add to a theme now appear behind the words on every slide using that theme, on the projector, livestream and NDI. It works like ProPresenter.

@@ -1,6 +1,6 @@
 import { ipcMain, desktopCapturer, systemPreferences, BrowserWindow } from "electron";
 import { isNativeCaptureAvailable } from "../audio/ffmpegPath";
-import { listNativeDevices } from "../audio/deviceList";
+import { listNativeDevices, type NativeDevice } from "../audio/deviceList";
 import {
   startCapture as nativeStartCapture,
   stopCapture as nativeStopCapture,
@@ -14,7 +14,36 @@ import {
   type StartProbeOpts,
 } from "../audio/multiChannelProbe";
 import { swiftHelper, setSwiftHelperTarget, toNativeDevices } from "../audio/swiftHelper";
-import { resolveCaptureTier, forceFfmpegTier } from "../audio/captureTier";
+import {
+  resolveCaptureTier, forceFfmpegTier, isProDriverEnabled, setProDriverEnabled,
+} from "../audio/captureTier";
+import {
+  setRtAudioTarget, listRtAudioDevices, startRtAudioCapture, stopRtAudioCapture,
+  startRtAudioProbe, stopRtAudioProbe, listDeckLinkAudioDevices, isRtAudioAvailable,
+  FRIENDLY_UNAVAILABLE,
+} from "../audio/rtaudioCapture";
+import { isDeckLinkIndex, API_INDEX_BASE } from "../audio/rtaudioDsp";
+
+// Hardware I/O Phase B/C tier routing (review-gate hardened 2026-09-16):
+//  • Blackmagic (DeckLink) indices route to the DeckLink session on ANY tier.
+//  • Starting ANY capture/probe first stops the other tiers' capture/probe, so
+//    two PCM streams can never interleave into Deepgram.
+//  • A pre-upgrade/ffmpeg-tier index (< API_INDEX_BASE) on the rtaudio tier is
+//    served by ffmpeg directly — no error, no session-wide degrade.
+//  • rtaudio failures that are the operator's situation (device busy, gone,
+//    ASIO single-stream) are REPORTED, never used to disable the tier.
+
+async function stopAllCaptures(): Promise<void> {
+  await Promise.allSettled([swiftHelper.stopCapture(), nativeStopCapture(), stopRtAudioCapture()]);
+}
+async function stopAllProbes(): Promise<void> {
+  await Promise.allSettled([swiftHelper.stopChannelProbe(), nativeStopChannelProbe(), stopRtAudioProbe()]);
+}
+
+/** Blackmagic inputs join whichever tier's list is active. */
+function withDeckLink(list: NativeDevice[]): NativeDevice[] {
+  return [...list, ...listDeckLinkAudioDevices()];
+}
 
 export function registerAudioIpc() {
   // Lets the renderer distinguish "macOS never granted this app mic access
@@ -73,13 +102,19 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
   setCaptureTarget(getMainWindow);
   setProbeTarget(getMainWindow);
   setSwiftHelperTarget(getMainWindow);
+  setRtAudioTarget(getMainWindow);
 
   ipcMain.handle("audio:native:isAvailable", async () => {
-    // Available if EITHER tier can capture. Tier order: swift → ffmpeg.
+    // Available if ANY tier can capture. Tier order: swift → (rtaudio) → ffmpeg.
     try {
-      if ((await resolveCaptureTier()) === "swift") return true;
+      const tier = await resolveCaptureTier();
+      if (tier === "swift" || tier === "rtaudio") return true;
+      // Windows: the ffmpeg/dshow tier stays locked (renderer rule since the
+      // Windows field report) — native is only offered through the pro driver.
+      if (process.platform === "win32") return false;
     } catch (err) {
       console.warn("[audio:native:isAvailable] tier probe", err);
+      if (process.platform === "win32") return false;
     }
     try {
       return await isNativeCaptureAvailable();
@@ -91,13 +126,19 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
 
   ipcMain.handle("audio:native:listDevices", async () => {
     try {
-      if ((await resolveCaptureTier()) === "swift") {
+      const tier = await resolveCaptureTier();
+      if (tier === "rtaudio") {
+        const devices = listRtAudioDevices();
+        if (devices.length > 0) return withDeckLink(devices);
+        console.warn("[audio:native:listDevices] rtaudio returned empty; using ffmpeg list");
+      }
+      if (tier === "swift") {
         const devices = await swiftHelper.listDevices();
-        if (devices.length > 0) return toNativeDevices(devices);
+        if (devices.length > 0) return withDeckLink(toNativeDevices(devices));
         // Swift answered but with nothing — degrade for this call only.
         console.warn("[audio:native:listDevices] swift returned empty; using ffmpeg list");
       }
-      return await listNativeDevices();
+      return withDeckLink(await listNativeDevices());
     } catch (err) {
       console.warn("[audio:native:listDevices]", err);
       return [];
@@ -111,8 +152,8 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
       return { ok: false, error: "invalid opts" };
     }
     const o = opts as StartCaptureOpts;
-    if (typeof o.deviceIndex !== "number" || !Number.isFinite(o.deviceIndex)) {
-      return { ok: false, error: "deviceIndex must be a number" };
+    if (typeof o.deviceIndex !== "number" || !Number.isInteger(o.deviceIndex) || o.deviceIndex < 0) {
+      return { ok: false, error: "deviceIndex must be a non-negative integer" };
     }
     const cleanOpts = {
       deviceIndex: o.deviceIndex,
@@ -120,7 +161,23 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
       sampleRate: typeof o.sampleRate === "number" ? o.sampleRate : undefined,
       channels: typeof o.channels === "number" ? o.channels : undefined,
     };
-    if ((await resolveCaptureTier()) === "swift") {
+    // One capture at a time across ALL tiers — never two PCM streams.
+    await stopAllCaptures();
+
+    if (isDeckLinkIndex(cleanOpts.deviceIndex)) {
+      return startRtAudioCapture({ deviceIndex: cleanOpts.deviceIndex, channelFilter: cleanOpts.channelFilter });
+    }
+    const captureTier = await resolveCaptureTier();
+    if (captureTier === "rtaudio" && cleanOpts.deviceIndex >= API_INDEX_BASE) {
+      const res = await startRtAudioCapture({
+        deviceIndex: cleanOpts.deviceIndex,
+        channelFilter: cleanOpts.channelFilter,
+      });
+      if (res.ok) return res;
+      if (res.error === FRIENDLY_UNAVAILABLE) forceFfmpegTier("audify failed to load");
+      return res; // busy / disappeared: operator-actionable, tier stays up
+    }
+    if (captureTier === "swift") {
       try {
         const res = await swiftHelper.startCapture({
           deviceIndex: cleanOpts.deviceIndex,
@@ -134,13 +191,19 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
         forceFfmpegTier(`startCapture threw: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    if (process.platform === "win32" && (captureTier !== "rtaudio" || cleanOpts.deviceIndex < API_INDEX_BASE)) {
+      // Never start the unverified dshow path on Windows: fail loudly so the
+      // renderer falls back to the proven browser/WASAPI capture.
+      return { ok: false, error: FRIENDLY_UNAVAILABLE };
+    }
+    // ffmpeg tier, or a legacy (< API_INDEX_BASE) index while rtaudio is active.
     return nativeStartCapture(cleanOpts);
   });
 
   ipcMain.handle("audio:native:stopCapture", async () => {
-    // Stop both tiers — cheap no-ops on the inactive one, and covers a
-    // capture that started on swift before a mid-session degrade.
-    await Promise.allSettled([swiftHelper.stopCapture(), nativeStopCapture()]);
+    // Stop every tier — cheap no-ops on the inactive ones, and covers a
+    // capture that started on another tier before a mid-session degrade.
+    await stopAllCaptures();
     return { ok: true };
   });
 
@@ -149,10 +212,21 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
       return { ok: false, error: "invalid opts" };
     }
     const o = opts as StartProbeOpts;
-    if (typeof o.deviceIndex !== "number" || typeof o.channelCount !== "number") {
+    if (typeof o.deviceIndex !== "number" || !Number.isInteger(o.deviceIndex) || o.deviceIndex < 0 ||
+        typeof o.channelCount !== "number") {
       return { ok: false, error: "deviceIndex and channelCount required" };
     }
-    if ((await resolveCaptureTier()) === "swift") {
+    await stopAllProbes();
+    if (isDeckLinkIndex(o.deviceIndex)) {
+      return startRtAudioProbe({ deviceIndex: o.deviceIndex });
+    }
+    const probeTier = await resolveCaptureTier();
+    if (probeTier === "rtaudio" && o.deviceIndex >= API_INDEX_BASE) {
+      // Never degrade the tier from a probe: ASIO single-stream refusals while
+      // listening are expected and reported to the operator.
+      return startRtAudioProbe({ deviceIndex: o.deviceIndex });
+    }
+    if (probeTier === "swift") {
       try {
         const res = await swiftHelper.startChannelProbe({ deviceIndex: o.deviceIndex });
         if (res.ok) return res;
@@ -170,8 +244,23 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
   });
 
   ipcMain.handle("audio:native:stopChannelProbe", async () => {
-    await Promise.allSettled([swiftHelper.stopChannelProbe(), nativeStopChannelProbe()]);
+    await stopAllProbes();
     return { ok: true };
+  });
+
+  // Hardware I/O Phase B opt-in. `supported` = audify loads in this build;
+  // `enabled` = operator switched the pro driver on (persisted in userData).
+  ipcMain.handle("audio:native:getProDriver", () => ({
+    supported: isRtAudioAvailable(),
+    enabled: isProDriverEnabled(),
+  }));
+  ipcMain.handle("audio:native:setProDriver", async (_e, enabled: unknown) => {
+    if (typeof enabled !== "boolean") return { ok: false, error: "enabled must be boolean" };
+    // Switching tiers changes device indices — stop everything first; the
+    // renderer restarts listening and re-resolves its device by name.
+    await Promise.allSettled([stopAllCaptures(), stopAllProbes()]);
+    setProDriverEnabled(enabled);
+    return { ok: true, enabled: isProDriverEnabled() };
   });
 }
 
@@ -183,6 +272,8 @@ export async function stopAllNativeAudio(): Promise<void> {
   await Promise.allSettled([
     nativeStopCapture(),
     nativeStopChannelProbe(),
+    stopRtAudioCapture(),
+    stopRtAudioProbe(),
     swiftHelper.shutdown(),
   ]);
 }

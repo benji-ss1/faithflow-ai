@@ -2481,6 +2481,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         try {
           const capture = await openMultiChannelCapture({
             deviceId: devicePrefDeviceId,
+            label: devicePref.deviceLabel || inputPref?.label,
             requestedChannels: 32,
           });
           // Guard: if the device came back with fewer channels than the
