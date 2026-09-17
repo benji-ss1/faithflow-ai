@@ -34,9 +34,9 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImportWizard } from "./MediaImportWizard";
 import { takePendingImport, onOsDropImport, type PendingImport } from "./pendingImport";
 import { MediaImageEditor } from "./MediaImageEditor";
-import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide, shouldSendFramedSlide } from "./mediaFrame";
+import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
+import { mediaClickAction, AUDIO_NOT_PROJECTABLE_MESSAGE } from "@/lib/media-click";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
-import { usePp7Layers } from "@/lib/pp7-layers-flag";
 
 type Asset = {
   id: string;
@@ -302,18 +302,11 @@ export function MediaBrowser({
   };
 
   // ── Actions ───────────────────────────────────────────────────────────────
-  const pp7Layers = usePp7Layers();
   const sendLive = (a: Asset) => {
-    // PP7 layers flag: media goes on the Media layer behind the words.
-    // A saved frame can't ride the Media layer (plain full-screen) — project it
-    // framed when no words are live (same rule as the Media Bin).
-    const framed = shouldSendFramedSlide(!!loadMediaFrame(ctx.churchId, a.id), a.kind.startsWith("video"), ctx.liveSlide as { kind: string; text?: string } | null);
-    if (pp7Layers && ctx.layersEngineOn && !framed) {
-      setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: normalizeMediaKind(a.kind), mediaKey: a.mediaKey });
-      setSelectedId(a.id);
-      toast.success(`“${a.fileName || "Media"}” is on the Media layer`, { id: "pf-media-layer", description: ctx && ctx.liveLayers.rows.some((r) => r.id === "camera" && r.active) ? "It covers the live camera. Clear Media (F3) shows the camera again." : "Clear Media (F3) removes it. Your words stay." });
-      return;
-    }
+    // A click ALWAYS sends the media live to the screen (framed if it has a saved
+    // edit). Only "Set as background" changes the background behind every slide
+    // (user-directed 2026-09-17 — a click must never set a background).
+    if (mediaClickAction(a.kind) === "audio-blocked") { toast.error(AUDIO_NOT_PROJECTABLE_MESSAGE); return; }
     // Was something already on the projector? (a blank slide = nothing live).
     const wasLive = !!ctx.liveSlide && ctx.liveSlide.kind !== "blank";
     setSelectedId(a.id);
@@ -326,7 +319,7 @@ export function MediaBrowser({
     if (wasLive && !a.kind.startsWith("video")) {
       toast.success("Image sent to the screen", {
         id: "pf-media-sent-hint",
-        description: "Wanted it behind your lyrics instead? Set it as the background — the image stays up until you advance.",
+        description: "Wanted it behind the lyrics on every slide instead? Set it as the background, then go back to your lyrics slide.",
         action: {
           label: "Set as background instead",
           onClick: () => setAsBackground(a),
