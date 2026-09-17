@@ -274,7 +274,7 @@
       {
         "provider": "github",
         "owner": "benji-ss1",
-        "repo": "faithflow-ai",
+        "repo": "presentflow-releases",
         "vPrefixedTagName": true,
         "releaseType": "release"
       }
