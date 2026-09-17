@@ -151,3 +151,6 @@ test/videopsalm-parser.test.ts
 test/videopsalm.test.ts
 test/voice-commands.test.ts
 test/whats-new.test.ts
+test/pp7-layer-model.test.ts
+test/pp7-rail-parity.test.tsx
+test/pp7-layers-panel.test.tsx

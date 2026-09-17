@@ -305,7 +305,7 @@ function LayerRowView({
  * the live `ctx.background` spec. Falls back to the neutral image icon when
  * there's no background (none/undefined) so the affordance still reads clearly.
  */
-function BackgroundThumb({ bg }: { bg?: BackgroundSpec | null }) {
+export function BackgroundThumb({ bg }: { bg?: BackgroundSpec | null }) {
   if (!bg || bg.type === "none") {
     return <ImageIcon className="w-3.5 h-3.5" />;
   }
@@ -351,7 +351,7 @@ function BackgroundThumb({ bg }: { bg?: BackgroundSpec | null }) {
  * or storage is introduced. Shows the current logo and offers a one-tap Undo on
  * change. No emojis; tokens/lucide only.
  */
-function LogoSwap({ logoUrl }: { logoUrl: string | null }) {
+export function LogoSwap({ logoUrl }: { logoUrl: string | null }) {
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -434,7 +434,7 @@ function LogoSwap({ logoUrl }: { logoUrl: string | null }) {
  * that is currently live. Clicking a chip projects that slide live (instant,
  * forced). No emojis; --pf/token-driven, matching the panel idiom.
  */
-function SlideActions({ ctx }: { ctx: OperatorShellCtx }) {
+export function SlideActions({ ctx }: { ctx: OperatorShellCtx }) {
   const item = ctx.plan.items[ctx.liveItemIdx];
   const slides = item?.slides ?? [];
   const liveId = ctx.liveSlide ? slideOutputIdentity(ctx.liveSlide) : null;
