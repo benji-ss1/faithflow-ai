@@ -125,6 +125,7 @@ test/stress-wave6-3.test.ts
 test/text-size-freedom.test.ts
 test/theme-appearance.test.ts
 test/theme-bake.test.ts
+test/theme-decor.test.ts
 test/theme-editor-model.test.ts
 test/theme-layout-sanitize.test.ts
 test/theme-projector-layout.test.ts
