@@ -45,7 +45,11 @@ const range = (lo: number, hi: number) => {
 
 export const FONT_REGISTRY: readonly FontEntry[] = [
   { id: "inter", family: "Inter", label: "Inter", category: "sans", weights: range(100, 900), italic: true, generic: "sans-serif", supports: { yoruba: true, igbo: true }, bundled: true },
-  { id: "sora", family: "Sora", label: "Sora", category: "sans", weights: range(100, 800), italic: false, generic: "sans-serif", supports: { yoruba: false, igbo: false }, bundled: true },
+  // Sora is the DEFAULT projector face (globals.css --font-display), but its cmap
+  // has no Yoruba/Igbo letters (ẹ ọ ṣ ị ụ ṅ). Inter sits IMMEDIATELY after it so
+  // those glyphs land on a bundled face we control rather than whatever the OS
+  // picks. CSS falls back PER GLYPH, so Latin text still renders in Sora.
+  { id: "sora", family: "Sora", label: "Sora", category: "sans", weights: range(100, 800), italic: false, generic: "sans-serif", fallbacks: ["Inter"], supports: { yoruba: false, igbo: false }, bundled: true },
   { id: "plus-jakarta-sans", family: "Plus Jakarta Sans", label: "Plus Jakarta Sans", category: "sans", weights: range(200, 800), italic: true, generic: "sans-serif", supports: { yoruba: true, igbo: true }, bundled: true },
   { id: "playfair-display", family: "Playfair Display", label: "Playfair Display", category: "serif", weights: range(400, 900), italic: true, generic: "serif", supports: { yoruba: false, igbo: false }, bundled: true },
   { id: "cormorant-garamond", family: "Cormorant Garamond", label: "Cormorant Garamond", category: "serif", weights: range(300, 700), italic: true, generic: "serif", supports: { yoruba: true, igbo: true }, bundled: true },
@@ -120,6 +124,20 @@ export function fontStack(stored: string | null | undefined): string | undefined
   const raw = stored.trim();
   if (!raw) return undefined;
   if (!slideFontsV1Enabled()) return stored;
+  // Defence in depth: this value becomes a CSS declaration. Anything carrying
+  // CSS punctuation could only be an injection attempt or corrupt data — never a
+  // real family name — so emit the GENERIC ALONE rather than echoing it. The
+  // wire validators (broadcast.ts FONT_FAMILY_RE) already reject these; this is
+  // the second line for values that never crossed the wire.
+  if (/[;{}()<>\\\n\r]/.test(raw)) {
+    // Keep only the LEADING run of characters a real family name may contain, so
+    // "Georgia; color:red" still degrades to serif rather than a blanket
+    // sans-serif — the right CLASS of face matters (the 2026-08-11 "medieval
+    // font" bug was exactly a serif/sans mix-up).
+    const lead = /^[a-zA-Z0-9 ._'"-]+/.exec(raw)?.[0] ?? "";
+    const entry = resolveFont(firstFamily(lead));
+    return entry?.generic ?? (LEGACY_SERIFS.has(firstFamily(lead).toLowerCase()) ? "serif" : "sans-serif");
+  }
   const parts = raw.split(",").map((p) => unquote(p)).filter(Boolean);
   const last = parts[parts.length - 1]?.toLowerCase() ?? "";
   if (parts.length > 1 && GENERICS.has(last)) return raw; // already a complete stack
@@ -143,10 +161,51 @@ export const FONT_PICKER_OPTIONS: readonly FontPickerOption[] = FONT_REGISTRY.ma
  * prepended as "(current) <value>" so the picker shows the truth and never
  * silently overwrites it.
  */
-export function pickerOptionsFor(current: string | null | undefined): { value: string; label: string }[] {
-  const base = FONT_PICKER_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
-  if (typeof current !== "string" || !current || base.some((o) => o.value === current)) return base;
-  return [{ value: current, label: `(current) ${current}` }, ...base];
+export type PickerOptionView = {
+  value: string;
+  label: string;
+  /** "bundled" = ships with PresentFlow; "system" = depends on the computer. */
+  group: "bundled" | "system" | "current";
+  /** Short warning when the face can't render Yoruba/Igbo letters. */
+  hint?: string;
+  entry?: FontEntry;
+};
+
+/** Short coverage warning for a face, or undefined when it covers both. */
+export function coverageHint(e: FontEntry): string | undefined {
+  const missing = [!e.supports.yoruba && "Yoruba", !e.supports.igbo && "Igbo"].filter(Boolean) as string[];
+  return missing.length ? `limited ${missing.join("/")}` : undefined;
+}
+
+/**
+ * Options for a <select> given the currently stored value. The stored value is
+ * resolved through the registry FIRST, so a stored CSS stack (the ThemesTab
+ * swatches store fontStack output) still selects its plain registry option
+ * instead of being shown as an unknown. Only a genuinely unrecognised value is
+ * prepended as "Keep current: <value>", so opening a picker never silently
+ * rewrites what was saved.
+ */
+export function pickerOptionsFor(current: string | null | undefined): PickerOptionView[] {
+  const base: PickerOptionView[] = FONT_PICKER_OPTIONS.map((o) => ({
+    value: o.value,
+    label: o.label,
+    group: o.entry.bundled ? "bundled" : "system",
+    hint: coverageHint(o.entry),
+    entry: o.entry,
+  }));
+  if (typeof current !== "string" || !current) return base;
+  if (base.some((o) => o.value === current)) return base;
+  // A stored stack / different spelling that the registry DOES know: select the
+  // plain option rather than showing a redundant "keep current" entry.
+  if (resolveFont(current)) return base;
+  return [{ value: current, label: `Keep current: ${current}`, group: "current" }, ...base];
+}
+
+/** The registry option a stored value should show as selected (stacks included). */
+export function selectedFontValue(current: string | null | undefined): string {
+  if (typeof current !== "string" || !current) return "";
+  const entry = resolveFont(current);
+  return entry && !FONT_PICKER_OPTIONS.some((o) => o.value === current) ? entry.family : current;
 }
 
 /** The nearest real weight a font has (ties go to the heavier weight). Unknown font → requested weight. */

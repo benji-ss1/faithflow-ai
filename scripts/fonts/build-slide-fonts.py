@@ -13,6 +13,17 @@ Subset  : Basic Latin, Latin-1, Latin Extended-A/B, IPA bits, combining marks
           (U+1E00-1EFF: Yoruba ẹ ọ ṣ, Igbo ị ụ ṅ), punctuation + currency (₦).
           ONE file per face (no unicode-range split) so a verse never waits on a
           second late file mid-render.
+
+NO_SUBSET: some families carry a Reserved Font Name (RFN) in their OFL. SIL's
+          OFL-FAQ 2.6/2.7 is explicit that subsetting yields a "Modified
+          Version", and a Modified Version MAY NOT keep the Reserved Font Name.
+          We depend on the LITERAL family name (stored theme/slide values say
+          "Playfair Display"; renaming would break every saved theme and force a
+          data migration), so an RFN family must ship UNMODIFIED — a straight
+          woff2 compression of the upstream file with no glyph removal.
+          Compression alone does not alter the design or outlines. Those families
+          are listed in NO_SUBSET below, and test/fonts-files.test.ts asserts the
+          shipped cmap count equals upstream so a subset cannot creep back in.
 Keep in sync with src/lib/fonts/registry.ts (test/fonts-files.test.ts enforces it).
 """
 import io, os, sys, shutil
@@ -22,6 +33,10 @@ from fontTools.varLib import instancer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 UNICODES = "U+0000-024F,U+0259,U+02B0-02FF,U+0300-036F,U+1E00-1EFF,U+2000-206F,U+20A0-20CF,U+2113,U+2122,U+2190-2193,U+2212,U+2215,U+FEFF,U+FFFD"
+
+# Families whose OFL declares a Reserved Font Name: ship UNSUBSETTED (see the
+# NO_SUBSET note in the module docstring). Everything else is subset to UNICODES.
+NO_SUBSET = {"playfair-display"}
 
 # id, family, google dir, faces: (style, source file, weight or (min,max), pinned axes)
 VF = "variable"
@@ -69,9 +84,16 @@ def main(src):
       if "fvar" in font and pins:
         font = instancer.instantiateVariableFont(font, pins)
         buf = io.BytesIO(); font.save(buf); buf.seek(0); font = TTFont(buf)  # reload: subsetter trips on lazy gvar after instancing
-      opts = subset.Options(); opts.flavor = "woff2"; opts.layout_features = ["*"]
-      opts.name_IDs = ["*"]; opts.notdef_outline = True; opts.drop_tables += ["DSIG"]
-      s = subset.Subsetter(opts); s.populate(unicodes=subset.parse_unicodes(UNICODES)); s.subset(font)
+      if fid in NO_SUBSET:
+        # RFN family: compress only. Removing glyphs would make this a "Modified
+        # Version" under OFL 1.1, which may not keep the Reserved Font Name we
+        # rely on as the literal CSS family. Costs ~70KB total; still inside the
+        # per-file 200KB and total 3MB caps that fonts-files.test.ts enforces.
+        pass
+      else:
+        opts = subset.Options(); opts.flavor = "woff2"; opts.layout_features = ["*"]
+        opts.name_IDs = ["*"]; opts.notdef_outline = True; opts.drop_tables += ["DSIG"]
+        s = subset.Subsetter(opts); s.populate(unicodes=subset.parse_unicodes(UNICODES)); s.subset(font)
       wtag = f"{weight[0]}-{weight[1]}" if isinstance(weight, tuple) else str(weight)
       name = f"{fid}-{wtag}-{style}.woff2"
       font.flavor = "woff2"; font.save(os.path.join(out, name))

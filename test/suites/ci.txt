@@ -155,3 +155,5 @@ test/videopsalm-parser.test.ts
 test/videopsalm.test.ts
 test/voice-commands.test.ts
 test/whats-new.test.ts
+test/autofit-font-cache-key.test.ts
+test/fonts-picker-value.test.ts

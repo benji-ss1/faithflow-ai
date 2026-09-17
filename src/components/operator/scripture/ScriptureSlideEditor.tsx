@@ -1,5 +1,5 @@
 "use client";
-import { FontOptions, WeightOptions } from "@/components/fonts/FontOptions";
+import { FontOptions, WeightOptions, selectedFontValue } from "@/components/fonts/FontOptions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Lock, Image as ImageIcon, Play, Save, Type, AlignLeft, AlignCenter, AlignRight, BookOpen, Maximize2, PanelBottom, ArrowUpToLine, ArrowDownToLine, AlignVerticalJustifyCenter } from "lucide-react";
 import { toast } from "sonner";
@@ -312,7 +312,7 @@ export function ScriptureSlideEditor({
                   {isVerseSelected && (
                     <div className="mb-2 flex items-center gap-1.5 text-[10px] text-zinc-500"><Lock className="w-3 h-3" /> Words are locked — move, resize &amp; style only.</div>
                   )}
-                  <Row label="Font"><select value={selText.fontFamily ?? "Sora"} onChange={(e) => patchSelected({ fontFamily: e.target.value })} className={btn + " w-full"} style={bstyle}><FontOptions current={selText.fontFamily ?? "Sora"} /></select></Row>
+                  <Row label="Font"><select value={selectedFontValue(selText.fontFamily ?? "Sora")} onChange={(e) => patchSelected({ fontFamily: e.target.value })} className={btn + " w-full"} style={bstyle}><FontOptions current={selText.fontFamily ?? "Sora"} /></select></Row>
                   <Row label="Size"><div className="flex items-center gap-2"><input type="range" min={20} max={220} step={2} value={selText.fontSize ?? 96} onChange={(e) => patchSelected({ fontSize: Number(e.target.value) })} className="flex-1" style={emberSlider} /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{selText.fontSize ?? 96}</span></div></Row>
                   <Row label="Weight"><select value={selText.fontWeight ?? 700} onChange={(e) => patchSelected({ fontWeight: Number(e.target.value) })} className={btn + " w-full"} style={bstyle}><WeightOptions font={selText.fontFamily ?? "Sora"} current={selText.fontWeight ?? 700} /></select></Row>
                   <Row label="Colour"><input type="color" value={selText.color ?? "#ffffff"} onChange={(e) => patchSelected({ color: e.target.value })} className="h-8 w-full rounded-lg border bg-transparent shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)]" style={{ borderColor: "var(--color-border)" }} /></Row>

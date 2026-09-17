@@ -3,10 +3,14 @@
  * Run: npx tsx test/fonts-registry.test.ts
  */
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import fixture from "./fixtures/stored-font-values.json";
-import { FONT_REGISTRY, FONT_PICKER_OPTIONS, resolveFont, fontStack, pickerOptionsFor, nearestWeight, weightOptionsFor, fontLoadSpec } from "../src/lib/fonts/registry";
+import { FONT_REGISTRY, FONT_PICKER_OPTIONS, resolveFont, fontStack, pickerOptionsFor, selectedFontValue, nearestWeight, weightOptionsFor, fontLoadSpec } from "../src/lib/fonts/registry";
 import { themeConfigToAppearance } from "../src/lib/theme-appearance";
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
 function check(name: string, fn: () => void) {
   try { fn(); console.log(`  PASS  ${name}`); pass++; }
@@ -67,12 +71,57 @@ check("theme appearance output unchanged for legacy values (wire parity)", () =>
   assert.equal(themeConfigToAppearance({ fontFamily: "Inter, sans-serif" })?.fontFamily, "Inter, sans-serif");
   assert.equal(themeConfigToAppearance({ fontFamily: "Playfair Display" })?.fontFamily, "Playfair Display, serif");
 });
-check("pickerOptionsFor: known value → no extra option; unknown → (current) first", () => {
+check("pickerOptionsFor: known value or stack → no extra option; unknown → Keep current first", () => {
   assert.equal(pickerOptionsFor("Sora").length, FONT_PICKER_OPTIONS.length);
-  const o = pickerOptionsFor("Inter, system-ui, sans-serif");
-  assert.equal(o[0].value, "Inter, system-ui, sans-serif");
-  assert.equal(o[0].label, "(current) Inter, system-ui, sans-serif");
-  assert.equal(pickerOptionsFor("TEST")[0].label, "(current) TEST");
+  // A stored CSS STACK (what the ThemesTab swatches write) must select its plain
+  // registry option, not show a redundant "Keep current" row.
+  const stack = pickerOptionsFor("Inter, system-ui, sans-serif");
+  assert.equal(stack.length, FONT_PICKER_OPTIONS.length);
+  assert.ok(!stack.some((o) => o.group === "current"));
+  assert.equal(selectedFontValue("Inter, system-ui, sans-serif"), "Inter");
+  // Only a genuinely unrecognised value is preserved as its own option.
+  const unknown = pickerOptionsFor("TEST");
+  assert.equal(unknown[0].label, "Keep current: TEST");
+  assert.equal(unknown[0].group, "current");
+  assert.equal(selectedFontValue("TEST"), "TEST");
+});
+check("default projector face: Yoruba/Igbo letters land on Inter, not the OS font", () => {
+  // Sora is the default --font-display face and has NO ẹ ọ ṣ ị ụ ṅ. Inter must
+  // sit IMMEDIATELY after it so per-glyph fallback lands on a bundled face.
+  const sora = FONT_REGISTRY.find((e) => e.id === "sora")!;
+  assert.equal(sora.supports.yoruba, false);
+  assert.deepEqual(sora.fallbacks, ["Inter"]);
+  const inter = FONT_REGISTRY.find((e) => e.id === "inter")!;
+  assert.ok(inter.supports.yoruba && inter.supports.igbo && inter.bundled);
+  const stack = fontStack("Sora")!;
+  assert.equal(stack, "Sora, Inter, sans-serif");
+  // Inter must come BEFORE any generic/system face in the resolved stack.
+  const fams = stack.split(",").map((s) => s.trim());
+  assert.ok(fams.indexOf("Inter") === 1, stack);
+  // The CSS variable used by the live projector must agree with the registry.
+  const css = fs.readFileSync(path.join(ROOT, "src/app/globals.css"), "utf8");
+  const decl = /--font-display:\s*([^;]+);/.exec(css)?.[1] ?? "";
+  const list = decl.split(",").map((s) => s.trim().replace(/^['"]|['"]$/g, ""));
+  assert.equal(list[0], "Sora", decl);
+  assert.equal(list[1], "Inter", `Inter must come straight after Sora: ${decl}`);
+});
+check("picker grouping + coverage hints (wires the registry supports flags)", () => {
+  const opts = pickerOptionsFor("Sora");
+  assert.equal(opts.find((o) => o.value === "Sora")?.group, "bundled");
+  assert.equal(opts.find((o) => o.value === "Georgia")?.group, "system");
+  // Sora genuinely has no Yoruba/Igbo glyphs, so the picker must say so.
+  assert.equal(opts.find((o) => o.value === "Sora")?.hint, "limited Yoruba/Igbo");
+  assert.equal(opts.find((o) => o.value === "Inter")?.hint, undefined);
+  assert.ok(opts.every((o) => o.group !== "bundled" || o.entry?.bundled));
+});
+check("fontStack is defensive: CSS punctuation never reaches the declaration", () => {
+  for (const evil of ['Sora; } body{display:none', "Inter<script>", "A(B)", "X\\nY", "Georgia; color:red"]) {
+    const out = fontStack(evil)!;
+    assert.ok(!/[;{}()<>\\]/.test(out), `${evil} → ${out}`);
+    assert.ok(GENERIC_END.test(out) || ["serif", "sans-serif", "monospace"].includes(out), out);
+  }
+  // A serif-classed first family still degrades to serif, not sans-serif.
+  assert.equal(fontStack("Georgia; color:red"), "serif");
 });
 check("weights: real per font, stored weight kept visible", () => {
   assert.deepEqual(weightOptionsFor("DM Serif Display"), [400]);

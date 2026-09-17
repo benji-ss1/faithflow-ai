@@ -100,6 +100,18 @@ function fontsSettledToken(): string {
     return document.fonts.status === "loaded" ? "f1" : "f0";
   } catch { return "fx"; }
 }
+/**
+ * The font-state segment of EVERY fit-cache key (Fonts P1, 2026-09-17).
+ *
+ * A fitted size is only valid for the font it was measured with. Both cache
+ * keys — the projector key and the generic key that theme text boxes use — must
+ * carry this, or a size measured against the FALLBACK face gets reused when the
+ * real face arrives and the text overflows (measured up to +23px too large).
+ * Exported so test/autofit-font-cache-key.test.ts can pin the contract.
+ */
+export function fontStateSuffix(fontToken: string, settled: string, faceReady: string): string {
+  return `|${fontToken}|${settled}|${faceReady}`;
+}
 function fitCacheSet(k: string, v: number) {
   if (fitCache.size >= FIT_CACHE_MAX) {
     const first = fitCache.keys().next().value;
@@ -362,7 +374,9 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // needed, and pathologically long text bottoms out at the guaranteed-fit
       // floor rather than clipping. A−/A+ scale rides the ceiling. Seeded by the
       // word-count band for fast convergence; cached by text+box.
-      const projKey = `projfit|${Math.round(ebw / 4) * 4}|${Math.round(ebh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${fontsSettledToken()}|${faceReadyToken(t, currentText)}|${currentText}`;
+      const projKey = `projfit|${Math.round(ebw / 4) * 4}|${Math.round(ebh / 4) * 4}|${absMinPx}|${ceilPx}` +
+        fontStateSuffix(fontToken, fontsSettledToken(), faceReadyToken(t, currentText)) +
+        `|${currentText}`;
       let best: number;
       let cachedProj = editingRef.current ? undefined : fitCacheGet(projKey);
       // NEVER TRUST A CACHED SIZE THAT NO LONGER FITS (2026-09-16 root cause of
@@ -430,7 +444,17 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // Cache key includes effectiveMinPx so grid thumbnails don't share
     // cache entries with live-projector renders of the same text (different
     // valid font sizes for different min floors).
-    const cacheKey = fitCacheKey(currentText, bw, bh, maxPx) + `|${effectiveMinPx}|${fontToken}`;
+    // Fonts P1 (2026-09-17): the font-state tokens belong on THIS key too, not
+    // only the projector key at :365. Theme text boxes (SlideRenderer :180/:412,
+    // and themes are default-on) reach this path, so without them a size
+    // measured against the FALLBACK face was cached and then reused once the
+    // real face arrived — up to +23px too large, i.e. clipping. A different
+    // font state now means a different entry, so a fallback-face measurement
+    // can never be reused for the real face.
+    const cacheKey =
+      fitCacheKey(currentText, bw, bh, maxPx) +
+      `|${effectiveMinPx}` +
+      fontStateSuffix(fontToken, fontsSettledToken(), faceReadyToken(t, currentText));
     const cached = editingRef.current ? undefined : fitCacheGet(cacheKey);
     if (cached !== undefined) {
       lastFittedRef.current = cached;

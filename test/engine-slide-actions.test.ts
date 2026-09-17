@@ -124,13 +124,35 @@ test("validate/sanitizeSlideActions enforce the 32KB serialized list cap", () =>
   assert.ok(v.ok, "8 x 2000 chars is under 32KB");
   const bigger = Array.from({ length: MAX_SLIDE_ACTIONS }, (_, i) => ({ type: "show_message", text: "z".repeat(2000), dismissAfterMs: i }));
   assert.ok(validateSlideActions(bigger).ok);
-  // Force over the cap with announcements (8KB embedded each).
-  const ann = { type: "set_announcement", announcement: { line1: "a".repeat(500), line2: "b".repeat(500), position: "lower_third", style: { fontFamily: "f".repeat(3000) } } };
+  // Force over the cap with announcements (~1KB embedded each).
+  // NOTE: this used to inflate the payload with a 3000-char style.fontFamily,
+  // but Fonts P1 (2026-09-17) holds announcement fontFamily to the same
+  // 120-char FONT_FAMILY_RE as every other font-family on the wire, so that
+  // payload is now correctly rejected as "bad-announcement" BEFORE the byte cap
+  // is reached. Use legal-but-long fields so this still tests the byte cap it is
+  // named for. (A separate case below pins the fontFamily rejection itself.)
+  const ann = { type: "set_announcement", announcement: { line1: "a".repeat(500), line2: "b".repeat(500), position: "lower_third", style: { fontFamily: "f".repeat(120), bgColor: "c".repeat(3000) } } };
   const list = Array.from({ length: MAX_SLIDE_ACTIONS }, () => ann);
   assert.equal(validateSlideActions(list).reason, "too-large");
   const s = sanitizeSlideActions(list);
   assert.ok(JSON.stringify(s).length <= 32 * 1024, "sanitize trims to the byte cap");
   assert.ok(s.length < MAX_SLIDE_ACTIONS);
+});
+
+test("announcement style.fontFamily is held to the wire font-family rules (Fonts P1)", () => {
+  const withFont = (fontFamily: unknown) => [{
+    type: "set_announcement",
+    announcement: { line1: "Welcome", position: "lower_third", style: { fontFamily } },
+  }];
+  // Reaches CSS, so it must obey the same charset + 120-char cap as every other
+  // font-family on the wire — no CSS punctuation, no unbounded length.
+  for (const bad of ["f".repeat(121), "Sora; } body{display:none}", "Inter<script>", "url(evil)", "a\nb"]) {
+    assert.equal(validateSlideActions(withFont(bad)).ok, false, `should reject ${JSON.stringify(bad).slice(0, 40)}`);
+  }
+  // Real values — plain families and full stacks — still pass untouched.
+  for (const good of ["Sora", "Playfair Display", "Times New Roman, serif", "Sora, Inter, sans-serif", undefined]) {
+    assert.equal(validateSlideActions(withFont(good)).ok, true, `should accept ${String(good)}`);
+  }
 });
 
 test("dispatchAction: confirmed must be === true (truthy non-boolean refused)", () => {

@@ -43,7 +43,10 @@ const FIXTURES: { slide: SlidePayload; id: string }[] = [
   });
   await check("sole text object renders with generic fallback (render-time)", () => {
     const m = html(FIXTURES[0].slide);
-    assert.match(m, /font-family:Sora, sans-serif/);
+    // Inter sits between Sora and the generic on purpose: Sora has no Yoruba/Igbo
+    // glyphs, so those letters fall through PER GLYPH to a bundled face we
+    // control instead of the OS font (Fonts P1 gate 🔴3).
+    assert.match(m, /font-family:Sora, Inter, sans-serif/);
   });
   await check("multi-object layer renders with registry stack", () => {
     const m = html(FIXTURES[3].slide);

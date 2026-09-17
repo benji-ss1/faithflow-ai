@@ -112,6 +112,22 @@ for (const e of FONT_REGISTRY.filter((x) => x.bundled)) {
     }
   });
 }
+// OFL Reserved Font Name families must ship UNMODIFIED (see the NO_SUBSET note
+// in scripts/fonts/build-slide-fonts.py). SIL OFL-FAQ 2.6/2.7: subsetting makes a
+// "Modified Version", which may NOT keep the Reserved Font Name — and we depend
+// on the literal family name, because that is what saved themes/slides store.
+// The upstream counts are from google/fonts ofl/playfairdisplay (VF, both styles).
+const RFN_UPSTREAM_CMAP: Record<string, number> = { "Playfair Display": 659 };
+for (const [family, expected] of Object.entries(RFN_UPSTREAM_CMAP)) {
+  check(`${family}: shipped UNSUBSETTED — cmap count equals upstream (${expected})`, () => {
+    const own = faces.filter((x) => x.family === family);
+    assert.ok(own.length > 0, `no faces for ${family}`);
+    for (const f of own) {
+      const n = cmapOf(path.join(ROOT, "public", f.url)).size;
+      assert.equal(n, expected, `${f.url} has ${n} mapped codepoints, upstream has ${expected} — it was subset, which strips the Reserved Font Name right`);
+    }
+  });
+}
 check("no @font-face for a family outside the registry; no stray css urls", () => {
   for (const f of faces) assert.ok(FONT_REGISTRY.some((e) => e.bundled && e.family === f.family), f.family);
   assert.ok(!/https?:/.test(CSS.replace(/\/\*[\s\S]*?\*\//g, "")), "no absolute urls");

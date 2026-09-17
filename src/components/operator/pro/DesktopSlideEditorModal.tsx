@@ -1,5 +1,5 @@
 "use client";
-import { FontOptions, WeightOptions } from "@/components/fonts/FontOptions";
+import { FontOptions, WeightOptions, selectedFontValue } from "@/components/fonts/FontOptions";
 import { useShortcutLabel, useIsWindows } from "@/lib/usePlatformLabel";
 import type { LiveOrigin } from "@/lib/song-switch-guard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1176,7 +1176,7 @@ function TextProps({ o, upd, guardEmptySize = false }: { o: TextObject; upd: (p:
           className="w-full px-2 py-1.5 rounded-md border text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none focus:border-[var(--color-brand)] resize-y" style={{ borderColor: "var(--color-border)" }} />
       </div>
       <div><span className={rowCls}>Font</span>
-        <select value={o.fontFamily ?? "Inter"} onChange={(e) => upd({ fontFamily: e.target.value })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
+        <select value={selectedFontValue(o.fontFamily ?? "Inter")} onChange={(e) => upd({ fontFamily: e.target.value })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
           <FontOptions current={o.fontFamily ?? "Inter"} />
         </select>
       </div>

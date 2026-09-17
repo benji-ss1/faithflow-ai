@@ -43,16 +43,26 @@ async function freePort() {
   });
 }
 
-async function waitForServer(url, timeoutMs = 180_000) {
+async function waitForServer(url, timeoutMs = 420_000) {
+  // `next dev` in this worktree needs ~80s to boot and then compiles the route
+  // on first request, so each probe gets its own short abort budget. Otherwise a
+  // single in-flight request waiting on a compile blocks the whole loop and we
+  // report "did not come up" for a server that is actually fine.
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const r = await fetch(url, { redirect: "manual" });
-      if (r.status > 0) return true;
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 5_000);
+      try {
+        const r = await fetch(url, { redirect: "manual", signal: ctl.signal });
+        if (r.status > 0) return true;
+      } finally {
+        clearTimeout(t);
+      }
     } catch {
-      /* not up yet */
+      /* not up yet, or this probe hit a compile — keep polling */
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 1000));
   }
   return false;
 }
@@ -87,7 +97,20 @@ async function main() {
   try {
     const page = await browser.newPage();
     // Any app route pulls the root layout, which imports src/app/slide-fonts.css.
-    const resp = await page.goto(`${base}/login`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+    // The FIRST navigation races `next dev` compiling the route, which can come
+    // back as ERR_ABORTED. Retry a few times before giving up — a genuinely
+    // broken page still fails every attempt.
+    let resp = null;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        resp = await page.goto(`${base}/login`, { waitUntil: "domcontentloaded", timeout: 180_000 });
+        if (resp) break;
+      } catch (e) {
+        console.log(`[stress] navigation attempt ${attempt} failed (${String(e).split("\n")[0]}) — retrying`);
+        await page.waitForTimeout(5000);
+        if (attempt === 4) throw e;
+      }
+    }
     console.log(`[stress] loaded /login → ${resp?.status()}`);
     // First compile can take a while; give the CSS a beat to attach.
     await page.waitForTimeout(1500);

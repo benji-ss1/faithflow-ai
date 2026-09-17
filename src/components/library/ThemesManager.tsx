@@ -1,5 +1,5 @@
 "use client";
-import { FontOptions, WeightOptions } from "@/components/fonts/FontOptions";
+import { FontOptions, WeightOptions, selectedFontValue } from "@/components/fonts/FontOptions";
 import { useState, useEffect, useTransition } from "react";
 import { toast } from "sonner";
 import { ChevronDown, Copy, Download, GripVertical, Palette, Plus, Sparkles, Star, Trash2, X } from "lucide-react";
@@ -681,7 +681,7 @@ function ThemeEditor({
         <div className="flex-1 space-y-2 overflow-y-auto p-4">
           <Section title="Typography" defaultOpen>
             <Row label="Headline font">
-              <select value={get(cfg, "fontFamily", "Inter") as string} onChange={(e) => set({ fontFamily: e.target.value })} className={selectCls}>
+              <select value={selectedFontValue(get(cfg, "fontFamily", "Inter") as string)} onChange={(e) => set({ fontFamily: e.target.value })} className={selectCls}>
                 <FontOptions current={get(cfg, "fontFamily", "Inter") as string} />
               </select>
             </Row>

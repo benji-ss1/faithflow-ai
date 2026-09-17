@@ -1,5 +1,5 @@
 "use client";
-import { FontOptions, WeightOptions } from "@/components/fonts/FontOptions";
+import { FontOptions, WeightOptions, selectedFontValue } from "@/components/fonts/FontOptions";
 import { weightOptionsFor } from "@/lib/fonts/registry";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -591,7 +591,7 @@ function TextTab() {
 
       <Section label="Font family">
         <select
-          value={t.fontFamily || "Inter"}
+          value={selectedFontValue(t.fontFamily || "Inter")}
           onChange={(e) => patch({ fontFamily: e.target.value })}
           className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
           style={{ background: "#1a2020", borderColor: "#2a3232" }}
@@ -956,7 +956,7 @@ function AnnounceTab({ ctx }: { ctx: OperatorShellCtx }) {
       </Section>
 
       <Section label="Font family">
-        <select value={style.fontFamily} onChange={(e) => patchStyle({ fontFamily: e.target.value })}
+        <select value={selectedFontValue(style.fontFamily)} onChange={(e) => patchStyle({ fontFamily: e.target.value })}
           className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
           style={{ background: "#1a2020", borderColor: "#2a3232" }}>
           <FontOptions current={style.fontFamily} />
@@ -1438,7 +1438,7 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
           </Section>
 
           <Section label="Font family">
-            <select value={cfg.fontFamily || "Inter"} onChange={(e) => patchConfig({ fontFamily: e.target.value })}
+            <select value={selectedFontValue(cfg.fontFamily || "Inter")} onChange={(e) => patchConfig({ fontFamily: e.target.value })}
               className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
               style={{ background: "#1a2020", borderColor: "#2a3232" }}>
               <FontOptions current={cfg.fontFamily || "Inter"} />

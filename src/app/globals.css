@@ -100,11 +100,20 @@
   /* --font-display stays the clean sans — it is used by the LIVE PROJECTOR
    * (SlideRenderer .font-display) for lyrics/verses, which must remain a
    * crowd-legible sans. DO NOT point this at a serif. */
-  --font-display: "Sora", ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
+  /* Fonts P1 (2026-09-17): "Inter" sits IMMEDIATELY after Sora. Sora really
+   * loads now, and its cmap has NO Yoruba/Igbo letters (ẹ ọ ṣ ị ụ ṅ). CSS falls
+   * back PER GLYPH, so those letters render in bundled Inter instead of
+   * dropping to whatever the OS supplies. Do NOT move Inter back behind
+   * ui-sans-serif/system-ui. */
+  --font-display: "Sora", "Inter", ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
   /* NEW: chrome heading face — the OpenFlow serif (Fraunces via next/font,
    * exposed on <body> as --of-font-serif). Used ONLY by operator/admin h1-h3,
    * NEVER by projected text. Falls back to a system serif. */
-  --font-heading: var(--of-font-serif, "Fraunces", "Iowan Old Style", "Charter", "Palatino Linotype", Georgia, serif);
+  /* Fonts P1: "Fraunces" dropped from the FALLBACK list — it is a real bundled
+   * face now, so naming it here made /live fetch ~50KB for chrome headings that
+   * output windows never render. The primary var(--of-font-serif) still IS
+   * Fraunces via next/font wherever the operator chrome loads it. */
+  --font-heading: var(--of-font-serif, "Iowan Old Style", "Charter", "Palatino Linotype", Georgia, serif);
   --font-mono:    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   --radius-md: 8px;

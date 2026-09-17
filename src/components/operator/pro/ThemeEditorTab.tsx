@@ -10,7 +10,7 @@
 //  • Background lives ONLY in the theme config (the drawer's per-slide
 //    Background tab is hidden in theme mode); the canvas previews it via
 //    themeBgStyle / backgroundNode, so slides are never rewritten.
-import { FontOptions, WeightOptions } from "@/components/fonts/FontOptions";
+import { FontOptions, WeightOptions, selectedFontValue } from "@/components/fonts/FontOptions";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
@@ -178,7 +178,7 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
         ) : (
           <>
             <Field label="Font">{(id) => (
-              <select id={id} value={target.fontFamily ?? "Inter"} onChange={(e) => updTarget({ fontFamily: e.target.value })} className={inCls}>
+              <select id={id} value={selectedFontValue(target.fontFamily ?? "Inter")} onChange={(e) => updTarget({ fontFamily: e.target.value })} className={inCls}>
                 <FontOptions current={target.fontFamily ?? "Inter"} />
               </select>
             )}</Field>

@@ -185,8 +185,12 @@ export function frameFromTextObject(t: TextObject | null | undefined): ThemeFram
     h: Math.round(clamp(t.h, 40, 2160)),
   };
   if (typeof t.fontFamily === "string" && FONT_FAMILY_RE.test(t.fontFamily)) {
+    // Fonts P1 (2026-09-17): mirror :133 — if appending the generic pushes the
+    // stack past the 120-char wire cap, keep the ORIGINAL family (it already
+    // passed FONT_FAMILY_RE) instead of dropping fontFamily entirely and
+    // silently losing the operator's chosen font on the projector.
     const fam = withGenericFallback(t.fontFamily);
-    if (FONT_FAMILY_RE.test(fam)) f.fontFamily = fam;
+    f.fontFamily = FONT_FAMILY_RE.test(fam) ? fam : t.fontFamily;
   }
   if (fin(t.fontSize)) f.fontSize = Math.round(clamp(t.fontSize, 8, 400));
   if (fin(t.fontWeight)) f.fontWeight = clamp(Math.round(t.fontWeight), 100, 900);
