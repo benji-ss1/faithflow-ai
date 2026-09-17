@@ -11,6 +11,7 @@ import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector"
 import { buildColorwayFromPalette } from "@/lib/colorway";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { isContentTypeEditDenied } from "@/lib/church-styles-store";
 import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
 import { BgAssetPicker } from "@/components/library/BgAssetPicker";
 
@@ -1055,7 +1056,17 @@ function SortableThemeCard({
 // item's TYPE → this theme when the item has no explicit override.
 function ContentTypeStyleBar({ themes }: { themes: ThemeRow[] }) {
   const [styles, setStyles] = useState<ContentTypeStyles>({});
-  useEffect(() => { setStyles(loadContentTypeStyles()); }, []);
+  // PR B: a server refusal (no edit_library) disables the picker instead of
+  // letting a volunteer keep changing a value that never saves.
+  const [denied, setDenied] = useState(false);
+  // PR B: church-scoped (the operator console hydrated this church's styles);
+  // follows changes from other computers / windows.
+  useEffect(() => {
+    const load = () => { setStyles(loadContentTypeStyles()); setDenied(isContentTypeEditDenied()); };
+    load();
+    window.addEventListener("presentflow:content-type-styles-changed", load);
+    return () => window.removeEventListener("presentflow:content-type-styles-changed", load);
+  }, []);
   const set = (type: ContentStyleType, themeId: string) => {
     const next: ContentTypeStyles = { ...styles };
     if (themeId) next[type] = themeId; else delete next[type];
@@ -1072,7 +1083,9 @@ function ContentTypeStyleBar({ themes }: { themes: ThemeRow[] }) {
             <select
               value={styles[key] ?? ""}
               onChange={(e) => set(key, e.target.value)}
-              className={cn("h-9 px-2 text-[12px] text-foreground", fieldCls)}
+              disabled={denied}
+              title={denied ? "Only someone who can edit the library can change this" : undefined}
+              className={cn("h-9 px-2 text-[12px] text-foreground disabled:opacity-60", fieldCls)}
             >
               <option value="">Church default</option>
               {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -1081,7 +1094,8 @@ function ContentTypeStyleBar({ themes }: { themes: ThemeRow[] }) {
         ))}
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Songs and Bible verses automatically use these looks on the projector, stage &amp; livestream — unless a specific item overrides it. Announcements are styled in the announcement composer.
+        Songs and Bible verses automatically use these looks on the projector, stage &amp; livestream on every computer in your church — unless a specific item overrides it. Announcements are styled in the announcement composer.
+        {denied && " Only someone who can edit the library can change these."}
       </p>
     </div>
   );
