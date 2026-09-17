@@ -1,7 +1,7 @@
 ---
 headline: The Layers panel now matches ProPresenter
 audience: operator
-version: 0.1.450
+version: 0.1.453
 date: 2026-09-17
 highlights:
   - The Layers panel lists the same seven layers as the clear bar beside your live preview, in the same order - Audio, Messages, Props, Announcements, Slide, Media, Video Input.

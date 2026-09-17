@@ -69,6 +69,7 @@ test/layer-store.test.ts
 test/layer-wire.test.ts
 test/live-bg-theme-decor.test.ts
 test/live-item-theme.test.ts
+test/themes-retry.test.ts
 test/login-guard.test.ts
 test/logo-key.test.ts
 test/media-as-background.stress.test.ts
