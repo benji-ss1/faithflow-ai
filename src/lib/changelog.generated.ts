@@ -13,7 +13,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "A video in your theme keeps playing smoothly when you change slides instead of starting again.",
       "In a song, Cmd/Ctrl-click or Shift-click to select several slides, then use Theme to apply a theme to just those slides.",
       "Use \\\"Apply theme to all items…\\\" on a service to theme everything in it at once, with Undo.",
-      "Bible items now have a Theme option too, plus \\\"Use for all Bible verses\\\" (saved on this computer for now).",
+      "Bible items now have a Theme option too, plus \\\"Use for all Bible verses\\\".",
       "Removing or re-applying a theme on songs no longer leaves the old theme's background behind."
     ]
   },

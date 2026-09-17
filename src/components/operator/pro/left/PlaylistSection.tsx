@@ -45,6 +45,7 @@ import { projectableTextSlide } from "@/lib/broadcast";
 import type { OperatorShellCtx } from "../../shell/types";
 import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset, addPlaylistHeader, setHeaderColor, setServiceItemArrangement, applyThemeToPlan } from "@/lib/actions";
 import { BUILTIN_THEMES } from "@/lib/builtin-themes";
+import { undoPlanTheme } from "@/lib/plan-theme-undo";
 import { loadContentTypeStyles, saveContentTypeStyles } from "@/lib/content-type-styles";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 
@@ -516,7 +517,6 @@ function SortablePlaylistItem({
                           </ContextMenu.SubTrigger>
                           <ContextMenu.Portal>
                             <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px] max-h-[300px] overflow-y-auto">
-                              <div className="px-3 py-1 text-[10px] text-[var(--color-muted-foreground)]">Saved on this computer for now</div>
                               {themes.map((t) => (
                                 <ContextMenu.Item key={t.id} onSelect={() => onUseForAllScripture(t.id)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer truncate">
                                   {t.name}
@@ -719,12 +719,12 @@ export function PlaylistSection({
     return false;
   };
 
-  // "Use for all Bible verses" — the per-content-type default (this computer).
+  // "Use for all Bible verses" — the per-content-type scripture default.
   const useThemeForAllScripture = (themeId: string) => {
     const prev = loadContentTypeStyles();
     saveContentTypeStyles({ ...prev, scripture: themeId });
     const name = themes.find((t) => t.id === themeId)?.name ?? "Theme";
-    toast.success(`"${name}" now styles all Bible verses on this computer`, {
+    toast.success(`"${name}" now styles all Bible verses`, {
       action: { label: "Undo", onClick: () => { const cur = loadContentTypeStyles(); const next = { ...cur }; if (prev.scripture) next.scripture = prev.scripture; else delete next.scripture; saveContentTypeStyles(next); } },
     });
   };
@@ -746,14 +746,15 @@ export function PlaylistSection({
     router.refresh();
     const { previous, songs: bakedSongs } = res.data;
     undoToast(`Theme applied to ${previous.length} item${previous.length === 1 ? "" : "s"}${includeSongs ? ` and ${bakedSongs.length} song${bakedSongs.length === 1 ? "" : "s"}` : ""}`, async () => {
-      for (const p of previous) {
-        const r = await setServiceItemTheme(ctx.planId, p.itemId, p.themeId);
-        if (!r.ok) return r;
-      }
-      for (const sg of bakedSongs) {
-        const r = sg.previousThemeId ? await applyThemeToSong(sg.previousThemeId, sg.songId) : await revertSongTheme(sg.songId);
-        if (!r.ok) return r;
-      }
+      // Review fix: never abort half-way. A previous theme that was deleted in
+      // the meantime is cleared to "none"; every other failure is counted.
+      const { failed, clearedDeleted } = await undoPlanTheme(previous, bakedSongs, {
+        setItemTheme: (itemId, t) => setServiceItemTheme(ctx.planId, itemId, t),
+        applySongTheme: applyThemeToSong,
+        revertSong: revertSongTheme,
+      });
+      if (clearedDeleted > 0) toast.message(`${clearedDeleted} item${clearedDeleted === 1 ? "'s" : "s'"} previous theme was deleted, so ${clearedDeleted === 1 ? "it was" : "they were"} reset to no theme`);
+      if (failed > 0) { router.refresh(); return { ok: false, error: `Undo finished, but ${failed} change${failed === 1 ? "" : "s"} couldn't be undone` }; }
       return { ok: true };
     });
   };
