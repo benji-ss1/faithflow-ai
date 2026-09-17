@@ -17,7 +17,10 @@ import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
 import { SLIDE_TEMPLATES } from "@/lib/slide-templates";
 import { saveSlideObjects, createSongSlide, deleteSongSlide, reorderSongSlides } from "@/lib/actions";
 import { updateTheme, countSongsUsingTheme, reapplyThemeToSongs, setDefaultTheme } from "@/lib/actions";
-import { themeLayoutToRows, buildThemeSaveConfig, type ThemeSlideMeta } from "@/lib/theme-editor-model";
+import { themeLayoutToRows, buildThemeSaveConfig, verseTextOf, type ThemeSlideMeta } from "@/lib/theme-editor-model";
+import { MAX_THEME_LAYOUT_SLIDES } from "@/lib/theme-layout";
+import { themeConfigToAppearance } from "@/lib/theme-appearance";
+import { themeBackgroundStyle } from "@/components/live/SlideRenderer";
 import { ThemeEditorTab } from "./ThemeEditorTab";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject, ObjectAnim } from "@/lib/slide-objects";
@@ -65,12 +68,14 @@ export type SlideEditorTargetTheme = {
   config: Record<string, unknown>;
 };
 
-export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null, targetTheme = null, openBlank = false, openAdd = false }: {
+export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null, targetTheme = null, openBlank = false, openAdd = false, onThemeDirtyChange }: {
   ctx: OperatorShellCtx;
   open: boolean;
   onClose: () => void;
   targetSong?: SlideEditorTargetSong | null;
   targetTheme?: SlideEditorTargetTheme | null;
+  // Theme mode only: reports unsaved theme edits to the shell.
+  onThemeDirtyChange?: (dirty: boolean) => void;
   openBlank?: boolean;
   openAdd?: boolean;
 }) {
@@ -172,54 +177,118 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
     }
   }, [editor, songId, item, targetSong, router]);
 
-  // Theme save — updates the theme, then re-applies it to every song using it
-  // (after an in-app confirm). Never calls a song-save action.
-  const onSaveTheme = useCallback(async () => {
-    if (!themeTarget) return;
+  // Theme save — updates the theme, then (after an in-app confirm) restyles the
+  // songs that use it. Never calls a song-save action.
+  const lastSavedCfgRef = useRef<Record<string, unknown> | null>(null);
+  const [isDefaultNow, setIsDefaultNow] = useState(false);
+  useEffect(() => {
+    lastSavedCfgRef.current = themeTarget ? themeTarget.config : null;
+    setIsDefaultNow(themeTarget?.isDefault === true);
+  }, [themeTarget]);
+
+  // Restyle the songs using the theme, page by page. Idempotent (every page
+  // re-bakes from the pre-theme snapshot), so Retry simply restarts from the
+  // first page. Returns true only when every page succeeded.
+  const restyleSongs = useCallback(async (themeId: string, total: number, previousConfig: unknown): Promise<boolean> => {
+    setSaveState("saving");
+    let cursor: string | null = null;
+    let updated = 0;
+    for (let guard = 0; guard < 2000; guard++) {
+      let r: Awaited<ReturnType<typeof reapplyThemeToSongs>>;
+      try {
+        r = await reapplyThemeToSongs(themeId, { cursor, limit: 10, previousConfig });
+      } catch (e) {
+        r = { ok: false, error: e instanceof Error ? e.message : "Network error" };
+      }
+      if (!r.ok || !r.data) {
+        setSaveState("error");
+        const done = Math.min(updated, total);
+        toast.error(`${done} of ${total} song${total === 1 ? "" : "s"} updated`, {
+          description: (!r.ok && r.error) || "Couldn't restyle every song.",
+          duration: Infinity,
+          action: { label: "Retry", onClick: () => { void restyleSongs(themeId, total, previousConfig).then((ok) => { if (ok) router.refresh(); }); } },
+        });
+        return false;
+      }
+      updated += r.data.updated;
+      cursor = r.data.nextCursor;
+      if (!cursor) break;
+    }
+    setSaveState("idle");
+    toast.success(`Theme saved — ${updated} song${updated === 1 ? "" : "s"} restyled`);
+    return true;
+  }, [router]);
+
+  const onSaveTheme = useCallback(async (): Promise<boolean> => {
+    if (!themeTarget) return false;
+    if (editor.slides.length > MAX_THEME_LAYOUT_SLIDES) {
+      toast.error(`A theme can have up to ${MAX_THEME_LAYOUT_SLIDES} slides — remove ${editor.slides.length - MAX_THEME_LAYOUT_SLIDES} to save.`);
+      return false;
+    }
     setSaveState("saving");
     try {
       const config = buildThemeSaveConfig(themeCfg, editor.slides, themeMeta);
       const res = await updateTheme(themeTarget.id, { config });
       if (!res.ok) throw new Error(res.error || "Couldn't save the theme");
-      let defaultChanged = themeTarget.isDefault === true;
-      if (makeDefault && !themeTarget.isDefault) {
-        const d = await setDefaultTheme(themeTarget.id);
-        if (d.ok) defaultChanged = true; else toast.error(d.error || "Couldn't set as default");
+      const rejected = res.data?.rejected ?? [];
+      if (rejected.includes("layout")) {
+        // The server kept the previously saved layout — nothing was lost, but
+        // this edit didn't save. Stay dirty so the operator can fix and retry.
+        setSaveState("error");
+        toast.error("The slide layout couldn't be saved", { description: "It may be too large or contain unsupported media. Your previous layout is kept." });
+        return false;
       }
+      const previousConfig = lastSavedCfgRef.current;
+      lastSavedCfgRef.current = config;
+      let defaultNow = isDefaultNow;
+      if (makeDefault && !isDefaultNow) {
+        const d = await setDefaultTheme(themeTarget.id);
+        if (d.ok) { defaultNow = true; setIsDefaultNow(true); setMakeDefault(false); } else toast.error(d.error || "Couldn't set as default");
+      }
+      // The theme itself is saved → clean. Song restyle has its own retry state.
       editor.resetDirty();
       setThemeDirty(false);
       setSaveState("idle");
-      const count = await countSongsUsingTheme(themeTarget.id);
+      window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));
+      // Same contract as theme-apply-client.applyThemeLive: a detail-less event
+      // would reset the live look to built-in defaults.
+      if (defaultNow) {
+        window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
+          detail: { appearance: themeConfigToAppearance(config) },
+        }));
+      }
+      const liveOrigin = ctx.getLiveOrigin?.() ?? null;
+      const liveSongId = liveOrigin?.kind === "song" ? liveOrigin.songId ?? null : null;
+      const count = await countSongsUsingTheme(themeTarget.id, { checkSongId: liveSongId });
       const n = count.ok && count.data ? count.data.count : 0;
-      let updatedSongs = 0;
       if (n > 0) {
+        const liveHit = count.ok && count.data?.includesCheckedSong === true;
         const go = await confirmAsync({
-          title: `Update ${n} song${n === 1 ? "" : "s"} using this theme?`,
-          description: "Songs that use this theme will pick up the new look. Their words are not changed.",
-          confirmLabel: `Update ${n} song${n === 1 ? "" : "s"}`,
+          title: `Theme saved. Also restyle the ${n} song${n === 1 ? "" : "s"} that use${n === 1 ? "s" : ""} it?`,
+          description: (
+            <>
+              Each song&rsquo;s lyrics are kept. Any font, size, colour or alignment you changed by hand on those songs is replaced wherever this theme sets it.
+              {liveHit ? <><br /><b className="text-[var(--color-warning)]">One of these songs is on the projector right now.</b></> : null}
+            </>
+          ),
+          confirmLabel: `Restyle ${n} song${n === 1 ? "" : "s"}`,
+          cancelLabel: "Keep songs as they are",
         });
         if (go) {
-          setSaveState("saving");
-          let cursor: string | null = null;
-          for (let guard = 0; guard < 400; guard++) {
-            const r: Awaited<ReturnType<typeof reapplyThemeToSongs>> = await reapplyThemeToSongs(themeTarget.id, { cursor, limit: 25 });
-            if (!r.ok || !r.data) { toast.error((!r.ok && r.error) || "Couldn't update songs"); break; }
-            updatedSongs += r.data.updated;
-            cursor = r.data.nextCursor;
-            if (!cursor) break;
-          }
-          setSaveState("idle");
+          const ok = await restyleSongs(themeTarget.id, n, previousConfig);
+          router.refresh();
+          return ok;
         }
       }
-      toast.success(updatedSongs > 0 ? `Theme saved — ${updatedSongs} song${updatedSongs === 1 ? "" : "s"} updated` : "Theme saved");
-      window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));
-      if (defaultChanged) window.dispatchEvent(new CustomEvent("presentflow:theme-changed"));
+      toast.success("Theme saved");
       router.refresh();
+      return true;
     } catch (e) {
       setSaveState("error");
       toast.error(e instanceof Error ? e.message : "Save failed");
+      return false;
     }
-  }, [themeTarget, themeCfg, themeMeta, editor, makeDefault, confirmAsync, router]);
+  }, [themeTarget, themeCfg, themeMeta, editor, makeDefault, isDefaultNow, confirmAsync, router, ctx, restyleSongs]);
 
   // "Save to all slides" — apply the CURRENT slide's text style (+ background)
   // to every slide, then persist. applyToAll() is a synchronous setState, so we
@@ -251,6 +320,15 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
   // projector shows. Works for both the song-library target and playlist items.
   const onShow = useCallback(() => {
     const cur = editor.slides[editor.currentIndex];
+    if (themeMode) {
+      // Theme mode is PREVIEW-ONLY: a theme slide holds placeholder text, so it
+      // is staged to Preview and never sent to the live projector.
+      if (!cur) return;
+      const t = cur.objects.filter((o): o is TextObject => o.kind === "text").map((o) => o.text).filter(Boolean).join("\n");
+      ctx.onStageSlide(projectableTextSlide(t, cur.bgColor, cur.bgImageUrl, cur.objects));
+      toast.success(`Theme slide ${editor.currentIndex + 1} is in Preview (not live)`, { icon: <Eye className="w-4 h-4" /> });
+      return;
+    }
     if (cur) {
       const textFromObjects = cur.objects
         .filter((o): o is TextObject => o.kind === "text")
@@ -297,20 +375,48 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
   // you press text it should be the area that shows all its options").
   const selId = editor.selectedObjectId;
   useEffect(() => {
-    if (selId) setTab("design");
+    // Theme mode: never yank the operator off the Theme tab mid-edit.
+    if (selId) setTab((t) => (t === "theme" ? t : "design"));
   }, [selId]);
+
+  // Switching target while open (theme ⇄ song) resets the drawer tab. Only
+  // fires when themeMode flips, so song-only usage never runs it.
+  const prevThemeModeRef = useRef(themeMode);
+  useEffect(() => {
+    if (prevThemeModeRef.current === themeMode) return;
+    prevThemeModeRef.current = themeMode;
+    if (!open) return;
+    setTab(themeMode ? "theme" : "add");
+  }, [themeMode, open]);
+
+  // Let the shell know about unsaved theme edits (so a song-open can confirm).
+  useEffect(() => { onThemeDirtyChange?.(themeMode && hasUnsaved); }, [themeMode, hasUnsaved, onThemeDirtyChange]);
+
+  // Theme-mode close prompt (Electron-safe, three choices).
+  const [closePrompt, setClosePrompt] = useState(false);
 
   const requestClose = useCallback(() => {
     if (themeMode) {
-      // Electron has no window.confirm — theme mode uses the in-app dialog.
+      // Electron has no window.confirm — theme mode uses an in-app dialog.
       if (!hasUnsaved) { onClose(); return; }
-      void confirmAsync({ title: "Discard unsaved theme changes?", confirmLabel: "Discard", danger: true })
-        .then((ok) => { if (ok) onClose(); });
+      setClosePrompt(true);
       return;
     }
     if (editor.hasDirtyChanges && !confirm("Discard unsaved slide changes?")) return;
     onClose();
-  }, [editor.hasDirtyChanges, onClose, themeMode, hasUnsaved, confirmAsync]);
+  }, [editor.hasDirtyChanges, onClose, themeMode, hasUnsaved]);
+
+  // Theme background preview (the ONLY background control in theme mode):
+  // solid / gradient (with angle) / image via CSS, video as a live node + dim.
+  const themeAppearance = useMemo(() => (themeMode ? themeConfigToAppearance(themeCfg) : null), [themeMode, themeCfg]);
+  const themePreviewBg = useMemo(() => themeBackgroundStyle(themeAppearance, "#0b0b0b"), [themeAppearance]);
+  const themeVideoNode = themeAppearance?.bgType === "video" && themeAppearance.bgVideoUrl ? (
+    <>
+      <video src={themeAppearance.bgVideoUrl} className="absolute inset-0 h-full w-full object-cover" autoPlay muted loop playsInline />
+      {themeAppearance.dim ? <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${themeAppearance.dim})` }} /> : null}
+    </>
+  ) : undefined;
+  const themeRoleBadge = useCallback((o: SlideObject) => (o.kind === "text" && o.role ? ROLE_LABEL[o.role] : null), []);
 
   const isSong = editor.isEditable;
   const total = editor.slides.length;
@@ -383,7 +489,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                 onClick={themeMode ? () => void onSaveTheme() : onSave}
                 disabled={themeMode ? (saveState === "saving" || !hasUnsaved) : (!isSong || saveState === "saving" || !editor.hasDirtyChanges)}
                 title={themeMode ? (!hasUnsaved ? "No changes to save" : "Save this theme") : !isSong ? "Editing is available for songs" : !editor.hasDirtyChanges ? "No changes to save" : "Save slide edits"}
-                className="h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-foreground)] border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none"
+                className={themeMode ? THEME_PRIMARY_BTN : "h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-foreground)] border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none"}
               >
                 {saveState === "saving" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
               </button>
@@ -398,14 +504,14 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
               <button
                 onClick={onShow}
                 disabled={!isSong || !editor.currentSlide}
-                title={themeMode ? "Preview this theme slide on the projector" : !isSong ? "Editing is available for songs" : "Send the current slide to Preview / Live"}
+                title={themeMode ? "Stage this theme slide in Preview (never sent live)" : !isSong ? "Editing is available for songs" : "Send the current slide to Preview / Live"}
                 className="h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-brand)] border border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[var(--color-brand)] hover:bg-[var(--color-brand)]/10 hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none"
               >
                 <Play className="w-4 h-4" /> Show
               </button>
               <button
                 onClick={requestClose}
-                className="h-9 px-4 rounded-lg text-[13px] font-bold inline-flex items-center gap-1.5 bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]"
+                className={themeMode ? THEME_SECONDARY_BTN : "h-9 px-4 rounded-lg text-[13px] font-bold inline-flex items-center gap-1.5 bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]"}
               >
                 Done
               </button>
@@ -421,6 +527,19 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
             onCancel={() => setConfirmSaveAll(false)}
           />
           {confirmAsyncDialog}
+          {themeMode && closePrompt && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setClosePrompt(false)}>
+              <div role="alertdialog" aria-modal="true" aria-labelledby="theme-close-title" className="w-[380px] max-w-full rounded-xl border p-4" style={{ borderColor: HAIR, background: PANEL, boxShadow: "var(--edge-top), var(--shadow-xl)" }} onClick={(e) => e.stopPropagation()}>
+                <div id="theme-close-title" className="text-[14px] font-semibold text-[var(--color-foreground)]">Save changes to this theme?</div>
+                <div className="mt-1.5 text-[12px] leading-relaxed text-[var(--color-muted-foreground)]">You have unsaved theme changes.</div>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" onClick={() => setClosePrompt(false)} className="h-9 px-3 rounded-lg border text-[12px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10" style={segOff}>Keep editing</button>
+                  <button type="button" onClick={() => { setClosePrompt(false); onClose(); }} className="h-9 px-3 rounded-lg border text-[12px] font-semibold text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10" style={segOff}>Discard</button>
+                  <button type="button" autoFocus onClick={() => { setClosePrompt(false); void onSaveTheme().then((ok) => { if (ok) onClose(); }); }} className={THEME_PRIMARY_BTN}>Save &amp; close</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Body: slides (left) · canvas + zone controls (center) · features (right) ── */}
           <div className="flex-1 min-h-0 flex">
@@ -432,6 +551,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
               <div className="flex-1 min-h-0 min-w-0 relative" style={{ backgroundColor: "#0d0d10", backgroundImage: CHECKER, backgroundSize: "28px 28px" }}>
                 {isSong ? (
                   <SlideCanvas
+                    {...(themeMode ? { themeBgStyle: themePreviewBg, backgroundNode: themeVideoNode, objectBadge: themeRoleBadge } : {})}
                     slide={editor.currentSlide}
                     selectedIds={editor.selectedObjectIds}
                     onSelectObject={(id, additive) => {
@@ -451,6 +571,13 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                 )}
               </div>
               {isSong && <CanvasWarnings slide={editor.currentSlide} />}
+              {themeMode && editor.currentSlide && themeMeta[editor.currentSlide.id]?.role === "scripture" && !verseTextOf(editor.currentSlide.objects) && (
+                <div className="shrink-0 flex flex-wrap gap-1 px-3 py-1.5 border-t bg-amber-500/5" style={{ borderColor: "#2a3232" }}>
+                  <span title="Select a text box and set “This text box shows” to Verse in the Design tab." className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-200 border border-amber-500/30 cursor-help">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />Scripture slide has no Verse box
+                  </span>
+                </div>
+              )}
               {/* Simple size / resolution bar — kept exactly as the Projection Zone */}
               <ProjectionZoneControls className="shrink-0 border-t" />
             </div>
@@ -589,6 +716,9 @@ type ThemeDrawerProps = {
   isDefault: boolean;
 };
 const THEME_TAB: { id: DrawerTab; label: string; icon: typeof Type } = { id: "theme", label: "Theme", icon: Palette };
+const ROLE_LABEL: Record<"main" | "verse" | "reference", string> = { main: "Lyrics", verse: "Verse", reference: "Reference" };
+const THEME_PRIMARY_BTN = "h-9 px-4 rounded-lg text-[13px] font-bold inline-flex items-center gap-1.5 bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none";
+const THEME_SECONDARY_BTN = "h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-foreground)] border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200";
 
 function RightDrawer({ editor, churchId, tab, setTab, addFocus, theme = null }: { editor: Editor; churchId: string; tab: DrawerTab; setTab: (t: DrawerTab) => void; addFocus: (fn: () => void) => void; theme?: ThemeDrawerProps | null }) {
   if (!editor.isEditable) {
@@ -597,8 +727,8 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus, theme = null }: 
   return (
     <aside className="w-[320px] shrink-0 border-l flex flex-col min-h-0" style={{ borderColor: HAIR, background: PANEL }}>
       {/* Tab rail */}
-      <div className={cn("shrink-0 p-2 grid gap-1 border-b", theme ? "grid-cols-7" : "grid-cols-6")} style={{ borderColor: HAIR }}>
-        {(theme ? [THEME_TAB, ...TABS] : TABS).map((t) => {
+      <div className={cn("shrink-0 p-2 grid gap-1 border-b", "grid-cols-6")} style={{ borderColor: HAIR }}>
+        {(theme ? [THEME_TAB, ...TABS.filter((x) => x.id !== "background")] : TABS).map((t) => {
           const on = tab === t.id;
           return (
             <button key={t.id} onClick={() => setTab(t.id)} title={t.label}
@@ -733,8 +863,8 @@ function DesignPanel({ editor, themeMode = false }: { editor: Editor; themeMode?
         <input type="range" min={0} max={100} value={(selected.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
 
       {selected.kind === "text" && themeMode && (
-        <div><span className={rowCls}>Theme role</span><div className="flex gap-0.5">
-          {([["main", "Main text"], ["verse", "Verse"], ["reference", "Reference"]] as const).map(([r, label]) => (
+        <div><span className={rowCls}>This text box shows</span><div role="group" aria-label="This text box shows" className="flex gap-0.5">
+          {([["main", "Lyrics"], ["verse", "Verse"], ["reference", "Reference"]] as const).map(([r, label]) => (
             <Toggle key={r} on={selected.role === r} label={label} onClick={() => upd({ role: r } as Partial<SlideObject>)} />
           ))}
         </div></div>
@@ -1033,7 +1163,7 @@ function ToolBtn({ icon: Icon, label, onClick }: { icon: typeof Type; label: str
 // Selected-toggle pill (amber when on).
 function Toggle({ on, label, onClick, className }: { on: boolean; label: string; onClick: () => void; className?: string }) {
   return (
-    <button onClick={onClick} className={cn("flex-1 h-8 rounded-md border text-[10px] shadow-[var(--edge-top),var(--shadow-sm)] active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]", !on && "hover:bg-[var(--color-brand)]/10", className)}
+    <button onClick={onClick} aria-pressed={on} className={cn("flex-1 h-8 rounded-md border text-[10px] shadow-[var(--edge-top),var(--shadow-sm)] active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]", !on && "hover:bg-[var(--color-brand)]/10", className)}
       style={on ? segOn : segOff}>{label}</button>
   );
 }

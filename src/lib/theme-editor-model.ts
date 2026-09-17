@@ -21,6 +21,28 @@ export function mainTextOf(objects: SlideObject[]): TextObject | null {
   return texts[0] ?? null;
 }
 
+/** The verse (scripture body) text box on a slide, if one is tagged. */
+export function verseTextOf(objects: SlideObject[]): TextObject | null {
+  return objects.find((o): o is TextObject => o.kind === "text" && o.role === "verse") ?? null;
+}
+
+/**
+ * The ONE text box the Theme tab's Typography controls read from and write to
+ * for a slide: the verse box on a scripture slide, the main box otherwise.
+ * There is no separate typography state that could drift from the boxes.
+ */
+export function typographyTargetOf(objects: SlideObject[], role: ThemeSlideRole | undefined): TextObject | null {
+  return role === "scripture" ? (verseTextOf(objects) ?? mainTextOf(objects)) : mainTextOf(objects);
+}
+
+/** Clamp a typed font size; null for empty/NaN/out-of-range input. */
+export function parseThemeFontSize(raw: string): number | null {
+  if (raw.trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 12 || n > 400) return null;
+  return Math.round(n);
+}
+
 /** The seed slide for a theme with no saved layout: a centred main text box
  *  styled from the theme's existing flat fields. */
 export function seedThemeSlide(cfg: Cfg): { row: ThemeEditorRow; meta: ThemeSlideMeta } {
@@ -38,10 +60,9 @@ export function seedThemeSlide(cfg: Cfg): { row: ThemeEditorRow; meta: ThemeSlid
     shadow: typeof cfg.textShadow === "boolean" ? cfg.textShadow : undefined,
     role: "main",
   };
-  const bgColor = str(cfg.bgColor);
-  const bgImageUrl = cfg.bgType === "image" ? str(cfg.bgImageUrl) : undefined;
+  // No per-slide background: the theme background (Theme tab) paints behind it.
   return {
-    row: { id: "theme_slide_lyrics", lyrics: "", objectsJson: { bgColor, bgImageUrl, objects: [text] } },
+    row: { id: "theme_slide_lyrics", lyrics: "", objectsJson: { objects: [text] } },
     meta: { name: "Lyrics", role: "lyrics" },
   };
 }
@@ -93,5 +114,9 @@ export function buildThemeSaveConfig(cfg: Cfg, slides: EditableSlide[], meta: Re
     if (main.align) next.align = main.align;
     if (typeof main.shadow === "boolean") next.textShadow = main.shadow;
   }
+  // Scripture size comes from the verse box (a scripture slide's first, else any).
+  const scriptureSlides = slides.filter((s) => meta[s.id]?.role === "scripture");
+  const verse = [...scriptureSlides, ...slides].map((s) => verseTextOf(s.objects)).find((v) => v) ?? null;
+  if (verse && typeof verse.fontSize === "number") next.fontSizeScripturePx = verse.fontSize;
   return next;
 }

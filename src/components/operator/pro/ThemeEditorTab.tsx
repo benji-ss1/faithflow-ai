@@ -1,18 +1,25 @@
 "use client";
 // Theme Editor (PR 1) — the "Theme" drawer tab shown ONLY when the slide editor
 // is editing a theme (never for songs). Every control writes a real theme config
-// key (see ThemeConfig in src/lib/actions.ts). Typography + background changes
-// are mirrored onto the theme's slides so the canvas previews them.
-import { useState } from "react";
+// key or a real text box property.
+//
+// Single sources of truth (review gate):
+//  • Typography reads from and writes to the current slide's text box directly
+//    (the verse box on a scripture slide, the main box otherwise) — the saved
+//    flat font fields are derived from those boxes on save.
+//  • Background lives ONLY in the theme config (the drawer's per-slide
+//    Background tab is hidden in theme mode); the canvas previews it via
+//    themeBgStyle / backgroundNode, so slides are never rewritten.
+import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 import type { UseSlideEditorReturn } from "../editor/useSlideEditor";
-import type { SlideObject, TextObject } from "@/lib/slide-objects";
+import type { TextObject } from "@/lib/slide-objects";
 import { BgAssetPicker } from "@/components/library/BgAssetPicker";
 import { TRANSITIONS } from "./BottomBar/TransitionChooser";
 import { extractLogoPalette } from "@/lib/actions";
 import { buildColorwayFromPalette } from "@/lib/colorway";
-import { mainTextOf, type ThemeSlideMeta } from "@/lib/theme-editor-model";
+import { mainTextOf, typographyTargetOf, parseThemeFontSize, type ThemeSlideMeta } from "@/lib/theme-editor-model";
 import { cn } from "@/lib/utils";
 
 type Cfg = Record<string, unknown>;
@@ -27,6 +34,8 @@ const rowCls = "eyebrow block mb-1";
 const inCls = "w-full h-8 px-2 rounded-lg border border-[var(--color-border)] text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none transition-colors duration-200 focus:border-[var(--color-brand)]";
 const segOn = { borderColor: "var(--color-brand)", background: "color-mix(in oklab, var(--color-brand) 16%, transparent)", color: "var(--color-brand-hi)" };
 const segOff: React.CSSProperties = { borderColor: "var(--color-border)" };
+const colorCls = "h-8 w-full rounded-md border cursor-pointer bg-transparent";
+const rangeStyle = { accentColor: "var(--color-brand)" };
 
 function get<T>(cfg: Cfg, key: string, fallback: T): T {
   const v = cfg[key];
@@ -35,7 +44,7 @@ function get<T>(cfg: Cfg, key: string, fallback: T): T {
 
 function Seg({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick}
+    <button type="button" onClick={onClick} aria-pressed={on}
       className={cn("flex-1 h-8 rounded-md border text-[10px] font-semibold capitalize active:scale-[0.97] transition-transform", !on && "hover:bg-[var(--color-brand)]/10")}
       style={on ? segOn : segOff}>{label}</button>
   );
@@ -47,6 +56,28 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h3 className="text-[11px] font-bold uppercase tracking-wide text-[var(--color-foreground)]">{title}</h3>
       {children}
     </section>
+  );
+}
+
+/** Label bound to its control via htmlFor. */
+function Field({ label, children }: { label: string; children: (id: string) => React.ReactNode }) {
+  const id = useId();
+  return <div><label htmlFor={id} className={rowCls}>{label}</label>{children(id)}</div>;
+}
+
+function Group({ label, children, className = "flex gap-1" }: { label: string; children: React.ReactNode; className?: string }) {
+  return <div><span className={rowCls}>{label}</span><div role="group" aria-label={label} className={className}>{children}</div></div>;
+}
+
+/** Font size input that never commits 0/NaN/out-of-range: keeps a draft while
+ *  typing and only writes a valid 12–400 value (blur restores the last valid). */
+function SizeInput({ id, value, onCommit }: { id: string; value: number; onCommit: (n: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  return (
+    <input id={id} type="number" min={12} max={400} value={draft}
+      onChange={(e) => { setDraft(e.target.value); const n = parseThemeFontSize(e.target.value); if (n !== null) onCommit(n); }}
+      onBlur={() => setDraft(String(value))} className={inCls} />
   );
 }
 
@@ -64,32 +95,9 @@ export function ThemeEditorTab({ editor, cfg, setCfg, meta, setMeta, makeDefault
   const cur = editor.currentSlide;
   const curMeta = cur ? meta[cur.id] : undefined;
   const bgType = get<string>(cfg, "bgType", "solid");
-
-  // Push a style patch onto the matching text boxes of every theme slide.
-  const patchTexts = (pick: (o: TextObject, objects: SlideObject[]) => boolean, patch: Partial<TextObject>) => {
-    editor.patchAllSlides((s) => ({
-      ...s,
-      objects: s.objects.map((o) => (o.kind === "text" && pick(o, s.objects) ? ({ ...o, ...patch } as SlideObject) : o)),
-    }));
-  };
-  const isMain = (o: TextObject, objects: SlideObject[]) => mainTextOf(objects)?.id === o.id;
-  const textDefault = (key: string, value: unknown, patch: Partial<TextObject>, pick: (o: TextObject, objects: SlideObject[]) => boolean = isMain) => {
-    setCfg({ [key]: value });
-    patchTexts(pick, patch);
-  };
-  // Mirror the theme background onto the slides so the canvas previews it.
-  const mirrorBg = (next: { bgType: string; bgColor?: string; bgImageUrl?: string }) => {
-    editor.patchAllSlides((s) => ({
-      ...s,
-      bgColor: next.bgColor ?? s.bgColor,
-      bgImageUrl: next.bgType === "image" ? (next.bgImageUrl ?? "") : "",
-    }));
-  };
-  const setBg = (patch: Cfg) => {
-    const merged = { ...cfg, ...patch };
-    setCfg(patch);
-    mirrorBg({ bgType: String(merged.bgType ?? "solid"), bgColor: merged.bgColor as string | undefined, bgImageUrl: merged.bgImageUrl as string | undefined });
-  };
+  const isScripture = curMeta?.role === "scripture";
+  const target: TextObject | null = cur ? typographyTargetOf(cur.objects, curMeta?.role) : null;
+  const updTarget = (patch: Partial<TextObject>) => { if (target) editor.updateObject(target.id, patch); };
 
   async function autoColorway() {
     const logo = get(cfg, "logoUrl", "") as string;
@@ -100,8 +108,14 @@ export function ThemeEditorTab({ editor, cfg, setCfg, meta, setMeta, makeDefault
       if (!res.ok || !res.data) { toast.error((!res.ok && res.error) || "Couldn't read the logo"); return; }
       const cw = buildColorwayFromPalette(res.data.colors);
       if (!cw) { toast.error("No usable colours found in the logo"); return; }
-      setBg(cw);
-      patchTexts(isMain, { color: cw.textColor });
+      const { textColor, ...bg } = cw;
+      setCfg(bg);
+      // Readable text colour goes onto the main box of every slide (the boxes
+      // are the typography source of truth).
+      editor.patchAllSlides((s) => {
+        const main = mainTextOf(s.objects);
+        return main ? { ...s, objects: s.objects.map((o) => (o.id === main.id ? { ...o, color: textColor } : o)) } : s;
+      });
       toast.success("Colourway generated from your logo");
     } catch {
       toast.error("Couldn't generate a colourway");
@@ -120,80 +134,95 @@ export function ThemeEditorTab({ editor, cfg, setCfg, meta, setMeta, makeDefault
     <div className="p-3 space-y-3">
       {cur && (
         <Section title="This slide">
-          <div><span className={rowCls}>Slide name</span>
-            <input value={curMeta?.name ?? ""} maxLength={60} placeholder={`Slide ${editor.currentIndex + 1}`}
-              onChange={(e) => setMeta(cur.id, { name: e.target.value })} className={inCls} /></div>
-          <div><span className={rowCls}>Used for</span><div className="flex gap-1">
+          <Field label="Slide name">{(id) => (
+            <input id={id} value={curMeta?.name ?? ""} maxLength={60} placeholder={`Slide ${editor.currentIndex + 1}`}
+              onChange={(e) => setMeta(cur.id, { name: e.target.value })} className={inCls} />
+          )}</Field>
+          <Group label="Used for">
             <Seg on={curMeta?.role === "lyrics"} label="Lyrics / text" onClick={() => setMeta(cur.id, { role: "lyrics" })} />
             <Seg on={curMeta?.role === "scripture"} label="Scripture" onClick={() => setMeta(cur.id, { role: "scripture" })} />
-          </div></div>
+          </Group>
         </Section>
       )}
 
-      <Section title="Typography">
-        <div><span className={rowCls}>Font</span>
-          <select value={get(cfg, "fontFamily", "Inter") as string} onChange={(e) => textDefault("fontFamily", e.target.value, { fontFamily: e.target.value })} className={inCls}>
-            {FONT_CHOICES.map((f) => <option key={f} value={f}>{f}</option>)}
-          </select></div>
-        <div className="grid grid-cols-2 gap-2">
-          <div><span className={rowCls}>Weight</span>
-            <select value={String(get(cfg, "fontWeight", 600))} onChange={(e) => textDefault("fontWeight", Number(e.target.value), { fontWeight: Number(e.target.value) })} className={inCls}>
-              {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w} value={w}>{w}</option>)}
-            </select></div>
-          <div><span className={rowCls}>Colour</span>
-            <input type="color" value={get(cfg, "textColor", "#ffffff") as string} onChange={(e) => textDefault("textColor", e.target.value, { color: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={segOff} /></div>
-        </div>
-        <div><span className={rowCls}>Align</span><div className="flex gap-1">
-          {(["left", "center", "right"] as const).map((a) => (
-            <Seg key={a} on={get(cfg, "align", "center") === a} label={a} onClick={() => textDefault("align", a, { align: a })} />
-          ))}
-        </div></div>
-        <div><span className={rowCls}>Text shadow</span><div className="flex gap-1">
-          <Seg on={get<boolean>(cfg, "textShadow", false) === true} label="On" onClick={() => textDefault("textShadow", true, { shadow: true })} />
-          <Seg on={get<boolean>(cfg, "textShadow", false) === false} label="Off" onClick={() => textDefault("textShadow", false, { shadow: false })} />
-        </div></div>
-        <div className="grid grid-cols-2 gap-2">
-          <div><span className={rowCls}>Lyrics size (px)</span>
-            <input type="number" min={12} max={400} value={get(cfg, "fontSizePx", 72) as number} onChange={(e) => textDefault("fontSizePx", Number(e.target.value), { fontSize: Number(e.target.value) })} className={inCls} /></div>
-          <div><span className={rowCls}>Scripture size (px)</span>
-            <input type="number" min={12} max={400} value={get(cfg, "fontSizeScripturePx", 56) as number} onChange={(e) => textDefault("fontSizeScripturePx", Number(e.target.value), { fontSize: Number(e.target.value) }, (o) => o.role === "verse")} className={inCls} /></div>
-        </div>
+      <Section title={isScripture ? "Typography — verse box" : "Typography — lyrics box"}>
+        {!target ? (
+          <p className="text-[11px] text-[var(--color-muted-foreground)] leading-snug">
+            {isScripture
+              ? "Add a text box and set “This text box shows” to Verse in the Design tab."
+              : "Add a text box and set “This text box shows” to Lyrics in the Design tab."}
+          </p>
+        ) : (
+          <>
+            <Field label="Font">{(id) => (
+              <select id={id} value={target.fontFamily ?? "Inter"} onChange={(e) => updTarget({ fontFamily: e.target.value })} className={inCls}>
+                {FONT_CHOICES.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
+            )}</Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Weight">{(id) => (
+                <select id={id} value={String(target.fontWeight ?? 600)} onChange={(e) => updTarget({ fontWeight: Number(e.target.value) })} className={inCls}>
+                  {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w} value={w}>{w}</option>)}
+                </select>
+              )}</Field>
+              <Field label="Colour">{(id) => (
+                <input id={id} type="color" value={target.color ?? "#ffffff"} onChange={(e) => updTarget({ color: e.target.value })} className={colorCls} style={segOff} />
+              )}</Field>
+            </div>
+            <Group label="Align">
+              {(["left", "center", "right"] as const).map((a) => (
+                <Seg key={a} on={(target.align ?? "center") === a} label={a} onClick={() => updTarget({ align: a })} />
+              ))}
+            </Group>
+            <Group label="Text shadow">
+              <Seg on={target.shadow === true} label="On" onClick={() => updTarget({ shadow: true })} />
+              <Seg on={target.shadow === false} label="Off" onClick={() => updTarget({ shadow: false })} />
+            </Group>
+            <Field label={isScripture ? "Scripture size (px)" : "Lyrics size (px)"}>{(id) => (
+              <SizeInput id={id} value={target.fontSize ?? (isScripture ? 56 : 72)} onCommit={(n) => updTarget({ fontSize: n })} />
+            )}</Field>
+          </>
+        )}
       </Section>
 
       <Section title="Background">
-        <div className="grid grid-cols-4 gap-1">
+        <Group label="Background type" className="grid grid-cols-4 gap-1">
           {(["solid", "gradient", "image", "video"] as const).map((t) => (
-            <Seg key={t} on={bgType === t} label={t} onClick={() => setBg({ bgType: t })} />
+            <Seg key={t} on={bgType === t} label={t} onClick={() => setCfg({ bgType: t })} />
           ))}
-        </div>
+        </Group>
         <div className="grid grid-cols-2 gap-2">
-          <div><span className={rowCls}>{bgType === "gradient" ? "Colour 1" : "Colour"}</span>
-            <input type="color" value={get(cfg, "bgColor", "#0b0b0b") as string} onChange={(e) => setBg({ bgColor: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={segOff} /></div>
+          <Field label={bgType === "gradient" ? "Colour 1" : "Colour"}>{(id) => (
+            <input id={id} type="color" value={get(cfg, "bgColor", "#0b0b0b") as string} onChange={(e) => setCfg({ bgColor: e.target.value })} className={colorCls} style={segOff} />
+          )}</Field>
           {bgType === "gradient" && (
-            <div><span className={rowCls}>Colour 2</span>
-              <input type="color" value={get(cfg, "bgColor2", "#1a0a14") as string} onChange={(e) => setCfg({ bgColor2: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={segOff} /></div>
+            <Field label="Colour 2">{(id) => (
+              <input id={id} type="color" value={get(cfg, "bgColor2", "#1a0a14") as string} onChange={(e) => setCfg({ bgColor2: e.target.value })} className={colorCls} style={segOff} />
+            )}</Field>
           )}
         </div>
         {bgType === "gradient" && (
-          <div><span className={rowCls}>Angle — {get<number>(cfg, "bgAngle", 135)}°</span>
-            <input type="range" min={0} max={360} value={get<number>(cfg, "bgAngle", 135)} onChange={(e) => setCfg({ bgAngle: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
+          <Field label={`Angle — ${get<number>(cfg, "bgAngle", 135)}°`}>{(id) => (
+            <input id={id} type="range" min={0} max={360} value={get<number>(cfg, "bgAngle", 135)} onChange={(e) => setCfg({ bgAngle: Number(e.target.value) })} className="w-full" style={rangeStyle} />
+          )}</Field>
         )}
         {bgType === "image" && (
           <BgAssetPicker kind="image" url={get(cfg, "bgImageUrl", "") as string}
-            onUrl={(url) => setBg(url ? { bgImageUrl: url } : { bgImageUrl: "", bgType: "solid" })} />
+            onUrl={(url) => setCfg(url ? { bgImageUrl: url } : { bgImageUrl: "", bgType: "solid" })} />
         )}
         {bgType === "video" && (
           <BgAssetPicker kind="video" url={get(cfg, "bgVideoUrl", "") as string}
-            onUrl={(url) => setBg(url ? { bgVideoUrl: url } : { bgVideoUrl: "", bgType: "solid" })} />
+            onUrl={(url) => setCfg(url ? { bgVideoUrl: url } : { bgVideoUrl: "", bgType: "solid" })} />
         )}
-        <div><span className={rowCls}>Dim — {Math.round(get<number>(cfg, "dim", 0) * 100)}%</span>
-          <input type="range" min={0} max={100} value={get<number>(cfg, "dim", 0) * 100} onChange={(e) => setCfg({ dim: Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
+        <Field label={`Dim — ${Math.round(get<number>(cfg, "dim", 0) * 100)}%`}>{(id) => (
+          <input id={id} type="range" min={0} max={100} value={get<number>(cfg, "dim", 0) * 100} onChange={(e) => setCfg({ dim: Number(e.target.value) / 100 })} className="w-full" style={rangeStyle} />
+        )}</Field>
         {(bgType === "solid" || bgType === "gradient") && (
-          <div><span className={rowCls}>Animation</span><div className="grid grid-cols-4 gap-1">
+          <Group label="Animation" className="grid grid-cols-4 gap-1">
             {(["none", "drift", "aurora", "pulse"] as const).map((m) => (
               <Seg key={m} on={get(cfg, "bgAnimation", "none") === m} label={m} onClick={() => setCfg({ bgAnimation: m })} />
             ))}
-          </div></div>
+          </Group>
         )}
       </Section>
 
@@ -201,20 +230,26 @@ export function ThemeEditorTab({ editor, cfg, setCfg, meta, setMeta, makeDefault
         <BgAssetPicker kind="image" url={get(cfg, "logoUrl", "") as string} maxMBOverride={5}
           label="Logo image" hint="A transparent PNG works best. Shown on every slide with this theme."
           onUrl={(url) => setCfg({ logoUrl: url, ...(url && get(cfg, "logoPosition", "none") === "none" ? { logoPosition: "bottom-right" } : {}) })} />
-        <div><span className={rowCls}>Position</span>
-          <div className="grid w-32 grid-cols-3 gap-1">
-            {LOGO_GRID.map((p) => (
-              <button key={p} type="button" aria-label={p} title={p} onClick={() => setCfg({ logoPosition: p })}
-                className="h-8 rounded-md border" style={get(cfg, "logoPosition", "none") === p ? { ...segOn, background: "var(--color-brand)" } : segOff} />
-            ))}
+        <div>
+          <span className={rowCls}>Position</span>
+          <div role="group" aria-label="Logo position" className="grid w-32 grid-cols-3 gap-1">
+            {LOGO_GRID.map((p) => {
+              const on = get(cfg, "logoPosition", "none") === p;
+              return (
+                <button key={p} type="button" aria-label={`Logo ${p.replace("-", " ")}`} aria-pressed={on} title={p} onClick={() => setCfg({ logoPosition: p })}
+                  className="h-8 rounded-md border" style={on ? { ...segOn, background: "var(--color-brand)" } : segOff} />
+              );
+            })}
           </div>
-          <button type="button" onClick={() => setCfg({ logoPosition: "none" })} className="mt-1.5 h-7 px-3 rounded-md border text-[10px] font-semibold"
+          <button type="button" aria-pressed={get(cfg, "logoPosition", "none") === "none"} onClick={() => setCfg({ logoPosition: "none" })} className="mt-1.5 h-7 px-3 rounded-md border text-[10px] font-semibold"
             style={get(cfg, "logoPosition", "none") === "none" ? segOn : segOff}>None</button>
         </div>
-        <div><span className={rowCls}>Size — {get<number>(cfg, "logoSizePx", 48)}px</span>
-          <input type="range" min={24} max={400} value={get<number>(cfg, "logoSizePx", 48)} onChange={(e) => setCfg({ logoSizePx: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
-        <div><span className={rowCls}>Opacity — {Math.round(get<number>(cfg, "logoOpacity", 1) * 100)}%</span>
-          <input type="range" min={0} max={100} value={get<number>(cfg, "logoOpacity", 1) * 100} onChange={(e) => setCfg({ logoOpacity: Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
+        <Field label={`Size — ${get<number>(cfg, "logoSizePx", 48)}px`}>{(id) => (
+          <input id={id} type="range" min={24} max={400} value={get<number>(cfg, "logoSizePx", 48)} onChange={(e) => setCfg({ logoSizePx: Number(e.target.value) })} className="w-full" style={rangeStyle} />
+        )}</Field>
+        <Field label={`Opacity — ${Math.round(get<number>(cfg, "logoOpacity", 1) * 100)}%`}>{(id) => (
+          <input id={id} type="range" min={0} max={100} value={get<number>(cfg, "logoOpacity", 1) * 100} onChange={(e) => setCfg({ logoOpacity: Number(e.target.value) / 100 })} className="w-full" style={rangeStyle} />
+        )}</Field>
         <button type="button" onClick={autoColorway} disabled={paletteBusy || !get(cfg, "logoUrl", "")}
           className="w-full h-8 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-[var(--color-brand)]/10 disabled:opacity-40" style={segOff}>
           <Sparkles className="w-3.5 h-3.5 text-[var(--color-brand)]" /> {paletteBusy ? "Reading logo…" : "Auto-colourway from logo"}
@@ -222,31 +257,33 @@ export function ThemeEditorTab({ editor, cfg, setCfg, meta, setMeta, makeDefault
       </Section>
 
       <Section title="Scripture">
-        <div><span className={rowCls}>Show reference</span><div className="flex gap-1">
+        <Group label="Show reference">
           <Seg on={get<boolean>(cfg, "scriptureShowReference", true) === true} label="On" onClick={() => setCfg({ scriptureShowReference: true })} />
           <Seg on={get<boolean>(cfg, "scriptureShowReference", true) === false} label="Off" onClick={() => setCfg({ scriptureShowReference: false })} />
-        </div></div>
-        <div><span className={rowCls}>Reference position</span><div className="flex gap-1">
+        </Group>
+        <Group label="Reference position">
           {(["above", "below", "inline"] as const).map((p) => (
             <Seg key={p} on={get(cfg, "scriptureReferencePosition", "above") === p} label={p} onClick={() => setCfg({ scriptureReferencePosition: p })} />
           ))}
-        </div></div>
-        <div><span className={rowCls}>Show translation</span><div className="flex gap-1">
+        </Group>
+        <Group label="Show translation">
           <Seg on={get<boolean>(cfg, "scriptureTranslationVisible", true) === true} label="On" onClick={() => setCfg({ scriptureTranslationVisible: true })} />
           <Seg on={get<boolean>(cfg, "scriptureTranslationVisible", true) === false} label="Off" onClick={() => setCfg({ scriptureTranslationVisible: false })} />
-        </div></div>
+        </Group>
         <p className="text-[10px] text-[var(--color-muted-foreground)] leading-snug">
-          To place the verse and reference, select a text box and set its <b className="text-[var(--color-foreground)]">Theme role</b> in the Design tab.
+          To place the verse and reference, select a text box and set <b className="text-[var(--color-foreground)]">This text box shows</b> in the Design tab.
         </p>
       </Section>
 
       <Section title="Transition">
-        <div><span className={rowCls}>Effect</span>
-          <select value={transitionName} onChange={(e) => setTransition(e.target.value, transitionMs)} className={inCls}>
+        <Field label="Effect">{(id) => (
+          <select id={id} value={transitionName} onChange={(e) => setTransition(e.target.value, transitionMs)} className={inCls}>
             {TRANSITIONS.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select></div>
-        <div><span className={rowCls}>Duration — {transitionMs}ms</span>
-          <input type="range" min={0} max={2000} step={50} value={transitionMs} onChange={(e) => setTransition(transitionName, Number(e.target.value))} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
+          </select>
+        )}</Field>
+        <Field label={`Duration — ${transitionMs}ms`}>{(id) => (
+          <input id={id} type="range" min={0} max={2000} step={50} value={transitionMs} onChange={(e) => setTransition(transitionName, Number(e.target.value))} className="w-full" style={rangeStyle} />
+        )}</Field>
       </Section>
 
       <Section title="Default">

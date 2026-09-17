@@ -40,6 +40,7 @@ import { CenterHeader } from "./center/CenterHeader";
 import { SlideGrid } from "./center/SlideGrid";
 import { ArrangementStrip } from "./center/ArrangementStrip";
 import { DesktopSlideEditorModal } from "./DesktopSlideEditorModal";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImageEditor } from "./center/MediaImageEditor";
 import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
@@ -1889,8 +1890,27 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // SAME editor opens on that theme (PP7-style). Mutually exclusive with a song.
   const [slideEditorTargetTheme, setSlideEditorTargetTheme] =
     useState<import("./DesktopSlideEditorModal").SlideEditorTargetTheme | null>(null);
+  // Unsaved theme edits (reported by the modal) → confirm before another
+  // open-slide-editor event replaces the theme being edited.
+  const themeEditorDirtyRef = useRef(false);
+  const onThemeEditorDirty = useCallback((dirty: boolean) => { themeEditorDirtyRef.current = dirty; }, []);
+  const { confirm: confirmEditorSwitch, dialog: editorSwitchDialog } = useConfirm();
+  const confirmEditorSwitchRef = useRef(confirmEditorSwitch);
+  confirmEditorSwitchRef.current = confirmEditorSwitch;
   useEffect(() => {
     const open = (e: Event) => {
+      if (themeEditorDirtyRef.current) {
+        void confirmEditorSwitchRef.current({
+          title: "Discard unsaved theme changes?",
+          description: "You're editing a theme with unsaved changes. Opening something else discards them.",
+          confirmLabel: "Discard and open",
+          danger: true,
+        }).then((ok) => { if (ok) { themeEditorDirtyRef.current = false; handleOpen(e); } });
+        return;
+      }
+      handleOpen(e);
+    };
+    const handleOpen = (e: Event) => {
       const detail = (e as CustomEvent<{ songId?: string; title?: string; blank?: boolean; add?: boolean; themeId?: string } | undefined>).detail;
       if (detail?.themeId) {
         const themeId = detail.themeId;
@@ -5066,7 +5086,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <SceneBuilderHost ctx={ctx} />
       <SongAutopilotStaging ctx={ctx} />
       <AITranscriptTicker ctx={ctx} />
-      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} targetTheme={slideEditorTargetTheme} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorTargetTheme(null); setSlideEditorBlank(false); setSlideEditorAdd(false); }} />
+      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} targetTheme={slideEditorTargetTheme} onThemeDirtyChange={onThemeEditorDirty} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorTargetTheme(null); setSlideEditorBlank(false); setSlideEditorAdd(false); themeEditorDirtyRef.current = false; }} />
+      {editorSwitchDialog}
       {mediaEdit ? (
         <MediaImageEditor
           asset={mediaEdit}
