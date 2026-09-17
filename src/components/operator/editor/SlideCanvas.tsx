@@ -18,6 +18,7 @@ export function SlideCanvas({
   readOnly,
   themeBgStyle,
   backgroundNode,
+  objectBadge,
 }: {
   slide: EditableSlide | null;
   // Full selection set. Length 1 = classic single-select (with resize handles);
@@ -43,6 +44,9 @@ export function SlideCanvas({
   // When provided, the canvas container background is forced transparent so the
   // node shows through. Takes precedence over themeBgStyle.
   backgroundNode?: React.ReactNode;
+  // Optional small label drawn at an object's top-left (theme editor: text-box
+  // role). Callers that don't pass it render exactly as before.
+  objectBadge?: (o: SlideObject) => string | null;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   // Snap guides — teal alignment lines (in canvas units) shown while a moving
@@ -332,6 +336,17 @@ export function SlideCanvas({
               textScale={zone.fontScale}
             />
           ))}
+          {objectBadge && slide.objects.map((o) => {
+            const label = objectBadge(o);
+            if (!label) return null;
+            return (
+              <span key={`badge_${o.id}`} aria-hidden
+                className="pointer-events-none absolute z-40 rounded-sm px-1 py-px text-[9px] font-bold uppercase tracking-wide bg-[#e8501a] text-black"
+                style={{ left: `${(o.x / CANVAS_W) * 100}%`, top: `${(o.y / CANVAS_H) * 100}%` }}>
+                {label}
+              </span>
+            );
+          })}
         </div>
       </div>
     </div>

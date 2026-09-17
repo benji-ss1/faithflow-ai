@@ -61,6 +61,10 @@ import {
   writeNdiAudioSource,
   isNdiAudioBridgePresent,
   CAPTURE_MODE_CHANGED_EVENT,
+  readProDriverFlag,
+  writeProDriverFlag,
+  hasProDriverBridge,
+  windowsNativeAllowed,
   type CaptureMode,
   type EffectiveCaptureMode,
 } from "@/lib/audio/captureMode";
@@ -70,6 +74,7 @@ import {
   clearNativeDevicePref,
   type NativeDeviceMode,
 } from "@/lib/audio/nativeDeviceStore";
+import { isRawCaptureEnabled, setRawCaptureEnabled } from "@/lib/audio/rawCapture";
 import { matchSavedDevice, savedToNativePref, type AvailableDevice } from "@/lib/audio/savedAudioDevices";
 // Unified native input system (2026-07-27) — rank/sort/auto-pick helpers.
 import {
@@ -149,6 +154,38 @@ export function AudioTab() {
 
   // Wave 2 — capture-mode toggle state.
   const [captureMode, setCaptureMode] = useState<CaptureMode>("auto");
+  // Hardware I/O Phase B — opt-in pro audio driver (RtAudio / ASIO). Main
+  // process is the source of truth; the local flag mirrors it for capture-mode
+  // resolution. `proDriverSupported` is false on older desktop builds/web.
+  const [proDriverOn, setProDriverOn] = useState<boolean>(() => readProDriverFlag());
+  const [proDriverSupported, setProDriverSupported] = useState<boolean>(false);
+  useEffect(() => {
+    if (!hasProDriverBridge()) return;
+    const nb = (window as Window & { electronAPI?: { audio?: { native?: { getProDriver?: () => Promise<{ supported: boolean; enabled: boolean }> } } } })
+      .electronAPI?.audio?.native;
+    void nb?.getProDriver?.().then((r) => {
+      setProDriverSupported(!!r?.supported);
+      const on = !!r?.enabled && !!r?.supported;
+      setProDriverOn(on);
+      if (on !== readProDriverFlag()) writeProDriverFlag(on);
+    }).catch(() => { /* older build */ });
+  }, []);
+  const toggleProDriver = useCallback(async (next: boolean) => {
+    const nb = (window as Window & { electronAPI?: { audio?: { native?: { setProDriver?: (e: boolean) => Promise<{ ok: boolean; enabled?: boolean }> } } } })
+      .electronAPI?.audio?.native;
+    if (!nb?.setProDriver) return;
+    try {
+      const r = await nb.setProDriver(next);
+      if (!r?.ok) { toast.error("Couldn't change the audio driver."); return; }
+      setProDriverOn(!!r.enabled);
+      writeProDriverFlag(!!r.enabled); // fires capture-mode-changed → listening restarts
+      toast.success(r.enabled
+        ? "Pro audio driver on — every input channel is available. Pick your interface below."
+        : "Pro audio driver off — back to standard capture.");
+    } catch {
+      toast.error("Couldn't change the audio driver.");
+    }
+  }, []);
   const [effectiveMode, setEffectiveMode] = useState<EffectiveCaptureMode>("browser");
   // NDI network audio (desktop only) — discover sources on the LAN like OBS and
   // let the operator select one as the live audio input (no USB cable needed).
@@ -218,6 +255,7 @@ export function AudioTab() {
 
   // Channel-grid state
   const [channelCount, setChannelCount] = useState<number>(1);
+  const [rawEnabled, setRawEnabled] = useState<boolean>(false);
   const [capsProbed, setCapsProbed] = useState(false);
   const [gridMode, setGridMode] = useState<GridMode>("sum-all");
   const [selectedChannels, setSelectedChannels] = useState<number[]>([]);
@@ -355,6 +393,10 @@ export function AudioTab() {
     return () => { cancelled = true; };
   }, [selected?.id, effectiveMode]);
 
+  useEffect(() => {
+    setRawEnabled(isRawCaptureEnabled(selected?.id, selected?.label));
+  }, [selected?.id, selected?.label]);
+
   // Open/close multi-channel capture based on: popover open + device selected
   // + more than 1 channel. Poll levels at 20fps (100ms).
   useEffect(() => {
@@ -384,7 +426,7 @@ export function AudioTab() {
     let cancelled = false;
     (async () => {
       try {
-        const cap = await openMultiChannelCapture({ deviceId: selected.id, requestedChannels: Math.max(2, channelCount) });
+        const cap = await openMultiChannelCapture({ deviceId: selected.id, label: selected.label, requestedChannels: Math.max(2, channelCount) });
         if (cancelled) { try { cap.close(); } catch {} return; }
         captureRef.current = cap;
         setCaptureError(null);
@@ -413,7 +455,7 @@ export function AudioTab() {
     })();
 
     return () => { cancelled = true; teardown(); };
-  }, [pickerOpen, selected?.id, capsProbed, channelCount, effectiveMode, micBoardOpen]);
+  }, [pickerOpen, selected?.id, capsProbed, channelCount, effectiveMode, micBoardOpen, rawEnabled]);
 
   // Tear down on component unmount as a safety net (in case popover closes
   // via unmount rather than the open flag).
@@ -1037,7 +1079,7 @@ export function AudioTab() {
               stubbed + can silently capture the wrong/silent device with no
               fallback) — offering only Auto + Browser removes the one-tap
               footgun. Mac keeps its field-proven native option. */}
-          {((typeof navigator !== "undefined" && /windows|win32|win64|wow64/i.test(`${navigator.userAgent} ${(navigator as Navigator).platform || ""}`)
+          {((typeof navigator !== "undefined" && /windows|win32|win64|wow64/i.test(`${navigator.userAgent} ${(navigator as Navigator).platform || ""}`) && !(proDriverOn && windowsNativeAllowed())
             ? ["auto", "browser"]
             : ["auto", "native", "browser"]) as CaptureMode[]).map((m) => (
             <button
@@ -1051,6 +1093,27 @@ export function AudioTab() {
           ))}
         </div>
       </div>
+
+      {/* Hardware I/O Phase B — pro audio driver opt-in (desktop builds that ship it). */}
+      {proDriverSupported && (
+        <label
+          className="flex items-center gap-3 min-h-[44px] px-2 py-2 rounded-lg border cursor-pointer focus-within:ring-2 focus-within:ring-[var(--color-brand)]"
+          style={{ borderColor: "var(--color-border)", color: "var(--color-foreground)" }}
+        >
+          <input
+            type="checkbox"
+            className="h-4 w-4 shrink-0 accent-[var(--color-brand)]"
+            checked={proDriverOn}
+            onChange={(e) => void toggleProDriver(e.target.checked)}
+          />
+          <span className="text-[11px] leading-snug">
+            <span className="font-semibold block">Pro audio driver (beta)</span>
+            <span className="block text-[var(--color-muted-foreground)]">
+              Hear every channel from a USB mixer or interface (X32, XR18, SQ, Focusrite, Blackmagic). On Windows this uses the ASIO driver — install your mixer&apos;s driver first.
+            </span>
+          </span>
+        </label>
+      )}
 
       {/* Native device picker — shown when effective mode is native. */}
       {effectiveMode === "native" && (
@@ -1656,6 +1719,36 @@ export function AudioTab() {
           deviceName={nativeSelected.name}
           channelCount={nativeSelected.channelCount ?? 2}
         />
+      )}
+
+      {/* Hardware I/O Phase A — opt-in raw multichannel for USB interfaces. */}
+      {effectiveMode === "browser" && selected && capsProbed && channelCount > 1 && (
+        <label
+          className="flex items-center gap-3 min-h-[44px] px-2 py-2 rounded-lg border cursor-pointer focus-within:ring-2 focus-within:ring-[var(--color-brand)]"
+          style={{ borderColor: "var(--color-border)", color: "var(--color-foreground)" }}
+        >
+          <input
+            type="checkbox"
+            className="h-4 w-4 shrink-0 accent-[var(--color-brand)]"
+            checked={rawEnabled}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setRawCaptureEnabled(selected.id, selected.label, on);
+              setRawEnabled(on);
+              // Apply now — same restart signal the Restart button uses.
+              try { window.dispatchEvent(new CustomEvent("presentflow:restart-audio")); } catch { /* noop */ }
+              toast.success(on
+                ? "Separate channels on — set your levels on the mixer."
+                : "Separate channels off — standard processing restored.");
+            }}
+          />
+          <span className="text-[11px] leading-snug">
+            <span className="font-semibold block">Separate channels from my mixer (USB)</span>
+            <span className="block text-[var(--color-muted-foreground)]">
+              Hear each mixer channel on its own. Turn on only for a USB mixer or interface (X32/XR18, SQ, Focusrite, ATEM Mini). Set levels on the mixer.
+            </span>
+          </span>
+        </label>
       )}
 
       {/* Show captureError below so a probe failure doesn't hide silently. */}

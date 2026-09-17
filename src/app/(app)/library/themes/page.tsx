@@ -19,7 +19,7 @@ export default async function ThemesPage() {
     id: r.id,
     name: r.name,
     // Re-sign expiring media URLs so theme backgrounds/logos never 404.
-    config: ((await refreshThemeMediaUrls(r.config)) as Record<string, unknown>) ?? {},
+    config: ((await refreshThemeMediaUrls(r.config, user.churchId)) as Record<string, unknown>) ?? {},
     isDefault: r.isDefault ?? false,
   })));
   const logoKey = settingsRow[0]?.logoS3Key;

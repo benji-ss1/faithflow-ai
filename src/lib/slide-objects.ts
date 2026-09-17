@@ -58,6 +58,9 @@ export type TextObject = {
   shadow?: boolean;         // drop shadow (default true — preserves existing look)
   stroke?: string;          // text outline colour
   strokeWidth?: number;     // outline width, canvas px (0 = none)
+  // Theme Editor (PR 1): which content a THEME text box holds — main
+  // (lyrics/text), verse (scripture body) or reference. Ignored on songs.
+  role?: "main" | "verse" | "reference";
 };
 
 export type ShapeObject = {

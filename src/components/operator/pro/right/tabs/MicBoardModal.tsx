@@ -104,7 +104,7 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
     };
     (async () => {
       try {
-        const cap = await openMultiChannelCapture({ deviceId, requestedChannels: Math.max(2, channelCount) });
+        const cap = await openMultiChannelCapture({ deviceId, label: deviceLabel, requestedChannels: Math.max(2, channelCount) });
         if (cancelled) { try { cap.close(); } catch { /* noop */ } return; }
         captureRef.current = cap;
         setChCount(cap.channelCount);

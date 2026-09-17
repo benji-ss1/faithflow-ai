@@ -1,7 +1,7 @@
 ---
 headline: PowerPoint imports are faster and more reliable
 audience: operator
-version: 0.1.439
+version: 0.1.442
 date: 2026-09-17
 highlights:
   - Drop a PowerPoint (or PDF) onto the Media Bin and it starts importing by itself — no extra Preview or Import clicks. (Adding files anywhere else still lets you check them first.)

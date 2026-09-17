@@ -50,6 +50,10 @@ export function isObviousOutput(name: string): boolean {
  */
 export function rankNativeDevice(name: string): number {
   const n = name ?? "";
+  // Hardware I/O Phase C: Blackmagic embedded SDI/HDMI audio is often silent
+  // (no audio embedded upstream) — never auto-pick it over a real microphone.
+  // Sorts after built-in mics, before Bluetooth; untagged in the UI.
+  if (/\(Blackmagic SDI\/HDMI audio\)$/.test(n)) return 3.5;
   if (isNdiDevice(n)) return 1;
   if (VIRTUAL_RE.test(n)) return 2;
   if (isMixerDevice(n)) return 0;
