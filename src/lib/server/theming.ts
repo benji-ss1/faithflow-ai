@@ -39,6 +39,29 @@ export async function refreshThemeMediaUrls(config: unknown): Promise<unknown> {
     const v = out[field];
     if (typeof v === "string" && v) out[field] = await refreshPresignedUrl(v);
   }
+  // Theme Editor layout (PR 1): slide background images and image/video
+  // objects inside config.layout are presigned too — re-sign them so layout
+  // media doesn't expire after 6h.
+  const layout = out.layout as { slides?: unknown } | undefined;
+  if (layout && typeof layout === "object" && Array.isArray(layout.slides)) {
+    const slides = await Promise.all(layout.slides.map(async (sl) => {
+      if (!sl || typeof sl !== "object") return sl;
+      const slide = { ...(sl as Record<string, unknown>) };
+      if (typeof slide.bgImageUrl === "string" && slide.bgImageUrl) slide.bgImageUrl = await refreshPresignedUrl(slide.bgImageUrl);
+      if (Array.isArray(slide.objects)) {
+        slide.objects = await Promise.all(slide.objects.map(async (o) => {
+          if (!o || typeof o !== "object") return o;
+          const obj = o as Record<string, unknown>;
+          if ((obj.kind === "image" || obj.kind === "video") && typeof obj.url === "string" && obj.url) {
+            return { ...obj, url: await refreshPresignedUrl(obj.url) };
+          }
+          return obj;
+        }));
+      }
+      return slide;
+    }));
+    out.layout = { ...(layout as Record<string, unknown>), slides };
+  }
   return out;
 }
 

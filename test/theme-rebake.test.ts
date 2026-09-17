@@ -1,7 +1,7 @@
 // Theme Editor PR 1 — reset-theme-owned-fields-then-bake + backup preservation.
 // Run: npx tsx test/theme-rebake.test.ts
 import assert from "node:assert";
-import { rebakeThemeFromOriginal, resetThemeOwnedFields, mergeThemeBackup, reapplySourceForSlide } from "../src/lib/theme-rebake";
+import { rebakeThemeFromOriginal, resetThemeOwnedFields, mergeThemeBackup, reapplySourceForSlide, themeFieldsForConfigs, pruneThemeBackup, copyThemeBackupForDuplicate } from "../src/lib/theme-rebake";
 import { bakeThemeIntoObjectsJson } from "../src/lib/theme-bake";
 
 let pass = 0, fail = 0;
@@ -67,6 +67,43 @@ check("reapply source: per-slide override of another theme is skipped", () => {
   assert.deepEqual(reapplySourceForSlide("B", { id: "s2", objectsJson: {} }, settings), { original: { o: 2 }, addToBackup: false });
   assert.deepEqual(reapplySourceForSlide("A", { id: "s9", objectsJson: { cur: 1 } }, settings), { original: { cur: 1 }, addToBackup: true });
   assert.equal(reapplySourceForSlide("C", { id: "s1", objectsJson: {} }, settings), null);
+});
+
+check("re-apply only resets fields the new OR previous theme sets", () => {
+  const orig = { objects: [{ id: "a", kind: "text", text: "x", fontWeight: 400, fontFamily: "Arial" }] };
+  // operator bolded the text after the first apply; no theme version sets weight
+  const cur = { objects: [{ id: "a", kind: "text", text: "x", fontWeight: 800, fontFamily: "Sora" }] };
+  const fields = themeFieldsForConfigs([{ fontFamily: "Inter" }, { fontFamily: "Sora" }]);
+  assert.deepEqual(fields.text, ["fontFamily"]);
+  const re = rebakeThemeFromOriginal({ fontFamily: "Inter" }, cur, orig, fields) as any;
+  assert.equal(re.objects[0].fontWeight, 800, "operator weight kept");
+  assert.equal(re.objects[0].fontFamily, "Inter");
+  // a field set only by the PREVIOUS theme is still cleared
+  const prevOnly = themeFieldsForConfigs([{ fontFamily: "Inter" }, { bgImageUrl: "https://x/y.png", fontWeight: 900 }]);
+  const re2 = rebakeThemeFromOriginal({ fontFamily: "Inter" }, { bgImageUrl: "https://x/y.png", ...cur }, orig, prevOnly) as any;
+  assert.equal(re2.bgImageUrl, undefined);
+  assert.equal(re2.objects[0].fontWeight, 400);
+  assert.ok(themeFieldsForConfigs([{ bgColor: "#fff" }]).text.includes("color"), "bg colour drives auto-contrast text colour");
+});
+check("revert-style reset keeps lyric edits", () => {
+  const baked = bakeThemeIntoObjectsJson({ fontFamily: "Sora", bgColor: "#123456" }, original) as any;
+  baked.objects[0].text = "Edited lyric line";
+  const restored = resetThemeOwnedFields(baked, original) as any;
+  assert.equal(restored.objects[0].text, "Edited lyric line");
+  assert.equal(restored.objects[0].fontFamily, "Arial");
+  assert.equal(restored.bgColor, "#222222");
+});
+check("backup pruning drops deleted slides", () => {
+  const b = { slides: [{ id: "s1", objectsJson: 1 }, { id: "gone", objectsJson: 2 }], themeId: "A" };
+  assert.deepEqual(pruneThemeBackup(b, ["s1"]), { slides: [{ id: "s1", objectsJson: 1 }], themeId: "A" });
+  assert.equal(pruneThemeBackup(undefined, ["s1"]), undefined);
+});
+check("duplicated slide inherits the source's pre-theme snapshot", () => {
+  const settings = { appliedThemeId: "A", themeBackup: { slides: [{ id: "src", objectsJson: { o: "orig" } }], themeId: "A" }, slideThemeBackups: { src: { objectsJson: { o: "per" }, themeId: "B" } } };
+  const next = copyThemeBackupForDuplicate(settings, "src", "copy") as any;
+  assert.deepEqual(next.themeBackup.slides[1], { id: "copy", objectsJson: { o: "orig" } });
+  assert.deepEqual(next.slideThemeBackups.copy, { objectsJson: { o: "per" }, themeId: "B" });
+  assert.equal(copyThemeBackupForDuplicate({}, "src", "copy"), null);
 });
 
 console.log(`\ntheme-rebake: ${pass} passed, ${fail} failed`);

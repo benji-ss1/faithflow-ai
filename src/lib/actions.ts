@@ -4,8 +4,8 @@ import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { adHocCleanupTargets, recentChurchDayKeys } from "./operator-plan-select";
 import { getDb } from "./db/client";
 import { bakeThemeIntoObjectsJson } from "./theme-bake";
-import { sanitizeThemeLayout, clampThemeNumber, type ThemeLayout } from "./theme-layout";
-import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide } from "./theme-rebake";
+import { sanitizeThemeLayout, sanitizeThemeNumber, THEME_NUMBER_RANGES, type ThemeLayout } from "./theme-layout";
+import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide, resetThemeOwnedFields, pruneThemeBackup, themeFieldsForConfigs, copyThemeBackupForDuplicate } from "./theme-rebake";
 import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
@@ -1053,6 +1053,15 @@ export async function duplicateSongSlide(slideId: string): Promise<Result<{ id: 
     lyrics: src.lyrics,
     objectsJson: src.objectsJson,
   }).returning({ id: songSlides.id });
+  // Theme Editor PR 1: the copy inherits the source slide's pre-theme snapshot,
+  // so re-apply/revert treat it like the original (not an already-themed look).
+  const [songRow] = await db.select({ settings: songs.settings }).from(songs)
+    .where(and(eq(songs.id, src.songId), eq(songs.churchId, user.churchId))).limit(1);
+  const withCopy = songRow ? copyThemeBackupForDuplicate(songRow.settings, slideId, row.id) : null;
+  if (withCopy) {
+    await db.update(songs).set({ settings: withCopy })
+      .where(and(eq(songs.id, src.songId), eq(songs.churchId, user.churchId)));
+  }
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true, data: { id: row.id } };
 }
@@ -2165,10 +2174,12 @@ function sanitizeThemeConfig(input: unknown): { config: ThemeConfig; rejected: s
         if (obj[k] === undefined || obj[k] === null) continue;
         const layout = sanitizeThemeLayout(obj[k]);
         if (layout) out.layout = layout; else rejected.push(k);
-      } else if (k === "bgAngle" || k === "dim" || k === "logoOpacity") {
+      } else if (k in THEME_NUMBER_RANGES) {
+        // bgAngle/dim/logoOpacity + font size/weight: clamped (a 0/NaN font
+        // size baked into songs made lyrics vanish).
         if (obj[k] === undefined || obj[k] === null) continue;
-        const n = k === "bgAngle" ? clampThemeNumber(obj[k], 0, 360) : clampThemeNumber(obj[k], 0, 1);
-        if (n === undefined) rejected.push(k); else out[k] = n;
+        const n = sanitizeThemeNumber(k, obj[k]);
+        if (n === undefined) rejected.push(k); else (out as Record<string, unknown>)[k] = n;
       } else if (URL_KEYS.has(k) && obj[k] !== undefined && obj[k] !== null && obj[k] !== "") {
         const clean = cleanRenderUrl(obj[k]);
         if (clean) {
@@ -2197,15 +2208,28 @@ export async function createTheme(name: string, config: ThemeConfig): Promise<Re
   return { ok: true, data: { id: row.id } };
 }
 
-export async function updateTheme(id: string, patch: { name?: string; config?: ThemeConfig }): Promise<Result> {
+export async function updateTheme(id: string, patch: { name?: string; config?: ThemeConfig }): Promise<Result<{ rejected: string[] }>> {
   const user = await requireCap("edit_library");
   const db = getDb();
   const updates: Record<string, unknown> = { updatedAt: new Date() };
+  let rejected: string[] = [];
   if (patch.name !== undefined) updates.name = patch.name;
-  if (patch.config !== undefined) updates.config = sanitizeThemeConfig(patch.config).config;
+  if (patch.config !== undefined) {
+    const clean = sanitizeThemeConfig(patch.config);
+    rejected = clean.rejected;
+    // A rejected layout must never DELETE the layout already saved on the
+    // theme — keep the prior one and tell the caller (no silent drop).
+    if (rejected.includes("layout")) {
+      const [prev] = await db.select({ config: themes.config }).from(themes)
+        .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId))).limit(1);
+      const prevLayout = (prev?.config as ThemeConfig | undefined)?.layout;
+      if (prevLayout) clean.config.layout = prevLayout;
+    }
+    updates.config = clean.config;
+  }
   await db.update(themes).set(updates)
     .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
-  return { ok: true };
+  return { ok: true, data: { rejected } };
 }
 
 export async function duplicateTheme(id: string): Promise<Result<{ id: string }>> {
@@ -2439,45 +2463,58 @@ export async function importTheme(json: unknown): Promise<Result<{ id: string; r
   return { ok: true, data: { id: row.id, rejectedFields: rejected } };
 }
 
+// Batched, song-scoped slide write: ONE UPDATE … FROM (VALUES …) per chunk
+// instead of one round trip per slide (re-apply timeouts on long songs). The
+// song_id predicate keeps it tenant-safe — song_slides has no church_id, so the
+// caller must pass a church-verified (row-locked) song id.
+type ThemeTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+async function writeSongSlideObjects(tx: ThemeTx, songId: string, rows: { id: string; objectsJson: unknown }[]) {
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100);
+    if (chunk.length === 0) continue;
+    const values = sql.join(chunk.map((r) => sql`(${r.id}::uuid, ${JSON.stringify(r.objectsJson ?? null)}::jsonb)`), sql`, `);
+    await tx.execute(sql`UPDATE song_slides AS s SET objects_json = v.oj
+      FROM (VALUES ${values}) AS v(id, oj)
+      WHERE s.id = v.id AND s.song_id = ${songId}::uuid`);
+  }
+}
+
 export async function applyThemeToSong(themeId: string, songId: string): Promise<Result<{ slidesUpdated: number }>> {
   const user = await requireCap("edit_library");
   const db = getDb();
   const [theme] = await db.select().from(themes)
     .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
   if (!theme) return { ok: false, error: "Theme not found" };
-  const [song] = await db.select().from(songs)
-    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
-  if (!song) return { ok: false, error: "Song not found" };
   const cfg = (theme.config as ThemeConfig) ?? {};
-  const slides = await db.select().from(songSlides).where(eq(songSlides.songId, songId));
-  const prevSettings = (song.settings as Record<string, unknown>) ?? {};
-  // Snapshot every slide's prior objectsJson so revertSongTheme can restore the
-  // look. Revert-bug fix (Theme Editor PR 1): the FIRST snapshot is preserved
-  // across repeated applies (theme A then theme B used to overwrite the backup
-  // with A's baked slides, so "undo" restored A, never the original). Slides
-  // created after the first apply are added with their current look.
-  const backup = mergeThemeBackup(prevSettings.themeBackup, slides.map((s) => ({ id: s.id, objectsJson: s.objectsJson ?? null })), themeId);
-  let updated = 0;
-  // The bake (contrast guard, black-bg sentinel, gradient pass-through, theme
-  // wins) now lives in ONE place — theme-bake.ts — shared with the per-slide
-  // override and the theme-editor re-apply. It mirrors the former inline copy
-  // exactly (see test/theme-bake.test.ts).
-  for (const s of slides) {
-    const merged = bakeThemeIntoObjectsJson(cfg, s.objectsJson);
-    await db.update(songSlides).set({ objectsJson: merged })
-      .where(and(eq(songSlides.id, s.id), eq(songSlides.songId, songId)));
-    updated += 1;
-  }
-  // Track applied theme id + the revert snapshot on the song. A whole-song apply
-  // re-bakes EVERY slide, so any per-slide theme overrides are now superseded —
-  // clear their (now-stale) backups so a later per-slide "remove" can't restore
-  // an outdated look.
-  await db.update(songs).set({
-    settings: { ...prevSettings, appliedThemeId: themeId, themeBackup: backup, slideThemeBackups: {} },
-  }).where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+  const res = await db.transaction(async (tx): Promise<Result<{ slidesUpdated: number }>> => {
+    const [song] = await tx.select().from(songs)
+      .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).for("update");
+    if (!song) return { ok: false, error: "Song not found" };
+    const slides = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
+      .from(songSlides).where(eq(songSlides.songId, songId));
+    const prevSettings = (song.settings as Record<string, unknown>) ?? {};
+    // Snapshot every slide's prior objectsJson so revertSongTheme can restore the
+    // look. Revert-bug fix (Theme Editor PR 1): the FIRST snapshot is preserved
+    // across repeated applies (theme A then theme B used to overwrite the backup
+    // with A's baked slides, so "undo" restored A, never the original). Slides
+    // created after the first apply are added; entries for deleted slides pruned.
+    const merged0 = mergeThemeBackup(prevSettings.themeBackup, slides.map((s) => ({ id: s.id, objectsJson: s.objectsJson ?? null })), themeId);
+    const backup = pruneThemeBackup(merged0, slides.map((s) => s.id)) ?? merged0;
+    // The bake (contrast guard, black-bg sentinel, gradient pass-through, theme
+    // wins) lives in ONE place — theme-bake.ts — shared with the per-slide
+    // override and the theme-editor re-apply (see test/theme-bake.test.ts).
+    await writeSongSlideObjects(tx, songId, slides.map((s) => ({ id: s.id, objectsJson: bakeThemeIntoObjectsJson(cfg, s.objectsJson) })));
+    // A whole-song apply re-bakes EVERY slide, so per-slide overrides are
+    // superseded — clear their (now-stale) backups.
+    await tx.update(songs).set({
+      settings: { ...prevSettings, appliedThemeId: themeId, themeBackup: backup, slideThemeBackups: {} },
+    }).where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+    return { ok: true, data: { slidesUpdated: slides.length } };
+  });
+  if (!res.ok) return res;
   revalidatePath("/library/songs");
   revalidatePath(`/library/songs/${songId}`);
-  return { ok: true, data: { slidesUpdated: updated } };
+  return res;
 }
 
 /**
@@ -2494,22 +2531,29 @@ export async function applyThemeToSongSlide(themeId: string, songId: string, sli
   const [theme] = await db.select().from(themes)
     .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
   if (!theme) return { ok: false, error: "Theme not found" };
-  const [song] = await db.select().from(songs)
-    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
-  if (!song) return { ok: false, error: "Song not found" };
-  const [slide] = await db.select().from(songSlides)
-    .where(and(eq(songSlides.id, slideId), eq(songSlides.songId, songId))).limit(1);
-  if (!slide) return { ok: false, error: "Slide not found" };
   const cfg = (theme.config as ThemeConfig) ?? {};
-  const prevSettings = (song.settings as Record<string, unknown>) ?? {};
-  const backups = { ...((prevSettings.slideThemeBackups as Record<string, unknown>) ?? {}) };
-  // Only snapshot the ORIGINAL look once, so re-applying different themes to the
-  // same slide still reverts to the pre-override state.
-  if (!(slideId in backups)) backups[slideId] = { objectsJson: slide.objectsJson ?? null, themeId };
-  else backups[slideId] = { ...(backups[slideId] as Record<string, unknown>), themeId };
-  const merged = bakeThemeIntoObjectsJson(cfg, slide.objectsJson);
-  await db.update(songSlides).set({ objectsJson: merged }).where(eq(songSlides.id, slideId));
-  await db.update(songs).set({ settings: { ...prevSettings, slideThemeBackups: backups } }).where(eq(songs.id, songId));
+  const res = await db.transaction(async (tx): Promise<Result> => {
+    const [song] = await tx.select().from(songs)
+      .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).for("update");
+    if (!song) return { ok: false, error: "Song not found" };
+    const [slide] = await tx.select().from(songSlides)
+      .where(and(eq(songSlides.id, slideId), eq(songSlides.songId, songId))).limit(1);
+    if (!slide) return { ok: false, error: "Slide not found" };
+    const prevSettings = (song.settings as Record<string, unknown>) ?? {};
+    const backups = { ...((prevSettings.slideThemeBackups as Record<string, unknown>) ?? {}) };
+    // Only snapshot the ORIGINAL look once, so re-applying different themes to the
+    // same slide still reverts to the pre-override state. themeId records which
+    // theme owns the override (theme-editor re-apply skips other themes' slides).
+    if (!(slideId in backups)) backups[slideId] = { objectsJson: slide.objectsJson ?? null, themeId };
+    else backups[slideId] = { ...(backups[slideId] as Record<string, unknown>), themeId };
+    const merged = bakeThemeIntoObjectsJson(cfg, slide.objectsJson);
+    await tx.update(songSlides).set({ objectsJson: merged })
+      .where(and(eq(songSlides.id, slideId), eq(songSlides.songId, songId)));
+    await tx.update(songs).set({ settings: { ...prevSettings, slideThemeBackups: backups } })
+      .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+    return { ok: true };
+  });
+  if (!res.ok) return res;
   revalidatePath("/library/songs");
   revalidatePath(`/library/songs/${songId}`);
   return { ok: true };
@@ -2537,36 +2581,46 @@ export async function removeThemeFromSongSlide(songId: string, slideId: string):
 }
 
 /**
- * Reverse the most recent applyThemeToSong — restore every slide's objectsJson
- * from the snapshot saved in song.settings.themeBackup, and clear the applied-
- * theme markers. No-op-safe: returns an error if there's nothing to revert.
+ * Reverse applyThemeToSong — restore every slide's THEME-OWNED fields (bg,
+ * transition, text font/size/weight/colour/align) from the snapshot in
+ * song.settings.themeBackup, keeping the slide's CURRENT content (lyrics/text,
+ * objects added since) so reverting never loses a lyric edit. Clears the
+ * applied-theme markers. Returns an error if there's nothing to revert.
  */
 export async function revertSongTheme(songId: string): Promise<Result<{ slidesRestored: number }>> {
   const user = await requireCap("edit_library");
   const db = getDb();
-  const [song] = await db.select().from(songs)
-    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
-  if (!song) return { ok: false, error: "Song not found" };
-  const settings = (song.settings as Record<string, unknown>) ?? {};
-  const backup = settings.themeBackup as { slides?: { id: string; objectsJson: unknown }[] } | undefined;
-  if (!backup?.slides?.length) return { ok: false, error: "Nothing to undo" };
-  let restored = 0;
-  for (const b of backup.slides) {
-    const res = await db.update(songSlides)
-      .set({ objectsJson: (b.objectsJson ?? null) as typeof songSlides.$inferInsert.objectsJson })
-      .where(and(eq(songSlides.id, b.id), eq(songSlides.songId, songId)));
-    if ((res as { rowCount?: number }).rowCount !== 0) restored += 1;
-  }
-  const nextSettings = { ...settings };
-  delete (nextSettings as Record<string, unknown>).themeBackup;
-  delete (nextSettings as Record<string, unknown>).appliedThemeId;
-  // Reverting the whole song restores every slide's pre-theme look, so any
-  // per-slide override snapshots are now meaningless — drop them.
-  delete (nextSettings as Record<string, unknown>).slideThemeBackups;
-  await db.update(songs).set({ settings: nextSettings }).where(eq(songs.id, songId));
+  const res = await db.transaction(async (tx): Promise<Result<{ slidesRestored: number }>> => {
+    const [song] = await tx.select().from(songs)
+      .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).for("update");
+    if (!song) return { ok: false, error: "Song not found" };
+    const settings = (song.settings as Record<string, unknown>) ?? {};
+    const backup = settings.themeBackup as { slides?: { id: string; objectsJson: unknown }[] } | undefined;
+    if (!backup?.slides?.length) return { ok: false, error: "Nothing to undo" };
+    const current = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
+      .from(songSlides).where(eq(songSlides.songId, songId));
+    const byId = new Map(current.map((c) => [c.id, c]));
+    const rows: { id: string; objectsJson: unknown }[] = [];
+    for (const b of backup.slides) {
+      const cur = byId.get(b.id);
+      if (!cur) continue; // slide deleted since the apply
+      rows.push({ id: b.id, objectsJson: resetThemeOwnedFields(cur.objectsJson, b.objectsJson) });
+    }
+    await writeSongSlideObjects(tx, songId, rows);
+    const nextSettings = { ...settings };
+    delete (nextSettings as Record<string, unknown>).themeBackup;
+    delete (nextSettings as Record<string, unknown>).appliedThemeId;
+    // Reverting the whole song restores every slide's pre-theme look, so any
+    // per-slide override snapshots are now meaningless — drop them.
+    delete (nextSettings as Record<string, unknown>).slideThemeBackups;
+    await tx.update(songs).set({ settings: nextSettings })
+      .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+    return { ok: true, data: { slidesRestored: rows.length } };
+  });
+  if (!res.ok) return res;
   revalidatePath("/library/songs");
   revalidatePath(`/library/songs/${songId}`);
-  return { ok: true, data: { slidesRestored: restored } };
+  return res;
 }
 
 // ── Theme Editor (PR 1) — re-apply an edited theme to every song using it ──
@@ -2577,6 +2631,8 @@ export async function revertSongTheme(songId: string): Promise<Result<{ slidesRe
 // re-selected by church, songs are filtered by church_id, and — because
 // song_slides has NO church_id — every slide read/write is filtered by the
 // song_id of a church-verified, row-locked song.
+const THEME_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function songsUsingThemeWhere(churchId: string, themeId: string) {
   return and(
     eq(songs.churchId, churchId),
@@ -2587,32 +2643,47 @@ function songsUsingThemeWhere(churchId: string, themeId: string) {
   );
 }
 
-export async function countSongsUsingTheme(themeId: string): Promise<Result<{ count: number }>> {
+export async function countSongsUsingTheme(themeId: string, opts: { checkSongId?: string | null } = {}): Promise<Result<{ count: number; includesCheckedSong: boolean }>> {
   const user = await requireCap("edit_library");
+  if (!THEME_UUID_RE.test(themeId)) return { ok: false, error: "Theme not found" };
   const db = getDb();
   const [theme] = await db.select({ id: themes.id }).from(themes)
     .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
   if (!theme) return { ok: false, error: "Theme not found" };
-  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(songs)
-    .where(songsUsingThemeWhere(user.churchId, themeId));
-  return { ok: true, data: { count: Number(row?.n ?? 0) } };
+  const where = songsUsingThemeWhere(user.churchId, themeId);
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(songs).where(where);
+  let includesCheckedSong = false;
+  const check = opts.checkSongId;
+  if (typeof check === "string" && THEME_UUID_RE.test(check)) {
+    const [hit] = await db.select({ id: songs.id }).from(songs).where(and(where, eq(songs.id, check))).limit(1);
+    includesCheckedSong = !!hit;
+  }
+  return { ok: true, data: { count: Number(row?.n ?? 0), includesCheckedSong } };
 }
 
 export async function reapplyThemeToSongs(
   themeId: string,
-  opts: { cursor?: string | null; limit?: number } = {},
+  opts: { cursor?: string | null; limit?: number; previousConfig?: unknown } = {},
 ): Promise<Result<{ updated: number; nextCursor: string | null }>> {
   const user = await requireCap("edit_library");
+  if (!THEME_UUID_RE.test(themeId)) return { ok: false, error: "Theme not found" };
+  const cursor = opts.cursor ?? null;
+  if (cursor !== null && (typeof cursor !== "string" || !THEME_UUID_RE.test(cursor))) {
+    return { ok: false, error: "Invalid cursor" };
+  }
   const db = getDb();
-  const limit = Math.max(1, Math.min(50, Math.floor(opts.limit ?? 25)));
-  const cursor = typeof opts.cursor === "string" && opts.cursor ? opts.cursor : null;
+  const limit = Math.max(1, Math.min(25, Math.floor(opts.limit ?? 10)));
   const [theme] = await db.select().from(themes)
     .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
   if (!theme) return { ok: false, error: "Theme not found" };
   const cfg = (theme.config as ThemeConfig) ?? {};
+  // Only fields the theme sets NOW or SET BEFORE are reset from the snapshot —
+  // an operator's own value for a field no theme version set is left alone.
+  // previousConfig is only read for WHICH keys exist (whitelisted field names).
+  const fields = themeFieldsForConfigs([cfg, opts.previousConfig]);
   const base = songsUsingThemeWhere(user.churchId, themeId);
   const page = await db.select({ id: songs.id }).from(songs)
-    .where(cursor ? and(base, sql`${songs.id} > ${cursor}`) : base)
+    .where(cursor ? and(base, sql`${songs.id} > ${cursor}::uuid`) : base)
     .orderBy(asc(songs.id)).limit(limit);
   let updated = 0;
   for (const { id: songId } of page) {
@@ -2624,22 +2695,23 @@ export async function reapplyThemeToSongs(
       const slides = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
         .from(songSlides).where(eq(songSlides.songId, songId));
       const additions: { id: string; objectsJson: unknown }[] = [];
-      let touched = 0;
+      const rows: { id: string; objectsJson: unknown }[] = [];
       for (const sl of slides) {
         const src = reapplySourceForSlide(themeId, sl, settings);
         if (!src) continue; // per-slide override of another theme, or not this theme
         if (src.addToBackup) additions.push({ id: sl.id, objectsJson: sl.objectsJson ?? null });
-        const merged = rebakeThemeFromOriginal(cfg, sl.objectsJson, src.original);
-        await tx.update(songSlides).set({ objectsJson: merged })
-          .where(and(eq(songSlides.id, sl.id), eq(songSlides.songId, songId)));
-        touched += 1;
+        rows.push({ id: sl.id, objectsJson: rebakeThemeFromOriginal(cfg, sl.objectsJson, src.original, fields) });
       }
-      if (additions.length > 0 && settings.appliedThemeId === themeId) {
-        await tx.update(songs).set({
-          settings: { ...settings, themeBackup: mergeThemeBackup(settings.themeBackup, additions, themeId) },
-        }).where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+      await writeSongSlideObjects(tx, songId, rows);
+      if (settings.appliedThemeId === themeId) {
+        const merged = additions.length > 0 ? mergeThemeBackup(settings.themeBackup, additions, themeId) : settings.themeBackup;
+        const pruned = pruneThemeBackup(merged, slides.map((x) => x.id));
+        if (pruned) {
+          await tx.update(songs).set({ settings: { ...settings, themeBackup: pruned } })
+            .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+        }
       }
-      return touched > 0;
+      return rows.length > 0;
     });
     if (changed) updated += 1;
   }

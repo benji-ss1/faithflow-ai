@@ -2,7 +2,7 @@
 // Run: npx tsx test/theme-layout-sanitize.test.ts
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
-import { sanitizeThemeLayout, clampThemeNumber, MAX_THEME_LAYOUT_SLIDES, MAX_THEME_LAYOUT_BYTES } from "../src/lib/theme-layout";
+import { sanitizeThemeLayout, clampThemeNumber, sanitizeThemeNumber, MAX_THEME_LAYOUT_SLIDES, MAX_THEME_LAYOUT_BYTES } from "../src/lib/theme-layout";
 import { MAX_SLIDE_OBJECTS } from "../src/lib/broadcast";
 import { themeConfigToAppearance } from "../src/lib/theme-appearance";
 import { themeLayoutToRows, buildThemeSaveConfig } from "../src/lib/theme-editor-model";
@@ -92,7 +92,31 @@ check("sanitizeThemeConfig wires the dedicated validators", () => {
   const src = readFileSync("src/lib/actions.ts", "utf8");
   assert.match(src, /"layout", "bgAngle", "dim", "logoOpacity"/);
   assert.match(src, /sanitizeThemeLayout\(obj\[k\]\)/);
-  assert.match(src, /clampThemeNumber\(obj\[k\], 0, 360\)/);
+  assert.match(src, /k in THEME_NUMBER_RANGES/);
+  assert.match(src, /sanitizeThemeNumber\(k, obj\[k\]\)/);
+});
+check("font size / weight never persist 0, NaN or out of range", () => {
+  assert.equal(sanitizeThemeNumber("fontSizePx", 0), 12);
+  assert.equal(sanitizeThemeNumber("fontSizePx", -5), 12);
+  assert.equal(sanitizeThemeNumber("fontSizePx", 9999), 400);
+  assert.equal(sanitizeThemeNumber("fontSizePx", 72.4), 72);
+  assert.equal(sanitizeThemeNumber("fontSizeScripturePx", 0), 12);
+  assert.equal(sanitizeThemeNumber("fontSizePx", NaN), undefined);
+  assert.equal(sanitizeThemeNumber("fontSizePx", ""), undefined);
+  assert.equal(sanitizeThemeNumber("fontWeight", 50), 100);
+  assert.equal(sanitizeThemeNumber("fontWeight", 1200), 900);
+  assert.equal(sanitizeThemeNumber("bgAngle", 400), 360);
+  assert.equal(sanitizeThemeNumber("dim", 2), 1);
+  assert.equal(sanitizeThemeNumber("notANumberKey", 5), undefined);
+});
+check("updateTheme reports rejected keys and keeps the prior layout", () => {
+  const src = readFileSync("src/lib/actions.ts", "utf8");
+  const start = src.indexOf("export async function updateTheme(");
+  const body = src.slice(start, src.indexOf("\nexport async function ", start + 10));
+  assert.match(body, /Result<\{ rejected: string\[\] \}>/);
+  assert.match(body, /rejected\.includes\("layout"\)/);
+  assert.match(body, /clean\.config\.layout = prevLayout/);
+  assert.match(body, /data: \{ rejected \}/);
 });
 check("logo middle-center maps to center (was bottom-right)", () => {
   const a = themeConfigToAppearance({ logoUrl: "https://cdn.example.com/l.png", logoPosition: "middle-center" } as any);

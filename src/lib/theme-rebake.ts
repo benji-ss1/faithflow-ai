@@ -21,12 +21,37 @@ function copyField(target: Obj, source: Obj, key: string) {
   else target[key] = source[key];
 }
 
+export type ThemeOwnedFields = { slide: readonly string[]; text: readonly string[] };
+export const ALL_THEME_OWNED_FIELDS: ThemeOwnedFields = { slide: THEME_OWNED_SLIDE_FIELDS, text: THEME_OWNED_TEXT_FIELDS };
+
+/**
+ * The slide/text fields a set of theme configs actually bake. A re-apply only
+ * resets THESE (from the new AND the previous config), so an operator's own
+ * value for a field no theme version ever set (e.g. fontWeight) survives.
+ * The bake also writes an auto-contrast text colour whenever a bgColor is set.
+ */
+export function themeFieldsForConfigs(configs: unknown[]): ThemeOwnedFields {
+  const slide = new Set<string>();
+  const text = new Set<string>();
+  for (const c of configs) {
+    const cfg = asObj(c);
+    const has = (k: string) => cfg[k] !== undefined && cfg[k] !== null;
+    for (const k of ["bgType", "bgColor", "bgColor2", "bgImageUrl", "transition"]) if (has(k)) slide.add(k);
+    if (has("fontFamily")) text.add("fontFamily");
+    if (has("fontSizePx")) text.add("fontSize");
+    if (has("fontWeight")) text.add("fontWeight");
+    if (has("align")) text.add("align");
+    if (has("textColor") || has("bgColor")) text.add("color");
+  }
+  return { slide: [...slide], text: [...text] };
+}
+
 /** Restore theme-owned fields on `current` from `original` (no bake). */
-export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjectsJson: unknown): Obj {
+export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS): Obj {
   const cur = asObj(currentObjectsJson);
   const orig = asObj(originalObjectsJson);
   const out: Obj = { ...cur };
-  for (const k of THEME_OWNED_SLIDE_FIELDS) copyField(out, orig, k);
+  for (const k of fields.slide) copyField(out, orig, k);
   const origObjects = Array.isArray(orig.objects) ? (orig.objects as Obj[]) : [];
   const byId = new Map<string, Obj>();
   for (const o of origObjects) if (o && typeof o.id === "string") byId.set(o.id, o);
@@ -36,15 +61,15 @@ export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjec
     const src = typeof o.id === "string" ? byId.get(o.id) : undefined;
     if (!src) return o; // object added after the first apply — no snapshot to restore from
     const next: Obj = { ...o };
-    for (const k of THEME_OWNED_TEXT_FIELDS) copyField(next, src, k);
+    for (const k of fields.text) copyField(next, src, k);
     return next;
   });
   return out;
 }
 
 /** Reset theme-owned fields from the snapshot, then bake the (current) theme. */
-export function rebakeThemeFromOriginal(cfg: BakeableThemeConfig, currentObjectsJson: unknown, originalObjectsJson: unknown): Obj {
-  return bakeThemeIntoObjectsJson(cfg, resetThemeOwnedFields(currentObjectsJson, originalObjectsJson));
+export function rebakeThemeFromOriginal(cfg: BakeableThemeConfig, currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS): Obj {
+  return bakeThemeIntoObjectsJson(cfg, resetThemeOwnedFields(currentObjectsJson, originalObjectsJson, fields));
 }
 
 export type ThemeBackupEntry = { id: string; objectsJson: unknown };
@@ -94,4 +119,39 @@ export function reapplySourceForSlide(
   const hit = list.find((e) => e && e.id === slide.id);
   if (hit) return { original: hit.objectsJson ?? null, addToBackup: false };
   return { original: slide.objectsJson ?? null, addToBackup: true };
+}
+
+/** Drop backup entries whose slides no longer exist. */
+export function pruneThemeBackup(backup: unknown, existingSlideIds: Iterable<string>): ThemeBackup | undefined {
+  const b = asObj(backup);
+  if (!Array.isArray(b.slides)) return undefined;
+  const ids = new Set(existingSlideIds);
+  const slides = (b.slides as unknown[]).filter((e): e is ThemeBackupEntry => !!e && typeof (e as Obj).id === "string" && ids.has((e as Obj).id as string));
+  return { slides, ...(typeof b.themeId === "string" ? { themeId: b.themeId } : {}) };
+}
+
+/**
+ * A duplicated slide inherits its source's pre-theme snapshot (whole-song
+ * backup + per-slide override), so a later re-apply/revert treats the copy
+ * exactly like the original instead of snapshotting an already-themed look.
+ * Returns the new settings, or null when there is nothing to copy.
+ */
+export function copyThemeBackupForDuplicate(settings: unknown, sourceSlideId: string, newSlideId: string): Obj | null {
+  const s = asObj(settings);
+  let changed = false;
+  const next: Obj = { ...s };
+  const backup = asObj(s.themeBackup);
+  if (Array.isArray(backup.slides)) {
+    const hit = (backup.slides as Obj[]).find((e) => e && e.id === sourceSlideId);
+    if (hit && !(backup.slides as Obj[]).some((e) => e && e.id === newSlideId)) {
+      next.themeBackup = { ...backup, slides: [...(backup.slides as Obj[]), { id: newSlideId, objectsJson: hit.objectsJson ?? null }] };
+      changed = true;
+    }
+  }
+  const per = asObj(s.slideThemeBackups);
+  if (per[sourceSlideId] !== undefined && per[newSlideId] === undefined) {
+    next.slideThemeBackups = { ...per, [newSlideId]: per[sourceSlideId] };
+    changed = true;
+  }
+  return changed ? next : null;
 }

@@ -108,3 +108,22 @@ export function clampThemeNumber(v: unknown, min: number, max: number): number |
   if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
   return Math.min(max, Math.max(min, v));
 }
+
+/** Numeric theme keys and their allowed ranges (values are clamped). A 0 or
+ *  NaN font size baked into every song made lyrics vanish — never persist one. */
+export const THEME_NUMBER_RANGES: Record<string, [number, number]> = {
+  bgAngle: [0, 360],
+  dim: [0, 1],
+  logoOpacity: [0, 1],
+  fontSizePx: [12, 400],
+  fontSizeScripturePx: [12, 400],
+  fontWeight: [100, 900],
+};
+
+/** Clamp a numeric theme key. undefined → reject (non-number / NaN). */
+export function sanitizeThemeNumber(key: string, v: unknown): number | undefined {
+  const r = THEME_NUMBER_RANGES[key];
+  if (!r) return undefined;
+  const n = clampThemeNumber(v, r[0], r[1]);
+  return n === undefined ? undefined : key === "fontWeight" || key.startsWith("fontSize") ? Math.round(n) : n;
+}
