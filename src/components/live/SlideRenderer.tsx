@@ -170,8 +170,10 @@ function ThemeFramedText({ frame, text, fontScale, textMinPx, className, textSty
     <div data-theme-frame="" style={themeFrameBoxStyle(frame)}>
       <AutoFitText
         text={text}
-        maxPx={Math.max(8, Math.round((frame.fontSize ?? 120) * Math.max(1, scale)))}
-        minPx={textMinPx}
+        maxPx={Math.min(400, Math.max(8, Math.round((frame.fontSize ?? 120) * Math.max(1, scale))))}
+        // Long text must stay INSIDE the box: allow shrinking well below the
+        // 24px readability floor rather than spilling out of it.
+        minPx={Math.min(textMinPx ?? 8, 8)}
         paddingRatio={0.03}
         projectorFit={false}
         disablePagination
@@ -267,6 +269,13 @@ export function SlideRenderer(props: SlideRendererProps) {
   // designed multi-object slides have their own branches below.)
   const themeBoxesAllowed = !ignoreThemeLayout && !transparentBg && typeof fitBandFraction !== "number" && !(overVideo && verticalAlign !== "center");
   const themeLayout = themeBoxesAllowed ? appearance?.layout : undefined;
+  // Theme decor (images/shapes/video/extra text from the theme slide), drawn
+  // behind the slide text. Scripture uses the scripture slide's decor, falling
+  // back to the lyrics slide's. Undefined ⇒ nothing extra rendered.
+  const decorFor = (isScripture: boolean): SlideObjectWire[] | undefined => {
+    const d = themeLayout ? (isScripture ? (themeLayout.scripture?.decor ?? themeLayout.lyrics?.decor) : themeLayout.lyrics?.decor) : undefined;
+    return d && d.length ? d : undefined;
+  };
   // OBS overlay hints apply ONLY in transparent (OBS-key) mode.
   const obsHints = transparentBg ? obsOverlay : undefined;
   const obsTextOverride: React.CSSProperties = {
@@ -506,9 +515,11 @@ export function SlideRenderer(props: SlideRendererProps) {
         const cls = `text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`;
         const verseFrame = frameOfObject(roleVerse);
         const verseColor = themedObjectTextColor(roleVerse.color, themedTextColor);
+        const sDecor = decorFor(true);
         return (
           <div className={`${base} relative ${className || ""}`} style={designBg}>
             {animated && <AnimatedThemeBg appearance={appearance} />}
+            {sDecor && <SlideObjectsLayer objects={sDecor} themedTextColor={themedTextColor} />}
             <ThemeFramedText frame={verseFrame} text={roleVerse.text} fontScale={fontScale} textMinPx={textMinPx} className={cls}
               textStyle={{ ...themeTextStyle(appearance), ...themeFrameTextStyle(verseFrame), color: verseColor }} />
             {roleRef && (
@@ -546,10 +557,12 @@ export function SlideRenderer(props: SlideRendererProps) {
         // Decision 1: a song already themed as ONE text object uses the theme's
         // lyrics box (scripture — has a reference — keeps its own layout).
         const lyricFrame = !slide.reference ? themeLayout?.lyrics?.main : undefined;
+        const soleDecor = !slide.reference ? decorFor(false) : undefined;
         if (lyricFrame) {
           return (
             <div className={`${base} relative ${className || ""}`} style={designBg}>
               {animated && <AnimatedThemeBg appearance={appearance} />}
+              {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} />}
               <ThemeFramedText frame={lyricFrame} text={soleText.text} fontScale={fontScale} textMinPx={textMinPx}
                 className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
                 textStyle={{ ...themeTextStyle(appearance), ...themeFrameTextStyle(lyricFrame), ...objStyle }}
@@ -558,8 +571,9 @@ export function SlideRenderer(props: SlideRendererProps) {
           );
         }
         return (
-          <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={designBg}>
+          <div className={`${base} ${animated || soleDecor ? "relative" : ""} ${className || ""}`} style={designBg}>
             {animated && <AnimatedThemeBg appearance={appearance} />}
+            {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} />}
             <AutoFitText
               text={soleText.text}
               maxPx={120}
@@ -574,7 +588,7 @@ export function SlideRenderer(props: SlideRendererProps) {
               // sit in the top/bottom portion over the camera.
               reserveVerticalRatio={withBand(obsVAlign ? 0.42 : overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0)}
               verticalAlign={obsVAlign ?? (overVideo ? verticalAlign : "center")}
-              className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
+              className={`text-white font-display font-semibold${animated || soleDecor ? " relative z-[1]" : ""}`}
               textStyle={{ ...themeTextStyle(appearance), ...objStyle }}
               editable={editable}
               onEditInput={onEditInput}
@@ -634,6 +648,10 @@ export function SlideRenderer(props: SlideRendererProps) {
     // reference boxes (scripture). No theme layout ⇒ the legacy full-frame
     // render below, byte-identical.
     const plainFrame = themeLayout ? (refText ? themeLayout.scripture?.verse : themeLayout.lyrics?.main) : undefined;
+    const plainDecor = decorFor(!!refText);
+    const plainDecorLayer = plainDecor
+      ? <SlideObjectsLayer objects={plainDecor} themedTextColor={!slide.bgImageUrl && !slideBg && !overVideo ? ((themeTextStyle(appearance)?.color as string | undefined) ?? undefined) : undefined} />
+      : null;
     if (plainFrame) {
       const cls = `text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`;
       const baseStyle = { ...themeTextStyle(appearance), ...themeFrameTextStyle(plainFrame) };
@@ -641,6 +659,7 @@ export function SlideRenderer(props: SlideRendererProps) {
         return (
           <div className={`${base} relative ${className || ""}`} style={bg}>
             {animated && <AnimatedThemeBg appearance={appearance} />}
+            {plainDecorLayer}
             <ThemeFramedText frame={plainFrame} text={slide.text} fontScale={fontScale} textMinPx={textMinPx} className={cls}
               textStyle={baseStyle} editable={editable} onEditInput={onEditInput} />
           </div>
@@ -658,6 +677,7 @@ export function SlideRenderer(props: SlideRendererProps) {
       return (
         <div className={`${base} relative ${className || ""}`} style={bg}>
           {animated && <AnimatedThemeBg appearance={appearance} />}
+          {plainDecorLayer}
           <ThemeFramedText frame={verseBox} text={slide.text} fontScale={fontScale} textMinPx={textMinPx} className={cls} textStyle={baseStyle} />
           <ThemeFramedText frame={refFrame} text={refText} fontScale={referenceScale} textMinPx={textMinPx} className={cls}
             textStyle={{ ...themeTextStyle(appearance), ...themeFrameTextStyle(refFrame), textTransform: refFrame.uppercase === true ? "uppercase" : "none", ...(referenceColor ? { color: referenceColor } : {}) }} />
@@ -666,12 +686,13 @@ export function SlideRenderer(props: SlideRendererProps) {
     }
     return (
       <div
-        className={`${base} ${animated ? "relative" : ""} ${className || ""}`}
+        className={`${base} ${animated || plainDecor ? "relative" : ""} ${className || ""}`}
         // Reserve bottom room for the fixed reference footer so a long verse body
         // fits ABOVE it instead of overlapping.
         style={refText ? { ...bg, paddingBottom: projectorFit ? "8%" : "12%" } : bg}
       >
         {animated && <AnimatedThemeBg appearance={appearance} />}
+        {plainDecorLayer}
         <AutoFitText
           text={slide.text}
           maxPx={120}
@@ -698,7 +719,7 @@ export function SlideRenderer(props: SlideRendererProps) {
           // overshot by ~24px and lost their last line. 0.15 covers 16:9 and 4:3.
           reserveVerticalRatio={withBand(obsVAlign ? 0.42 : refText ? (overVideo ? 0.16 : 0.15) : (overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0))}
           verticalAlign={obsVAlign ?? (overVideo && !refText ? verticalAlign : "center")}
-          className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
+          className={`text-white font-display font-semibold${animated || plainDecor ? " relative z-[1]" : ""}`}
           textStyle={transparentBg ? { ...themeTextStyle(appearance), textShadow: OBS_OVERLAY_TEXT_SHADOW, ...obsTextOverride } : themeTextStyle(appearance)}
           editable={editable}
           onEditInput={onEditInput}
@@ -708,7 +729,7 @@ export function SlideRenderer(props: SlideRendererProps) {
           // so it can never be shrunk to nothing or paginated off with a long
           // verse — the reference must always read at the bottom of the screen.
           <div
-            className={`absolute inset-x-0 bottom-0 flex justify-center pointer-events-none${animated ? " z-[1]" : ""}`}
+            className={`absolute inset-x-0 bottom-0 flex justify-center pointer-events-none${animated || plainDecor ? " z-[1]" : ""}`}
             style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}
           >
             <span

@@ -5,7 +5,7 @@
 // result is guaranteed to pass the wire validator — otherwise a malformed
 // config would make the projector reject the whole OutputState and not update.
 // Client-safe (no server imports); usable in the operator and in previews.
-import { isValidThemeLayoutWire, type ThemeAppearance, type ThemeFrameWire, type ThemeLayoutWire } from "@/lib/broadcast";
+import { isValidThemeLayoutWire, isValidThemeDecorObject, MAX_THEME_DECOR_OBJECTS, THEME_LAYOUT_WIRE_MAX_BYTES, type ThemeAppearance, type ThemeFrameWire, type ThemeLayoutWire, type SlideObjectWire } from "@/lib/broadcast";
 import { isRenderableUrl } from "./render-url";
 import { mainTextOf, verseTextOf } from "./theme-editor-model";
 import type { SlideObject, TextObject } from "./slide-objects";
@@ -187,7 +187,33 @@ export function frameFromTextObject(t: TextObject | null | undefined): ThemeFram
   return f;
 }
 
-type LayoutSlide = { id?: unknown; role?: unknown; objects?: unknown };
+type LayoutSlide = { id?: unknown; role?: unknown; objects?: unknown; bgColor?: unknown; bgImageUrl?: unknown };
+
+/**
+ * A theme slide's decor: its background (as a full-canvas image/shape) plus
+ * every visible object that is not a role text box (`exclude` = the boxes used
+ * as frames). Only wire-valid objects with renderable (non-blob) URLs, compact
+ * (editor-only id/locked dropped), capped at MAX_THEME_DECOR_OBJECTS.
+ */
+export function themeDecorFromSlide(slide: LayoutSlide | undefined, exclude: Set<unknown>): SlideObjectWire[] {
+  if (!slide) return [];
+  const out: SlideObjectWire[] = [];
+  if (isHttpsUrl(slide.bgImageUrl)) out.push({ kind: "image", x: 0, y: 0, w: 1920, h: 1080, url: slide.bgImageUrl, fit: "cover" });
+  else if (isColor(slide.bgColor)) out.push({ kind: "shape", x: 0, y: 0, w: 1920, h: 1080, shape: "rect", fill: slide.bgColor.trim() });
+  for (const raw of objectsOf(slide)) {
+    if (exclude.has(raw)) continue;
+    const o = raw as unknown as Record<string, unknown>;
+    if (o.hidden === true) continue;
+    if (o.kind === "text" && o.role !== undefined) continue; // role boxes are frames, never decor
+    const { id: _id, locked: _locked, ...rest } = o;
+    void _id; void _locked;
+    if ((rest.kind === "image" || rest.kind === "video") && !isHttpsUrl(rest.url)) continue;
+    if (!isValidThemeDecorObject(rest)) continue;
+    out.push(rest as SlideObjectWire);
+    if (out.length >= MAX_THEME_DECOR_OBJECTS) break;
+  }
+  return out;
+}
 function objectsOf(s: LayoutSlide | undefined): SlideObject[] {
   return s && Array.isArray(s.objects) ? (s.objects.filter((o) => o && typeof o === "object") as SlideObject[]) : [];
 }
@@ -208,16 +234,31 @@ export function themeLayoutFromConfig(c: Record<string, unknown>): ThemeLayoutWi
     const f = frameFromTextObject(main);
     if (f) out.lyrics = { main: f };
   }
+  // Decor is emitted even when the text box is the untouched seed (the seed box
+  // alone is still never a frame).
+  const lyricDecor = themeDecorFromSlide(lyricSlide, new Set([main]));
+  if (lyricDecor.length) out.lyrics = { ...(out.lyrics ?? {}), decor: lyricDecor };
   const scriptureSlide = slides.find((s) => s.role === "scripture");
   if (scriptureSlide) {
     const objs = objectsOf(scriptureSlide);
-    const verse = frameFromTextObject(verseTextOf(objs));
+    const verseObj = verseTextOf(objs);
+    const verse = frameFromTextObject(verseObj);
+    const refObj = objs.find((o): o is TextObject => o.kind === "text" && o.role === "reference") ?? null;
     if (verse) {
-      const refObj = objs.find((o): o is TextObject => o.kind === "text" && o.role === "reference") ?? null;
       const reference = frameFromTextObject(refObj);
       out.scripture = reference ? { verse, reference } : { verse };
     }
+    const scriptureDecor = themeDecorFromSlide(scriptureSlide, new Set([verseObj, refObj]));
+    if (scriptureDecor.length) out.scripture = { ...(out.scripture ?? {}), decor: scriptureDecor };
   }
+  if (!out.lyrics && !out.scripture) return undefined;
+  // Oversized (many large objects): drop decor from the end until it fits.
+  const trim = (g: { decor?: SlideObjectWire[] } | undefined) => { if (g?.decor?.length) { g.decor.pop(); if (!g.decor.length) delete g.decor; return true; } return false; };
+  while (JSON.stringify(out).length > THEME_LAYOUT_WIRE_MAX_BYTES) {
+    if (!trim(out.scripture) && !trim(out.lyrics)) return undefined;
+  }
+  if (out.lyrics && !out.lyrics.main && !out.lyrics.decor) delete out.lyrics;
+  if (out.scripture && !out.scripture.verse && !out.scripture.decor) delete out.scripture;
   if (!out.lyrics && !out.scripture) return undefined;
   return isValidThemeLayoutWire(out) ? out : undefined;
 }

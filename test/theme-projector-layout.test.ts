@@ -201,7 +201,7 @@ async function main() {
       assert.equal(isValidThemeLayoutWire(layout), false);
       assert.equal(isValidThemeAppearance({ textColor: "#fff", layout }), false);
       const s = sanitizeOutputState({ ...EMPTY_OUTPUT, live: { kind: "text", text: "hi" }, appearance: { textColor: "#fff", layout } });
-      assert.ok(s && s.appearance === null, "sanitizer nulls a bad appearance; live slide still projects");
+      assert.deepEqual(s?.appearance, { textColor: "#fff" }, "sanitizer strips ONLY the bad layout; rest of the theme + live slide still project");
       assert.equal((s!.live as { text?: string }).text, "hi");
     });
   }

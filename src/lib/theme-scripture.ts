@@ -8,8 +8,8 @@
 // seeds every new theme with scriptureShowReference:true,
 // scriptureReferencePosition:"above" and fontSizeScripturePx:56, and those
 // values never reached the projector. So those DEFAULT values are NOT an
-// opt-in. A theme opts in when it has a scripture layout slide with a verse
-// box, or explicitly turns the reference/translation off, or picks the
+// opt-in. A theme opts in when it has a scripture layout slide (its decor and
+// boxes then style scripture), or explicitly turns the reference/translation off, or picks the
 // "below"/"inline" reference position.
 import type { ThemeFrameWire } from "./broadcast";
 import type { ScriptureDesign, TextStyle } from "@/components/operator/scripture/scriptureStyle";
@@ -38,7 +38,11 @@ export function themeScriptureOptions(cfg: unknown): ThemeScriptureOptions | nul
   const showTranslation = c.scriptureTranslationVisible !== false;
   const position: ThemeReferencePosition =
     c.scriptureReferencePosition === "below" || c.scriptureReferencePosition === "inline" ? c.scriptureReferencePosition : "above";
+  const rawLayout = c.layout as { version?: unknown; slides?: unknown } | undefined;
+  const hasScriptureSlide = !!rawLayout && rawLayout.version === 3 && Array.isArray(rawLayout.slides)
+    && rawLayout.slides.some((sl) => !!sl && typeof sl === "object" && (sl as { role?: unknown }).role === "scripture");
   const optedIn = !!verse
+    || hasScriptureSlide
     || c.scriptureShowReference === false
     || c.scriptureTranslationVisible === false
     || c.scriptureReferencePosition === "below"

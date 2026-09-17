@@ -281,8 +281,11 @@ export type ThemeFrameWire = {
   shadow?: boolean;
 };
 export type ThemeLayoutWire = {
-  lyrics?: { main?: ThemeFrameWire };
-  scripture?: { verse?: ThemeFrameWire; reference?: ThemeFrameWire };
+  // decor: the theme slide's OTHER objects (images, shapes, video, text without
+  // a role, slide background) — drawn behind the slide text on every slide that
+  // uses the theme, like ProPresenter theme objects.
+  lyrics?: { main?: ThemeFrameWire; decor?: SlideObjectWire[] };
+  scripture?: { verse?: ThemeFrameWire; reference?: ThemeFrameWire; decor?: SlideObjectWire[] };
 };
 
 // ── Live video input (Phase 2a) ───────────────────────────────────────────
@@ -912,7 +915,14 @@ function sanitizeLayers(v: unknown): LayerWire[] | undefined {
 }
 
 const THEME_FRAME_KEYS = new Set(["x", "y", "w", "h", "fontFamily", "fontSize", "fontWeight", "color", "align", "italic", "uppercase", "shadow"]);
-export const THEME_LAYOUT_WIRE_MAX_BYTES = 2048;
+export const THEME_LAYOUT_WIRE_MAX_BYTES = 16 * 1024;
+export const MAX_THEME_DECOR_OBJECTS = 16;
+
+/** One theme decor object: a valid slide object with NO role (role boxes are frames). */
+export function isValidThemeDecorObject(o: unknown): o is SlideObjectWire {
+  if (!isValidSlideObject(o)) return false;
+  return (o as { role?: unknown }).role === undefined;
+}
 
 /** Strict validator for one theme text-box frame (unknown keys rejected). */
 export function isValidThemeFrameWire(f: unknown): f is ThemeFrameWire {
@@ -942,11 +952,15 @@ export function isValidThemeLayoutWire(l: unknown): l is ThemeLayoutWire {
     const gp = g as Record<string, unknown>;
     for (const k of Object.keys(gp)) {
       if (!keys.includes(k)) return false;
-      if (gp[k] !== undefined && !isValidThemeFrameWire(gp[k])) return false;
+      if (gp[k] === undefined) continue;
+      if (k === "decor") {
+        const d = gp[k];
+        if (!Array.isArray(d) || d.length > MAX_THEME_DECOR_OBJECTS || !d.every(isValidThemeDecorObject)) return false;
+      } else if (!isValidThemeFrameWire(gp[k])) return false;
     }
     return true;
   };
-  if (!group(p.lyrics, ["main"]) || !group(p.scripture, ["verse", "reference"])) return false;
+  if (!group(p.lyrics, ["main", "decor"]) || !group(p.scripture, ["verse", "reference", "decor"])) return false;
   try { if (JSON.stringify(l).length > THEME_LAYOUT_WIRE_MAX_BYTES) return false; } catch { return false; }
   return true;
 }
@@ -1027,6 +1041,7 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
       if (p.shadow !== undefined && typeof p.shadow !== "boolean") return false;
       if (p.stroke !== undefined && !isValidColor(p.stroke)) return false;
       if (p.strokeWidth !== undefined && (typeof p.strokeWidth !== "number" || !Number.isFinite(p.strokeWidth) || p.strokeWidth < 0 || p.strokeWidth > 200)) return false;
+      if (p.role !== undefined && p.role !== "main" && p.role !== "verse" && p.role !== "reference") return false;
       return true;
     case "shape":
       if (p.shape !== "rect" && p.shape !== "ellipse") return false;
@@ -1534,7 +1549,18 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   }
   if (out.referenceColor !== undefined && out.referenceColor !== null && !isValidColor(out.referenceColor)) out.referenceColor = undefined;
   if (out.background !== undefined && out.background !== null && !isValidBackgroundSpec(out.background)) out.background = null;
-  if (out.appearance !== undefined && out.appearance !== null && !isValidThemeAppearance(out.appearance)) out.appearance = null;
+  if (out.appearance !== undefined && out.appearance !== null && !isValidThemeAppearance(out.appearance)) {
+    // A bad theme LAYOUT only strips the layout (the rest of the theme still
+    // projects); anything else invalid nulls the appearance as before.
+    const a = out.appearance as Record<string, unknown>;
+    if (a && typeof a === "object" && "layout" in a) {
+      const { layout: _drop, ...rest } = a;
+      void _drop;
+      out.appearance = isValidThemeAppearance(rest) ? (rest as ThemeAppearance) : null;
+    } else {
+      out.appearance = null;
+    }
+  }
   if (out.videoInput !== undefined && out.videoInput !== null && !isValidVideoInput(out.videoInput)) out.videoInput = null;
   if (out.zone !== undefined && out.zone !== null && !isValidZone(out.zone)) out.zone = null;
   if (out.obsLowerThird !== undefined && !isValidObsLowerThird(out.obsLowerThird)) out.obsLowerThird = null;
