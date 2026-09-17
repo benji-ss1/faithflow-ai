@@ -1,4 +1,5 @@
 "use client";
+import { FontOptions, WeightOptions } from "@/components/fonts/FontOptions";
 import { useShortcutLabel, useIsWindows } from "@/lib/usePlatformLabel";
 import type { LiveOrigin } from "@/lib/song-switch-guard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -691,7 +692,6 @@ function RailBtn({ label, icon: Icon, onClick, disabled, accent, danger }: { lab
 }
 
 // ── Right drawer ────────────────────────────────────────────────────────────
-const FONTS = ["Inter", "Sora", "Plus Jakarta Sans", "Playfair Display", "Cormorant Garamond", "Fraunces", "Spectral", "Montserrat", "DM Serif Display", "Georgia", "Helvetica", "Arial", "Times New Roman"];
 const rowCls = "eyebrow block mb-1";
 const inCls = "w-full h-8 px-2 rounded-lg border border-[var(--color-border)] text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none transition-colors duration-200 focus:border-[var(--color-brand)]";
 const segOn = { borderColor: "var(--color-brand)", background: "color-mix(in oklab, var(--color-brand) 16%, transparent)", color: "var(--color-brand-hi)" };
@@ -1177,14 +1177,14 @@ function TextProps({ o, upd, guardEmptySize = false }: { o: TextObject; upd: (p:
       </div>
       <div><span className={rowCls}>Font</span>
         <select value={o.fontFamily ?? "Inter"} onChange={(e) => upd({ fontFamily: e.target.value })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
-          {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+          <FontOptions current={o.fontFamily ?? "Inter"} />
         </select>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div><span className={rowCls}>Size (px)</span><input type="number" min={8} max={800} value={o.fontSize ?? 96} onChange={(e) => { const n = Number(e.target.value); if (guardEmptySize && (e.target.value.trim() === "" || !Number.isFinite(n) || n < 1)) return; upd({ fontSize: n }); }} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
         <div><span className={rowCls}>Weight</span>
           <select value={String(o.fontWeight ?? 600)} onChange={(e) => upd({ fontWeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
-            {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w} value={w}>{w}</option>)}
+            <WeightOptions font={o.fontFamily ?? "Inter"} current={o.fontWeight ?? 600} />
           </select>
         </div>
       </div>

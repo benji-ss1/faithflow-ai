@@ -2,6 +2,35 @@
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { calculateProjectorFontSize, projectorFloorPx, projectorCeilingPx } from "@/lib/projectorFontSize";
 import { PresentationCanvasContext } from "./PresentationCanvas";
+import { fontLoadSpec, slideFontsV1Enabled } from "@/lib/fonts/registry";
+
+/** Fonts P1 (2026-09-17): cap on how long a projector surface waits for the
+ *  slide's real face before trusting the fallback measurement. */
+export const FONT_READY_CAP_MS = 1200;
+
+/** CSS font shorthand for the face the text element ACTUALLY computes to
+ *  (covers the default --font-display face when no fontFamily is passed). */
+function computedFaceSpec(el: HTMLElement | null): string | null {
+  try {
+    if (!el || typeof getComputedStyle === "undefined") return null;
+    const cs = getComputedStyle(el);
+    if (!cs.fontFamily) return null;
+    return fontLoadSpec(cs.fontFamily, cs.fontWeight || 400, cs.fontStyle === "italic" || cs.fontStyle.startsWith("oblique"));
+  } catch { return null; }
+}
+
+/** "c1" when the element's face is loaded (or not a web font), "c0" while it is
+ *  still missing. Part of the projector fit-cache key so a size measured with
+ *  the fallback face is never reused once the real face is in. */
+function faceReadyToken(el: HTMLElement | null, sample: string): string {
+  if (!slideFontsV1Enabled()) return "";
+  try {
+    if (typeof document === "undefined" || !document.fonts) return "cx";
+    const spec = computedFaceSpec(el);
+    if (!spec) return "cx";
+    return document.fonts.check(spec, sample.slice(0, 200) || "A") ? "c1" : "c0";
+  } catch { return "cx"; }
+}
 
 // Congregation-readability floor per operator spec: 24px absolute minimum.
 // Below this on a 1080p projector at sanctuary distance verses become
@@ -333,7 +362,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // needed, and pathologically long text bottoms out at the guaranteed-fit
       // floor rather than clipping. A−/A+ scale rides the ceiling. Seeded by the
       // word-count band for fast convergence; cached by text+box.
-      const projKey = `projfit|${Math.round(ebw / 4) * 4}|${Math.round(ebh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${fontsSettledToken()}|${currentText}`;
+      const projKey = `projfit|${Math.round(ebw / 4) * 4}|${Math.round(ebh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${fontsSettledToken()}|${faceReadyToken(t, currentText)}|${currentText}`;
       let best: number;
       let cachedProj = editingRef.current ? undefined : fitCacheGet(projKey);
       // NEVER TRUST A CACHED SIZE THAT NO LONGER FITS (2026-09-16 root cause of
@@ -482,6 +511,24 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   };
 
   useLayoutEffect(() => {
+    // Fonts P1: on projector surfaces, explicitly request this slide's face
+    // (family/weight/style + the actual text, so the right glyphs load) BEFORE
+    // measuring, then refit the moment it is ready (capped at FONT_READY_CAP_MS).
+    // The text is never hidden: the synchronous fit below still runs, its cache
+    // entry is quarantined by faceReadyToken, and the ready-refit replaces it.
+    let fontWaitCancelled = false;
+    if (projectorFit && slideFontsV1Enabled() && typeof document !== "undefined" && document.fonts) {
+      try {
+        const spec = computedFaceSpec(textRef.current);
+        const sample = currentText.slice(0, 200) || "A";
+        if (spec && !document.fonts.check(spec, sample)) {
+          Promise.race([
+            document.fonts.load(spec, sample).catch(() => []),
+            new Promise((res) => window.setTimeout(res, FONT_READY_CAP_MS)),
+          ]).then(() => { if (!fontWaitCancelled) fitRef.current(); });
+        }
+      } catch { /* font loading API unavailable: existing refits cover it */ }
+    }
     fit();
     // Re-fit after layout/transition settles. TWO reasons this is needed:
     //  1) A fresh projector window can still be settling its flex height on the
@@ -499,6 +546,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     const t2 = window.setTimeout(() => fitRef.current(), 420);
     const t3 = window.setTimeout(() => fitRef.current(), 750);
     return () => {
+      fontWaitCancelled = true;
       cancelAnimationFrame(r1); if (r2) cancelAnimationFrame(r2);
       clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
     };

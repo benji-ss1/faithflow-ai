@@ -1,4 +1,5 @@
 "use client";
+import { fontStack } from "@/lib/fonts/registry";
 import type { SlideObjectWire } from "@/lib/broadcast";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
@@ -74,7 +75,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
               <div
                 className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
                 style={{
-                  fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
+                  fontFamily: fontStack(obj.fontFamily) || "Inter, system-ui, sans-serif",
                   fontSize: `${((obj.fontSize ?? 96) * objFs / SLIDE_CANVAS_H) * 100}cqh`,
                   fontWeight: obj.fontWeight ?? 600,
                   // Default-white text inherits the theme's textColor when the

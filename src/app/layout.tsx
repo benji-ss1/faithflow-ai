@@ -9,6 +9,7 @@ import { OutputReloadListener } from "@/components/system/OutputReloadListener";
 import { PostHogProvider } from "@/components/system/PostHogProvider";
 import { OfflineIndicator } from "@/components/system/OfflineIndicator";
 import "./globals.css";
+import "./slide-fonts.css";
 import "@/styles/openflow.css";
 import { openFlowFontVars } from "@/lib/openflow/fonts";
 import { PLATFORM_ATTR_SCRIPT } from "@/lib/platform";

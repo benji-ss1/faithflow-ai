@@ -1,4 +1,5 @@
 "use client";
+import { FONT_PICKER_OPTIONS, fontStack } from "@/lib/fonts/registry";
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Palette, X, Plus, Upload, ChevronDown, ChevronRight, Check } from "lucide-react";
@@ -258,11 +259,9 @@ function AddBlankSlideDialog({ big = false }: { big?: boolean }) {
   );
 }
 
-const FONT_FAMILIES = [
-  { id: "inter", name: "Inter", css: "Inter, system-ui, sans-serif" },
-  { id: "serif", name: "Serif", css: "Georgia, serif" },
-  { id: "mono", name: "Mono", css: "ui-monospace, SFMono-Regular, monospace" },
-];
+// Fonts P1 (2026-09-17): the same registry list as every other picker. The
+// swatch stores a CSS stack (unchanged shape); fontStack always ends in a generic.
+const FONT_FAMILIES = FONT_PICKER_OPTIONS.map((o) => ({ id: o.entry.id, name: o.label, css: fontStack(o.value) ?? o.value }));
 
 function CreateSwatchDialog({ onAdd, big = false }: { onAdd: (t: { name: string; textColor: string; bgColor: string; accentColor: string; fontFamily: string }) => void; big?: boolean }) {
   const [open, setOpen] = useState(false);

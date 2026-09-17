@@ -9,6 +9,7 @@ import { isValidThemeLayoutWire, isValidThemeDecorObject, MAX_THEME_DECOR_OBJECT
 import { isRenderableUrl } from "./render-url";
 import { mainTextOf, verseTextOf } from "./theme-editor-model";
 import type { SlideObject, TextObject } from "./slide-objects";
+import { fontStack, slideFontsV1Enabled } from "./fonts/registry";
 
 const COLOR_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\(\s*\d+(?:\s*,\s*\d+){2}\s*(?:,\s*(?:0|1|0?\.\d+))?\s*\))$/;
 const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
@@ -32,7 +33,17 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 // font. Known serifs get `serif`; everything else gets `sans-serif`. Families
 // already carrying a comma-separated stack pass through untouched.
 const KNOWN_SERIFS = new Set(["georgia", "times new roman", "times", "garamond", "palatino", "baskerville"]);
+// Fonts Phase 1 (2026-09-17): the registry's fontStack is now the source of truth
+// (serif display faces like Playfair/Cormorant fall back to serif, Helvetica →
+// Helvetica Neue/Arial on Windows). The kill switch restores the legacy mapper.
 function withGenericFallback(family: string): string {
+  if (slideFontsV1Enabled()) {
+    const out = fontStack(family) ?? family.trim();
+    return out.length <= 120 ? out : legacyGenericFallback(family);
+  }
+  return legacyGenericFallback(family);
+}
+function legacyGenericFallback(family: string): string {
   const f = family.trim();
   if (f.includes(",")) return f; // already a stack
   // Strip CSS quotes before classifying ('"Times New Roman"' must map to serif).

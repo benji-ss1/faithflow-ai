@@ -1,4 +1,5 @@
 "use client";
+import { FontOptions, WeightOptions } from "@/components/fonts/FontOptions";
 import { useState, useEffect, useTransition } from "react";
 import { toast } from "sonner";
 import { ChevronDown, Copy, Download, GripVertical, Palette, Plus, Sparkles, Star, Trash2, X } from "lucide-react";
@@ -23,7 +24,6 @@ type ThemeRow = { id: string; name: string; config: ThemeConfig; isDefault?: boo
 
 type PreviewMode = "lyrics" | "scripture" | "sermon" | "blank";
 
-const FONT_CHOICES = ["Inter", "Sora", "Plus Jakarta Sans", "Playfair Display", "Cormorant Garamond", "Fraunces", "Spectral", "Montserrat", "DM Serif Display", "Georgia", "Helvetica", "Arial", "Times New Roman"];
 const LOGO_GRID: { key: string; row: number; col: number }[] = [
   { key: "top-left", row: 0, col: 0 }, { key: "top-center", row: 0, col: 1 }, { key: "top-right", row: 0, col: 2 },
   { key: "middle-left", row: 1, col: 0 }, { key: "middle-center", row: 1, col: 1 }, { key: "middle-right", row: 1, col: 2 },
@@ -681,7 +681,7 @@ function ThemeEditor({
           <Section title="Typography" defaultOpen>
             <Row label="Headline font">
               <select value={get(cfg, "fontFamily", "Inter") as string} onChange={(e) => set({ fontFamily: e.target.value })} className={selectCls}>
-                {FONT_CHOICES.map((f) => <option key={f} value={f}>{f}</option>)}
+                <FontOptions current={get(cfg, "fontFamily", "Inter") as string} />
               </select>
             </Row>
             <Row label="Text color">
@@ -698,7 +698,7 @@ function ThemeEditor({
             <div className="grid grid-cols-2 gap-3">
               <Row label="Weight">
                 <select value={String(get(cfg, "fontWeight", 600) as number)} onChange={(e) => set({ fontWeight: Number(e.target.value) })} className={selectCls}>
-                  {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w} value={w}>{w}</option>)}
+                  <WeightOptions font={get(cfg, "fontFamily", "Inter") as string} current={get(cfg, "fontWeight", 600) as number} />
                 </select>
               </Row>
               <Row label="Alignment">

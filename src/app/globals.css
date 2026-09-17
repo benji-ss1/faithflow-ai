@@ -1,10 +1,9 @@
 @import "tailwindcss";
-@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap");
-/* Slide/worship display fonts — beautiful, projector-legible faces operators can
-   pick for song lyrics & scripture (2026-08-30). Elegant display serifs
-   (Playfair, DM Serif), refined worshipful serifs (Cormorant, Fraunces), a clean
-   readable serif (Spectral) and a strong modern sans (Montserrat). */
-@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Cormorant+Garamond:wght@400;500;600;700&family=Fraunces:wght@400;500;600;700&family=Spectral:wght@400;500;600;700&family=Montserrat:wght@400;500;600;700&family=DM+Serif+Display&display=swap");
+/* Slide fonts (Sora, Plus Jakarta Sans, Inter, Playfair Display, Cormorant
+   Garamond, Fraunces, Spectral, Montserrat, DM Serif Display) are SELF-HOSTED
+   since Fonts P1 (2026-09-17): see src/app/slide-fonts.css + public/fonts/.
+   The old Google @import lines sat after the Tailwind expansion, so browsers
+   ignored them and the prod minifier dropped them — the fonts never loaded. */
 
 /*
  * PresentFlow — dark AI-native production console.
@@ -92,7 +91,12 @@
   --color-ai-processing:#ff8a52;
   --color-ai-approved:  #4fd18b;
 
-  --font-sans:    "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
+  /* Fonts P1 (2026-09-17): "Plus Jakarta Sans" was listed first here but NEVER
+   * loaded in production (the Google @import was dropped), so the operator
+   * chrome has always rendered in system-ui. Now that Jakarta is self-hosted for
+   * slides, it is left OUT of the chrome stack so the UI looks exactly as it does
+   * today (no-regression; switching the chrome font is a separate design call). */
+  --font-sans:    ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
   /* --font-display stays the clean sans — it is used by the LIVE PROJECTOR
    * (SlideRenderer .font-display) for lyrics/verses, which must remain a
    * crowd-legible sans. DO NOT point this at a serif. */
