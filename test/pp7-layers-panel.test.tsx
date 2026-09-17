@@ -15,7 +15,7 @@ import Module from "node:module";
 // `server-only`-marked module. Stub it so the CLIENT component can be mounted in
 // node (the real boundary is enforced by Next at build time, not here).
 const load = (Module as unknown as { _load: (...a: unknown[]) => unknown })._load;
-(Module as unknown as { _load: (...a: unknown[]) => unknown })._load = function (req: unknown, ...rest: unknown[]) {
+(Module as unknown as { _load: (...a: unknown[]) => unknown })._load = function (this: unknown, req: unknown, ...rest: unknown[]) {
   if (req === "server-only") return {};
   return load.call(this, req, ...rest);
 } as never;
