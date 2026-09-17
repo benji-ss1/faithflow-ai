@@ -67,8 +67,40 @@ type RtAudioLike = {
 type AudifyModule = { RtAudio: new (api?: number) => RtAudioLike };
 
 let audify: AudifyModule | null | undefined;
+
+// A native crash (segfault) inside the main process would close PresentFlow
+// entirely — seen once on a headless Windows CI runner. So before the first
+// in-process load, load audify in a THROWAWAY child (Electron running as Node)
+// and enumerate devices there. Only if that child exits cleanly do we load it
+// in-process; otherwise the tier stays off and standard capture is used.
+function audifySurvivesChildProbe(): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+    const modPath = require.resolve("audify");
+    const apis = JSON.stringify(apisForPlatform());
+    const code = `const {RtAudio}=require(${JSON.stringify(modPath)});for(const a of ${apis}){try{new RtAudio(a).getDevices()}catch(e){}}process.stdout.write("ok")`;
+    const r = spawnSync(process.execPath, ["-e", code], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      timeout: 8000,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const ok = r.status === 0 && (r.stdout ?? "").includes("ok");
+    if (!ok) console.warn(`[rtaudio] child probe failed (status=${r.status} signal=${r.signal}) — pro driver disabled`);
+    return ok;
+  } catch (err) {
+    console.warn("[rtaudio] child probe could not run — pro driver disabled:", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 function loadAudify(): AudifyModule | null {
   if (audify !== undefined) return audify;
+  if (!audifySurvivesChildProbe()) {
+    audify = null;
+    return audify;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     audify = require("audify") as AudifyModule;

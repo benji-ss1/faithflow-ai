@@ -170,20 +170,25 @@ export function AudioTab() {
       if (on !== readProDriverFlag()) writeProDriverFlag(on);
     }).catch(() => { /* older build */ });
   }, []);
-  const toggleProDriver = useCallback(async (next: boolean) => {
+  const toggleProDriver = useCallback(async (next: boolean, opts?: { silent?: boolean }): Promise<boolean> => {
     const nb = (window as Window & { electronAPI?: { audio?: { native?: { setProDriver?: (e: boolean) => Promise<{ ok: boolean; enabled?: boolean }> } } } })
       .electronAPI?.audio?.native;
-    if (!nb?.setProDriver) return;
+    if (!nb?.setProDriver) return false;
     try {
       const r = await nb.setProDriver(next);
-      if (!r?.ok) { toast.error("Couldn't change the audio driver."); return; }
+      if (!r?.ok || !!r.enabled !== next) { toast.error("Couldn't change the audio driver."); return false; }
       setProDriverOn(!!r.enabled);
+      // `silent`: the caller writes the flag itself together with the device +
+      // capture mode, so listening restarts ONCE onto the right device.
+      if (opts?.silent) return true;
       writeProDriverFlag(!!r.enabled); // fires capture-mode-changed → listening restarts
       toast.success(r.enabled
         ? "Pro audio driver on — every input channel is available. Pick your interface below."
         : "Pro audio driver off — back to standard capture.");
+      return true;
     } catch {
       toast.error("Couldn't change the audio driver.");
+      return false;
     }
   }, []);
   const [effectiveMode, setEffectiveMode] = useState<EffectiveCaptureMode>("browser");
@@ -224,8 +229,27 @@ export function AudioTab() {
     if (name) toast.success(`NDI audio source: ${name}`);
     else toast.success("NDI audio off — using device input");
   }, []);
+  // USB audio interface / Blackmagic panel (hardware I/O, 2026-09-17) — the
+  // wired twin of the NDI panel above: scans the native device list, shows
+  // interfaces/mixers + Blackmagic inputs with channel counts, one click to use.
+  const interfaceBridge = typeof window !== "undefined" && typeof getNativeAudioApi()?.listDevices === "function";
+  const [ifaceScanAt, setIfaceScanAt] = useState<number>(0);
+  const isBlackmagicInput = (name: string) => /\(Blackmagic SDI\/HDMI audio\)$|blackmagic|\batem\b|web presenter|ultrastudio|decklink|intensity/i.test(name);
+  const isInterfaceInput = (d: { name: string; channelCount?: number }) => {
+    const n = d.name;
+    if (/^NDI:|\bNDI\b/i.test(n)) return false;
+    // Virtual / loopback / meeting drivers are never a wired interface.
+    if (/blackhole|loopback|soundflower|zoomaudiodevice|teams audio|aggregate|multi-output|vb-?audio|vb-?cable|virtual/i.test(n)) return false;
+    if (isBlackmagicInput(n) || /\(ASIO\)$/.test(n)) return true;
+    // Generic USB names also match webcams/headsets — only list them when multichannel.
+    if (/usb audio (codec|device)/i.test(n)) return (d.channelCount ?? 0) > 2;
+    if (/wing\b|avantis|\bahm\b|digiface/i.test(n)) return true;
+    return isMixerDevice(n) || ((d.channelCount ?? 0) > 2 && !/macbook|built-?in|studio display|iphone/i.test(n));
+  };
+  const normDeviceName = (n: string) => n.toLowerCase().replace(/\(asio\)$/, "").replace(/^(microphone|line|line in|analogue [0-9 +]+|input)\s*\((?:\d+-\s*)?/, "").replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
   // Native-mode device list + selected pick.
   const [nativeDevices, setNativeDevices] = useState<NativeDeviceInfo[]>([]);
+  const nativeListSigRef = useRef<string>("");
   const [nativeSelected, setNativeSelected] = useState<NativeDeviceInfo | null>(null);
   const [nativeGridMode, setNativeGridMode] = useState<NativeDeviceMode>("sum-all");
   const [nativeSelectedChannels, setNativeSelectedChannels] = useState<number[]>([]);
@@ -478,7 +502,13 @@ export function AudioTab() {
     if (typeof list !== "function") return;
     try {
       const devs = await list();
-      setNativeDevices(devs);
+      // Only replace state when the list actually changed — a new array every
+      // scan re-ran the system-default + auto-pick effects and re-rendered the tab.
+      const sig = devs.map((d) => `${d.index}|${d.name}|${d.channelCount ?? ""}`).join("\n");
+      if (sig !== nativeListSigRef.current) {
+        nativeListSigRef.current = sig;
+        setNativeDevices(devs);
+      }
     } catch { /* noop */ }
   }
 
@@ -1019,6 +1049,90 @@ export function AudioTab() {
     ? findGuideForDevice(nativeGuideLabel)
     : null;
 
+  // Scan like the NDI panel: once on open, on USB plug/unplug (devicechange),
+  // and a slow 15s rescan while visible (ASIO/Blackmagic don't fire devicechange).
+  // No timer on Windows without the pro driver — that tier spawns ffmpeg per scan;
+  // the Rescan button covers it.
+  useEffect(() => {
+    if (!interfaceBridge) return;
+    let cancelled = false;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const scan = async () => {
+      if (cancelled || (typeof document !== "undefined" && document.visibilityState !== "visible")) return;
+      await refreshNativeDevices();
+      if (!cancelled) setIfaceScanAt(Date.now());
+    };
+    void scan();
+    const isWin = typeof navigator !== "undefined" && /windows|win32|win64|wow64/i.test(`${navigator.userAgent} ${(navigator as Navigator).platform || ""}`);
+    const id = isWin && !proDriverOn ? null : setInterval(scan, 15000);
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    const onDeviceChange = () => { if (debounce) clearTimeout(debounce); debounce = setTimeout(() => void scan(), 1000); };
+    md?.addEventListener?.("devicechange", onDeviceChange);
+    return () => {
+      cancelled = true;
+      if (id) clearInterval(id);
+      if (debounce) clearTimeout(debounce);
+      md?.removeEventListener?.("devicechange", onDeviceChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interfaceBridge, proDriverOn]);
+
+  const interfaceDevices = nativeDevices.filter(isInterfaceInput);
+  const interfaceLive = effectiveMode === "native";
+
+  const sameDevice = (a: { index: number; name: string } | null | undefined, b: { index: number; name: string }) =>
+    !!a && (a.index === b.index && normDeviceName(a.name) === normDeviceName(b.name));
+
+  const selectInterface = async (dev: NativeDeviceInfo | null) => {
+    if (!dev) {
+      // Really stop: point native capture back at the system default input
+      // (auto alone re-opened the same interface on macOS).
+      await enableFollowSystemDefault();
+      toast.success("Audio interface off — listening to the computer's default input");
+      return;
+    }
+    const isWin = typeof navigator !== "undefined" && /windows|win32|win64|wow64/i.test(`${navigator.userAgent} ${(navigator as Navigator).platform || ""}`);
+    let target: NativeDeviceInfo = dev;
+    let turnedOnDriver = false;
+    if (isWin && !proDriverOn) {
+      // Windows native capture needs the pro driver. Switch it SILENTLY, re-find
+      // the same device in the new list (prefer its ASIO entry), then write
+      // driver flag + device + mode together → exactly one restart.
+      if (!(await toggleProDriver(true, { silent: true }))) return;
+      turnedOnDriver = true;
+      try {
+        const fresh = (await getNativeAudioApi()?.listDevices?.()) ?? [];
+        const want = normDeviceName(dev.name);
+        const same = fresh.filter((f) => {
+          const n = normDeviceName(f.name);
+          return n === want || n.includes(want) || want.includes(n) || want.split(" ").filter((w) => w.length > 3).some((w) => n.includes(w));
+        });
+        const match = same.find((f) => /\(ASIO\)$/.test(f.name)) ?? same[0];
+        if (!match) {
+          toast.error(`Couldn't find ${dev.name} with the pro driver — check the ASIO driver is installed, then try again.`);
+          writeProDriverFlag(true);
+          return;
+        }
+        target = match;
+        nativeListSigRef.current = "";
+        setNativeDevices(fresh);
+      } catch {
+        toast.error("Couldn't rescan audio devices — try again.");
+        writeProDriverFlag(true);
+        return;
+      }
+    }
+    if (ndiSelected) setNdiSelected(null);
+    // Everything below is synchronous → the audio hook's debounced restart fires once.
+    if (ndiSelected) writeNdiAudioSource(null);
+    if (turnedOnDriver) writeProDriverFlag(true);
+    persistNativeSelection(target);
+    setCaptureMode("native");
+    writeCaptureMode("native");
+    toast.success(`Audio input: ${target.name.replace(/ \(Blackmagic SDI\/HDMI audio\)$/, "")}${target.channelCount ? ` · ${target.channelCount} channels` : ""}`);
+  };
+
+
   return (
     <div className="flex flex-col gap-3 py-2 text-[12px]">
       {/* NDI network audio — receive the mixer feed over the LAN from a streaming
@@ -1061,6 +1175,53 @@ export function AudioTab() {
           )}
           {/* NDI® trademark attribution — required whenever NDI is offered. */}
           <div className="text-[9px] text-[var(--color-muted-foreground)] px-1 opacity-70">NDI® is a registered trademark of Vizrt NDI AB.</div>
+        </div>
+      )}
+      {/* USB audio interface / Blackmagic — wired twin of the NDI panel. */}
+      {interfaceBridge && (
+        <div className="flex flex-col gap-1.5 rounded-xl border p-2" style={{ borderColor: "color-mix(in oklab, var(--color-brand) 40%, var(--color-border))", background: "color-mix(in oklab, var(--color-brand) 6%, transparent)" }}>
+          <div className="eyebrow px-1 flex items-center justify-between">
+            <span>Audio interface &amp; Blackmagic</span>
+            <span className="inline-flex items-center gap-1 text-[9px] font-mono normal-case tracking-normal" style={{ color: interfaceLive && nativeSelected && isInterfaceInput(nativeSelected) ? "var(--color-success)" : "var(--color-muted-foreground)" }}>
+              <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: interfaceLive && nativeSelected && isInterfaceInput(nativeSelected) ? "var(--color-success)" : "var(--color-muted-foreground)" }} />
+              {interfaceDevices.length > 0 ? `${interfaceDevices.length} found` : ifaceScanAt ? "none found" : "scanning…"}
+            </span>
+          </div>
+          {interfaceDevices.length === 0 ? (
+            <div className="text-[10px] text-[var(--color-muted-foreground)] px-1 leading-relaxed">
+              No USB mixer, interface or Blackmagic input found. Plug the <span className="text-[var(--color-foreground)]">USB cable straight into this computer</span>. On Windows install the mixer&apos;s <span className="text-[var(--color-foreground)]">ASIO driver</span>; for UltraStudio/DeckLink install <span className="text-[var(--color-foreground)]">Blackmagic Desktop Video 14.3+</span>.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {interfaceDevices.map((d) => {
+                const on = interfaceLive && sameDevice(nativeSelected, d);
+                const bm = isBlackmagicInput(d.name);
+                return (
+                  <button key={d.index} onClick={() => void selectInterface(on ? null : d)}
+                    className="w-full min-h-[36px] text-left px-2 py-1.5 rounded-lg text-[11px] border transition-colors flex items-center justify-between gap-2 focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+                    style={on
+                      ? { borderColor: "var(--color-brand)", background: "color-mix(in oklab, var(--color-brand) 18%, var(--color-card))", color: "var(--color-brand-hi)" }
+                      : { borderColor: "var(--color-border)", background: "var(--color-card)", color: "var(--color-foreground)" }}>
+                    <span className="truncate">{d.name.replace(/ \(Blackmagic SDI\/HDMI audio\)$/, "")}</span>
+                    <span className="flex items-center gap-1.5 shrink-0 text-[9px]">
+                      {bm && <span className="px-1 rounded border text-[10px]" style={{ borderColor: "var(--color-border)" }}>Blackmagic</span>}
+                      {d.channelCount ? <span className="font-mono text-[10px]">{d.channelCount}ch</span> : null}
+                      {on && <span className="font-semibold">selected</span>}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {interfaceLive && nativeSelected && isInterfaceInput(nativeSelected) && (
+            <button onClick={() => void selectInterface(null)} className="min-h-[32px] rounded text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1 text-left focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">
+              Stop interface — use the computer&apos;s default input
+            </button>
+          )}
+          <div className="flex items-center justify-between gap-2 px-1">
+            <span className="text-[11px] text-[var(--color-muted-foreground)]">Then pick the pastor&apos;s mic channel with Mic Board.</span>
+            <button onClick={() => void refreshNativeDevices().then(() => setIfaceScanAt(Date.now()))} className="min-h-[32px] px-2 rounded text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">Rescan</button>
+          </div>
         </div>
       )}
       {/* Wave 2 — Capture Mode toggle. Bypasses Chromium getUserMedia (which

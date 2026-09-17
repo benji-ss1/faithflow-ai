@@ -138,14 +138,28 @@ jobs:
           if (-not $idl) { throw "DeckLinkAPI.idl not found in SDK zip" }
           "DECKLINK_SDK_DIR=$($idl.Directory.Parent.Parent.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # node-gyp 13 (knows the runner's current Visual Studio) needs Node 22+,
+      # so this one step runs on Node 22; Node 20 is restored right after.
+      - name: Use Node 22 for the Blackmagic addon build
+        if: env.DECKLINK_SDK_DIR != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Build Blackmagic audio addon
         if: env.DECKLINK_SDK_DIR != ''
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set VSDIR=%%i
           call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat"
-          npm run decklink:rebuild:win
+          call npm run decklink:rebuild:win
           if not exist native\decklink-audio\build\Release\decklink_audio.node (echo Blackmagic addon missing & exit /b 1)
+
+      - name: Restore Node 20
+        if: env.DECKLINK_SDK_DIR != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Compile Electron main
         run: npm run electron:build:tsc

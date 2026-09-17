@@ -79,11 +79,24 @@ jobs:
           [ -n "$H" ] || { echo "DeckLinkAPI.h not found in SDK zip"; exit 1; }
           echo "DECKLINK_SDK_DIR=$(dirname "$(dirname "$(dirname "$H")")")" >> "$GITHUB_ENV"
 
+      # node-gyp 13 needs Node 22+ (same as release-windows.yml); Node 20 restored after.
+      - name: Use Node 22 for the Blackmagic addon build
+        if: env.DECKLINK_SDK_DIR != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Build Blackmagic audio addon (universal)
         if: env.DECKLINK_SDK_DIR != ''
         run: |
           npm run decklink:rebuild
           lipo -info native/decklink-audio/build/Release/decklink_audio.node
+
+      - name: Restore Node 20
+        if: env.DECKLINK_SDK_DIR != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Compile Electron main
         run: npm run electron:build:tsc
