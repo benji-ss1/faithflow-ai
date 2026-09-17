@@ -356,7 +356,12 @@ function adoptField(churchId: string, field: "scripture" | "cts", snap: ChurchSt
     if (newer(snap.contentTypeStylesUpdatedAt, e.serverCtsUpdatedAt)) next.serverCtsUpdatedAt = snap.contentTypeStylesUpdatedAt ?? null;
   }
   entries.set(churchId, next);
-  if (changed) dispatch(field === "scripture" ? { scripture: true } : { cts: true });
+  if (changed) {
+    dispatch(field === "scripture" ? { scripture: true } : { cts: true });
+    // Other same-machine windows got the optimistic value via BroadcastChannel —
+    // send them the corrected (server / refused-revert) value too.
+    try { remote?.broadcast?.(churchId, currentSnapshot(churchId)); } catch { /* ignore */ }
+  }
 }
 
 async function flushField(churchId: string, field: "scripture" | "cts", r: ChurchStylesRemote): Promise<void> {

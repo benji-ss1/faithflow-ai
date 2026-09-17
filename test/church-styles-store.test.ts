@@ -221,6 +221,23 @@ async function main() {
     assert.equal(loadScriptureStyle(A).layout, "lowerThird", "refused scripture save also reverts to server");
   });
 
+  await check("corrected value (refusal revert / server-sanitized) is re-broadcast to same-machine windows", async () => {
+    hydrateChurchStylesInitial(A, { ...snap(lower, { song: T1 }, "2026-09-17T10:00:00.000Z"), contentTypeStylesUpdatedAt: "2026-09-17T10:00:00.000Z" });
+    const sent: ChurchStylesSnapshot[] = [];
+    registerChurchStylesRemote({
+      saveScripture: async () => ({ status: "rejected", snap: snap(lower, { song: T1 }, "2026-09-17T10:00:00.000Z"), error: "Not permitted" }),
+      saveContentTypeStyles: async () => ({ status: "ok", snap: { ...snap(lower, {}, "2026-09-17T10:00:00.000Z"), contentTypeStylesUpdatedAt: "2026-09-17T11:00:00.000Z" } }),
+      broadcast: (_c, s2) => { sent.push(s2); },
+    });
+    saveScriptureStyle(A, DEFAULT_SCRIPTURE_DESIGN);
+    await new Promise((r) => setTimeout(r, 10));
+    const last = sent[sent.length - 1];
+    assert.equal((last.scriptureStyle as { layout: string }).layout, "lowerThird", "revert broadcast after refusal");
+    saveContentTypeStyles({ song: T2 }, A);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(sent[sent.length - 1].contentTypeStyles, {}, "server-sanitized value broadcast");
+  });
+
   await check("#3 wrong-church refusal drops the write without adopting anything", async () => {
     hydrateChurchStylesInitial(A, snap(lower, {}, "2026-09-17T10:00:00.000Z"));
     registerChurchStylesRemote({
