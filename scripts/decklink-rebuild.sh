@@ -19,7 +19,7 @@ fi
   # `node-gyp rebuild` wipes build/, so per-arch outputs are staged OUTSIDE it.
   STAGE="$(mktemp -d)"
   for ARCH in arm64 x64; do
-    npx --yes node-gyp@10.2.0 rebuild --arch="$ARCH" || exit 1
+    npx --yes node-gyp@13.0.2 rebuild --arch="$ARCH" || exit 1
     cp build/Release/decklink_audio.node "$STAGE/decklink_audio-$ARCH.node" || exit 1
   done
   # Universal binary so the single extraResources path works for both DMGs.
