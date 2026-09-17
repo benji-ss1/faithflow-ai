@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { ThemedSlideCard } from "./ThemedSlideCard";
@@ -584,7 +584,19 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides, scriptureStyle, translation]);
   // Preview == projector (PR 2): run the card through the same church layout +
   // theme scripture styling the send path applies. Absent ⇒ raw slide (legacy).
-  const previewLayout = (sl: SlidePayload): SlidePayload => (ctx.layoutPreviewSlide ? ctx.layoutPreviewSlide(sl) : sl);
+  // Cached per card content so a long chapter re-rendering during live audio
+  // doesn't re-read the saved Scripture Style for every card every render.
+  const previewCache = useMemo(() => new Map<string, SlidePayload>(), [ctx.layoutPreviewSlide, scriptureStyle]);
+  const previewLayout = (sl: SlidePayload): SlidePayload => {
+    if (!ctx.layoutPreviewSlide) return sl;
+    const key = JSON.stringify(sl);
+    const hit = previewCache.get(key);
+    if (hit) return hit;
+    const out = ctx.layoutPreviewSlide(sl);
+    if (previewCache.size > 500) previewCache.clear();
+    previewCache.set(key, out);
+    return out;
+  };
   // Sync ref for the bible-play-current handler above.
   useEffect(() => { cardToSlideRef.current = cardToSlide; }, [cardToSlide]);
 

@@ -208,6 +208,8 @@ export function themeDecorFromSlide(slide: LayoutSlide | undefined, exclude: Set
     const { id: _id, locked: _locked, ...rest } = o;
     void _id; void _locked;
     if ((rest.kind === "image" || rest.kind === "video") && !isHttpsUrl(rest.url)) continue;
+    // Theme decor video is always silent (it plays on every slide using the theme).
+    if (rest.kind === "video") rest.muted = true;
     if (!isValidThemeDecorObject(rest)) continue;
     out.push(rest as SlideObjectWire);
     if (out.length >= MAX_THEME_DECOR_OBJECTS) break;

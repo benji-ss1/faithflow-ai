@@ -921,7 +921,9 @@ export const MAX_THEME_DECOR_OBJECTS = 16;
 /** One theme decor object: a valid slide object with NO role (role boxes are frames). */
 export function isValidThemeDecorObject(o: unknown): o is SlideObjectWire {
   if (!isValidSlideObject(o)) return false;
-  return (o as { role?: unknown }).role === undefined;
+  const d = o as { role?: unknown; kind?: unknown; muted?: unknown };
+  if (d.kind === "video" && d.muted === false) return false; // decor video must stay silent
+  return d.role === undefined;
 }
 
 /** Strict validator for one theme text-box frame (unknown keys rejected). */

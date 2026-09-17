@@ -530,12 +530,14 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     type ThemeRow = { id?: string; config?: unknown; isDefault?: boolean };
     // Uses the real `churchId` prop (was previously read off planProp, which
     // never carries churchId — so the offline theme cache silently no-op'd).
-    const applyList = async (list: ThemeRow[]) => {
+    const applyList = async (list: ThemeRow[], cachesOnly = false) => {
       themesByIdRef.current = new Map(list.filter((t) => typeof t.id === "string").map((t) => [t.id as string, t.config]));
       defaultThemeIdRef.current = (list.find((t) => t.isDefault && typeof t.id === "string")?.id as string | undefined) ?? null;
       if (!cancelled) setThemesVersion((v) => v + 1);
       const active = list.find((t) => t.isDefault) ?? null;
-      if (!cancelled && !userTouched.current && active) {
+      // A theme edit/rename/duplicate/delete only refreshes the caches above —
+      // never re-applies the default look or clears a Background Template.
+      if (!cancelled && !cachesOnly && !userTouched.current && active) {
         const { themeConfigToAppearance, appearanceHasBackground } = await import("@/lib/theme-appearance");
         const mapped = themeConfigToAppearance(active.config);
         setAppearance(mapped);
@@ -554,13 +556,13 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
         }
       }
     };
-    const load = async () => {
+    const load = async (cachesOnly = false) => {
       try {
         const res = await fetch("/api/themes");
         if (!res.ok) throw new Error("themes fetch failed");
         const data = (await res.json()) as { themes?: ThemeRow[] };
         const list = data.themes ?? [];
-        await applyList(list);
+        await applyList(list, cachesOnly);
         // Hybrid Phase 1 — cache the themes list so themed styling still works
         // offline (colors/fonts/gradients; media backgrounds cache separately).
         if (churchId) void import("@/lib/offline/serviceCache").then(({ saveKv }) => saveKv(churchId, "themes", list)).catch(() => {});
@@ -570,7 +572,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
         try {
           const { loadKv } = await import("@/lib/offline/serviceCache");
           const cached = await loadKv<ThemeRow[]>(churchId, "themes");
-          if (cached && !cancelled) await applyList(cached);
+          if (cached && !cancelled) await applyList(cached, cachesOnly);
         } catch { /* built-in defaults */ }
       }
     };
@@ -603,7 +605,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // only the default) reloads the by-id cache, so item / song / content-type
     // themes and theme decor take effect immediately. Appearance-only — output
     // identity is content-only, so no transition replays on the held slide.
-    const onThemesChanged = () => { userTouched.current = false; void load(); };
+    const onThemesChanged = () => { void load(true); };
     window.addEventListener("presentflow:themes-changed", onThemesChanged);
     return () => {
       cancelled = true;
