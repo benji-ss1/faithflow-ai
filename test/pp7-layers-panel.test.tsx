@@ -137,12 +137,32 @@ async function main() {
   check("Clear All (circled ✕) runs every per-layer clear then the lower third", () => {
     const { host, root, calls } = mountPanel(true);
     const all = host.querySelector('[data-clear="all"]') as HTMLButtonElement;
-    assert.equal(all.getAttribute("aria-label"), "Clear All (F1)");
+    // Second binding, shown per platform (jsdom UA is not Mac → Ctrl+Shift+C).
+    assert.equal(all.getAttribute("aria-label"), "Clear All (F1 or Ctrl+Shift+C)");
     calls.length = 0;
     act(() => { all.click(); });
     assert.deepEqual(calls, [
       "clearMessages", "clearLayer:logo", "announcement:null", "kill", "clearLayer:background", "lowerThird",
     ]);
+    act(() => root.unmount());
+  });
+
+  // 5b. Props clears with no live logo (the old guard made it a silent no-op).
+  check("Props clear fires even when no logo is live", () => {
+    const { host, root, calls } = mountPanel(false);
+    calls.length = 0;
+    act(() => { (host.querySelector('[data-clear="props"]') as HTMLButtonElement).click(); });
+    assert.deepEqual(calls, ["clearLayer:logo"]);
+    act(() => root.unmount());
+  });
+
+  // 5c. Audio is visibly unavailable in the panel too (same wording as the rail).
+  check("Audio row is disabled and says 'coming soon', matching the rail", () => {
+    const { host, root } = mountPanel(true);
+    const audio = host.querySelector('[data-clear="audio"]') as HTMLButtonElement;
+    assert.equal(audio.disabled, true);
+    assert.equal(audio.getAttribute("aria-label"), "Audio (coming soon)");
+    assert.equal((host.textContent ?? "").includes("coming soon"), true);
     act(() => root.unmount());
   });
 
@@ -162,8 +182,11 @@ async function main() {
     const { host, root } = mountPanel(true);
     const titles = [...host.querySelectorAll("[title]")].map((e) => e.getAttribute("title") ?? "");
     assert.equal(titles.some((t) => t.includes("(F2)")), true, "Slide clear names F2");
-    assert.equal(titles.some((t) => t.includes("(F1)")), true, "Clear All names F1");
+    assert.equal(titles.some((t) => t.includes("F1 or ")), true, "Clear All names F1 plus the chord");
+    // No ⌘-ONLY label: the Clear All chord is rendered through
+    // useShortcutLabel, which resolves to Ctrl+Shift+C off Mac.
     for (const t of titles) assert.equal(/⌘|Cmd\+/.test(t), false, `no ⌘-only label: ${t}`);
+    assert.equal(titles.some((t) => t.includes("Ctrl+Shift+C")), true, "Clear All shows the Windows chord");
     const scroller = host.firstElementChild as HTMLElement;
     assert.equal(/overflow-y-auto/.test(scroller.className), true, "panel scrolls");
     act(() => root.unmount());
@@ -190,6 +213,34 @@ async function main() {
     assert.equal(aria.some((a) => a.startsWith("Clear ")), true, "legacy per-layer clears still there");
     act(() => root.unmount());
   });
+
+  // 10. The two Clear Alls must agree: the LEGACY panel's Clear All used to
+  // disable the camera LAYER but leave the camera SOURCE live.
+  {
+    const name = "flag off: the legacy Clear All also stops the video input";
+    try {
+      const calls: string[] = [];
+      const ctx = makeCtx(calls, true);
+      window.localStorage.setItem("presentflow.videoInput.v1", JSON.stringify({ deviceId: "cam1", active: true }));
+      let cleared = false;
+      const onCleared = () => { cleared = true; };
+      window.addEventListener("presentflow:video-input-cleared", onCleared);
+      const { host, root } = mount(LayersPanel, { ctx });
+      const bar = [...host.querySelectorAll("button")]
+        .find((b) => /clear all/i.test(b.textContent ?? "")) as HTMLButtonElement;
+      assert.ok(bar, "legacy hold-to-clear Clear All still present");
+      act(() => { bar.dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true })); });
+      await new Promise((r) => setTimeout(r, 400)); // the 300ms guarded hold
+      window.removeEventListener("presentflow:video-input-cleared", onCleared);
+      assert.equal(calls.includes("clearAll"), true, "still runs the legacy layer clearAll");
+      assert.equal(calls.includes("kill"), true, "still kills the slide");
+      assert.equal(cleared, true, "…and now stops the camera source, like the PP7 rail");
+      const raw = JSON.parse(window.localStorage.getItem("presentflow.videoInput.v1") ?? "{}");
+      assert.equal(raw.active, false, "persisted camera state is no longer live");
+      act(() => root.unmount());
+      passed++; console.log("  PASS ", name);
+    } catch (e) { failed++; console.log("  FAIL ", name); console.error(e); }
+  }
 
   console.log(`pp7-layers-panel: ${passed} passed, ${failed} failed`);
   if (failed) process.exit(1);

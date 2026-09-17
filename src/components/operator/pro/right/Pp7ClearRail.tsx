@@ -17,11 +17,13 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Music, Send, Layers, Megaphone, SquareMenu, Image as ImageIcon, Video, X } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
-import { shouldIgnore, anyOverlayOpen } from "@/hooks/useOperatorHotkeys";
+import { shouldIgnore, modalDialogOpen } from "@/hooks/useOperatorHotkeys";
 import {
-  PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, PP7_CLEAR_KEY, decodePp7ClearKey,
+  PP7_CLEAR_ORDER, decodePp7ClearKey,
   type Pp7ClearLayer,
 } from "@/lib/pp7-clear";
+import { pp7ClearTitle } from "@/lib/pp7-layer-model";
+import { useShortcutLabel } from "@/lib/usePlatformLabel";
 import {
   PP7_LAYER_AVAILABLE, pp7AnyLive, pp7ClearAll, pp7ClearLayer, pp7LayerActive,
 } from "@/lib/pp7-layer-model";
@@ -69,17 +71,29 @@ export function Pp7ClearRail({
   // from the Layers panel, as a cleared prop does in ProPresenter.
   const clearAll = useCallback(() => pp7ClearAll(inputs, effects), [inputs, effects]);
 
-  // F1–F7 (PP7 shortcuts). Ignored while typing, with modifiers, or while a
-  // dialog/menu is open (same guard as the operator hotkeys). Audio (F5) has no
-  // layer yet, so F5 is left alone (browser reload keeps working).
+  // Second Clear All binding (2026-09-17): a default Mac keyboard sends F1 to
+  // the brightness control, so PP7's F1 "does nothing" until the operator flips
+  // a macOS setting. "⌘⇧C" / "Ctrl+Shift+C" works everywhere. F1 still works.
+  const clearAllChord = useShortcutLabel({ mod: true, shift: true, key: "C" });
+
+  // F1–F7 + Cmd/Ctrl+Shift+C (PP7 shortcuts). Ignored while typing and while a
+  // genuinely MODAL dialog is open. 2026-09-17: the guard used to be
+  // `anyOverlayOpen()`, which also blocked every clear while a popover, dropdown
+  // or select was open — precisely when an operator reaches for F6/F4. It is now
+  // `modalDialogOpen()` (Radix Dialog/AlertDialog only).
+  //
+  // F5 (Audio) is PREVENTED even though there is no audio layer yet: letting it
+  // through reloaded the page mid-service in a plain browser tab. It is now a
+  // deliberate no-op that cannot reload.
   const handlersRef = useRef({ clear, clearAll });
   handlersRef.current = { clear, clearAll };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || e.defaultPrevented || shouldIgnore(e.target) || anyOverlayOpen()) return;
+      if (e.repeat || e.defaultPrevented || shouldIgnore(e.target) || modalDialogOpen()) return;
       const target = decodePp7ClearKey(e);
-      if (!target || target === "audio") return;
+      if (!target) return;
       e.preventDefault();
+      if (target === "audio") return; // no audio layer yet — no-op, and NO reload
       if (target === "all") handlersRef.current.clearAll();
       else handlersRef.current.clear(target);
     };
@@ -99,10 +113,7 @@ export function Pp7ClearRail({
     >
       {PP7_CLEAR_ORDER.map((layer, i) => {
         const Icon = ICONS[layer];
-        const key = PP7_CLEAR_KEY[layer];
-        const label = available[layer]
-          ? `Clear ${PP7_CLEAR_LABEL[layer]}${key ? ` (${key})` : ""}${active[layer] ? " — live" : ""}`
-          : `${PP7_CLEAR_LABEL[layer]} (coming soon)`;
+        const label = pp7ClearTitle(layer, active[layer]) + (available[layer] && active[layer] ? " — live" : "");
         return (
           <button
             key={layer}
@@ -114,9 +125,14 @@ export function Pp7ClearRail({
             title={label}
             aria-label={label}
             data-active={active[layer] ? "true" : "false"}
-            className={`flex-1 min-h-0 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 ${i > 0 ? "border-t border-black/40" : ""} ${!available[layer] ? "cursor-not-allowed" : active[layer] ? "bg-[#7a1f1f] hover:bg-[#8f2626]" : "hover:bg-white/10"}`}
+            className={`relative flex-1 min-h-0 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 ${i > 0 ? "border-t border-black/40" : ""} ${!available[layer] ? "cursor-not-allowed bg-black/30" : active[layer] ? "bg-[#7a1f1f] hover:bg-[#8f2626]" : "hover:bg-white/10"}`}
           >
-            <Icon className={`w-4 h-4 ${available[layer] ? "text-white/85" : "text-white/25"}`} />
+            <Icon className={`w-4 h-4 ${available[layer] ? "text-white/85" : "text-white/20"}`} />
+            {/* Unavailable layer: a visible strike, so nobody presses it
+                expecting PP7 behaviour (the aria-disabled alone read as live). */}
+            {!available[layer] && (
+              <span aria-hidden className="pointer-events-none absolute w-5 h-px bg-white/30 rotate-45" />
+            )}
           </button>
         );
       })}
@@ -125,8 +141,8 @@ export function Pp7ClearRail({
       <button
         type="button"
         onClick={clearAll}
-        title="Clear All (F1)"
-        aria-label="Clear All (F1)"
+        title={`Clear All (F1 or ${clearAllChord})`}
+        aria-label={`Clear All (F1 or ${clearAllChord})`}
         className="absolute top-1/2 -left-3 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-white text-[#1c1c1e] flex items-center justify-center shadow hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
       >
         <X className="w-4 h-4" strokeWidth={3} />

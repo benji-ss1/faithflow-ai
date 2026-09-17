@@ -27,6 +27,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { LayerRow } from "../../useLiveLayers";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
+import { clearVideoInputLive } from "@/lib/video-input-clear";
 import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
 import { uploadImageFile } from "@/lib/media-upload";
 import { LAYER_META, HIT, liveDescription } from "./layerMeta";
@@ -135,6 +136,12 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
           setActiveBackgroundId("none"); // reset the Background Template store too
           liveLayers.clearAll();
           ctx.onKill();
+          // 2026-09-17: this Clear All used to disable the camera LAYER via a
+          // patch but never stop the camera SOURCE, so the feed stayed live in
+          // localStorage and the two Clear Alls (this one and the PP7 rail's)
+          // left the app in different states. Same call the PP7 rail and the
+          // camera panel's own Clear use.
+          if (ctx.videoInput) clearVideoInputLive();
         }}
       />
     </div>

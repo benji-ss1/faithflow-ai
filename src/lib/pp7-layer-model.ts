@@ -10,7 +10,10 @@
  * Extracted verbatim from Pp7ClearRail's former inline logic (2026-09-17) — the
  * rail's rendered output is unchanged, and is test-locked as such.
  */
-import { PP7_CLEAR_ORDER, isMediaSlideKind, isEmptySlideKind, type Pp7ClearLayer } from "./pp7-clear";
+import {
+  PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, PP7_CLEAR_KEY,
+  isMediaSlideKind, isEmptySlideKind, type Pp7ClearLayer,
+} from "./pp7-clear";
 
 /** Everything the model needs to decide what is live, read from the operator ctx. */
 export type Pp7LayerInputs = {
@@ -74,7 +77,11 @@ export type Pp7ClearEffects = {
   clearVideoInput: () => void;
   /** `ctx.onSetAnnouncement(null)`. */
   clearAnnouncement: () => void;
-  /** Hide messages + message board + timers. */
+  /**
+   * Hide messages + the message board + every live timer overlay. In PP7 timers
+   * ride the Messages layer, so F6 / the Messages row / Clear All all take the
+   * countdown off the projector with the message.
+   */
   clearMessages: () => void;
   /** `ctx.onClearLowerThird?.()` — Clear All only. */
   clearLowerThird?: () => void;
@@ -101,7 +108,10 @@ export function pp7ClearLayer(layer: Pp7ClearLayer, i: Pp7LayerInputs, fx: Pp7Cl
       if (i.videoInputActive) fx.clearVideoInput();
       return;
     case "props":
-      if (i.rowActive("logo")) fx.clearLayer("logo");
+      // No `is the logo live` guard (2026-09-17): the guard made the button a
+      // SILENT no-op for any church without a theme logo, and clearing an
+      // already-clear layer is idempotent and harmless.
+      fx.clearLayer("logo");
       return;
     case "announcements":
       fx.clearAnnouncement();
@@ -135,4 +145,15 @@ export function pp7MessagesLive(d: {
   anyTimerSlotShown: boolean;
 }): boolean {
   return d.messagesShowing || d.boardHasVisible || d.timerShown || d.anyTimerSlotShown;
+}
+
+/**
+ * The button title/aria-label for one layer, identical on the rail and in the
+ * panel so the two surfaces read the same. Unavailable layers say so rather
+ * than looking like a working button.
+ */
+export function pp7ClearTitle(layer: Pp7ClearLayer, _active?: boolean): string {
+  if (!PP7_LAYER_AVAILABLE[layer]) return `${PP7_CLEAR_LABEL[layer]} (coming soon)`;
+  const key = PP7_CLEAR_KEY[layer];
+  return `Clear ${PP7_CLEAR_LABEL[layer]}${key ? ` (${key})` : ""}`;
 }

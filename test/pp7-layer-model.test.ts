@@ -154,13 +154,15 @@ check("clear Video Input only when a feed is live", () => {
   assert.deepEqual(b.calls, []);
 });
 
-check("clear Props only when the logo row is live", () => {
+check("clear Props ALWAYS runs, live logo or not (no silent no-op)", () => {
   const a = spy();
   pp7ClearLayer("props", inputs({ rows: ["logo"] }), a.fx);
   assert.deepEqual(a.calls, ["clearLayer:logo"]);
+  // 2026-09-17: the old `if (rowActive("logo"))` guard made this a silent
+  // no-op for any church with no theme logo. Clearing is idempotent.
   const b = spy();
   pp7ClearLayer("props", inputs(), b.fx);
-  assert.deepEqual(b.calls, []);
+  assert.deepEqual(b.calls, ["clearLayer:logo"], "fires even with nothing live");
 });
 
 check("clear Announcements / Messages; Audio is inert", () => {
@@ -213,6 +215,36 @@ check("Clear All runs every per-layer clear in rail order, then the lower third"
   assert.deepEqual(calls, [
     "clearMessages", "clearLayer:logo", "clearAnnouncement", "kill", "bgNone", "clearLayer:background", "clearVideoInput", "lowerThird",
   ]);
+});
+
+check("Clear All clears Props even when no logo is live", () => {
+  const { calls, fx } = spy();
+  pp7ClearAll(inputs(), fx);
+  assert.equal(calls.includes("clearLayer:logo"), true);
+});
+
+// ── Timers ride the Messages layer (PP7) ─────────────────────────────────────
+check("clearing Messages is the ONLY place timers are taken off screen", () => {
+  // The model dispatches one effect; the shell's clearMessages hides the
+  // message, the board AND every shown timer overlay (see usePp7Messages).
+  const { calls, fx } = spy();
+  pp7ClearLayer("messages", inputs({ messagesActive: true }), fx);
+  assert.deepEqual(calls, ["clearMessages"]);
+});
+
+check("Clear All includes the Messages clear (so a live timer goes too)", () => {
+  const { calls, fx } = spy();
+  pp7ClearAll(inputs({ messagesActive: true }), fx);
+  assert.equal(calls[0], "clearMessages", "messages (and its timers) clear first");
+});
+
+check("a shown timer alone lights the Messages layer", () => {
+  assert.equal(pp7LayerActive(inputs({
+    messagesActive: pp7MessagesLive({ messagesShowing: false, boardHasVisible: false, timerShown: true, anyTimerSlotShown: false }),
+  })).messages, true);
+  assert.equal(pp7LayerActive(inputs({
+    messagesActive: pp7MessagesLive({ messagesShowing: false, boardHasVisible: false, timerShown: false, anyTimerSlotShown: true }),
+  })).messages, true, "a named timer slot counts too");
 });
 
 check("Clear All does not call liveLayers.clearAll (camera/media stay usable)", () => {

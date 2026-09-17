@@ -93,7 +93,8 @@ async function main() {
       "Clear Media (F3)",
       "Clear Video Input",
     ]);
-    assert.equal(btns[7].getAttribute("aria-label"), "Clear All (F1)");
+    // Second binding shown per platform (jsdom UA is not Mac → Ctrl+Shift+C).
+    assert.equal(btns[7].getAttribute("aria-label"), "Clear All (F1 or Ctrl+Shift+C)");
     act(() => root.unmount());
   });
 
@@ -139,6 +140,87 @@ async function main() {
     assert.deepEqual(calls, [
       "clearMessages", "clearLayer:logo", "announcement:null", "kill", "clearLayer:background", "lowerThird",
     ]);
+    act(() => root.unmount());
+  });
+
+  // 6b. Guard: a MENU / popover must NOT block a clear key; a MODAL dialog must.
+  check("F-keys survive an open menu/popover, but a modal dialog blocks them", () => {
+    const { root, calls } = mount(true);
+    const doc = dom.window.document;
+    const key = (k: string) => {
+      calls.length = 0;
+      act(() => { dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: k, bubbles: true })); });
+      return [...calls];
+    };
+    const add = (role: string, modal: boolean) => {
+      const el = doc.createElement("div");
+      el.setAttribute("role", role);
+      el.setAttribute("data-state", "open");
+      if (modal) el.setAttribute("aria-modal", "true");
+      doc.body.appendChild(el);
+      return el;
+    };
+    // A dropdown menu (the Messages popover case) — F6 must still clear.
+    const menu = add("menu", false);
+    assert.deepEqual(key("F6"), ["clearMessages"], "an open menu does not block F6");
+    menu.remove();
+    // A select listbox — still fires.
+    const listbox = add("listbox", false);
+    assert.deepEqual(key("F4"), ["clearLayer:logo"], "an open listbox does not block F4");
+    listbox.remove();
+    // A non-modal popover (role=dialog, no aria-modal) — still fires.
+    const pop = add("dialog", false);
+    assert.deepEqual(key("F2"), ["kill"], "a non-modal popover does not block F2");
+    pop.remove();
+    // A genuinely modal dialog — blocked.
+    const modal = add("dialog", true);
+    assert.deepEqual(key("F2"), [], "a modal dialog blocks the clear keys");
+    modal.remove();
+    const alert = add("alertdialog", false);
+    assert.deepEqual(key("F2"), [], "an alert dialog blocks the clear keys");
+    alert.remove();
+    assert.deepEqual(key("F2"), ["kill"], "and it works again once the dialog closes");
+    act(() => root.unmount());
+  });
+
+  // 6c. F5 must never reach the browser (page reload mid-service).
+  check("F5 is prevented (no reload) and is a no-op", () => {
+    const { root, calls } = mount(true);
+    calls.length = 0;
+    const e = new dom.window.KeyboardEvent("keydown", { key: "F5", bubbles: true, cancelable: true });
+    act(() => { dom.window.dispatchEvent(e); });
+    assert.equal(e.defaultPrevented, true, "F5 is preventDefault-ed so the browser cannot reload");
+    assert.deepEqual(calls, [], "…and clears nothing (no audio layer yet)");
+    act(() => root.unmount());
+  });
+
+  // 6d. Second Clear All binding for Macs where F1 is the brightness key.
+  check("Cmd/Ctrl+Shift+C is a second Clear All; F1 still works", () => {
+    const { root, calls } = mount(true);
+    const chord = (mod: "metaKey" | "ctrlKey") => {
+      calls.length = 0;
+      act(() => {
+        dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "C", shiftKey: true, [mod]: true, bubbles: true }));
+      });
+      return [...calls];
+    };
+    assert.equal(chord("metaKey").includes("lowerThird"), true, "⌘⇧C clears all");
+    assert.equal(chord("ctrlKey").includes("lowerThird"), true, "Ctrl+Shift+C clears all");
+    calls.length = 0;
+    act(() => { dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "F1", bubbles: true })); });
+    assert.equal(calls.includes("lowerThird"), true, "F1 unchanged");
+    act(() => root.unmount());
+  });
+
+  // 6e. Audio reads as unavailable, not as a working button.
+  check("Audio cell is visibly unavailable in the rail", () => {
+    const { host, root } = mount(true);
+    const audio = [...host.querySelectorAll("button")][0];
+    assert.equal(audio.getAttribute("aria-disabled"), "true");
+    assert.equal(audio.getAttribute("aria-label"), "Audio (coming soon)");
+    assert.equal(audio.getAttribute("tabindex"), "-1", "not in the tab order");
+    assert.equal(/cursor-not-allowed/.test(audio.className), true);
+    assert.equal(audio.querySelector("[aria-hidden]") !== null, true, "has the visible strike");
     act(() => root.unmount());
   });
 

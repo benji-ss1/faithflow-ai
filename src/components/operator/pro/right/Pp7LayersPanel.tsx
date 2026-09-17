@@ -33,11 +33,12 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import {
-  PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, PP7_CLEAR_KEY, type Pp7ClearLayer,
+  PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, type Pp7ClearLayer,
 } from "@/lib/pp7-clear";
 import {
-  PP7_LAYER_AVAILABLE, pp7ClearAll, pp7ClearLayer, pp7LayerActive,
+  PP7_LAYER_AVAILABLE, pp7ClearAll, pp7ClearLayer, pp7ClearTitle, pp7LayerActive,
 } from "@/lib/pp7-layer-model";
+import { useShortcutLabel } from "@/lib/usePlatformLabel";
 import { usePp7LayerInputs, usePp7ClearEffects } from "./usePp7Layers";
 import { BackgroundThumb, LogoSwap, SlideActions } from "./LayersPanel";
 
@@ -71,6 +72,9 @@ export function Pp7LayersPanel({
   const inputs = usePp7LayerInputs(ctx, messagesActive);
   const effects = usePp7ClearEffects(ctx, onClearMessages);
   const active = pp7LayerActive(inputs);
+  // Second Clear All binding — F1 is the brightness key on a default Mac.
+  // "⌘⇧C" on Mac, "Ctrl+Shift+C" on Windows.
+  const clearAllChord = useShortcutLabel({ mod: true, shift: true, key: "C" });
 
   if (!ctx.layersEngineOn) {
     return (
@@ -94,7 +98,7 @@ export function Pp7LayersPanel({
           const Icon = ICONS[layer];
           const available = PP7_LAYER_AVAILABLE[layer];
           const isLive = active[layer];
-          const key = PP7_CLEAR_KEY[layer];
+          const title = pp7ClearTitle(layer);
           return (
             <div key={layer} className="flex flex-col">
               <div
@@ -183,8 +187,8 @@ export function Pp7LayersPanel({
                   type="button"
                   disabled={!available}
                   onClick={() => { if (available) pp7ClearLayer(layer, inputs, effects); }}
-                  title={available ? `Clear ${PP7_CLEAR_LABEL[layer]}${key ? ` (${key})` : ""}` : `${PP7_CLEAR_LABEL[layer]} (coming soon)`}
-                  aria-label={available ? `Clear ${PP7_CLEAR_LABEL[layer]}${key ? ` (${key})` : ""}` : `${PP7_CLEAR_LABEL[layer]} (coming soon)`}
+                  title={title}
+                  aria-label={title}
                   data-clear={layer}
                   className={cn(
                     ROW_BTN, "ml-1 rounded-full",
@@ -221,14 +225,16 @@ export function Pp7LayersPanel({
         <button
           type="button"
           onClick={() => pp7ClearAll(inputs, effects)}
-          title="Clear All (F1)"
-          aria-label="Clear All (F1)"
+          title={`Clear All (F1 or ${clearAllChord})`}
+          aria-label={`Clear All (F1 or ${clearAllChord})`}
           data-clear="all"
           className="w-7 h-7 shrink-0 rounded-full bg-white text-[#1c1c1e] flex items-center justify-center shadow hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
         >
           <X className="w-4 h-4" strokeWidth={3} />
         </button>
-        <span className="text-[11px] text-[var(--color-muted-foreground)]">Clear All · F1</span>
+        <span className="text-[11px] text-[var(--color-muted-foreground)]">
+          Clear All · F1 or {clearAllChord}
+        </span>
       </div>
     </div>
   );
