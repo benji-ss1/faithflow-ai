@@ -1,7 +1,7 @@
 ---
 headline: Pictures and videos fill the screen, and the lower-third band is easier to see
 audience: operator
-version: 0.1.443
+version: 0.1.445
 date: 2026-09-17
 highlights:
   - Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.443)

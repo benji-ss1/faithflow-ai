@@ -67,6 +67,9 @@ export interface OutputCompositorProps {
   referenceColor?: string;
   zone?: ProjectionZone | null;
   aspectRatio?: "16:9" | "4:3" | "custom";
+  /** Theme → Projector (PR 2): ignore the theme's text boxes (full-screen).
+   *  Always on for mode="stage" (the stage display stays full-screen). */
+  ignoreThemeLayout?: boolean;
   /** livestream/ndi transparent (OBS alpha-key) mode. */
   transparent?: boolean;
   /** livestream ?transitions=1 gate. */
@@ -135,6 +138,8 @@ export function OutputCompositor(props: OutputCompositorProps) {
     layersEnabled, layerOverrides, previewFrozen = false,
     obsBandExtras, obsOverlay, backgroundDim, scene, screen, scenesPossible,
   } = props;
+  // Theme → Projector (PR 2): the stage display always stays full-screen.
+  const ignoreLayout = props.mode === "stage" || props.ignoreThemeLayout === true;
 
   // SCENES (2026-09-16): this screen's routing mask, if a scene is active.
   // Gated on DATA PRESENCE, never on NEXT_PUBLIC_LAYERS_V2 (off in production —
@@ -242,6 +247,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
               referenceScale={referenceScale}
               referenceColor={referenceColor}
               projectorFit
+              {...(ignoreLayout ? { ignoreThemeLayout: true } : {})}
             />
           );
         }
@@ -259,6 +265,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
             videoMuted={videoMuted}
             onVideoRef={onVideoRef}
             {...(obsOverlay ? { obsOverlay } : {})}
+            {...(ignoreLayout ? { ignoreThemeLayout: true } : {})}
           />
         );
         return renderMode === "transition" ? (

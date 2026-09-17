@@ -145,7 +145,7 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
               </div>
               {stage.next && stage.next.kind !== "empty" ? (
                 <div className="opacity-75 w-full h-full">
-                  <PresentationCanvas><SlideRenderer slide={stage.next} projectorFit appearance={view.props.appearance ?? undefined} /></PresentationCanvas>
+                  <PresentationCanvas><SlideRenderer slide={stage.next} projectorFit appearance={view.props.appearance ?? undefined} ignoreThemeLayout /></PresentationCanvas>
                 </div>
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-white/20 text-3xl">— end of item —</div>

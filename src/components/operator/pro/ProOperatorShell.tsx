@@ -3949,9 +3949,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const c = idx != null ? cards[idx] : undefined;
       if (c) {
         const body = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-        ctx.onSendSlideToLive({ kind: "text", text: body, reference: c.label });
+        ctx.onSendSlideToLive({ kind: "text", text: body, reference: c.label }, undefined, { preserveConfiguredTransition: true }); // voice: fast AI fade, never theme-slowed (PR 2)
       } else if (ctx.liveSlide?.kind === "text" && ctx.liveSlide.reference) {
-        ctx.onSendSlideToLive({ kind: "text", text: ctx.liveSlide.text, reference: ctx.liveSlide.reference });
+        ctx.onSendSlideToLive({ kind: "text", text: ctx.liveSlide.text, reference: ctx.liveSlide.reference }, undefined, { preserveConfiguredTransition: true }); // voice: fast AI fade, never theme-slowed (PR 2)
       } else {
         return;
       }
@@ -3982,7 +3982,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             const newIdx = dupIdx >= 0 ? dupIdx : existing.length;
             if (dupIdx < 0) bibleSession.setCards([...existing, card]);
             bibleSession.setSelectedIdx(newIdx);
-            ctx.onSendSlideToLive({ kind: "text", text: hit.text, reference: label });
+            ctx.onSendSlideToLive({ kind: "text", text: hit.text, reference: label }, undefined, { preserveConfiguredTransition: true }); // voice: fast AI fade, never theme-slowed (PR 2)
             toast.info(`Voice: "${cmd.matchedText}" → verse ${verseNumber}`);
           } catch {
             toast.error("Verse lookup failed");

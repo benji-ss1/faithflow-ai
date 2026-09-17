@@ -503,7 +503,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
     };
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [currentText, fontScale, fontToken, reserveVerticalRatio]);
+  }, [currentText, fontScale, fontToken, reserveVerticalRatio, maxPx]);
 
   useEffect(() => {
     const box = boxRef.current;

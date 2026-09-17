@@ -177,6 +177,8 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const saveKey = useShortcutLabel({ mod: true, key: "↵" });
   const router = useRouter();
   const item = ctx.plan.items[ctx.previewItemIdx];
+  // PR 2: thumbnails use the theme THIS item projects with (boxes + decor).
+  const itemAppearance = ctx.appearanceForItem ? ctx.appearanceForItem(ctx.previewItemIdx) : ctx.appearance;
   const slides: SlidePayload[] = item?.slides ?? [];
   // Song auto-switch guard: every send of a song item's slide declares its origin.
   const itemSendOpts = item?.type === "song" ? { origin: { kind: "song" as const, songId: (item as { songId?: string }).songId } } : undefined;
@@ -942,7 +944,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   onRemoveDbThisSlide: () => removeThemeThisSlide(item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined),
                   canApplyDb: item?.type === "song" && !!(item as { songId?: string }).songId,
                 }}
-                appearance={ctx.appearance ?? undefined}
+                appearance={itemAppearance ?? undefined}
                 background={ctx.background}
                 selected={idx === ctx.previewSlideIdx}
                 canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
@@ -1156,7 +1158,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
               >
                 {/* Fit text down to a small floor so the half-size stage mirror
                     doesn't clip long lyrics (matches the main grid's textMinPx). */}
-                <ThemedSlideCard slide={displaySlides[idx] ?? s} textMinPx={8} appearance={ctx.appearance ?? undefined} background={ctx.background} />
+                <ThemedSlideCard slide={displaySlides[idx] ?? s} textMinPx={8} appearance={itemAppearance ?? undefined} background={ctx.background} />
                 <div className="absolute bottom-1 right-1 text-[8px] font-mono uppercase tracking-wider text-white/55 bg-black/60 px-1 py-px rounded-sm pointer-events-none">
                   Stage
                 </div>
@@ -1218,7 +1220,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 key={quickEdit.slideId ?? quickEdit.slideIdx}
                 slide={preview}
                 textMinPx={18}
-                appearance={ctx.appearance ?? undefined}
+                appearance={itemAppearance ?? undefined}
                 background={ctx.background}
                 editable
                 onEditInput={(t) => { editedTextRef.current = t; }}

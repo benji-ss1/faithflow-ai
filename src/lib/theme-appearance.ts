@@ -5,8 +5,10 @@
 // result is guaranteed to pass the wire validator — otherwise a malformed
 // config would make the projector reject the whole OutputState and not update.
 // Client-safe (no server imports); usable in the operator and in previews.
-import type { ThemeAppearance } from "@/lib/broadcast";
+import { isValidThemeLayoutWire, isValidThemeDecorObject, MAX_THEME_DECOR_OBJECTS, THEME_LAYOUT_WIRE_MAX_BYTES, type ThemeAppearance, type ThemeFrameWire, type ThemeLayoutWire, type SlideObjectWire } from "@/lib/broadcast";
 import { isRenderableUrl } from "./render-url";
+import { mainTextOf, verseTextOf } from "./theme-editor-model";
+import type { SlideObject, TextObject } from "./slide-objects";
 
 const COLOR_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\(\s*\d+(?:\s*,\s*\d+){2}\s*(?:,\s*(?:0|1|0?\.\d+))?\s*\))$/;
 const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
@@ -137,9 +139,128 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
     if (typeof c.logoOpacity === "number" && Number.isFinite(c.logoOpacity)) a.logoOpacity = clamp(c.logoOpacity, 0, 1);
   }
 
+  // ── Theme → Projector (PR 2): text-box layout ──
+  const layout = themeLayoutFromConfig(c);
+  if (layout) a.layout = layout;
+
   // Nothing meaningful beyond the implicit bgType:"solid"? Treat as no theme.
   const meaningful =
-    a.bgColor || a.bgImageUrl || a.bgVideoUrl || a.logoUrl || a.textColor || a.fontFamily ||
+    !!a.layout || a.bgColor || a.bgImageUrl || a.bgVideoUrl || a.logoUrl || a.textColor || a.fontFamily ||
     a.fontWeight !== undefined || a.textShadow !== undefined || a.align || a.bgType === "gradient" || a.dim !== undefined || a.bgAnimation !== undefined;
   return meaningful ? a : null;
+}
+
+// ── Theme → Projector (PR 2) ───────────────────────────────────────────────
+// The seed box the theme editor shows for a theme with no saved layout
+// (theme-editor-model seedThemeSlide). Saving the editor without moving it
+// must NOT turn into a projector frame — that would shrink every existing
+// church's lyrics into a 400px band on its first save.
+const SEED_MAIN = { id: "theme_main_text", x: 80, y: 340, w: 1760, h: 400 };
+function isUnchangedSeed(t: TextObject): boolean {
+  return t.id === SEED_MAIN.id && Math.round(t.x) === SEED_MAIN.x && Math.round(t.y) === SEED_MAIN.y
+    && Math.round(t.w) === SEED_MAIN.w && Math.round(t.h) === SEED_MAIN.h;
+}
+
+/** A text object → a wire-valid frame, or null when unusable (hidden/tiny/NaN). */
+export function frameFromTextObject(t: TextObject | null | undefined): ThemeFrameWire | null {
+  if (!t || t.kind !== "text" || t.hidden) return null;
+  const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+  if (!fin(t.x) || !fin(t.y) || !fin(t.w) || !fin(t.h)) return null;
+  if (t.w < 40 || t.h < 40) return null;
+  const f: ThemeFrameWire = {
+    x: Math.round(clamp(t.x, -1920, 1920)),
+    y: Math.round(clamp(t.y, -1080, 1080)),
+    w: Math.round(clamp(t.w, 40, 3840)),
+    h: Math.round(clamp(t.h, 40, 2160)),
+  };
+  if (typeof t.fontFamily === "string" && FONT_FAMILY_RE.test(t.fontFamily)) {
+    const fam = withGenericFallback(t.fontFamily);
+    if (FONT_FAMILY_RE.test(fam)) f.fontFamily = fam;
+  }
+  if (fin(t.fontSize)) f.fontSize = Math.round(clamp(t.fontSize, 8, 400));
+  if (fin(t.fontWeight)) f.fontWeight = clamp(Math.round(t.fontWeight), 100, 900);
+  if (isColor(t.color)) f.color = t.color.trim();
+  if (t.align === "left" || t.align === "center" || t.align === "right") f.align = t.align;
+  if (typeof t.italic === "boolean") f.italic = t.italic;
+  if (typeof t.uppercase === "boolean") f.uppercase = t.uppercase;
+  if (typeof t.shadow === "boolean") f.shadow = t.shadow;
+  return f;
+}
+
+type LayoutSlide = { id?: unknown; role?: unknown; objects?: unknown; bgColor?: unknown; bgImageUrl?: unknown };
+
+/**
+ * A theme slide's decor: its background (as a full-canvas image/shape) plus
+ * every visible object that is not a role text box (`exclude` = the boxes used
+ * as frames). Only wire-valid objects with renderable (non-blob) URLs, compact
+ * (editor-only id/locked dropped), capped at MAX_THEME_DECOR_OBJECTS.
+ */
+export function themeDecorFromSlide(slide: LayoutSlide | undefined, exclude: Set<unknown>): SlideObjectWire[] {
+  if (!slide) return [];
+  const out: SlideObjectWire[] = [];
+  if (isHttpsUrl(slide.bgImageUrl)) out.push({ kind: "image", x: 0, y: 0, w: 1920, h: 1080, url: slide.bgImageUrl, fit: "cover" });
+  else if (isColor(slide.bgColor)) out.push({ kind: "shape", x: 0, y: 0, w: 1920, h: 1080, shape: "rect", fill: slide.bgColor.trim() });
+  for (const raw of objectsOf(slide)) {
+    if (exclude.has(raw)) continue;
+    const o = raw as unknown as Record<string, unknown>;
+    if (o.hidden === true) continue;
+    if (o.kind === "text" && o.role !== undefined) continue; // role boxes are frames, never decor
+    const { id: _id, locked: _locked, ...rest } = o;
+    void _id; void _locked;
+    if ((rest.kind === "image" || rest.kind === "video") && !isHttpsUrl(rest.url)) continue;
+    // Theme decor video is always silent (it plays on every slide using the theme).
+    if (rest.kind === "video") rest.muted = true;
+    if (!isValidThemeDecorObject(rest)) continue;
+    out.push(rest as SlideObjectWire);
+    if (out.length >= MAX_THEME_DECOR_OBJECTS) break;
+  }
+  return out;
+}
+function objectsOf(s: LayoutSlide | undefined): SlideObject[] {
+  return s && Array.isArray(s.objects) ? (s.objects.filter((o) => o && typeof o === "object") as SlideObject[]) : [];
+}
+
+/**
+ * The compact projector layout for a saved theme config, or undefined when the
+ * theme has no saved (version 3) layout or only the untouched seed box.
+ * Always passes isValidThemeLayoutWire (test-locked).
+ */
+export function themeLayoutFromConfig(c: Record<string, unknown>): ThemeLayoutWire | undefined {
+  const raw = c.layout as { version?: unknown; slides?: unknown } | undefined;
+  if (!raw || typeof raw !== "object" || raw.version !== 3 || !Array.isArray(raw.slides)) return undefined;
+  const slides = raw.slides.filter((s) => s && typeof s === "object") as LayoutSlide[];
+  const out: ThemeLayoutWire = {};
+  const lyricSlide = slides.find((s) => s.role === "lyrics") ?? slides.find((s) => s.role !== "scripture");
+  const main = mainTextOf(objectsOf(lyricSlide));
+  if (main && !isUnchangedSeed(main)) {
+    const f = frameFromTextObject(main);
+    if (f) out.lyrics = { main: f };
+  }
+  // Decor is emitted even when the text box is the untouched seed (the seed box
+  // alone is still never a frame).
+  const lyricDecor = themeDecorFromSlide(lyricSlide, new Set([main]));
+  if (lyricDecor.length) out.lyrics = { ...(out.lyrics ?? {}), decor: lyricDecor };
+  const scriptureSlide = slides.find((s) => s.role === "scripture");
+  if (scriptureSlide) {
+    const objs = objectsOf(scriptureSlide);
+    const verseObj = verseTextOf(objs);
+    const verse = frameFromTextObject(verseObj);
+    const refObj = objs.find((o): o is TextObject => o.kind === "text" && o.role === "reference") ?? null;
+    if (verse) {
+      const reference = frameFromTextObject(refObj);
+      out.scripture = reference ? { verse, reference } : { verse };
+    }
+    const scriptureDecor = themeDecorFromSlide(scriptureSlide, new Set([verseObj, refObj]));
+    if (scriptureDecor.length) out.scripture = { ...(out.scripture ?? {}), decor: scriptureDecor };
+  }
+  if (!out.lyrics && !out.scripture) return undefined;
+  // Oversized (many large objects): drop decor from the end until it fits.
+  const trim = (g: { decor?: SlideObjectWire[] } | undefined) => { if (g?.decor?.length) { g.decor.pop(); if (!g.decor.length) delete g.decor; return true; } return false; };
+  while (JSON.stringify(out).length > THEME_LAYOUT_WIRE_MAX_BYTES) {
+    if (!trim(out.scripture) && !trim(out.lyrics)) return undefined;
+  }
+  if (out.lyrics && !out.lyrics.main && !out.lyrics.decor) delete out.lyrics;
+  if (out.scripture && !out.scripture.verse && !out.scripture.decor) delete out.scripture;
+  if (!out.lyrics && !out.scripture) return undefined;
+  return isValidThemeLayoutWire(out) ? out : undefined;
 }
