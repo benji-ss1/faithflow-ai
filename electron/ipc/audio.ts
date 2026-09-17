@@ -20,7 +20,7 @@ import {
 import {
   setRtAudioTarget, listRtAudioDevices, startRtAudioCapture, stopRtAudioCapture,
   startRtAudioProbe, stopRtAudioProbe, listDeckLinkAudioDevices, isRtAudioAvailable,
-  FRIENDLY_UNAVAILABLE, shutdownRtAudioWorker,
+  FRIENDLY_UNAVAILABLE, shutdownRtAudioWorker, resetRtAudioWorkerHealth,
 } from "../audio/rtaudioCapture";
 import { isDeckLinkIndex, API_INDEX_BASE } from "../audio/rtaudioDsp";
 
@@ -260,6 +260,7 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
     // renderer restarts listening and re-resolves its device by name.
     await Promise.allSettled([stopAllCaptures(), stopAllProbes()]);
     setProDriverEnabled(enabled);
+    if (enabled) resetRtAudioWorkerHealth();
     return { ok: true, enabled: isProDriverEnabled() };
   });
 }
@@ -269,12 +270,11 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
  * never outlive the Electron main process.
  */
 export async function stopAllNativeAudio(): Promise<void> {
+  // Kill the driver process immediately (never wait on a hung driver at close).
+  shutdownRtAudioWorker();
   await Promise.allSettled([
     nativeStopCapture(),
     nativeStopChannelProbe(),
-    stopRtAudioCapture(),
-    stopRtAudioProbe(),
     swiftHelper.shutdown(),
   ]);
-  shutdownRtAudioWorker();
 }

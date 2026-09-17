@@ -99,6 +99,7 @@ function loadDeckLink(): DeckLinkModule | null {
   if (decklink !== undefined) return decklink;
   decklink = null;
   const candidates = [
+    process.env.PF_RESOURCES_PATH ? path.join(process.env.PF_RESOURCES_PATH, "native", "decklink-audio") : null,
     process.resourcesPath ? path.join(process.resourcesPath, "native", "decklink-audio") : null,
     path.join(__dirname, "..", "..", "native", "decklink-audio"),
   ].filter((p): p is string => !!p);
