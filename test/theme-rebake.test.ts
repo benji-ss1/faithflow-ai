@@ -1,7 +1,7 @@
 // Theme Editor PR 1 — reset-theme-owned-fields-then-bake + backup preservation.
 // Run: npx tsx test/theme-rebake.test.ts
 import assert from "node:assert";
-import { rebakeThemeFromOriginal, resetThemeOwnedFields, mergeThemeBackup, reapplySourceForSlide, themeFieldsForConfigs, pruneThemeBackup, copyThemeBackupForDuplicate } from "../src/lib/theme-rebake";
+import { rebakeThemeFromOriginal, resetThemeOwnedFields, mergeThemeBackup, reapplySourceForSlide, themeFieldsForConfigs, reapplyFieldsForConfigs, pruneThemeBackup, copyThemeBackupForDuplicate } from "../src/lib/theme-rebake";
 import { bakeThemeIntoObjectsJson } from "../src/lib/theme-bake";
 
 let pass = 0, fail = 0;
@@ -104,6 +104,24 @@ check("duplicated slide inherits the source's pre-theme snapshot", () => {
   assert.deepEqual(next.themeBackup.slides[1], { id: "copy", objectsJson: { o: "orig" } });
   assert.deepEqual(next.slideThemeBackups.copy, { objectsJson: { o: "per" }, themeId: "B" });
   assert.equal(copyThemeBackupForDuplicate({}, "src", "copy"), null);
+});
+
+check("keep-songs bg leftover: re-apply always resets bg even when neither config names it", () => {
+  const orig = { bgColor: "#101010", objects: [{ id: "a", kind: "text", text: "x", fontWeight: 400 }] };
+  // Slide still carries an image baked by an OLD theme version; the edit's
+  // previousConfig was lost (e.g. editor reopened), so the key union is empty.
+  const stale = { bgType: "image", bgImageUrl: "https://x/old.png", bgColor2: "#999999", transition: { effectId: "Fade" }, objects: [{ id: "a", kind: "text", text: "x", fontWeight: 900, fontFamily: "Sora" }] };
+  const fields = reapplyFieldsForConfigs([{ fontFamily: "Inter" }, undefined]);
+  const re = rebakeThemeFromOriginal({ fontFamily: "Inter" }, stale, orig, fields) as any;
+  assert.equal(re.bgImageUrl, undefined);
+  assert.equal(re.bgType, undefined);
+  assert.equal(re.bgColor2, undefined);
+  assert.equal(re.transition, undefined);
+  assert.equal(re.bgColor, "#101010");
+  // text key-union protection kept: fontWeight not named by any config survives
+  assert.equal(re.objects[0].fontWeight, 900);
+  assert.equal(re.objects[0].fontFamily, "Inter");
+  assert.deepEqual([...fields.slide].sort(), ["bgColor", "bgColor2", "bgImageUrl", "bgType", "transition"]);
 });
 
 console.log(`\ntheme-rebake: ${pass} passed, ${fail} failed`);

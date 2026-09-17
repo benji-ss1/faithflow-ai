@@ -46,6 +46,19 @@ export function themeFieldsForConfigs(configs: unknown[]): ThemeOwnedFields {
   return { slide: [...slide], text: [...text] };
 }
 
+/**
+ * Fields a theme RE-APPLY resets from the pre-theme snapshot. Background
+ * fields (bgType/bgColor/bgColor2/bgImageUrl/transition) are ALWAYS reset —
+ * regardless of which keys the new/previous config carry — because a stale
+ * baked background (e.g. an image left over after a previous edit whose
+ * `previousConfig` was lost) otherwise sticks forever ("keep songs" bg
+ * leftover). Text fields keep the key-union protection so an operator's own
+ * value for a field no theme version set (e.g. fontWeight) survives.
+ */
+export function reapplyFieldsForConfigs(configs: unknown[]): ThemeOwnedFields {
+  return { slide: THEME_OWNED_SLIDE_FIELDS, text: themeFieldsForConfigs(configs).text };
+}
+
 /** Restore theme-owned fields on `current` from `original` (no bake). */
 export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjectsJson: unknown, fields: ThemeOwnedFields = ALL_THEME_OWNED_FIELDS): Obj {
   const cur = asObj(currentObjectsJson);

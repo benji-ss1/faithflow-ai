@@ -5,7 +5,7 @@ import { adHocCleanupTargets, recentChurchDayKeys } from "./operator-plan-select
 import { getDb } from "./db/client";
 import { bakeThemeIntoObjectsJson } from "./theme-bake";
 import { sanitizeThemeLayout, sanitizeThemeNumber, THEME_NUMBER_RANGES, type ThemeLayout } from "./theme-layout";
-import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide, resetThemeOwnedFields, pruneThemeBackup, themeFieldsForConfigs, copyThemeBackupForDuplicate } from "./theme-rebake";
+import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide, resetThemeOwnedFields, pruneThemeBackup, reapplyFieldsForConfigs, copyThemeBackupForDuplicate } from "./theme-rebake";
 import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
@@ -2578,7 +2578,8 @@ export async function removeThemeFromSongSlide(songId: string, slideId: string):
     .set({ objectsJson: (snap.objectsJson ?? null) as typeof songSlides.$inferInsert.objectsJson })
     .where(and(eq(songSlides.id, slideId), eq(songSlides.songId, songId)));
   delete backups[slideId];
-  await db.update(songs).set({ settings: { ...prevSettings, slideThemeBackups: backups } }).where(eq(songs.id, songId));
+  await db.update(songs).set({ settings: { ...prevSettings, slideThemeBackups: backups } })
+    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
   revalidatePath("/library/songs");
   revalidatePath(`/library/songs/${songId}`);
   return { ok: true };
@@ -2681,10 +2682,12 @@ export async function reapplyThemeToSongs(
     .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
   if (!theme) return { ok: false, error: "Theme not found" };
   const cfg = (theme.config as ThemeConfig) ?? {};
-  // Only fields the theme sets NOW or SET BEFORE are reset from the snapshot —
-  // an operator's own value for a field no theme version set is left alone.
-  // previousConfig is only read for WHICH keys exist (whitelisted field names).
-  const fields = themeFieldsForConfigs([cfg, opts.previousConfig]);
+  // Background fields are ALWAYS reset from the snapshot (no leftover bg when
+  // the key union misses a removed field). TEXT fields: only those the theme
+  // sets NOW or SET BEFORE are reset — an operator's own value for a field no
+  // theme version set is left alone. previousConfig is only read for WHICH
+  // keys exist (whitelisted field names).
+  const fields = reapplyFieldsForConfigs([cfg, opts.previousConfig]);
   const base = songsUsingThemeWhere(user.churchId, themeId);
   const page = await db.select({ id: songs.id }).from(songs)
     .where(cursor ? and(base, sql`${songs.id} > ${cursor}::uuid`) : base)
