@@ -144,7 +144,7 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set VSDIR=%%i
           call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat"
-          npm run decklink:rebuild:win
+          call npm run decklink:rebuild:win
           if not exist native\decklink-audio\build\Release\decklink_audio.node (echo Blackmagic addon missing & exit /b 1)
 
       - name: Compile Electron main
