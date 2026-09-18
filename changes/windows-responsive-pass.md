@@ -1,7 +1,7 @@
 ---
 headline: The new Layers panel, theme editor and slide menus now fit small Windows laptops
 audience: operator
-version: 0.1.460
+version: 0.1.462
 date: 2026-09-18
 highlights:
   - Opening Layers now scrolls the panel into view. On smaller screens it used to open below the edge of the right panel, so it looked like nothing had happened.
