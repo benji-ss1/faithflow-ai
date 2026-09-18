@@ -18,9 +18,9 @@ function body(name: string): string {
 let n = 0;
 const ok = (cond: boolean | RegExpMatchArray | null, msg: string) => { assert.ok(cond, msg); n++; };
 
-for (const name of ["countSongsUsingTheme", "reapplyThemeToSongs", "applyThemeToSong", "applyThemeToSongSlide", "updateTheme"]) {
+for (const name of ["countSongsUsingTheme", "reapplyThemeToSongs", "applyThemeToSong", "applyThemeToSongSlides", "removeThemeFromSongSlides", "updateTheme"]) {
   const b = body(name);
-  ok(b.match(/requireCap\("edit_library"\)/), `${name} requires edit_library`);
+  ok(b.match(/requireCap\("edit_library"\)|requireUser\(\);\s*if \(!hasCap\(user\.role, "edit_library"\)\) return \{ ok: false/), `${name} requires edit_library`);
   ok(b.match(/eq\(themes\.id, themeId|eq\(themes\.id, id\)/) ? /eq\(themes\.churchId, user\.churchId\)/.test(b) : true, `${name} selects the theme by church`);
 }
 
@@ -45,7 +45,7 @@ ok(/eq\(songs\.churchId, churchId\)/.test(where), "shared song filter includes c
 const count = body("countSongsUsingTheme");
 ok(/songsUsingThemeWhere\(user\.churchId, themeId\)/.test(count), "count is church-filtered");
 
-for (const name of ["applyThemeToSong", "applyThemeToSongSlide", "revertSongTheme"]) {
+for (const name of ["applyThemeToSong", "applyThemeToSongSlides", "removeThemeFromSongSlides", "revertSongTheme"]) {
   const b = body(name);
   ok(/db\.transaction\(/.test(b), `${name} runs in a transaction`);
   ok(/eq\(songs\.id, songId\), eq\(songs\.churchId, user\.churchId\)\)\)\.for\("update"\)/.test(b), `${name} row-locks the church-verified song`);
@@ -55,8 +55,12 @@ const apply = body("applyThemeToSong");
 ok(/writeSongSlideObjects\(tx, songId,/.test(apply), "whole-song apply slide writes song-scoped");
 ok(/mergeThemeBackup\(prevSettings\.themeBackup/.test(apply), "whole-song apply preserves the first backup");
 ok(/bakeThemeIntoObjectsJson\(cfg, s\.objectsJson\)/.test(apply), "whole-song apply uses the shared bake");
-const perSlide = body("applyThemeToSongSlide");
-ok(/tx\.update\(songSlides\)[\s\S]*?eq\(songSlides\.id, slideId\), eq\(songSlides\.songId, songId\)/.test(perSlide), "per-slide apply UPDATE filtered by song_id");
+const perSlide = body("applyThemeToSongSlides");
+ok(/eq\(songSlides\.songId, songId\), inArray\(songSlides\.id, ids\)\)\)\.for\("update"\)/.test(perSlide), "batch apply selects + locks slides by song_id AND id");
+ok(/slides\.length !== ids\.length\) return \{ ok: false/.test(perSlide), "batch apply rejects foreign slide ids");
+ok(/writeSongSlideObjects\(tx, songId,/.test(perSlide), "batch apply slide writes song-scoped");
+ok(/applyThemeToSongSlides\(themeId, songId, \[slideId\]\)/.test(body("applyThemeToSongSlide")), "single-slide apply delegates to the batch");
+ok(/removeThemeFromSongSlides\(songId, \[slideId\]\)/.test(body("removeThemeFromSongSlide")), "single-slide remove delegates to the batch");
 const revert = body("revertSongTheme");
 ok(/resetThemeOwnedFields\(cur\.objectsJson, b\.objectsJson\)/.test(revert), "revert restores only theme-owned fields");
 const dup = body("duplicateSongSlide");

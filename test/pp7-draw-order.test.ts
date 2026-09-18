@@ -10,7 +10,7 @@
  * three-way OR in the clear rail's media live-state — one rule expressed twice).
  * This suite pins:
  *
- *   1. FLAG OFF ⇒ byte-identical to `main`. `planOutput()` over 17,920 fixtures
+ *   1. FLAG OFF ⇒ byte-identical to `main`. `planOutput()` over 22,400 fixtures
  *      must reproduce `test/fixtures/output-plan-main.golden.json` exactly.
  *   2. FLAG ON ⇒ Media above Video Input, Props above Announcements, and
  *      nothing else moves.
@@ -48,7 +48,7 @@ const pp7 = (i: Partial<PlanInput>) => planOutput({ mode: "live", slide: text, p
 const legacy = (i: Partial<PlanInput>) => planOutput({ mode: "live", slide: text, ...i } as PlanInput);
 
 // ── 1. FLAG OFF = main, byte for byte ────────────────────────────────────────
-check("flag OFF: planOutput over 17,920 fixtures is byte-identical to main", () => {
+check("flag OFF: planOutput over 22,400 fixtures is byte-identical to main", () => {
   const golden = JSON.parse(readFileSync(new URL("./fixtures/output-plan-main.golden.json", import.meta.url), "utf8")) as {
     fixtures: number; plans: OutputPlan[]; order: number[];
   };
@@ -61,7 +61,7 @@ check("flag OFF: planOutput over 17,920 fixtures is byte-identical to main", () 
     if (got !== want) assert.fail(`fixture ${keyOf(inputs[n])}\n          want ${want}\n          got  ${got}`);
     checked++;
   }
-  assert.equal(checked, 17920);
+  assert.equal(checked, 22400);
 });
 
 check("flag OFF: an explicit pp7DrawOrder:false is also byte-identical", () => {
@@ -167,6 +167,49 @@ check("media-as-background (an image/video SLIDE) is untouched by the draw order
 check("canvas dims (aspect / ndi / livestream full-bleed) are untouched", () => {
   for (const i of matrix().slice(0, 800)) {
     assert.deepEqual(planOutput({ ...i, pp7DrawOrder: true, announcementLive: true }).canvas, planOutput(i).canvas, keyOf(i));
+  }
+});
+
+// ── 3b. Theme decor (theme gaps PR A) must not be disturbed ─────────────────
+const decorTheme = {
+  textColor: "#fff", bgColor: "#101010",
+  layout: { lyrics: { decor: [{ id: "d1", type: "image", url: "https://x/decor.png", x: 0.1, y: 0.1, w: 0.2, h: 0.2 }] } },
+} as never;
+
+check("theme decor sits ABOVE the media and the new camera layer, BELOW the words", () => {
+  const p = pp7({ appearance: decorTheme, background: media });
+  const at = (id: string) => p.layers.findIndex((l) => l.id === id);
+  assert.ok(at("theme-decor") > at("background"), "decor above the media");
+  assert.ok(at("theme-decor") < at("slide"), "decor below the words");
+  assert.equal(p.layers.find((l) => l.id === "theme-decor")!.z, 5, "decor keeps z 5");
+  // …and with a camera live it is STILL above it — the camera is z -10, and in
+  // the over-video branch the decor is hosted inside the slide layer, which is
+  // above the camera layer either way. The camera can never cover decor.
+  const withCam = pp7({ appearance: decorTheme, background: media, videoInput: cam });
+  const camAt = withCam.layers.findIndex((l) => l.id === "camera");
+  assert.equal(camAt, 0, "the camera is the back wall");
+  assert.equal(withCam.layers.find((l) => l.id === "camera")!.z, -10);
+  assert.ok(withCam.layers.every((l) => l.id === "camera" || l.z > -10));
+});
+
+check("theme decor's enable rule is IDENTICAL with the draw order on and off", () => {
+  for (const i of matrix()) {
+    if (!i.appearance || !(i.appearance as { layout?: unknown }).layout) continue;
+    const a = planOutput(i).layers.find((l) => l.id === "theme-decor");
+    const b = planOutput({ ...i, pp7DrawOrder: true, announcementLive: true }).layers.find((l) => l.id === "theme-decor");
+    assert.equal(!!a, !!b, `${keyOf(i)}: decor layer presence must match`);
+    if (a && b) {
+      assert.equal(a.enabled, b.enabled, `${keyOf(i)}: decor enabled must match`);
+      assert.equal(a.z, b.z, `${keyOf(i)}: decor z must match`);
+      // Props only matter when the layer paints. The ONE case where they differ
+      // is camera + media, where PP7 makes `overVideo` true because the media
+      // now shows — and there the decor layer is DISABLED in both orders (the
+      // over-video branch hosts decor inside the slide render instead), so the
+      // compositor never reads it. Asserting it only when enabled keeps the test
+      // honest instead of pinning a value nothing uses.
+      if (a.enabled) assert.deepEqual(a.props, b.props, `${keyOf(i)}: decor props must match while it paints`);
+      else assert.equal(b.enabled, false);
+    }
   }
 });
 

@@ -35,9 +35,10 @@
  *   - `announcement` (z 15) — below the props (theme logo), which PP7 draws on
  *     top. Legacy leaves announcements to the route, i.e. above everything.
  * Flag off, planOutput is byte-identical to what it returned before the change
- * across all 17,920 fixtures (test/fixtures/output-plan-main.golden.json).
+ * across all 22,400 fixtures (test/fixtures/output-plan-main.golden.json).
  */
 import type { SlidePayload, ThemeAppearance, VideoInputState, BackgroundSpec } from "@/lib/broadcast";
+import { themeHasDecor } from "@/lib/theme-decor-plan";
 
 export type CompositorMode = "live" | "stage" | "livestream" | "ndi";
 
@@ -52,11 +53,13 @@ export type CompositorMode = "live" | "stage" | "livestream" | "ndi";
 export type SlideRenderMode = "over-video" | "transition" | "plain";
 
 /** Stable per-layer identity. Phase 2's LayerWire[] will reuse these ids.
- *  `camera` and `announcement` exist ONLY under the PP7 draw order (2026-09-18):
- *  legacy fuses the camera into the slide's over-video render and lets the route
- *  paint announcements on top, so neither is a layer there. */
-export type OutputLayerId = "camera" | "background" | "slide" | "announcement" | "theme-logo";
-export type OutputLayerKind = "camera" | "background" | "slide" | "announcement" | "theme-logo";
+ *  Listed in paint order. `camera` and `announcement` exist ONLY under the PP7
+ *  draw order (2026-09-18): legacy fuses the camera into the slide's over-video
+ *  render and lets the route paint announcements on top, so neither is a layer
+ *  there. `theme-decor` (theme gaps PR A) is theme chrome that belongs WITH the
+ *  slide — it stays above the media and the camera and below the words. */
+export type OutputLayerId = "camera" | "background" | "theme-decor" | "slide" | "announcement" | "theme-logo";
+export type OutputLayerKind = "camera" | "background" | "theme-decor" | "slide" | "announcement" | "theme-logo";
 
 interface OutputLayerBase {
   /** Stable id (z-independent) — the seam Phase 2's wire model plugs into. */
@@ -117,8 +120,20 @@ export interface ThemeLogoLayerPlan extends OutputLayerBase {
   props: Record<string, never>;
 }
 
+/**
+ * Theme gaps (PR A): the theme background + decor objects, hosted OUTSIDE the
+ * slide's transition wrapper so a decor video/animation persists across slides.
+ * Present in the list ONLY when the theme has decor (decor-less plans are
+ * byte-identical to before). Disabled over video / transparent keying / stage.
+ */
+export interface ThemeDecorLayerPlan extends OutputLayerBase {
+  id: "theme-decor";
+  kind: "theme-decor";
+  props: { overVideo: boolean; transparentBg: boolean; ignoreThemeLayout: boolean };
+}
+
 export type OutputLayerPlan =
-  | CameraLayerPlan | BackgroundLayerPlan | SlideLayerPlan
+  | CameraLayerPlan | BackgroundLayerPlan | ThemeDecorLayerPlan | SlideLayerPlan
   | AnnouncementLayerPlan | ThemeLogoLayerPlan;
 
 export interface CanvasPlan {
@@ -171,6 +186,8 @@ export interface PlanInput {
    * caller that never sets it gets byte-identical output. Set false by a
    * `logo` layer-patch (enabled:false) to blank the logo layer alone. */
   showThemeLogoOverride?: boolean;
+  /** Theme → Projector: full-screen, no theme boxes/decor (stage always). */
+  ignoreThemeLayout?: boolean;
 }
 
 export function planOutput(input: PlanInput): OutputPlan {
@@ -253,13 +270,28 @@ export function planOutput(input: PlanInput): OutputPlan {
     canvasH = 1080;
   }
 
+  const ignoreThemeLayout = mode === "stage" || !!input.ignoreThemeLayout;
+
   const layers: OutputLayerPlan[] = [];
   if (pp7 && slideVideoInput) {
-    // Video Input — the back wall, below Media (PP7 §1). Legacy has no such
+    // Video Input — the back wall, BELOW Media (PP7 §1). Legacy has no such
     // layer (OutputSlide paints the camera inside the slide layer).
     layers.push({ id: "camera", kind: "camera", z: -10, enabled: true, props: { videoInput: slideVideoInput } });
   }
   layers.push({ id: "background", kind: "background", z: 0, enabled: showBackground, props: { background } });
+  if (themeHasDecor(appearance)) {
+    // Theme decor (theme gaps PR A) is theme CHROME, not a PP7 layer: it belongs
+    // with the slide, so it sits above the media (z 0) and above the new camera
+    // layer (z -10) and below the words (z 10) — the new camera layer can never
+    // cover it. Its enable rule is untouched: over video (camera OR theme video)
+    // the decor is hosted INSIDE the slide render instead, which is still above
+    // the camera, so a live camera never hides decor either way.
+    layers.push({
+      id: "theme-decor", kind: "theme-decor", z: 5,
+      enabled: renderMode !== "over-video" && !transparent && !ignoreThemeLayout,
+      props: { overVideo, transparentBg: transparent, ignoreThemeLayout },
+    });
+  }
   layers.push({
     id: "slide", kind: "slide", z: 10, enabled: true,
     props: { renderMode, overVideo, transparentBg: transparent, videoInput: slideVideoInput, ...(cameraExternal ? { cameraExternal: true as const } : {}) },

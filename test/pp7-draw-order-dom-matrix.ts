@@ -30,6 +30,13 @@ const band: SlidePayload = { kind: "text", text: "Lower third", scriptureLayout:
 const themeLogo = { textColor: "#fff", bgColor: "#101010", logoUrl: "https://x/logo.png", logoPosition: "bottom-right" } as ThemeAppearance;
 const themeVideo = { textColor: "#fff", bgType: "video", bgVideoUrl: "https://x/t.mp4" } as ThemeAppearance;
 const media = { type: "image", imageUrl: "https://x/bg.png" } as BackgroundSpec;
+// A theme carrying DECOR (theme gaps PR A): plans the persistent `theme-decor`
+// layer between the media and the words. In the matrix so the draw-order change
+// is proved not to disturb it.
+const themeDecor = {
+  textColor: "#fff", bgColor: "#101010", logoUrl: "https://x/logo.png", logoPosition: "bottom-right",
+  layout: { lyrics: { decor: [{ id: "d1", type: "image", url: "https://x/decor.png", x: 0.1, y: 0.1, w: 0.2, h: 0.2 }] } },
+} as unknown as ThemeAppearance;
 const cam = { deviceId: "cam-1" } as VideoInputState;
 const camFull = { deviceId: "cam-1", overlay: "full" } as VideoInputState;
 const camBand = { deviceId: "cam-1", overlay: "lower_third" } as unknown as VideoInputState;
@@ -60,6 +67,11 @@ export function domMatrix(): DomFixture[] {
       { name: "announcement w/ logo + props + camera + media", mode, slide: text, appearance: themeLogo, background: media, videoInput: cam, announcement: annLogo },
       { name: "announcement, no theme logo", mode, slide: text, appearance: themeVideo, announcement: ann },
       { name: "4:3", mode, slide: text, appearance: themeLogo, background: media, aspectRatio: "4:3", announcement: ann },
+      { name: "theme decor", mode, slide: text, appearance: themeDecor },
+      { name: "theme decor + media", mode, slide: text, appearance: themeDecor, background: media },
+      { name: "theme decor + camera", mode, slide: text, appearance: themeDecor, videoInput: camFull },
+      { name: "theme decor + camera + media", mode, slide: text, appearance: themeDecor, background: media, videoInput: camFull },
+      { name: "theme decor + announcement", mode, slide: text, appearance: themeDecor, background: media, announcement: ann },
     );
     if (mode === "livestream" || mode === "ndi") {
       out.push(

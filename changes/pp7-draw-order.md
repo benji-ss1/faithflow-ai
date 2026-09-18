@@ -1,7 +1,7 @@
 ---
 headline: Layers now stack exactly like ProPresenter — media covers a live camera, props sit above announcements
 audience: operator
-version: 0.1.454
+version: 0.1.455
 date: 2026-09-18
 highlights:
   - A picture, video or motion on the Media layer now covers a live camera instead of vanishing behind it. To see the camera again, clear Media (F3).

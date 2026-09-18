@@ -28,7 +28,7 @@
  *     localStorage `presentflow.pp7Layers.v1`="0") also turns the order off.
  *
  * The flag-OFF plan is byte-locked against `test/fixtures/output-plan-main.golden.json`
- * (17,920 fixtures) by `test/pp7-draw-order.test.ts`.
+ * (22,400 fixtures) by `test/pp7-draw-order.test.ts`.
  */
 import { useEffect, useState } from "react";
 import { readPp7LayersFlag, PP7_LAYERS_STORAGE_KEY } from "./pp7-layers-flag";

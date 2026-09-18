@@ -87,7 +87,7 @@ async function main() {
   const fixtures = domMatrix();
   assert.equal(Object.keys(golden).length, fixtures.length, "golden and matrix must line up");
 
-  check("KILL SWITCH: draw order OFF renders byte-identical DOM to main, all 68 fixtures", () => {
+  check("KILL SWITCH: draw order OFF renders byte-identical DOM to main, all 88 fixtures", () => {
     const diffs = Object.keys(golden).filter((k) => golden[k] !== off[k]);
     assert.deepEqual(diffs, [], `these fixtures changed with the flag OFF:\n          ${diffs.join("\n          ")}`);
   });
@@ -147,6 +147,24 @@ async function main() {
       // that precedes it — i.e. outside the scaled canvas, exactly where the
       // routes drew it. Its own px font size is unscaled proof of that.
       assert.ok(html.includes("font-size: 32px"), `${domKey(f)}: announcement font must stay in real pixels`);
+    }
+  });
+
+  check("no regression: theme decor still paints above the media/camera and below the words", () => {
+    for (const f of fixtures) {
+      if (!f.name.startsWith("theme decor")) continue;
+      const html = on[domKey(f)];
+      const decorAt = html.indexOf("https://x/decor.png");
+      if (decorAt < 0) continue; // this surface hosts no decor (stage / keyed)
+      if (f.background) {
+        const mediaAt = html.indexOf("https://x/bg.png");
+        assert.ok(mediaAt >= 0 && mediaAt < decorAt, `${domKey(f)}: decor must paint after the media`);
+      }
+      if (f.videoInput) {
+        const camAt = html.indexOf("<video");
+        assert.ok(camAt >= 0 && camAt < decorAt, `${domKey(f)}: the camera layer must never cover the decor`);
+      }
+      assert.ok(decorAt < html.indexOf("Amazing grace"), `${domKey(f)}: decor must stay below the words`);
     }
   });
 

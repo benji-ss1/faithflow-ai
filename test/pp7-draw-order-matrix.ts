@@ -31,6 +31,12 @@ const appearances: (ThemeAppearance | null)[] = [
   { textColor: "#fff", bgColor: "#000" } as ThemeAppearance,
   { textColor: "#fff", bgType: "video", bgVideoUrl: "https://x/t.mp4" } as ThemeAppearance,
   { textColor: "#fff", logoUrl: "https://x/logo.png", logoPosition: "bottom-right" } as ThemeAppearance,
+  // A theme carrying DECOR (theme gaps PR A) — it plans an extra `theme-decor`
+  // layer, so the matrix has to exercise it or the goldens would never see it.
+  {
+    textColor: "#fff", bgColor: "#101010",
+    layout: { lyrics: { decor: [{ id: "d1", type: "image", url: "https://x/decor.png", x: 0.1, y: 0.1, w: 0.2, h: 0.2 }] } },
+  } as unknown as ThemeAppearance,
 ];
 const cameras: (VideoInputState | null)[] = [
   null,

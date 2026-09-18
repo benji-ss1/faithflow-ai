@@ -32,6 +32,8 @@ import { SlideRenderer } from "./SlideRenderer";
 import { OutputSlide } from "./OutputSlide";
 import { TransitionWrapper } from "./TransitionWrapper";
 import { ThemeLogoLayer, themeLogoPaints } from "./ThemeLayers";
+import { ThemeDecorLayer } from "./ThemeDecorLayer";
+import { themeDecorPlan } from "@/lib/theme-decor-plan";
 import { PresentationCanvas } from "./PresentationCanvas";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { LiveVideoLayer } from "./LiveVideoLayer";
@@ -55,7 +57,7 @@ import type { LayerWire } from "@/lib/broadcast";
 export { planOutput, type CompositorMode } from "@/lib/output-plan";
 export type {
   OutputPlan, SlideRenderMode, OutputLayerPlan, OutputLayerId,
-  BackgroundLayerPlan, SlideLayerPlan, ThemeLogoLayerPlan, CanvasPlan,
+  BackgroundLayerPlan, ThemeDecorLayerPlan, SlideLayerPlan, ThemeLogoLayerPlan, CanvasPlan,
 } from "@/lib/output-plan";
 
 export interface OutputCompositorProps {
@@ -204,6 +206,15 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // OBS lower-third band transform (livestream lower_third capture mode).
   const effectiveSlide: SlidePayload = obsBand ? overlayBandSlide(slide, obsBand, obsThemeColors, obsBandExtras) : slide;
 
+  // Theme gaps (PR A): when the persistent theme-decor layer is active, the
+  // slide stops painting its own theme bg/decor (only for slides the shared
+  // themeDecorPlan says carry decor). Absent layer ⇒ nothing changes.
+  const decorLayer = plan.layers.find((l) => l.id === "theme-decor" && l.enabled);
+  const decorPlan = decorLayer && decorLayer.id === "theme-decor"
+    ? themeDecorPlan(effectiveSlide, appearance, { overVideo: decorLayer.props.overVideo, transparentBg: decorLayer.props.transparentBg, ignoreThemeLayout: decorLayer.props.ignoreThemeLayout })
+    : null;
+  const chromeHosted = !!decorLayer;
+
   // Render one plan layer by its stable id. The z-ordering + enable/disable is
   // owned by planOutput; the compositor just paints enabled layers in order.
   // (Same DOM as the pre-reshape switch — this is a repackaging, not a change.)
@@ -217,7 +228,8 @@ export function OutputCompositor(props: OutputCompositorProps) {
     // would drop the video element / restart a transition). The flag-OFF legacy
     // path stays byte-identical (no wrapper at all), preserving 96-fixture parity.
     if (wrapLayers) {
-      const op = opacities[layer.id] ?? 1;
+      // Decor was part of the slide before PR A, so it follows the slide opacity.
+      const op = opacities[layer.id] ?? (layer.id === "theme-decor" ? opacities.slide : undefined) ?? 1;
       return (
         <div key={`op-${layer.id}`} className="absolute inset-0" style={{ opacity: op }}>
           {node}
@@ -249,6 +261,10 @@ export function OutputCompositor(props: OutputCompositorProps) {
       case "announcement":
         // PP7 draw order: Announcements draw BELOW Props (the theme logo).
         return <AnnouncementLayer key="announcement" ann={announcement} />;
+      case "theme-decor":
+        // Theme chrome, drawn with the slide: above the media AND above the PP7
+        // camera layer (both are below it in the plan), below the words.
+        return <ThemeDecorLayer key="theme-decor" appearance={appearance} plan={decorPlan} overVideo={layer.props.overVideo} frozen={previewFrozen} />;
       case "slide": {
         const { renderMode, overVideo, transparentBg, videoInput, cameraExternal } = layer.props;
         if (renderMode === "over-video") {
@@ -263,6 +279,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
               referenceScale={referenceScale}
               referenceColor={referenceColor}
               projectorFit
+              previewFrozen={previewFrozen}
               {...(ignoreLayout ? { ignoreThemeLayout: true } : {})}
             />
           );
@@ -280,6 +297,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
             transparentBg={transparentBg}
             videoMuted={videoMuted}
             onVideoRef={onVideoRef}
+            {...(chromeHosted ? { themeChromeHosted: true } : {})}
             {...(obsOverlay ? { obsOverlay } : {})}
             {...(ignoreLayout ? { ignoreThemeLayout: true } : {})}
           />

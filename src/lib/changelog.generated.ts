@@ -4,13 +4,27 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.454",
+    "version": "0.1.455",
     "date": "2026-09-18",
     "headline": "Layers now stack exactly like ProPresenter — media covers a live camera, props sit above announcements",
     "highlights": [
       "A picture, video or motion on the Media layer now covers a live camera instead of vanishing behind it. To see the camera again, clear Media (F3).",
       "Your church logo now sits on top of an announcement instead of underneath it, so it is never hidden.",
       "Nothing else moved — the words, backgrounds, camera overlays, stage screen and OBS overlay all look exactly as they did."
+    ]
+  },
+  {
+    "version": "0.1.454",
+    "date": "2026-09-17",
+    "headline": "Themes now come ready-made, keep their moving backgrounds smooth, and apply to many slides or a whole service at once",
+    "highlights": [
+      "Seven built-in themes (Default, Classic, Modern, Minimal, Church, Dark, Light) are in the Theme menu. Apply one straight away, or duplicate it and make it your own.",
+      "A theme's pictures, shapes and videos now also show behind slides you designed yourself, unless the slide is a full-screen picture or video.",
+      "A video in your theme keeps playing smoothly when you change slides instead of starting again.",
+      "In a song, Cmd/Ctrl-click or Shift-click to select several slides, then use Theme to apply a theme to just those slides.",
+      "Use \\\"Apply theme to all items…\\\" on a service to theme everything in it at once, with Undo.",
+      "Bible items now have a Theme option too, plus \\\"Use for all Bible verses\\\".",
+      "Removing or re-applying a theme on songs no longer leaves the old theme's background behind."
     ]
   },
   {
