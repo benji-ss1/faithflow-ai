@@ -52,15 +52,23 @@ let data: DataHealth = "unknown";
 // makes React loop).
 let snapshot: ConnectionHealth = compute();
 
-function deriveMode(): ServiceMode {
-  if (network === "offline") return "OFFLINE";
-  if (data === "degraded") return "DATA_DEGRADED";
-  if (ai === "down") return "AI_DEGRADED";
+/**
+ * Pure mapping for the three independently observed dependencies. Exported so
+ * the safety ordering stays covered by a fast, browser-free test.
+ */
+export function deriveServiceMode(
+  networkState: NetworkState,
+  aiHealth: AiHealth,
+  dataHealth: DataHealth,
+): ServiceMode {
+  if (networkState === "offline") return "OFFLINE";
+  if (dataHealth === "degraded") return "DATA_DEGRADED";
+  if (aiHealth === "down") return "AI_DEGRADED";
   return "FULLY_ONLINE";
 }
 
 function compute(): ConnectionHealth {
-  return { network, ai, data, mode: deriveMode() };
+  return { network, ai, data, mode: deriveServiceMode(network, ai, data) };
 }
 
 function emit(): void {

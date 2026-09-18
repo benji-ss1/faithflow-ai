@@ -19,9 +19,10 @@ import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
 import { cn } from "@/lib/utils";
-import { setAiHealth, startDataHealthPolling } from "@/lib/connection/connectionHealth";
+import { setAiHealth, startDataHealthPolling, useConnectionHealth } from "@/lib/connection/connectionHealth";
 import { hydratePublicDomainBibleInBackground } from "@/lib/offline/bibleHydration";
 import { ServiceModeBanner } from "@/components/system/ServiceModeBanner";
+import { AiResilienceBanner } from "@/components/system/AiResilienceBanner";
 import { useAudioStream, type Detection, type SongSuggestion, type CommandSuggestion, type UnifiedSuggestion } from "./useAudioStream";
 import type { IndexedSong } from "@/lib/ai-detection/lyric-fragment";
 import { AIAssistantPanel, ListeningToggle } from "./AIAssistantPanel";
@@ -272,6 +273,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     confidenceFloor: autoApproveProp.confidenceFloor,
     autoSendToLive: autoApproveProp.autoSendToLive,
   }), [autopilotMode, autoApproveProp.confidenceFloor, autoApproveProp.autoSendToLive]);
+  const { network } = useConnectionHealth();
   const shell = useShell(initialShell);
   const [preview, setPreview] = useState<Cursor>({ itemIdx: 0, slideIdx: 0 });
   // JPD Fix 5 (2026-07-27): restore the operator's last PREVIEW position on
@@ -906,6 +908,16 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         : "idle";
     setAiHealth(aiHealth);
   }, [audio.reconnectFailed, audio.listening, audio.ready]);
+
+  // A provider or internet outage must never leave AUTO armed. Switch to the
+  // explicit manual state once, and never re-arm it automatically when the
+  // connection recovers. The operator remains fully able to drive the show.
+  useEffect(() => {
+    if ((network === "offline" || audio.reconnectFailed) && autopilotMode === "active") {
+      setAutopilotMode("manual");
+      toast.warning("Manual mode active — AI auto-projection is off until you turn it back on.", { duration: 5000 });
+    }
+  }, [network, audio.reconnectFailed, autopilotMode, setAutopilotMode]);
 
   // Background Supabase-reachability poll → DATA_DEGRADED when it can't be
   // reached even though the internet is up. Ref-counted; stops on unmount.
@@ -2298,6 +2310,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   return (
     <>
       <ServiceModeBanner />
+      <AiResilienceBanner
+        reconnecting={audio.listening && !audio.ready && !audio.reconnectFailed}
+        unavailable={audio.reconnectFailed}
+        onRetry={restartAudio}
+      />
       <div className="fixed top-2 right-3 z-40 flex items-center gap-2">
         {/* R2: persistent "Message live" indicator so the operator can't
             forget a pinned overlay is still up (dismissAfterMs=null case). */}
