@@ -9,6 +9,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
 import { clearVideoInputLive } from "@/lib/video-input-clear";
 import { pp7MessagesLive, type Pp7ClearEffects, type Pp7LayerInputs } from "@/lib/pp7-layer-model";
+import { usePp7DrawOrder } from "@/lib/pp7-draw-order";
 import type { TimerApi, MessagesApi, TimersApi, MessagesBoardApi } from "../hooks";
 
 export function usePp7LayerInputs(ctx: OperatorShellCtx, messagesActive: boolean): Pp7LayerInputs {
@@ -17,6 +18,7 @@ export function usePp7LayerInputs(ctx: OperatorShellCtx, messagesActive: boolean
   const announcementActive = !!ctx.announcement;
   const backgroundSpecActive = !!ctx.background && ctx.background.type !== "none";
   const videoInputActive = !!ctx.videoInput;
+  const pp7DrawOrder = usePp7DrawOrder();
   return useMemo<Pp7LayerInputs>(() => ({
     kind,
     rowActive: (id: string) => !!rows.find((r) => r.id === id)?.active,
@@ -24,7 +26,8 @@ export function usePp7LayerInputs(ctx: OperatorShellCtx, messagesActive: boolean
     backgroundSpecActive,
     videoInputActive,
     messagesActive,
-  }), [kind, rows, announcementActive, backgroundSpecActive, videoInputActive, messagesActive]);
+    pp7DrawOrder,
+  }), [kind, rows, announcementActive, backgroundSpecActive, videoInputActive, messagesActive, pp7DrawOrder]);
 }
 
 export function usePp7ClearEffects(ctx: OperatorShellCtx, onClearMessages: () => void): Pp7ClearEffects {

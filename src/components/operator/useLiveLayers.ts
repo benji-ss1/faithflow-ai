@@ -58,6 +58,7 @@ import {
   type VideoInputState,
 } from "@/lib/broadcast";
 import { outputStateToLayers } from "@/lib/output-layers";
+import { usePp7DrawOrder } from "@/lib/pp7-draw-order";
 import { reconcileBackgroundOnBaseChange, shouldRearmSlideOnSend } from "@/lib/layer-store";
 
 /** The subset of OutputState the derived layer stack needs. */
@@ -219,6 +220,10 @@ export function useLiveLayers(
   enabled: boolean,
 ): UseLiveLayers {
   const [overrideMap, setOverrideMap] = useState<Map<string, LayerWire>>(() => new Map());
+  // PP7 draw order: the derived stack must agree with what the projector paints
+  // (camera below media, announcements below props) or the operator's live dots
+  // lie. Mount-read, so the first render matches the server (flag off).
+  const pp7DrawOrder = usePp7DrawOrder();
 
   // Wave 5A: which layers were hidden via the EYE toggle (as opposed to a CLEAR/
   // trash block). An eye-hide is NON-DESTRUCTIVE and PERSISTS across slide
@@ -253,8 +258,8 @@ export function useLiveLayers(
       appearance: input.appearance ?? null,
       videoInput: input.videoInput ?? null,
     };
-    return outputStateToLayers(state, { mode: "live" });
-  }, [input.live, input.background, input.appearance, input.videoInput]);
+    return outputStateToLayers(state, { mode: "live", pp7DrawOrder });
+  }, [input.live, input.background, input.appearance, input.videoInput, pp7DrawOrder]);
 
   const overrides = useMemo(() => Array.from(overrideMap.values()), [overrideMap]);
 

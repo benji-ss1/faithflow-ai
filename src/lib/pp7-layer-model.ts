@@ -29,6 +29,13 @@ export type Pp7LayerInputs = {
   videoInputActive: boolean;
   /** Messages/timers showing (PP7 shows timers through the Messages layer). */
   messagesActive: boolean;
+  /**
+   * PP7 draw order is on (src/lib/pp7-draw-order.ts). With Media ABOVE Video
+   * Input the derived `background` row is no longer switched off by a live
+   * camera, so the media live-state reads it directly instead of compensating.
+   * Undefined/false ⇒ the legacy compensation, unchanged.
+   */
+  pp7DrawOrder?: boolean;
 };
 
 /** Which PP7 layers this build can actually drive. Audio has no layer yet. */
@@ -51,10 +58,14 @@ export function pp7LayerActive(i: Pp7LayerInputs): Record<Pp7ClearLayer, boolean
     props: i.rowActive("logo"),
     announcements: i.announcementActive,
     slide: !isEmptySlideKind(kind) && !isMediaSlideKind(kind) && i.rowActive("slide"),
-    // The background row is off while a camera is live (legacy plan), but under
-    // PP7 order the media still paints over the camera — read the base too.
+    // PP7 draw order: Media draws ABOVE Video Input, so the derived background
+    // row stays on with a camera live and this is simply "is the media row on".
+    // LEGACY: the background row is switched off while a camera is live (the
+    // camera-wins rule), so the media state had to be compensated with a second
+    // clause reading the raw spec — one rule expressed twice, which is exactly
+    // what the draw-order fix removes.
     media: i.rowActive("background")
-      || (i.backgroundSpecActive && i.videoInputActive)
+      || (!i.pp7DrawOrder && i.backgroundSpecActive && i.videoInputActive)
       || (isMediaSlideKind(kind) && i.rowActive("slide")),
     videoInput: i.videoInputActive && i.rowActive("camera"),
   };
