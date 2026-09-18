@@ -4,6 +4,18 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.457",
+    "date": "2026-09-18",
+    "headline": "Rulers, a grid and a transparency checker for the slide and theme editor",
+    "highlights": [
+      "A new View button in the editor's bottom bar turns on rulers along the top and left edges, a grid over the slide, and a checkerboard that shows where a slide has no background of its own.",
+      "The rulers show a marker that follows your pointer, so you can line things up by eye.",
+      "Everything is off to start with and PresentFlow remembers what you switched on, on this computer.",
+      "Snap guides — the lines that appear while you drag something into line — work exactly as before, and you can now switch them off from the same menu.",
+      "On a short screen the rulers hide themselves so the slide stays big enough to work on."
+    ]
+  },
+  {
     "version": "0.1.456",
     "date": "2026-09-18",
     "headline": "Adding a text box, shape, image or video to a slide is now one click above the canvas",

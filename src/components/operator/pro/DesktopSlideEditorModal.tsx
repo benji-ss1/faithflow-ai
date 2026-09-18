@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon, PanelLeftClose, PanelLeftOpen, PanelBottom, Palette, Link2, Link2Off, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import * as Popover from "@radix-ui/react-popover";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon, PanelLeftClose, PanelLeftOpen, PanelBottom, Palette, Ruler, Check, Link2, Link2Off, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { LayoutDefaultControl } from "@/components/operator/layout/LayoutDefaultControl";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor, type EditableSlide } from "../editor/useSlideEditor";
@@ -29,6 +30,7 @@ import { CANVAS_W, CANVAS_H, newObjectId } from "@/lib/slide-objects";
 import { loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, type CustomTemplate } from "@/lib/custom-templates";
 import { cn } from "@/lib/utils";
 import { OBJECT_TOOLBAR_ITEMS, type EditorObjectSource } from "@/lib/editor-toolbar";
+import { DEFAULT_VIEW_PREFS, loadViewPrefs, saveViewPrefs, type EditorViewPrefs } from "@/lib/editor-view-prefs";
 import { boundingRect, formatRectStatus, stepZoom, zoomLabel, lockedSizePatch, type EditorZoom } from "@/lib/editor-geometry";
 
 /**
@@ -140,6 +142,14 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
   // constrains drag-resize to the object's ratio.
   const [zoom, setZoom] = useState<EditorZoom>(null);
   const [lockAspect, setLockAspect] = useState(false);
+  // View options (rulers / grid / transparency grid / snap guides). Remembered
+  // per operator in localStorage, never in the DB. Loaded after mount so the
+  // server and the first client render agree (docs/WINDOWS_DESIGN.md §1).
+  const [viewPrefs, setViewPrefs] = useState<EditorViewPrefs>(DEFAULT_VIEW_PREFS);
+  useEffect(() => { setViewPrefs(loadViewPrefs()); }, []);
+  const toggleView = useCallback((k: keyof EditorViewPrefs) => {
+    setViewPrefs((p) => { const next = { ...p, [k]: !p[k] }; saveViewPrefs(next); return next; });
+  }, []);
   // Left slide rail is collapsible; remember the operator's choice.
   const [railOpen, setRailOpen] = useState(true);
   useEffect(() => {
@@ -578,6 +588,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                     readOnly={false}
                     zoom={zoom}
                     lockAspect={lockAspect}
+                    view={viewPrefs}
                   />
                 ) : (
                   <div className="w-full h-full grid place-items-center text-[12px] text-[var(--color-muted-foreground)]">
@@ -585,7 +596,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                   </div>
                 )}
               </div>
-              {isSong && <EditorStatusBar editor={editor} zoom={zoom} setZoom={setZoom} />}
+              {isSong && <EditorStatusBar editor={editor} zoom={zoom} setZoom={setZoom} view={viewPrefs} toggleView={toggleView} />}
               {isSong && <CanvasWarnings slide={editor.currentSlide} />}
               {themeMode && editor.currentSlide && themeMeta[editor.currentSlide.id]?.role === "scripture" && !verseTextOf(editor.currentSlide.objects) && (
                 <div className="shrink-0 flex flex-wrap gap-1 px-3 py-1.5 border-t bg-amber-500/5" style={{ borderColor: "#2a3232" }}>
@@ -815,12 +826,66 @@ function ObjectToolbar({ editor, addFocus }: { editor: Editor; addFocus: (fn: ()
   );
 }
 
+// ── View menu (PP7 parity: rulers / grid / transparency grid / guides) ────
+// All OFF by default except the snap guides, which already shipped ON — turning
+// those off by default would be a regression, not parity. Choices are per
+// operator (localStorage), never in the DB and never part of a theme or slide.
+//
+// Windows: a real <button> trigger with a visible label (not an icon-only,
+// hover-only affordance), checkbox rows with a visible tick, and the content is
+// height-capped + scrollable so it can't run off a 512 CSS px tall screen.
+const VIEW_ROWS: { key: keyof EditorViewPrefs; label: string; hint: string }[] = [
+  { key: "rulers", label: "Rulers", hint: "Measure along the top and left edges" },
+  { key: "grid", label: "Grid", hint: "Faint lines across the slide" },
+  { key: "transparencyGrid", label: "Transparency grid", hint: "Checkerboard where the slide has no background" },
+  { key: "snapGuides", label: "Snap guides", hint: "Line things up while you drag" },
+];
+
+function ViewMenu({ view, toggleView }: { view: EditorViewPrefs; toggleView: (k: keyof EditorViewPrefs) => void }) {
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button type="button" title="Show or hide rulers, grid and guides"
+          className="h-6 px-2 rounded border inline-flex items-center gap-1 font-semibold hover:bg-[var(--color-brand)]/10"
+          style={segOff}>
+          <Ruler className="w-3 h-3" /> View
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content sideOffset={6} align="end" collisionPadding={8}
+          className="z-[80] w-[250px] max-w-[calc(100vw-24px)] max-h-[60vh] overflow-y-auto rounded-lg border p-1.5 shadow-[var(--shadow-md)]"
+          style={{ borderColor: HAIR, background: PANEL }}>
+          {VIEW_ROWS.map((r) => {
+            const on = view[r.key];
+            return (
+              <button key={r.key} type="button" onClick={() => toggleView(r.key)} role="checkbox" aria-checked={on}
+                className="w-full text-left rounded-md px-2 py-1.5 flex items-start gap-2 hover:bg-[var(--color-brand)]/10">
+                <span className="mt-px w-3.5 h-3.5 shrink-0 rounded-[3px] border inline-flex items-center justify-center"
+                  style={{ borderColor: on ? AMBER : "var(--color-border)", background: on ? AMBER : "transparent" }}>
+                  {on && <Check className="w-2.5 h-2.5 text-black" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-semibold text-[var(--color-foreground)]">{r.label}</span>
+                  <span className="block text-[10px] leading-snug text-[var(--color-muted-foreground)]">{r.hint}</span>
+                </span>
+              </button>
+            );
+          })}
+          <p className="px-2 pt-1 pb-0.5 text-[9.5px] leading-snug text-[var(--color-muted-foreground)]">
+            Rulers hide themselves automatically on a short screen so the slide stays big enough to work on.
+          </p>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 // ── Status bar (PP7 parity: X / Y / W / H of the selection + zoom) ────────
 // Read-only readout. It reflects the SAME numbers as the Design panel's X/Y/W/H
 // inputs (canvas units, origin top-left) and updates live while dragging,
 // because a drag writes straight into editor state. With several objects
 // selected it shows their bounding box, like ProPresenter does.
-function EditorStatusBar({ editor, zoom, setZoom }: { editor: Editor; zoom: EditorZoom; setZoom: (z: EditorZoom) => void }) {
+function EditorStatusBar({ editor, zoom, setZoom, view, toggleView }: { editor: Editor; zoom: EditorZoom; setZoom: (z: EditorZoom) => void; view: EditorViewPrefs; toggleView: (k: keyof EditorViewPrefs) => void }) {
   const slide = editor.currentSlide;
   const ids = editor.selectedObjectIds;
   const sel = (slide?.objects ?? []).filter((o) => ids.includes(o.id));
@@ -837,6 +902,8 @@ function EditorStatusBar({ editor, zoom, setZoom }: { editor: Editor; zoom: Edit
       </div>
       <span className="shrink-0 text-[var(--color-muted-foreground)]">{CANVAS_W}×{CANVAS_H}</span>
       <div className="ml-auto shrink-0 flex items-center gap-1">
+        <ViewMenu view={view} toggleView={toggleView} />
+        <span className="w-px h-4" style={{ background: HAIR }} />
         <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => setZoom(stepZoom(zoom, -1))}
           className="h-6 w-6 rounded border inline-flex items-center justify-center hover:bg-[var(--color-brand)]/10" style={segOff}>
           <ZoomOut className="w-3.5 h-3.5" />

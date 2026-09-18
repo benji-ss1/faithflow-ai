@@ -164,3 +164,4 @@ test/pp7-rail-parity.test.tsx
 test/pp7-layers-panel.test.tsx
 test/editor-geometry.test.ts
 test/editor-toolbar.test.ts
+test/editor-rulers.test.ts
