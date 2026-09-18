@@ -1,4 +1,4 @@
-import { deriveServiceMode } from "../src/lib/connection/connectionHealth";
+import { deriveServiceMode, resolveAutopilotModeForResilience } from "../src/lib/connection/connectionHealth";
 
 let failed = 0;
 function expect(actual: unknown, expected: unknown, label: string) {
@@ -18,5 +18,14 @@ expect(deriveServiceMode("online", "down", "ok"), "AI_DEGRADED", "AI failure sel
 // The safest available mode always wins.
 expect(deriveServiceMode("online", "down", "degraded"), "DATA_DEGRADED", "data outage outranks AI outage");
 expect(deriveServiceMode("offline", "down", "degraded"), "OFFLINE", "offline local mode outranks every remote outage");
+
+// No-regression guard: outages only disarm AUTO. They never stop manual
+// presentation, and reconnect/recovery can never silently re-arm AUTO.
+expect(resolveAutopilotModeForResilience("active", "online", "live"), "active", "AI live preserves AUTO");
+expect(resolveAutopilotModeForResilience("active", "online", "reconnecting"), "active", "short reconnect preserves AUTO");
+expect(resolveAutopilotModeForResilience("active", "online", "down"), "manual", "terminal AI outage disarms AUTO");
+expect(resolveAutopilotModeForResilience("active", "offline", "live"), "manual", "offline state disarms AUTO");
+expect(resolveAutopilotModeForResilience("manual", "online", "live"), "manual", "recovery never re-arms AUTO");
+expect(resolveAutopilotModeForResilience("suggestion", "online", "live"), "suggestion", "operator-selected suggestion mode is preserved");
 
 if (failed > 0) process.exit(1);

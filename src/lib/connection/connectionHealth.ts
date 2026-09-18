@@ -34,6 +34,7 @@ export type NetworkState = "online" | "offline";
 export type AiHealth = "live" | "reconnecting" | "down" | "idle";
 export type DataHealth = "ok" | "degraded" | "unknown";
 export type ServiceMode = "FULLY_ONLINE" | "AI_DEGRADED" | "DATA_DEGRADED" | "OFFLINE";
+export type AutopilotSafetyMode = "manual" | "suggestion" | "armed" | "active";
 
 export type ConnectionHealth = {
   network: NetworkState;
@@ -65,6 +66,24 @@ export function deriveServiceMode(
   if (dataHealth === "degraded") return "DATA_DEGRADED";
   if (aiHealth === "down") return "AI_DEGRADED";
   return "FULLY_ONLINE";
+}
+
+/**
+ * Safety boundary for automatic projection during a resilience event.
+ *
+ * A short AI reconnect is intentionally a no-op: the listener already has a
+ * bounded retry loop and changing the operator's mode would be disruptive.
+ * A terminal AI failure or loss of internet disarms AUTO exactly once. The
+ * recovery path returns the current mode unchanged, so AUTO can only be
+ * re-enabled by an explicit operator action.
+ */
+export function resolveAutopilotModeForResilience(
+  mode: AutopilotSafetyMode,
+  networkState: NetworkState,
+  aiHealth: AiHealth,
+): AutopilotSafetyMode {
+  if (mode === "active" && (networkState === "offline" || aiHealth === "down")) return "manual";
+  return mode;
 }
 
 function compute(): ConnectionHealth {

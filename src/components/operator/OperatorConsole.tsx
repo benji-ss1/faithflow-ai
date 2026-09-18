@@ -19,7 +19,7 @@ import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
 import { cn } from "@/lib/utils";
-import { setAiHealth, startDataHealthPolling, useConnectionHealth } from "@/lib/connection/connectionHealth";
+import { resolveAutopilotModeForResilience, setAiHealth, startDataHealthPolling, useConnectionHealth } from "@/lib/connection/connectionHealth";
 import { hydratePublicDomainBibleInBackground } from "@/lib/offline/bibleHydration";
 import { ServiceModeBanner } from "@/components/system/ServiceModeBanner";
 import { AiResilienceBanner } from "@/components/system/AiResilienceBanner";
@@ -913,11 +913,16 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // explicit manual state once, and never re-arm it automatically when the
   // connection recovers. The operator remains fully able to drive the show.
   useEffect(() => {
-    if ((network === "offline" || audio.reconnectFailed) && autopilotMode === "active") {
-      setAutopilotMode("manual");
+    const safeMode = resolveAutopilotModeForResilience(
+      autopilotMode,
+      network,
+      audio.reconnectFailed ? "down" : (audio.listening ? (audio.ready ? "live" : "reconnecting") : "idle"),
+    );
+    if (safeMode !== autopilotMode) {
+      setAutopilotMode(safeMode);
       toast.warning("Manual mode active — AI auto-projection is off until you turn it back on.", { duration: 5000 });
     }
-  }, [network, audio.reconnectFailed, autopilotMode, setAutopilotMode]);
+  }, [network, audio.reconnectFailed, audio.listening, audio.ready, autopilotMode, setAutopilotMode]);
 
   // Background Supabase-reachability poll → DATA_DEGRADED when it can't be
   // reached even though the internet is up. Ref-counted; stops on unmount.
