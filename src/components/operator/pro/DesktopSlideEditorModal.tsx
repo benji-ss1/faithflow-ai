@@ -30,6 +30,7 @@ import { CANVAS_W, CANVAS_H, newObjectId } from "@/lib/slide-objects";
 import { loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, type CustomTemplate } from "@/lib/custom-templates";
 import { cn } from "@/lib/utils";
 import { OBJECT_TOOLBAR_ITEMS, type EditorObjectSource } from "@/lib/editor-toolbar";
+import { INSPECTOR_SECTIONS, sectionsForKind, type InspectorSection } from "@/lib/editor-inspector";
 import { DEFAULT_VIEW_PREFS, loadViewPrefs, saveViewPrefs, type EditorViewPrefs } from "@/lib/editor-view-prefs";
 import { boundingRect, formatRectStatus, stepZoom, zoomLabel, lockedSizePatch, type EditorZoom } from "@/lib/editor-geometry";
 
@@ -826,7 +827,7 @@ function ObjectToolbar({ editor, addFocus }: { editor: Editor; addFocus: (fn: ()
   );
 }
 
-// ── View menu (PP7 parity: rulers / grid / transparency grid / guides) ────
+// ── View menu (PP7 parity: rulers / grid / snap guides) ───────────────────
 // All OFF by default except the snap guides, which already shipped ON — turning
 // those off by default would be a regression, not parity. Choices are per
 // operator (localStorage), never in the DB and never part of a theme or slide.
@@ -837,7 +838,6 @@ function ObjectToolbar({ editor, addFocus }: { editor: Editor; addFocus: (fn: ()
 const VIEW_ROWS: { key: keyof EditorViewPrefs; label: string; hint: string }[] = [
   { key: "rulers", label: "Rulers", hint: "Measure along the top and left edges" },
   { key: "grid", label: "Grid", hint: "Faint lines across the slide" },
-  { key: "transparencyGrid", label: "Transparency grid", hint: "Checkerboard where the slide has no background" },
   { key: "snapGuides", label: "Snap guides", hint: "Line things up while you drag" },
 ];
 
@@ -931,6 +931,14 @@ function DesignPanel({ editor, themeMode = false, lockAspect = false, setLockAsp
   const multi = selIds.length > 1;
   const [clip, setClip] = useState<SlideObject | null>(null);
   const upd = (patch: Partial<SlideObject>) => { if (selected) editor.updateObject(selected.id, patch); };
+  // PP7 groups the inspector into Shape / Text / Build. Same controls, same
+  // state, just findable — nothing was added or removed in the move (the
+  // inventory in src/lib/editor-inspector.ts is test-locked against this panel).
+  const [section, setSection] = useState<InspectorSection>("shape");
+  const available = selected ? sectionsForKind(selected.kind) : [];
+  // Selecting a shape while the Text tab is open must not leave a dead tab
+  // showing: fall back to the first section this kind actually has.
+  const activeSection: InspectorSection = available.includes(section) ? section : (available[0] ?? "shape");
 
   if (multi) {
     return (
@@ -992,6 +1000,20 @@ function DesignPanel({ editor, themeMode = false, lockAspect = false, setLockAsp
         </button>
       )}
 
+      {available.length > 1 && (
+        <div role="tablist" aria-label="Object properties" className="grid gap-1" style={{ gridTemplateColumns: `repeat(${available.length}, minmax(0, 1fr))` }}>
+          {INSPECTOR_SECTIONS.filter((sec) => available.includes(sec.id)).map((sec) => {
+            const on = activeSection === sec.id;
+            return (
+              <button key={sec.id} type="button" role="tab" aria-selected={on} onClick={() => setSection(sec.id)}
+                className="h-7 rounded-md border text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10"
+                style={on ? segOn : segOff}>{sec.label}</button>
+            );
+          })}
+        </div>
+      )}
+
+      {activeSection === "shape" && <>
       <div><span className={rowCls}>Layer order</span><div className="flex gap-0.5">
         <ZBtn icon={ChevronsDown} title="Send to back" onClick={() => editor.reorderObject(selected.id, "back")} />
         <ZBtn icon={ArrowDown} title="Send backward" onClick={() => editor.reorderObject(selected.id, "backward")} />
@@ -1011,13 +1033,6 @@ function DesignPanel({ editor, themeMode = false, lockAspect = false, setLockAsp
           <AlignBtn label="B" onClick={() => upd({ y: CANVAS_H - selected.h })} />
         </div></div>
       </div>
-
-      <div><span className={rowCls}>Entrance</span><div className="flex gap-1.5">
-        <select value={selected.anim ?? "none"} onChange={(e) => upd({ anim: e.target.value as ObjectAnim })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
-          {(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom"] as const).map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <input type="number" min={0} max={10000} step={100} value={selected.animDelayMs ?? 0} onChange={(e) => upd({ animDelayMs: Number(e.target.value) })} title="Delay (ms)" className="w-16 h-8 px-1.5 rounded-md border text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none" style={{ borderColor: "var(--color-border)" }} />
-      </div></div>
 
       <div className="grid grid-cols-4 gap-1.5">
         <div><span className={rowCls}>X</span><input type="number" value={Math.round(selected.x)} onChange={(e) => upd({ x: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
@@ -1050,6 +1065,12 @@ function DesignPanel({ editor, themeMode = false, lockAspect = false, setLockAsp
       <div><span className={rowCls}>Opacity — {Math.round((selected.opacity ?? 1) * 100)}%</span>
         <input type="range" min={0} max={100} value={(selected.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
 
+      {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
+      {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}
+      {selected.kind === "video" && <VideoProps o={selected} upd={upd} />}
+      </>}
+
+      {activeSection === "text" && <>
       {selected.kind === "text" && themeMode && (
         <div><span className={rowCls}>This text box shows</span><div role="group" aria-label="This text box shows" className="flex gap-0.5">
           {([["main", "Lyrics"], ["verse", "Verse"], ["reference", "Reference"]] as const).map(([r, label]) => (
@@ -1058,9 +1079,17 @@ function DesignPanel({ editor, themeMode = false, lockAspect = false, setLockAsp
         </div></div>
       )}
       {selected.kind === "text" && <TextProps o={selected} upd={upd} guardEmptySize={themeMode} />}
-      {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
-      {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}
-      {selected.kind === "video" && <VideoProps o={selected} upd={upd} />}
+      </>}
+
+      {activeSection === "build" && <>
+      <div><span className={rowCls}>Entrance</span><div className="flex gap-1.5">
+        <select value={selected.anim ?? "none"} onChange={(e) => upd({ anim: e.target.value as ObjectAnim })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
+          {(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom"] as const).map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <input type="number" min={0} max={10000} step={100} value={selected.animDelayMs ?? 0} onChange={(e) => upd({ animDelayMs: Number(e.target.value) })} title="Delay (ms)" className="w-16 h-8 px-1.5 rounded-md border text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none" style={{ borderColor: "var(--color-border)" }} />
+      </div></div>
+
+      </>}
     </div>
   );
 }

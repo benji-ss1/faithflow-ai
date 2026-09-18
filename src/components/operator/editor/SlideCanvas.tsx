@@ -364,16 +364,6 @@ export function SlideCanvas({
           } : undefined}
           onMouseLeave={showRulers ? () => setPointer(null) : undefined}
         >
-          {/* Transparency checker — only where the slide has NO background of its
-              own, so it can never hide something the operator set. Painted, not
-              laid out: it changes no geometry. */}
-          {view.transparencyGrid && !slide.bgColor && !slide.bgImageUrl && !backgroundNode && (
-            <div className="pointer-events-none absolute inset-0 z-0" aria-hidden style={{
-              backgroundImage: "linear-gradient(45deg,#2a2a2e 25%,transparent 25%),linear-gradient(-45deg,#2a2a2e 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#2a2a2e 75%),linear-gradient(-45deg,transparent 75%,#2a2a2e 75%)",
-              backgroundSize: "24px 24px",
-              backgroundPosition: "0 0,0 12px,12px -12px,-12px 0",
-            }} />
-          )}
           {/* Grid — sixteenths of the canvas, in PERCENT so it stays true at
               every zoom and window size. Sits under every object. */}
           {view.grid && (

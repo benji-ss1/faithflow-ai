@@ -1,8 +1,14 @@
-// Editor "view options" — rulers, grid, transparency grid, snap guides.
+// Editor "view options" — rulers, grid, snap guides.
 //
 // ProPresenter treats these as view toggles rather than always-on chrome, and so
 // do we: every one is OFF by default except the snap guides, which already
 // existed and shipped ON (turning them off by default would be a regression).
+//
+// There is deliberately NO transparency-grid toggle here. The editor already
+// paints a checkerboard BEHIND the canvas (the modal's CHECKER backdrop), which
+// is what operators already know; a second one inside the canvas was built and
+// then removed on the owner's call (2026-09-18) because two checkerboards are
+// confusing. The existing backdrop is untouched.
 // The choices are remembered PER OPERATOR in localStorage — never in the DB,
 // never published, never part of a theme or a slide.
 //
@@ -13,8 +19,6 @@ export type EditorViewPrefs = {
   rulers: boolean;
   /** Faint grid over the canvas. */
   grid: boolean;
-  /** Checkerboard behind a slide that has no background of its own. */
-  transparencyGrid: boolean;
   /** The existing drag-time alignment guides. Shipped ON — stays ON. */
   snapGuides: boolean;
 };
@@ -22,7 +26,6 @@ export type EditorViewPrefs = {
 export const DEFAULT_VIEW_PREFS: EditorViewPrefs = {
   rulers: false,
   grid: false,
-  transparencyGrid: false,
   snapGuides: true,
 };
 

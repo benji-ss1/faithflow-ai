@@ -20,10 +20,20 @@ const modalSrc = readFileSync(new URL("../src/components/operator/pro/DesktopSli
 
 // ---------- defaults --------------------------------------------------------
 
-test("rulers, grid and the transparency grid are OFF by default", () => {
+test("rulers and grid are OFF by default", () => {
   assert.equal(DEFAULT_VIEW_PREFS.rulers, false);
   assert.equal(DEFAULT_VIEW_PREFS.grid, false);
-  assert.equal(DEFAULT_VIEW_PREFS.transparencyGrid, false);
+});
+
+// Owner's call, 2026-09-18: a second checkerboard inside the canvas was built
+// and then dropped — the modal already paints one BEHIND the canvas and that is
+// the one operators know. The existing backdrop is deliberately untouched.
+test("there is no second transparency-grid toggle", () => {
+  assert.equal("transparencyGrid" in DEFAULT_VIEW_PREFS, false);
+  assert.ok(!modalSrc.includes("Transparency grid"), "the View menu must not offer one");
+  assert.ok(!canvasSrc.includes("transparencyGrid"), "the canvas must not paint one");
+  // …and the pre-existing backdrop is still there.
+  assert.match(modalSrc, /backgroundImage: CHECKER/);
 });
 
 test("NO REGRESSION — snap guides stay ON by default (they already shipped on)", () => {
@@ -145,16 +155,12 @@ test("PARITY — every in-canvas overlay is still positioned in percent", () => 
   assert.match(canvasSrc, /left: `\$\{\(obj\.x \/ CANVAS_W\) \* 100\}%`/);
 });
 
-test("PARITY — the grid and checker paint inside the canvas without laying anything out", () => {
-  for (const frag of ["view.transparencyGrid", "view.grid"]) {
-    const at = canvasSrc.indexOf(frag);
-    assert.ok(at > canvasSrc.indexOf("data-canvas-inner"), `${frag} must render inside the canvas box`);
-  }
+test("PARITY — the grid paints inside the canvas without laying anything out", () => {
+  assert.ok(canvasSrc.indexOf("view.grid") > canvasSrc.indexOf("data-canvas-inner"),
+    "the grid must render inside the canvas box");
   // Both are click-through and sit under every object.
   const gridBlock = canvasSrc.slice(canvasSrc.indexOf("view.grid"), canvasSrc.indexOf("view.grid") + 400);
   assert.match(gridBlock, /pointer-events-none absolute inset-0 z-0/);
-  // The checker never covers a background the operator set.
-  assert.match(canvasSrc, /view\.transparencyGrid && !slide\.bgColor && !slide\.bgImageUrl && !backgroundNode/);
 });
 
 test("PARITY — with no view prop the canvas behaves exactly as before", () => {
@@ -192,7 +198,7 @@ test("PARITY — no output renderer imports the editor's view prefs", () => {
   ];
   for (const f of outputs) {
     const out = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
-    for (const banned of ["editor-view-prefs", "rulerTicks", "transparencyGrid", "snapGuides", "RULER_"]) {
+    for (const banned of ["editor-view-prefs", "rulerTicks", "snapGuides", "RULER_"]) {
       assert.ok(!out.includes(banned), `${f} must not know about ${banned}`);
     }
   }
