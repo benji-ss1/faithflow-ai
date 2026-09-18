@@ -4,6 +4,15 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.459",
+    "date": "2026-09-18",
+    "headline": "Live audio is more resilient as churches grow",
+    "highlights": [
+      "Live audio now has two warm backup machines running behind the same service.",
+      "Old transcript records are cleaned up automatically according to each church's retention setting."
+    ]
+  },
+  {
     "version": "0.1.458",
     "date": "2026-09-18",
     "headline": "The editor's properties panel is now split into Shape, Text and Build",
