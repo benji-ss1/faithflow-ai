@@ -21,7 +21,6 @@ import { Camera, Film } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
-import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import type { LayerWire, OutputState } from "@/lib/broadcast";
 import {
   OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, OBS_PREVIEW_EVENT,
@@ -134,8 +133,7 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
       {scale > 0 && (
         <div className="absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${scale})` }}>
           <div className={stage ? "absolute inset-x-0 top-0 h-[72%]" : "absolute inset-0"}>
-            <OutputCompositor {...view.props} />
-            <AnnouncementLayer ann={view.announcement} />
+            <OutputCompositor {...view.props} announcement={view.announcement} />
           </div>
           {stage && (
             <div className="absolute inset-x-0 bottom-0 h-[28%] border-t-4 border-white/10 bg-white/[0.02]">

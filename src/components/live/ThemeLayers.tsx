@@ -89,8 +89,17 @@ const LOGO_POS_CLASS: Record<string, string> = {
  * surface at the theme's chosen corner/position, size (% of output width), and
  * opacity. Non-interactive; renders nothing when the theme has no logo.
  */
+/** Does the theme logo (PP7's Props layer) actually paint? Nothing configured,
+ *  or position "none", means the layer is a no-op — the compositor uses this to
+ *  avoid building output structure around a layer that paints nothing. */
+export function themeLogoPaints(
+  appearance?: ThemeAppearance | null,
+): appearance is ThemeAppearance & { logoUrl: string } {
+  return !!appearance?.logoUrl && appearance.logoPosition !== "none";
+}
+
 export function ThemeLogoLayer({ appearance }: { appearance?: ThemeAppearance | null }) {
-  if (!appearance?.logoUrl || appearance.logoPosition === "none") return null;
+  if (!themeLogoPaints(appearance)) return null;
   const pos = appearance.logoPosition ?? "bottom-right";
   const posClass = LOGO_POS_CLASS[pos] ?? LOGO_POS_CLASS["bottom-right"];
   const width = `${appearance.logoSizePct ?? 12}%`;

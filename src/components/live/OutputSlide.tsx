@@ -26,7 +26,7 @@ export function hasVideoBackground(videoInput?: VideoInputState | null, appearan
  * normally. The video layer is a sibling of the overlay (not wrapped by any
  * slide-keyed element), so slide changes never restart the video.
  */
-export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef, mediaNode, ignoreThemeLayout }: {
+export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef, cameraExternal = false, ignoreThemeLayout }: {
   slide: SlidePayload;
   videoInput?: VideoInputState | null;
   appearance?: ThemeAppearance | null;
@@ -36,8 +36,11 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
   projectorFit?: boolean;
   videoMuted?: boolean;
   onVideoRef?: (el: HTMLVideoElement | null) => void;
-  /** ProPresenter 7: Media layer drawn above the live camera, below the words. */
-  mediaNode?: React.ReactNode;
+  /** PP7 draw order (src/lib/pp7-draw-order.ts): the camera is painted by its
+   *  OWN layer BELOW the media, so this composite must NOT paint it again — it
+   *  keeps `videoInput` only to lay the words out (full-screen scrim vs the
+   *  lower-third band). Absent/false = legacy, this component paints the camera. */
+  cameraExternal?: boolean;
   /** Theme → Projector (PR 2): full-screen (stage). */
   ignoreThemeLayout?: boolean;
 }) {
@@ -60,9 +63,8 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
     return (
       <div className="absolute inset-0">
         {videoInput
-          ? <LiveVideoLayer input={videoInput} />
+          ? (cameraExternal ? null : <LiveVideoLayer input={videoInput} />)
           : <ThemeVideoBackground url={themeVideoUrl!} dim={appearance?.dim} />}
-        {videoInput && mediaNode ? <div className="absolute inset-0">{mediaNode}</div> : null}
         {slide.kind !== "empty" && (
           isOverlayKind ? (
             <div className={containerClass}>

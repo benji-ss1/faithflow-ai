@@ -7,7 +7,6 @@ import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStal
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
-import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 
 // Module-scope, capture-phase suppressor. Runs before React/Next dev-overlay
 // listeners so a stray DOM Event rejection (autoplay block, fullscreen deny,
@@ -599,11 +598,9 @@ export default function LivePage() {
               scene={scene}
               scenesPossible={scenesPossible}
               screen="main"
+              announcement={sceneHidesLayer(scene, "main", "announcement") ? null : announcement}
             />
           </div>
-          {/* Scenes: the announcement layer is drawn by the route, so its per-screen
-              routing is applied here (the compositor never sees it). */}
-          <AnnouncementLayer ann={sceneHidesLayer(scene, "main", "announcement") ? null : announcement} />
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
               placement keeps overlays off the slide text unless the operator
               explicitly picks "center". */}

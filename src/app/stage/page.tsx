@@ -9,7 +9,6 @@ import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStal
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
-import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 
 if (typeof window !== "undefined" && !(window as unknown as { __ffStageGuarded?: boolean }).__ffStageGuarded) {
   (window as unknown as { __ffStageGuarded: boolean }).__ffStageGuarded = true;
@@ -409,9 +408,8 @@ export default function StagePage() {
           scene={scene}
         scenesPossible={scenesPossible}
           screen="stage"
+          announcement={sceneHidesLayer(scene, "stage", "announcement") ? null : announcement}
         />
-        {/* Scenes: route-drawn layer, so routed here (see /live). */}
-        <AnnouncementLayer ann={sceneHidesLayer(scene, "stage", "announcement") ? null : announcement} />
         {/* Operator message — a slim bar over the bottom of the current area, only
             when the operator actually sends one (no dead placeholder). */}
         {operatorMessage && (
