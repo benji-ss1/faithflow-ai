@@ -27,6 +27,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { LayerRow } from "../../useLiveLayers";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
+import { clearVideoInputLive } from "@/lib/video-input-clear";
 import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
 import { uploadImageFile } from "@/lib/media-upload";
 import { LAYER_META, HIT, liveDescription } from "./layerMeta";
@@ -135,6 +136,12 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
           setActiveBackgroundId("none"); // reset the Background Template store too
           liveLayers.clearAll();
           ctx.onKill();
+          // 2026-09-17: this Clear All used to disable the camera LAYER via a
+          // patch but never stop the camera SOURCE, so the feed stayed live in
+          // localStorage and the two Clear Alls (this one and the PP7 rail's)
+          // left the app in different states. Same call the PP7 rail and the
+          // camera panel's own Clear use.
+          if (ctx.videoInput) clearVideoInputLive();
         }}
       />
     </div>
@@ -305,7 +312,7 @@ function LayerRowView({
  * the live `ctx.background` spec. Falls back to the neutral image icon when
  * there's no background (none/undefined) so the affordance still reads clearly.
  */
-function BackgroundThumb({ bg }: { bg?: BackgroundSpec | null }) {
+export function BackgroundThumb({ bg }: { bg?: BackgroundSpec | null }) {
   if (!bg || bg.type === "none") {
     return <ImageIcon className="w-3.5 h-3.5" />;
   }
@@ -351,7 +358,7 @@ function BackgroundThumb({ bg }: { bg?: BackgroundSpec | null }) {
  * or storage is introduced. Shows the current logo and offers a one-tap Undo on
  * change. No emojis; tokens/lucide only.
  */
-function LogoSwap({ logoUrl }: { logoUrl: string | null }) {
+export function LogoSwap({ logoUrl }: { logoUrl: string | null }) {
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -434,7 +441,7 @@ function LogoSwap({ logoUrl }: { logoUrl: string | null }) {
  * that is currently live. Clicking a chip projects that slide live (instant,
  * forced). No emojis; --pf/token-driven, matching the panel idiom.
  */
-function SlideActions({ ctx }: { ctx: OperatorShellCtx }) {
+export function SlideActions({ ctx }: { ctx: OperatorShellCtx }) {
   const item = ctx.plan.items[ctx.liveItemIdx];
   const slides = item?.slides ?? [];
   const liveId = ctx.liveSlide ? slideOutputIdentity(ctx.liveSlide) : null;

@@ -17,13 +17,17 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Music, Send, Layers, Megaphone, SquareMenu, Image as ImageIcon, Video, X } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
-import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
-import { clearVideoInputLive } from "@/lib/video-input-clear";
-import { shouldIgnore, anyOverlayOpen } from "@/hooks/useOperatorHotkeys";
+import { shouldIgnore, modalDialogOpen } from "@/hooks/useOperatorHotkeys";
 import {
-  PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, PP7_CLEAR_KEY, decodePp7ClearKey,
-  isMediaSlideKind, isEmptySlideKind, type Pp7ClearLayer,
+  PP7_CLEAR_ORDER, decodePp7ClearKey,
+  type Pp7ClearLayer,
 } from "@/lib/pp7-clear";
+import { pp7ClearTitle } from "@/lib/pp7-layer-model";
+import { useShortcutLabel } from "@/lib/usePlatformLabel";
+import {
+  PP7_LAYER_AVAILABLE, pp7AnyLive, pp7ClearAll, pp7ClearLayer, pp7LayerActive,
+} from "@/lib/pp7-layer-model";
+import { usePp7LayerInputs, usePp7ClearEffects } from "./usePp7Layers";
 
 const ICONS: Record<Pp7ClearLayer, React.ComponentType<{ className?: string }>> = {
   audio: Music,
@@ -48,78 +52,48 @@ export function Pp7ClearRail({
   messagesActive: boolean;
   onClearMessages: () => void;
 }) {
-  const kind = ctx.liveSlide?.kind;
-  const row = useCallback(
-    (id: string) => ctx.liveLayers.rows.find((r) => r.id === id),
-    [ctx.liveLayers.rows],
+  // The layer mapping + clear actions live in the shared pure model so this
+  // rail and the PP7 Layers panel can never disagree (src/lib/pp7-layer-model.ts).
+  const inputs = usePp7LayerInputs(ctx, messagesActive);
+  const effects = usePp7ClearEffects(ctx, onClearMessages);
+
+  const active = useMemo(() => pp7LayerActive(inputs), [inputs]);
+  const available = PP7_LAYER_AVAILABLE;
+
+  const clear = useCallback(
+    (layer: Pp7ClearLayer) => pp7ClearLayer(layer, inputs, effects),
+    [inputs, effects],
   );
-
-  const active: Record<Pp7ClearLayer, boolean> = useMemo(() => ({
-    audio: false, // no audio layer yet
-    messages: messagesActive,
-    props: !!row("logo")?.active,
-    announcements: !!ctx.announcement,
-    slide: !isEmptySlideKind(kind) && !isMediaSlideKind(kind) && !!row("slide")?.active,
-    // Background row is off while a camera is live (legacy plan), but under PP7
-    // order the media still paints over the camera — read the base too.
-    media: !!row("background")?.active || (!!ctx.background && ctx.background.type !== "none" && !!ctx.videoInput) || (isMediaSlideKind(kind) && !!row("slide")?.active),
-    videoInput: !!ctx.videoInput && !!row("camera")?.active,
-  }), [messagesActive, row, ctx.announcement, ctx.background, ctx.videoInput, kind]);
-
-  const available: Record<Pp7ClearLayer, boolean> = {
-    audio: false, messages: true, props: true, announcements: true, slide: true, media: true, videoInput: true,
-  };
-
-  const clear = useCallback((layer: Pp7ClearLayer) => {
-    switch (layer) {
-      case "slide":
-        if (!isMediaSlideKind(ctx.liveSlide?.kind)) ctx.onKill();
-        return;
-      case "media":
-        setActiveBackgroundId("none");
-        // A background override can show while the base store is already none
-        // (e.g. a Layers-panel swap) — clear the layer too so it really goes.
-        if (row("background")?.active) ctx.liveLayers.clearLayer("background");
-        if (isMediaSlideKind(ctx.liveSlide?.kind)) ctx.onKill();
-        return;
-      case "videoInput":
-        // Stop the feed like the camera panel's Clear, so it can go live again.
-        if (ctx.videoInput) clearVideoInputLive();
-        return;
-      case "props":
-        if (row("logo")?.active) ctx.liveLayers.clearLayer("logo");
-        return;
-      case "announcements":
-        ctx.onSetAnnouncement(null);
-        return;
-      case "messages":
-        onClearMessages();
-        return;
-      case "audio":
-        return;
-    }
-  }, [ctx, row, onClearMessages]);
 
   // Clear All = every PP7 layer clear, plus the livestream lower third. Runs the
   // per-layer clears (not liveLayers.clearAll) so the camera, media and slide all
   // work normally afterwards. The theme logo (Props) stays off until re-enabled
   // from the Layers panel, as a cleared prop does in ProPresenter.
-  const clearAll = useCallback(() => {
-    for (const layer of PP7_CLEAR_ORDER) clear(layer);
-    ctx.onClearLowerThird?.();
-  }, [ctx, clear]);
+  const clearAll = useCallback(() => pp7ClearAll(inputs, effects), [inputs, effects]);
 
-  // F1–F7 (PP7 shortcuts). Ignored while typing, with modifiers, or while a
-  // dialog/menu is open (same guard as the operator hotkeys). Audio (F5) has no
-  // layer yet, so F5 is left alone (browser reload keeps working).
+  // Second Clear All binding (2026-09-17): a default Mac keyboard sends F1 to
+  // the brightness control, so PP7's F1 "does nothing" until the operator flips
+  // a macOS setting. "⌘⇧C" / "Ctrl+Shift+C" works everywhere. F1 still works.
+  const clearAllChord = useShortcutLabel({ mod: true, shift: true, key: "C" });
+
+  // F1–F7 + Cmd/Ctrl+Shift+C (PP7 shortcuts). Ignored while typing and while a
+  // genuinely MODAL dialog is open. 2026-09-17: the guard used to be
+  // `anyOverlayOpen()`, which also blocked every clear while a popover, dropdown
+  // or select was open — precisely when an operator reaches for F6/F4. It is now
+  // `modalDialogOpen()` (Radix Dialog/AlertDialog only).
+  //
+  // F5 (Audio) is PREVENTED even though there is no audio layer yet: letting it
+  // through reloaded the page mid-service in a plain browser tab. It is now a
+  // deliberate no-op that cannot reload.
   const handlersRef = useRef({ clear, clearAll });
   handlersRef.current = { clear, clearAll };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || e.defaultPrevented || shouldIgnore(e.target) || anyOverlayOpen()) return;
+      if (e.repeat || e.defaultPrevented || shouldIgnore(e.target) || modalDialogOpen()) return;
       const target = decodePp7ClearKey(e);
-      if (!target || target === "audio") return;
+      if (!target) return;
       e.preventDefault();
+      if (target === "audio") return; // no audio layer yet — no-op, and NO reload
       if (target === "all") handlersRef.current.clearAll();
       else handlersRef.current.clear(target);
     };
@@ -127,7 +101,7 @@ export function Pp7ClearRail({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const anyLive = PP7_CLEAR_ORDER.some((l) => active[l]);
+  const anyLive = pp7AnyLive(active);
 
   return (
     <div
@@ -139,10 +113,7 @@ export function Pp7ClearRail({
     >
       {PP7_CLEAR_ORDER.map((layer, i) => {
         const Icon = ICONS[layer];
-        const key = PP7_CLEAR_KEY[layer];
-        const label = available[layer]
-          ? `Clear ${PP7_CLEAR_LABEL[layer]}${key ? ` (${key})` : ""}${active[layer] ? " — live" : ""}`
-          : `${PP7_CLEAR_LABEL[layer]} (coming soon)`;
+        const label = pp7ClearTitle(layer, active[layer]) + (available[layer] && active[layer] ? " — live" : "");
         return (
           <button
             key={layer}
@@ -154,9 +125,14 @@ export function Pp7ClearRail({
             title={label}
             aria-label={label}
             data-active={active[layer] ? "true" : "false"}
-            className={`flex-1 min-h-0 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 ${i > 0 ? "border-t border-black/40" : ""} ${!available[layer] ? "cursor-not-allowed" : active[layer] ? "bg-[#7a1f1f] hover:bg-[#8f2626]" : "hover:bg-white/10"}`}
+            className={`relative flex-1 min-h-0 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 ${i > 0 ? "border-t border-black/40" : ""} ${!available[layer] ? "cursor-not-allowed bg-black/30" : active[layer] ? "bg-[#7a1f1f] hover:bg-[#8f2626]" : "hover:bg-white/10"}`}
           >
-            <Icon className={`w-4 h-4 ${available[layer] ? "text-white/85" : "text-white/25"}`} />
+            <Icon className={`w-4 h-4 ${available[layer] ? "text-white/85" : "text-white/20"}`} />
+            {/* Unavailable layer: a visible strike, so nobody presses it
+                expecting PP7 behaviour (the aria-disabled alone read as live). */}
+            {!available[layer] && (
+              <span aria-hidden className="pointer-events-none absolute w-5 h-px bg-white/30 rotate-45" />
+            )}
           </button>
         );
       })}
@@ -165,8 +141,8 @@ export function Pp7ClearRail({
       <button
         type="button"
         onClick={clearAll}
-        title="Clear All (F1)"
-        aria-label="Clear All (F1)"
+        title={`Clear All (F1 or ${clearAllChord})`}
+        aria-label={`Clear All (F1 or ${clearAllChord})`}
         className="absolute top-1/2 -left-3 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-white text-[#1c1c1e] flex items-center justify-center shadow hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
       >
         <X className="w-4 h-4" strokeWidth={3} />
