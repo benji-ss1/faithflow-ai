@@ -20,6 +20,7 @@ import type { CenterMode } from "./ProOperatorShell";
 import { cn } from "@/lib/utils";
 import { SearchPalette } from "./SearchPalette";
 import { ThemePopover } from "./ThemePopover";
+import { useLegacyThemes, OPEN_THEME_POPOVER_EVENT } from "@/lib/legacy-themes-flag";
 import { usePp7Layers } from "@/lib/pp7-layers-flag";
 import { FluidTabs } from "./FluidTabs";
 import { SwitchMode } from "./SwitchMode";
@@ -81,7 +82,20 @@ export function TopBar({
   // "⌘" on Mac, "Ctrl" on Windows. Resolved after mount so SSR/hydration match.
   const [modKey, setModKey] = useState("⌘");
   const pp7Themes = usePp7Layers();
+  // 2026-09-18: the legacy Themes screen is retired, so the popover is the
+  // Themes surface whether or not the PP7 layers flag is on. The old modal is
+  // only reachable with the NEXT_PUBLIC_LEGACY_THEMES escape hatch AND the PP7
+  // flag off (i.e. exactly the pre-retirement fallback).
+  const legacyThemes = useLegacyThemes();
+  const useThemePopover = pp7Themes || !legacyThemes;
   const [themePopOpen, setThemePopOpen] = useState(false);
+  // A legacy `presentflow:open-themes-settings` deep-link is forwarded here by
+  // RightIconBar so Settings → "Open themes" never dead-ends.
+  useEffect(() => {
+    const onOpen = () => setThemePopOpen(true);
+    window.addEventListener(OPEN_THEME_POPOVER_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_THEME_POPOVER_EVENT, onOpen);
+  }, []);
   useEffect(() => { setModKey(modKeyLabel()); }, []);
   const currentTitle =
     centerMode === "bible" ? "Bible"
@@ -262,11 +276,11 @@ export function TopBar({
         action={{
           label: "Themes",
           icon: Palette,
-          // ProPresenter-style Themes popover (kill switch → old direct editor).
-          onClick: () => (pp7Themes ? setThemePopOpen((v) => !v) : window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"))),
+          // ProPresenter-style Themes popover (escape hatch → retired screen).
+          onClick: () => (useThemePopover ? setThemePopOpen((v) => !v) : window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"))),
         }}
       />
-      {pp7Themes ? (
+      {useThemePopover ? (
         <ThemePopover open={themePopOpen} onOpenChange={setThemePopOpen} anchorSelector='[data-fluid-action="Themes"]' />
       ) : null}
 

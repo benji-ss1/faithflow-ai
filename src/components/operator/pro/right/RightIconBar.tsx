@@ -48,6 +48,7 @@ import { countCrossRefCandidates } from "@/lib/right-rail-visible";
 import { TimersPanel } from "./TimersPanel";
 import { MessagesPanel } from "./MessagesPanel";
 import { ThemesModal } from "../ThemesModal";
+import { readLegacyThemesFlag, OPEN_THEME_POPOVER_EVENT } from "@/lib/legacy-themes-flag";
 import { ChannelStrip } from "../../ChannelStrip";
 import { OPEN_SETTINGS_EVENT } from "../../settings/SettingsWindow";
 // Change 5C (2026-07-27) — right-icon Screens tab retired. Duplicated the
@@ -145,9 +146,14 @@ export function RightIconBar({
       // Audio hardware panel in the left sidebar instead.
       window.dispatchEvent(new CustomEvent("presentflow:open-hardware", { detail: { panel: "audio" } }));
     };
-    // Themes now opens as a full-screen operator modal.
+    // 2026-09-18: the legacy Themes screen (ThemesManager in ThemesModal) is
+    // RETIRED. This event — still fired by Settings → "Open themes" and by any
+    // legacy deep-link — now forwards to the PP7 Themes popover so nothing
+    // dead-ends. With the NEXT_PUBLIC_LEGACY_THEMES escape hatch on, it opens
+    // the old modal exactly as before. See docs/THEMES_MANAGER_RETIREMENT.md.
     const onOpenThemesSettings = () => {
-      setThemesModalOpen(true);
+      if (readLegacyThemesFlag()) { setThemesModalOpen(true); return; }
+      window.dispatchEvent(new CustomEvent(OPEN_THEME_POPOVER_EVENT));
     };
     window.addEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
     window.addEventListener("presentflow:open-themes-settings", onOpenThemesSettings);
@@ -260,9 +266,10 @@ export function RightIconBar({
       )}
       {/* Change 5C — Screens popover render block removed. */}
 
-      {/* Themes — full-screen operator modal (opened from the top-bar Themes
-          button via the presentflow:open-themes-settings event). */}
-      <ThemesModal open={themesModalOpen} onClose={() => setThemesModalOpen(false)} />
+      {/* Themes — RETIRED legacy modal. Only ever mounted when the
+          NEXT_PUBLIC_LEGACY_THEMES escape hatch brings it back; the live
+          surface is the ThemePopover on the top bar. */}
+      {themesModalOpen ? <ThemesModal open onClose={() => setThemesModalOpen(false)} /> : null}
     </div>
   );
 }
