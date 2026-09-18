@@ -3,6 +3,8 @@ import type { SlidePayload, ThemeAppearance, VideoInputState } from "@/lib/broad
 import { SlideRenderer } from "./SlideRenderer";
 import { LiveVideoLayer } from "./LiveVideoLayer";
 import { ThemeVideoBackground } from "./ThemeLayers";
+import { ThemeDecorLayer } from "./ThemeDecorLayer";
+import { themeDecorPlan, themeHasDecor } from "@/lib/theme-decor-plan";
 
 // Positioning + readability scrim for the slide content that sits over the
 // live video. Lower-third = bottom band with a bottom-up gradient; full =
@@ -26,7 +28,7 @@ export function hasVideoBackground(videoInput?: VideoInputState | null, appearan
  * normally. The video layer is a sibling of the overlay (not wrapped by any
  * slide-keyed element), so slide changes never restart the video.
  */
-export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef, mediaNode, ignoreThemeLayout }: {
+export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef, mediaNode, ignoreThemeLayout, previewFrozen }: {
   slide: SlidePayload;
   videoInput?: VideoInputState | null;
   appearance?: ThemeAppearance | null;
@@ -40,6 +42,8 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
   mediaNode?: React.ReactNode;
   /** Theme → Projector (PR 2): full-screen (stage). */
   ignoreThemeLayout?: boolean;
+  /** Operator mini-preview: pause persistent decor video. */
+  previewFrozen?: boolean;
 }) {
   const ign = ignoreThemeLayout ? { ignoreThemeLayout: true } : {};
   // Live camera takes precedence over a theme video background.
@@ -54,8 +58,21 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
     // to lower-third). Theme video background →
     // centered content (it's a backdrop); readability comes from the theme dim
     // (applied in ThemeVideoBackground) + text shadow, so no extra scrim.
+    // Theme gaps (PR A): persistent theme decor BETWEEN the video and the words
+    // (theme video bg, or a camera in full-overlay/centre mode only — the same
+    // surfaces where SlideRenderer allowed decor). Constant position in the tree,
+    // so a decor video never restarts per slide.
+    const verticalAlign = videoInput?.overlay === "full" ? (videoInput?.lyricsPos ?? "center") : "center";
+    const fitBandFraction = videoInput && videoInput.overlay !== "full" ? 0.38 : undefined;
+    const decorFlags = { overVideo: true, verticalAlign, fitBandFraction, ignoreThemeLayout } as const;
+    const decorEligible = !ignoreThemeLayout && themeHasDecor(appearance) && (!videoInput || (videoInput.overlay === "full" && verticalAlign === "center"));
+    const decorPlan = decorEligible && isOverlayKind ? themeDecorPlan(slide, appearance, decorFlags) : null;
+    // Full-screen camera + theme decor: the readability scrim moves to a sibling
+    // BEFORE the decor so it darkens the camera only, not the theme decor. With
+    // no decor the container keeps its scrim class (DOM unchanged).
+    const scrimAsSibling = decorEligible && videoInput?.overlay === "full";
     const containerClass = videoInput
-      ? overlayClass(videoInput.overlay)
+      ? (scrimAsSibling ? "absolute inset-0 flex items-center justify-center" : overlayClass(videoInput.overlay))
       : "absolute inset-0 flex items-center justify-center";
     return (
       <div className="absolute inset-0">
@@ -63,6 +80,8 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
           ? <LiveVideoLayer input={videoInput} />
           : <ThemeVideoBackground url={themeVideoUrl!} dim={appearance?.dim} />}
         {videoInput && mediaNode ? <div className="absolute inset-0">{mediaNode}</div> : null}
+        {scrimAsSibling ? <div data-camera-scrim="" className="absolute inset-0 bg-black/45 pointer-events-none" /> : null}
+        {decorEligible ? <ThemeDecorLayer appearance={appearance} plan={decorPlan} overVideo frozen={previewFrozen} /> : null}
         {slide.kind !== "empty" && (
           isOverlayKind ? (
             <div className={containerClass}>
@@ -74,11 +93,12 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
                 referenceScale={referenceScale}
                 referenceColor={referenceColor}
                 appearance={appearance}
-                verticalAlign={videoInput?.overlay === "full" ? (videoInput?.lyricsPos ?? "center") : "center"}
+                verticalAlign={verticalAlign}
                 // Lower-third camera mode draws the lyrics in the 38% band above
                 // (overlayClass). Fit them to THAT band, not the whole frame, or
                 // multi-line lyrics clip out of it (2026-09-16).
-                fitBandFraction={videoInput && videoInput.overlay !== "full" ? 0.38 : undefined}
+                fitBandFraction={fitBandFraction}
+                {...(decorEligible ? { themeChromeHosted: true } : {})}
                 {...ign}
               />
             </div>

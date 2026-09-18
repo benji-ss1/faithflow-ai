@@ -9,6 +9,7 @@ import { OutputReloadListener } from "@/components/system/OutputReloadListener";
 import { PostHogProvider } from "@/components/system/PostHogProvider";
 import { OfflineIndicator } from "@/components/system/OfflineIndicator";
 import "./globals.css";
+import "./slide-fonts.css";
 import "@/styles/openflow.css";
 import { openFlowFontVars } from "@/lib/openflow/fonts";
 import { PLATFORM_ATTR_SCRIPT } from "@/lib/platform";
@@ -65,6 +66,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang="en" className={htmlClass} suppressHydrationWarning>
+      <head>
+        {/* Fonts P1 (2026-09-17): preload ONLY the default projector face (Sora
+            normal, the --font-display primary). Without it the first slide of a
+            service can paint in the fallback and then reflow when the real face
+            lands. Exactly one file — preloading the whole library would cost
+            bandwidth for faces most churches never pick. */}
+        <link rel="preload" href="/fonts/sora/sora-100-800-normal.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+      </head>
       <body suppressHydrationWarning className={openFlowFontVars}>
         {/* Windows-only CSS scoping hook (html[data-platform=win]) — no-op on macOS. */}
         <script dangerouslySetInnerHTML={{ __html: PLATFORM_ATTR_SCRIPT }} />

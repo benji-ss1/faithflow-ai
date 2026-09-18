@@ -10,6 +10,7 @@
 //  • Background lives ONLY in the theme config (the drawer's per-slide
 //    Background tab is hidden in theme mode); the canvas previews it via
 //    themeBgStyle / backgroundNode, so slides are never rewritten.
+import { FontOptions, WeightOptions, selectedFontValue } from "@/components/fonts/FontOptions";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
@@ -27,7 +28,6 @@ import { cn } from "@/lib/utils";
 
 type Cfg = Record<string, unknown>;
 
-const FONT_CHOICES = ["Inter", "Sora", "Plus Jakarta Sans", "Playfair Display", "Cormorant Garamond", "Fraunces", "Spectral", "Montserrat", "DM Serif Display", "Georgia", "Helvetica", "Arial", "Times New Roman"];
 const LOGO_GRID = [
   "top-left", "top-center", "top-right",
   "middle-left", "middle-center", "middle-right",
@@ -178,14 +178,14 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
         ) : (
           <>
             <Field label="Font">{(id) => (
-              <select id={id} value={target.fontFamily ?? "Inter"} onChange={(e) => updTarget({ fontFamily: e.target.value })} className={inCls}>
-                {FONT_CHOICES.map((f) => <option key={f} value={f}>{f}</option>)}
+              <select id={id} value={selectedFontValue(target.fontFamily ?? "Inter")} onChange={(e) => updTarget({ fontFamily: e.target.value })} className={inCls}>
+                <FontOptions current={target.fontFamily ?? "Inter"} />
               </select>
             )}</Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Weight">{(id) => (
                 <select id={id} value={String(target.fontWeight ?? 600)} onChange={(e) => updTarget({ fontWeight: Number(e.target.value) })} className={inCls}>
-                  {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w} value={w}>{w}</option>)}
+                  <WeightOptions font={target.fontFamily ?? "Inter"} current={target.fontWeight ?? 600} />
                 </select>
               )}</Field>
               <Field label="Colour">{(id) => (

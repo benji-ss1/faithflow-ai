@@ -1,8 +1,10 @@
 "use client";
+import { fontStack } from "@/lib/fonts/registry";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, bandMediaBox, fitMediaInBox, videoObjectFit } from "@/lib/band-media";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H, type SlidePayload, type ThemeAppearance, type ScriptureBandWire, type ThemeFrameWire, type SlideObjectWire } from "@/lib/broadcast";
-import { themedObjectTextColor } from "@/lib/slide-objects";
+import { themedObjectTextColor, coversCanvas } from "@/lib/slide-objects";
+import { themeBoxesAllowed as themeBoxesAllowedFor, themeDecorFor, themeDecorPlan } from "@/lib/theme-decor-plan";
 import { AutoFitText } from "./AutoFitText";
 import { AnimatedThemeBg } from "./ThemeLayers";
 import { SlideObjectsLayer } from "./SlideObjectsLayer";
@@ -99,7 +101,7 @@ function readableTextColor(bg: string | undefined): string {
   return lum > 0.6 ? "#111111" : "#ffffff";
 }
 
-function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.CSSProperties | undefined {
+export function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.CSSProperties | undefined {
   if (!appearance) return undefined;
   const s: React.CSSProperties = {};
   if (appearance.textColor) s.color = appearance.textColor;
@@ -108,7 +110,7 @@ function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.C
   else if (appearance.bgColor && (appearance.bgType === "solid" || appearance.bgType === "gradient" || appearance.bgType === undefined)) {
     s.color = readableTextColor(appearance.bgColor);
   }
-  if (appearance.fontFamily) s.fontFamily = appearance.fontFamily;
+  if (appearance.fontFamily) s.fontFamily = fontStack(appearance.fontFamily);
   if (typeof appearance.fontWeight === "number") s.fontWeight = appearance.fontWeight;
   if (appearance.align) s.textAlign = appearance.align;
   if (appearance.textShadow === false) s.textShadow = "none";
@@ -131,7 +133,7 @@ export function themeFrameBoxStyle(f: Pick<ThemeFrameWire, "x" | "y" | "w" | "h"
 export function themeFrameTextStyle(f: ThemeFrameWire): React.CSSProperties {
   const s: React.CSSProperties = {};
   if (f.color) s.color = f.color;
-  if (f.fontFamily) s.fontFamily = f.fontFamily;
+  if (f.fontFamily) s.fontFamily = fontStack(f.fontFamily);
   if (typeof f.fontWeight === "number") s.fontWeight = f.fontWeight;
   if (f.align) s.textAlign = f.align;
   if (f.italic) s.fontStyle = "italic";
@@ -259,24 +261,33 @@ type SlideRendererProps = {
    * always reads the biggest possible text.
    */
   ignoreThemeLayout?: boolean;
+  /**
+   * Theme gaps (PR A): the output compositor hosts the theme background + decor
+   * in a PERSISTENT layer behind the transition wrapper (so a decor video never
+   * restarts per slide). When set AND this slide would paint theme decor
+   * (themeDecorPlan non-null), the slide skips its in-slide decor/animated bg and
+   * its theme background goes transparent. Text colour theming is unchanged.
+   */
+  themeChromeHosted?: boolean;
 };
 
 export function SlideRenderer(props: SlideRendererProps) {
-  const { slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput, obsOverlay, fitBandFraction, ignoreThemeLayout } = props;
+  const { slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput, obsOverlay, fitBandFraction, ignoreThemeLayout, themeChromeHosted } = props;
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
   // Theme boxes apply only on a normal full-frame surface: never on stage
   // (ignoreThemeLayout), OBS/NDI transparent keying, a camera band, or lyrics
   // the operator moved over a camera. (The lower-third scripture band and
   // designed multi-object slides have their own branches below.)
-  const themeBoxesAllowed = !ignoreThemeLayout && !transparentBg && typeof fitBandFraction !== "number" && !(overVideo && verticalAlign !== "center");
+  const decorFlags = { ignoreThemeLayout, transparentBg, fitBandFraction, overVideo, verticalAlign, editable };
+  const themeBoxesAllowed = themeBoxesAllowedFor(decorFlags);
   const themeLayout = themeBoxesAllowed ? appearance?.layout : undefined;
+  // Hosted: the compositor paints theme bg + decor persistently behind us.
+  const hosted = !!themeChromeHosted && themeDecorPlan(slide, appearance, decorFlags) !== null;
+  const themeBg = (fallback: string): React.CSSProperties => (hosted ? { background: "transparent" } : themeBackgroundStyle(appearance, fallback));
   // Theme decor (images/shapes/video/extra text from the theme slide), drawn
   // behind the slide text. Scripture uses the scripture slide's decor, falling
   // back to the lyrics slide's. Undefined ⇒ nothing extra rendered.
-  const decorFor = (isScripture: boolean): SlideObjectWire[] | undefined => {
-    const d = themeLayout ? (isScripture ? (themeLayout.scripture?.decor ?? themeLayout.lyrics?.decor) : themeLayout.lyrics?.decor) : undefined;
-    return d && d.length ? d : undefined;
-  };
+  const decorFor = (isScripture: boolean): SlideObjectWire[] | undefined => (hosted ? undefined : themeDecorFor(appearance, isScripture, decorFlags));
   // OBS overlay hints apply ONLY in transparent (OBS-key) mode.
   const obsHints = transparentBg ? obsOverlay : undefined;
   const obsTextOverride: React.CSSProperties = {
@@ -471,7 +482,7 @@ export function SlideRenderer(props: SlideRendererProps) {
             ? { background: slideBg }
             : overVideo
               ? { background: "transparent" }
-              : themeBackgroundStyle(appearance, "#0b0b0b");
+              : themeBg("#0b0b0b");
       // Theme TEXT colour applies to a slide's objects only when the THEME
       // BACKGROUND is what's showing (the last branch above) — i.e. no per-slide
       // image/colour, no Background Template, no camera. In that case a per-object
@@ -512,7 +523,7 @@ export function SlideRenderer(props: SlideRendererProps) {
             : { kind: "text", text: roleVerse.text };
           return <SlideRenderer {...props} slide={plain} />;
         }
-        const animated = usesAnimatedBg(appearance, overVideo, slideBg || slide.bgImageUrl);
+        const animated = !hosted && usesAnimatedBg(appearance, overVideo, slideBg || slide.bgImageUrl);
         const cls = `text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`;
         const verseFrame = frameOfObject(roleVerse);
         const verseColor = themedObjectTextColor(roleVerse.color, themedTextColor);
@@ -520,7 +531,7 @@ export function SlideRenderer(props: SlideRendererProps) {
         return (
           <div className={`${base} relative ${className || ""}`} style={designBg}>
             {animated && <AnimatedThemeBg appearance={appearance} />}
-            {sDecor && <SlideObjectsLayer objects={sDecor} themedTextColor={themedTextColor} />}
+            {sDecor && <SlideObjectsLayer objects={sDecor} themedTextColor={themedTextColor} decor />}
             <ThemeFramedText frame={verseFrame} text={roleVerse.text} fontScale={fontScale} textMinPx={textMinPx} className={cls}
               textStyle={{ ...themeTextStyle(appearance), ...themeFrameTextStyle(verseFrame), color: verseColor }} />
             {roleRef && (
@@ -535,14 +546,15 @@ export function SlideRenderer(props: SlideRendererProps) {
       // operator can type straight onto it. Gated on `editable`, so every
       // non-edit render (projector/stage/livestream/thumbnails) is unchanged.
       if (soleText && (soleText.text.trim() || editable)) {
-        const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
+        const animated = !hosted && usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
         // Respect the operator's colour/font/weight/alignment; AutoFitText owns
         // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.
         const objStyle: React.CSSProperties = {
           // Default-white inherits the theme textColor when the theme bg is
           // showing; an explicit colour still wins (themedObjectTextColor).
           ...(soleText.color ? { color: themedObjectTextColor(soleText.color, themedTextColor) } : (themedTextColor ? { color: themedTextColor } : {})),
-          ...(soleText.fontFamily ? { fontFamily: soleText.fontFamily } : {}),
+          // Render-time generic fallback only (stored object + identity untouched).
+          ...(soleText.fontFamily ? { fontFamily: fontStack(soleText.fontFamily) } : {}),
           ...(soleText.fontWeight ? { fontWeight: soleText.fontWeight } : {}),
           ...(soleText.align ? { textAlign: soleText.align } : {}),
           ...(soleText.italic ? { fontStyle: "italic" } : {}),
@@ -563,7 +575,7 @@ export function SlideRenderer(props: SlideRendererProps) {
           return (
             <div className={`${base} relative ${className || ""}`} style={designBg}>
               {animated && <AnimatedThemeBg appearance={appearance} />}
-              {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} />}
+              {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} decor />}
               <ThemeFramedText frame={lyricFrame} text={soleText.text} fontScale={fontScale} textMinPx={textMinPx}
                 className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
                 textStyle={{ ...themeTextStyle(appearance), ...themeFrameTextStyle(lyricFrame), ...objStyle }}
@@ -574,7 +586,7 @@ export function SlideRenderer(props: SlideRendererProps) {
         return (
           <div className={`${base} ${animated || soleDecor ? "relative" : ""} ${className || ""}`} style={designBg}>
             {animated && <AnimatedThemeBg appearance={appearance} />}
-            {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} />}
+            {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} decor />}
             <AutoFitText
               text={soleText.text}
               maxPx={120}
@@ -612,8 +624,12 @@ export function SlideRenderer(props: SlideRendererProps) {
         ? { ...designBg, paddingBottom: projectorFit ? "8%" : "12%" }
         : { ...designBg };
       if (transparentBg && obsHints?.textShadow !== "none") designedContainerStyle.filter = OBS_OVERLAY_DROP_SHADOW;
+      // Theme gaps (PR A): theme decor behind a designed multi-object slide too
+      // (never over a full-bleed media object, which is its own background).
+      const dDecor = coversCanvas(objects) ? undefined : decorFor(!!dRefText);
       return (
         <div className={`${base} relative ${className || ""}`} style={designedContainerStyle}>
+          {dDecor && <SlideObjectsLayer objects={dDecor} themedTextColor={themedTextColor} decor />}
           <SlideObjectsLayer objects={objects} fontScale={fontScale} themedTextColor={obsHints?.textColor ?? themedTextColor} referenceScale={referenceScale} referenceText={dRefText} />
           {showDesignedFooter && (
             <div className="absolute inset-x-0 bottom-0 flex justify-center pointer-events-none" style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}>
@@ -642,8 +658,8 @@ export function SlideRenderer(props: SlideRendererProps) {
           ? { background: "transparent" }
           : slideBg
             ? { background: slideBg }
-            : themeBackgroundStyle(appearance, "#0b0b0b");
-    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
+            : themeBg("#0b0b0b");
+    const animated = !hosted && usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
     const refText = slide.reference?.trim();
     // Theme → Projector (PR 2): the theme's lyrics box (songs/text) or verse +
     // reference boxes (scripture). No theme layout ⇒ the legacy full-frame
@@ -651,7 +667,7 @@ export function SlideRenderer(props: SlideRendererProps) {
     const plainFrame = themeLayout ? (refText ? themeLayout.scripture?.verse : themeLayout.lyrics?.main) : undefined;
     const plainDecor = decorFor(!!refText);
     const plainDecorLayer = plainDecor
-      ? <SlideObjectsLayer objects={plainDecor} themedTextColor={!slide.bgImageUrl && !slideBg && !overVideo ? ((themeTextStyle(appearance)?.color as string | undefined) ?? undefined) : undefined} />
+      ? <SlideObjectsLayer objects={plainDecor} themedTextColor={!slide.bgImageUrl && !slideBg && !overVideo ? ((themeTextStyle(appearance)?.color as string | undefined) ?? undefined) : undefined} decor />
       : null;
     if (plainFrame) {
       const cls = `text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`;

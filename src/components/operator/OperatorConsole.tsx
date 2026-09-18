@@ -19,6 +19,7 @@ import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/ope
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
 import { themeScriptureOptions, type ThemeScriptureOptions } from "@/lib/theme-scripture";
 import { themeConfigToAppearance } from "@/lib/theme-appearance";
+import { loadThemesWithRetry } from "@/lib/themes-retry";
 import { resolveItemThemeConfig, resolveLiveItemIdx, type LiveItemStamp } from "@/lib/live-item-theme";
 import { normalizeThemeTransition, resolveSendTransition, readOperatorTransitionsOff } from "@/lib/transition-resolve";
 import { inferLiveOrigin, type LiveOrigin, recallOrigin, rememberOrigin, carriedOrigin } from "@/lib/song-switch-guard";
@@ -555,6 +556,10 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // Uses the real `churchId` prop (was previously read off planProp, which
     // never carries churchId — so the offline theme cache silently no-op'd).
     const applyList = async (list: ThemeRow[], cachesOnly = false) => {
+      // A run that lost its race (unmounted / superseded) must not clobber the
+      // caches a live run already filled — it would leave a stale cache behind
+      // with no `themesVersion` bump to re-resolve it.
+      if (cancelled) return;
       themesByIdRef.current = new Map(list.filter((t) => typeof t.id === "string").map((t) => [t.id as string, t.config]));
       defaultThemeIdRef.current = (list.find((t) => t.isDefault && typeof t.id === "string")?.id as string | undefined) ?? null;
       if (!cancelled) setThemesVersion((v) => v + 1);
@@ -580,7 +585,11 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
         }
       }
     };
-    const load = async (cachesOnly = false) => {
+    // Returns TRUE when this attempt actually produced a themes list (even an
+    // empty one from a healthy server) — FALSE only when neither the network
+    // nor the offline cache gave us anything, which is the cold-start race the
+    // retry below exists for.
+    const load = async (cachesOnly = false): Promise<boolean> => {
       try {
         const res = await fetch("/api/themes");
         if (!res.ok) throw new Error("themes fetch failed");
@@ -590,17 +599,31 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
         // Hybrid Phase 1 — cache the themes list so themed styling still works
         // offline (colors/fonts/gradients; media backgrounds cache separately).
         if (churchId) void import("@/lib/offline/serviceCache").then(({ saveKv }) => saveKv(churchId, "themes", list)).catch(() => {});
+        return true;
       } catch {
         // Offline / server unreachable → fall back to the cached themes list.
-        if (!churchId) return;
+        if (!churchId) return false;
         try {
           const { loadKv } = await import("@/lib/offline/serviceCache");
           const cached = await loadKv<ThemeRow[]>(churchId, "themes");
-          if (cached && !cancelled) await applyList(cached, cachesOnly);
+          if (cached && !cancelled) { await applyList(cached, cachesOnly); return true; }
         } catch { /* built-in defaults */ }
+        return false;
       }
     };
-    void load();
+    // Cold-start race (2026-09-17): when this ONE mount fetch never lands, the
+    // themes cache stays empty and EVERY later resolve silently falls back to
+    // the built-in default look (song shows Sora/white, no background) with
+    // nothing to re-resolve it. Retry on a bounded backoff; a success bumps
+    // `themesVersion`, which re-resolves the appearance IN PLACE — same path a
+    // theme edit already takes, so the live slide is never re-sent or re-pulsed
+    // (output identity is content-only).
+    const retryTimers: number[] = [];
+    void loadThemesWithRetry({
+      attempt: () => load(),
+      isCancelled: () => cancelled,
+      schedule: (fn, ms) => { retryTimers.push(window.setTimeout(fn, ms)); },
+    });
     const onChange = (e: Event) => {
       userTouched.current = true; // don't let the stale mount-fetch clobber this
       const detail = (e as CustomEvent).detail;
@@ -633,6 +656,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     window.addEventListener("presentflow:themes-changed", onThemesChanged);
     return () => {
       cancelled = true;
+      for (const t of retryTimers) window.clearTimeout(t);
       window.removeEventListener("presentflow:theme-changed", onChange);
       window.removeEventListener("presentflow:themes-changed", onThemesChanged);
     };

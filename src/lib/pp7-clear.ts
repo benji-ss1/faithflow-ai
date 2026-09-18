@@ -37,8 +37,22 @@ export const PP7_CLEAR_KEY: Record<Pp7ClearLayer, string> = {
 
 export type Pp7ClearTarget = Pp7ClearLayer | "all";
 
-/** Map a keydown to a PP7 clear. Plain F-keys only (no modifiers). */
+/**
+ * Second Clear All binding (2026-09-17). A default Mac keyboard sends F1 to the
+ * display-brightness control, so PP7's F1 does nothing until the operator turns
+ * on "Use F1, F2 etc. as standard function keys" — the same press that "does
+ * nothing" in the field reports. Cmd/Ctrl+Shift+C works on every platform and
+ * on every keyboard, and does not collide with an existing operator hotkey.
+ * F1 is unchanged.
+ */
+export const PP7_CLEAR_ALL_CHORD = { mod: true, shift: true, key: "C" } as const;
+
+/**
+ * Map a keydown to a PP7 clear. Plain F-keys, plus the Clear All chord
+ * (Cmd/Ctrl+Shift+C) which is the only modifier combination accepted.
+ */
 export function decodePp7ClearKey(e: { key: string; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean }): Pp7ClearTarget | null {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === "C" || e.key === "c")) return "all";
   if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return null;
   switch (e.key) {
     case "F1": return "all";

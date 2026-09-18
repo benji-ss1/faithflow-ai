@@ -195,6 +195,27 @@ export function anyOverlayOpen(): boolean {
   }
 }
 
+/**
+ * NARROW modal detection, for keys that must keep working while a picker or a
+ * menu is open (2026-09-17). `anyOverlayOpen()` blocks on ANY Radix surface,
+ * including non-modal popovers and dropdown menus — which is exactly when an
+ * operator reaches for a clear key ("clear the message while the Messages
+ * popover is open"). This matches only genuinely MODAL dialogs: Radix
+ * `Dialog` (modal, so `aria-modal="true"`) and `AlertDialog`. A non-modal
+ * `Popover`, a `DropdownMenu` (role="menu") and a `Select` (role="listbox")
+ * deliberately do NOT match.
+ */
+export function modalDialogOpen(): boolean {
+  if (typeof document === "undefined") return false;
+  try {
+    return document.querySelectorAll(
+      '[role="alertdialog"][data-state="open"], [role="dialog"][data-state="open"][aria-modal="true"]',
+    ).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function useOperatorHotkeys(handlers: HotkeyHandlers) {
   // Y5: keep the handler bag behind a ref so we don't re-attach the window
   // keydown listener on every parent render. Fresh reads at fire time still

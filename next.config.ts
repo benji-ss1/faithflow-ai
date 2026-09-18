@@ -42,6 +42,24 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // The Next build's "Linting and checking validity of types" phase is skipped
+  // here — NOT because we stopped caring, but because it is duplicated work and
+  // the least reliable phase on the Vercel builder.
+  //
+  //  - typecheck: `.github/workflows/ci.yml` runs `npx tsc --noEmit` in the
+  //    "Typecheck" job, which is a REQUIRED status check on main (repo ruleset
+  //    23364029, strict/up-to-date policy). Nothing merges without a clean
+  //    full-project tsc. Running it a SECOND time inside `next build` bought no
+  //    extra protection, cost ~68s per production deploy, and on 2026-09-18
+  //    resource-starved on the builder — hanging/failing production builds of a
+  //    commit that typechecked clean locally and in CI.
+  //    *** If the "Typecheck" required check is ever removed from the main
+  //    ruleset, `ignoreBuildErrors` MUST be reverted in the same change. ***
+  //  - lint: the repo has no eslint config at all (no eslint.config.*, no
+  //    .eslintrc*, no package.json eslintConfig), so the build's lint step had
+  //    nothing to run. CI's "Lint" job still invokes `next lint` separately.
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
   experimental: { serverActions: { bodySizeLimit: "50mb" } },
   images: { remotePatterns: [{ protocol: "https", hostname: "**" }] },
   async headers() {
@@ -50,6 +68,12 @@ const nextConfig: NextConfig = {
       // The service worker script must always revalidate so a new SW deploy is
       // picked up promptly (defense-in-depth beyond the browser's updateViaCache).
       { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
+      // Fonts P1 (2026-09-17): the self-hosted slide faces under /fonts/ are
+      // immutable — a changed face ships under a new filename from
+      // scripts/fonts/build-slide-fonts.py. Year-long immutable caching is the
+      // offline win: once a machine has fetched a face it never asks again, so a
+      // church that drops offline mid-service keeps its real fonts.
+      { source: "/fonts/(.*)", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
     ];
   },
   async redirects() {

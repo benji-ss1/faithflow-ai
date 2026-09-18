@@ -1,7 +1,9 @@
 "use client";
+import { fontStack } from "@/lib/fonts/registry";
 import type { SlideObjectWire } from "@/lib/broadcast";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
+import { flipTransform } from "@/lib/editor-geometry";
 
 /**
  * Read-only projector render of a slide's positioned objects (Phase 1 of the
@@ -13,7 +15,13 @@ import { themedObjectTextColor } from "@/lib/slide-objects";
  * No drag handles, no interaction — this is output only. Objects render in
  * array order (first = back). Sits above the slide background, below the logo.
  */
-export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, referenceScale = 1, referenceText }: { objects: SlideObjectWire[]; fontScale?: number; themedTextColor?: string | null; referenceScale?: number; referenceText?: string | null }) {
+export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, referenceScale = 1, referenceText, decor, frozen }: {
+  objects: SlideObjectWire[]; fontScale?: number; themedTextColor?: string | null; referenceScale?: number; referenceText?: string | null;
+  /** Theme decor: never intercepts pointer events. */
+  decor?: boolean;
+  /** Operator mini-preview: decor video shows its first frame, no playback. */
+  frozen?: boolean;
+}) {
   // Global font multiplier (operator A-/A+ × Projection-Zone Font). Previously
   // this layer ignored it, so the Font slider / A-/A+ had NO effect on the
   // projector for designed or song slides (only plain-lyric slides scaled).
@@ -31,7 +39,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
   const refT = referenceText?.trim() || null;
   return (
     <div
-      className="absolute inset-0 z-0"
+      className={decor ? "absolute inset-0 z-0 pointer-events-none" : "absolute inset-0 z-0"}
       style={{ containerType: "size" }}
       aria-hidden
     >
@@ -49,8 +57,13 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
           // it composes cleanly with the entrance animation's transform instead
           // of being overwritten by it.
           rotate: obj.rotation ? `${obj.rotation}deg` : undefined,
+          // Flip via the INDEPENDENT `scale` property, for the same reason as
+          // `rotate` above. `flipTransform` returns undefined unless a flip flag
+          // is set, so every object authored before flip existed renders
+          // byte-identically (parity-tested in test/editor-geometry.test.ts).
+          scale: flipTransform(obj),
         };
-        const key = `${obj.kind}-${i}`;
+        const key = (obj as { id?: string }).id ?? `${obj.kind}-${i}`;
         // Entrance animation: applied to the positioned box only. `both` fill
         // mode means it starts hidden/offset and RESTS at the natural state
         // (identity transform, full opacity) — so it never permanently changes
@@ -74,7 +87,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
               <div
                 className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
                 style={{
-                  fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
+                  fontFamily: fontStack(obj.fontFamily) || "Inter, system-ui, sans-serif",
                   fontSize: `${((obj.fontSize ?? 96) * objFs / SLIDE_CANVAS_H) * 100}cqh`,
                   fontWeight: obj.fontWeight ?? 600,
                   // Default-white text inherits the theme's textColor when the
@@ -127,7 +140,8 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
             <div key={key} className={animCls} style={boxStyle}>
               <video
                 src={obj.url}
-                autoPlay
+                autoPlay={!frozen}
+                preload={frozen ? "metadata" : undefined}
                 loop={obj.loop ?? true}
                 muted={obj.muted ?? true}
                 playsInline

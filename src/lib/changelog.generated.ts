@@ -4,6 +4,116 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.459",
+    "date": "2026-09-17",
+    "headline": "Fonts you pick now really show on the projector",
+    "highlights": [
+      "Every font in the font menus now really loads, so it shows its true look on the projector, the stage screen and the livestream — before, seven of them quietly fell back to a plain system font. Because they now load, some slides and themes may look different from last Sunday, so it is worth a quick look before the service.",
+      "Bold, light and italic now look bold, light and italic. Each font only offers the weights it really has — Georgia, Arial and Times New Roman now offer regular and bold only, because that is all your computer actually has.",
+      "The font menu is now split into \"PresentFlow fonts\", which look the same on every computer in the church, and \"System fonts\", which can look different from machine to machine. Fonts that cannot show Yoruba or Igbo letters say so in the list.",
+      "The fonts are built into PresentFlow, so they keep working with no internet once they have loaded, on Windows as well as Mac.",
+      "Text is measured after its font has loaded, so a slide no longer resizes a moment after it goes live — and lyrics still never get cut off.",
+      "Your saved themes and slides are untouched: whatever font you picked before is still picked, and a font we do not recognise is offered as \"Keep current\" instead of being swapped out."
+    ]
+  },
+  {
+    "version": "0.1.458",
+    "date": "2026-09-18",
+    "headline": "The editor's properties panel is now split into Shape, Text and Build",
+    "highlights": [
+      "Selecting something in the slide or theme editor now gives you Shape, Text and Build tabs instead of one long list you had to scroll.",
+      "Shape holds position, size, flip, rotation, see-through and colours. Text holds the wording, font and spacing. Build holds the entrance animation.",
+      "Every setting you had before is still there and still does the same thing — nothing was removed or renamed.",
+      "Tabs that would have nothing in them are not shown. A shape or a picture has no Text tab, because there is no wording to change."
+    ]
+  },
+  {
+    "version": "0.1.457",
+    "date": "2026-09-18",
+    "headline": "Rulers, a grid and a transparency checker for the slide and theme editor",
+    "highlights": [
+      "A new View button in the editor's bottom bar turns on rulers along the top and left edges, a grid over the slide, and a checkerboard that shows where a slide has no background of its own.",
+      "The rulers show a marker that follows your pointer, so you can line things up by eye.",
+      "Everything is off to start with and PresentFlow remembers what you switched on, on this computer.",
+      "Snap guides — the lines that appear while you drag something into line — work exactly as before, and you can now switch them off from the same menu.",
+      "On a short screen the rulers hide themselves so the slide stays big enough to work on."
+    ]
+  },
+  {
+    "version": "0.1.456",
+    "date": "2026-09-18",
+    "headline": "Adding a text box, shape, image or video to a slide is now one click above the canvas",
+    "highlights": [
+      "The slide and theme editor has a new Add bar across the top of the canvas — Text, Rectangle, Ellipse, Image and Video.",
+      "You no longer have to open the Add tab on the right to put something on a slide. That tab still works exactly as before if you prefer it.",
+      "On narrower Windows screens the bar shows icons only. Hover or focus a button to see its name."
+    ]
+  },
+  {
+    "version": "0.1.455",
+    "date": "2026-09-18",
+    "headline": "The slide and theme editor now shows exactly where things sit, and you can zoom in",
+    "highlights": [
+      "A new bar under the canvas shows the position and size of whatever you have selected, and it updates live as you drag.",
+      "You can now zoom the canvas in and out, or snap back to Fit. Ctrl+0 (Cmd+0 on a Mac) fits the slide to the window.",
+      "\"Lock size\" keeps a box in its shape — drag a corner or type a new width and the height follows, so a logo never gets squashed.",
+      "New Flip Horizontal and Flip Vertical buttons mirror the selected box.",
+      "Nothing about your existing slides or themes changed — they project exactly as before."
+    ]
+  },
+  {
+    "version": "0.1.454",
+    "date": "2026-09-17",
+    "headline": "Themes now come ready-made, keep their moving backgrounds smooth, and apply to many slides or a whole service at once",
+    "highlights": [
+      "Seven built-in themes (Default, Classic, Modern, Minimal, Church, Dark, Light) are in the Theme menu. Apply one straight away, or duplicate it and make it your own.",
+      "A theme's pictures, shapes and videos now also show behind slides you designed yourself, unless the slide is a full-screen picture or video.",
+      "A video in your theme keeps playing smoothly when you change slides instead of starting again.",
+      "In a song, Cmd/Ctrl-click or Shift-click to select several slides, then use Theme to apply a theme to just those slides.",
+      "Use \\\"Apply theme to all items…\\\" on a service to theme everything in it at once, with Undo.",
+      "Bible items now have a Theme option too, plus \\\"Use for all Bible verses\\\".",
+      "Removing or re-applying a theme on songs no longer leaves the old theme's background behind."
+    ]
+  },
+  {
+    "version": "0.1.453",
+    "date": "2026-09-17",
+    "headline": "The Layers panel now matches ProPresenter",
+    "highlights": [
+      "The Layers panel lists the same seven layers as the clear bar beside your live preview, in the same order - Audio, Messages, Props, Announcements, Slide, Media, Video Input.",
+      "Each layer has one clear button, and Clear All is the same round X you already use on the clear bar. The old press-and-hold Clear All and the eye hide buttons are gone.",
+      "\"Background\" is now called Media, \"Camera\" is now Video Input and the church logo now sits under Props, so the panel and the clear bar say the same thing.",
+      "You can still change the background media, set the church logo, switch a slide between full screen and lower third, and re-send or jump to a slide from the same panel.",
+      "Clearing Messages now also takes a countdown or timer off the screen, and Clear All really does clear everything, including timers.",
+      "The clear keys (F1 to F7) now still work while a menu or picker is open, so you can clear without closing what you are looking at first.",
+      "F5 no longer reloads the app mid-service.",
+      "Clear All has a second shortcut that works on every keyboard - Ctrl+Shift+C on Windows, Command+Shift+C on Mac - because F1 is the brightness key on most Macs.",
+      "The Props clear button now always works, even if your church has not set a logo. Audio is clearly marked as not available yet, instead of looking like a button that does nothing.",
+      "In the old Layers panel, Clear All now stops the camera as well, so both Clear All buttons leave the app in the same state."
+    ]
+  },
+  {
+    "version": "0.1.451",
+    "date": "2026-09-17",
+    "headline": "One Settings window — Bible, CCLI and Automations moved out of the small gear at the bottom of the panel",
+    "highlights": [
+      "The small gear at the bottom-right of the operator panel is gone. There is now one Settings window, opened by the gear at the top next to the Present Flow logo.",
+      "Your CCLI number, your API.Bible key and your licensed translations are now in Settings, under \"Bible & Detection\".",
+      "Automations now have their own section in Settings. Creating, editing, test-running and deleting them all work exactly as before.",
+      "Type \"ccli\" or \"automation\" into the Settings search box to jump straight to them.",
+      "The rest of the bottom icon row is unchanged — Bible, Songs, Cross-references, Layers, Timers and Messages all stay where they were."
+    ]
+  },
+  {
+    "version": "0.1.450",
+    "date": "2026-09-17",
+    "headline": "Songs now open with your chosen song look, even on the first slide of a fresh session",
+    "highlights": [
+      "Sometimes the very first song you put up in a new session came out in the plain default look — white text, no background — until you clicked away to another item and back. That's fixed.",
+      "If your church's themes are slow to load when the console opens, PresentFlow now keeps trying for a few seconds and applies your song look as soon as they arrive. The screen updates in place, with no re-cut or flash."
+    ]
+  },
+  {
     "version": "0.1.449",
     "date": "2026-09-17",
     "headline": "Song backgrounds from your theme now show on the live screen, matching the slide previews",
@@ -48,7 +158,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-09-17",
     "headline": "Pictures and videos fill the screen, and the lower-third band is easier to see",
     "highlights": [
-      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.443)",
+      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.445)",
       "The lower-third band is easier to see. If you haven't picked your own band colour, it is now a soft dark bar you can see on a black screen and over pictures. Your own band colour stays the same.",
       "Captions you set on a picture or video still show in the band, and are always easy to read.",
       "Small pictures are no longer blown up until they look blurry."
@@ -201,7 +311,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "The clear buttons beside the preview now match ProPresenter — Messages, Props, Announcements, Slide, Media and Video Input (Audio is coming soon). Each one clears only its own layer.",
       "Full layer controls (show/hide each layer) are still under the Layers icon on the right.",
       "The white ✕ clears everything. The column turns red while something is live, and each live layer is highlighted.",
-      "(Changed in 0.1.438: clicking an image or video in the Media Bin now puts it on the screen. Use the Bg button to put it behind your words.)",
+      "(Changed in 0.1.441: clicking an image or video in the Media Bin now puts it on the screen. Use the Bg button to put it behind your words.)",
       "Keyboard: F1 clears all, F2 slide, F3 media, F4 props, F6 messages, F7 announcements. On a Mac, hold Fn — or turn on \"Use F1, F2, etc. keys as standard function keys\" in Keyboard settings.",
       "With a camera live, media now shows over the camera and under the words, like ProPresenter. Press Clear Media (F3) to see the camera again."
     ]
