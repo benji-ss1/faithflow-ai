@@ -4,6 +4,54 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.458",
+    "date": "2026-09-18",
+    "headline": "The editor's properties panel is now split into Shape, Text and Build",
+    "highlights": [
+      "Selecting something in the slide or theme editor now gives you Shape, Text and Build tabs instead of one long list you had to scroll.",
+      "Shape holds position, size, flip, rotation, see-through and colours. Text holds the wording, font and spacing. Build holds the entrance animation.",
+      "Every setting you had before is still there and still does the same thing — nothing was removed or renamed.",
+      "Tabs that would have nothing in them are not shown. A shape or a picture has no Text tab, because there is no wording to change."
+    ]
+  },
+  {
+    "version": "0.1.457",
+    "date": "2026-09-18",
+    "headline": "Rulers, a grid and a transparency checker for the slide and theme editor",
+    "highlights": [
+      "A new View button in the editor's bottom bar turns on rulers along the top and left edges, a grid over the slide, and a checkerboard that shows where a slide has no background of its own.",
+      "The rulers show a marker that follows your pointer, so you can line things up by eye.",
+      "Everything is off to start with and PresentFlow remembers what you switched on, on this computer.",
+      "Snap guides — the lines that appear while you drag something into line — work exactly as before, and you can now switch them off from the same menu.",
+      "On a short screen the rulers hide themselves so the slide stays big enough to work on."
+    ]
+  },
+  {
+    "version": "0.1.456",
+    "date": "2026-09-18",
+    "headline": "Adding a text box, shape, image or video to a slide is now one click above the canvas",
+    "highlights": [
+      "The slide and theme editor has a new Add bar across the top of the canvas — Text, Rectangle, Ellipse, Image and Video.",
+      "You no longer have to open the Add tab on the right to put something on a slide. That tab still works exactly as before if you prefer it.",
+      "On narrower Windows screens the bar shows icons only. Hover or focus a button to see its name."
+    ]
+  },
+  {
+    "version": "0.1.455",
+    "date": "2026-09-18",
+    "headline": "The slide and theme editor now shows exactly where things sit, and you can zoom in",
+    "highlights": [
+      "A new bar under the canvas shows the position and size of whatever you have selected, and it updates live as you drag.",
+      "You can now zoom the canvas in and out, or snap back to Fit. Ctrl+0 (Cmd+0 on a Mac) fits the slide to the window.",
+      "\"Lock size\" keeps a box in its shape — drag a corner or type a new width and the height follows, so a logo never gets squashed.",
+      "New Flip Horizontal and Flip Vertical buttons mirror the selected box.",
+      "Nothing about your existing slides or themes changed — they project exactly as before.",
+      "Export any theme to a file you can back up, email, or send to another church. Import it from the Themes area and it comes in as a brand-new theme — your existing themes are never overwritten.",
+      "Fonts, colours, text placement, transitions and scripture settings all come across exactly as they were. Import it back into your own church and you get the pictures too.",
+      "Pictures and videos belong to the church that uploaded them, so they can't travel to a different church. If one can't come with the theme, PresentFlow now tells you which one and reminds you to pick your own background — instead of leaving a broken picture on screen."
+    ]
+  },
+  {
     "version": "0.1.454",
     "date": "2026-09-17",
     "headline": "Themes now come ready-made, keep their moving backgrounds smooth, and apply to many slides or a whole service at once",
