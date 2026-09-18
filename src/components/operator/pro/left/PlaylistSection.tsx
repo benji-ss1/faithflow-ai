@@ -1036,7 +1036,7 @@ export function PlaylistSection({
       return;
     }
     try {
-      ctx.onSendSlideToLive(first, undefined, it.type === "song" ? { origin: { kind: "song", songId: (it as { songId?: string }).songId } } : undefined);
+      ctx.onSendSlideToLive(first, undefined, it.type === "song" ? { origin: { kind: "song", songId: (it as { songId?: string }).songId }, sourceItemIdx: idx } : { sourceItemIdx: idx });
       toast.success(`"${it.title}" — slide 1 → LIVE`);
     } catch (e) {
       console.warn("[playlist] send-live failed", e);
@@ -1065,7 +1065,7 @@ export function PlaylistSection({
       }
     }
     try {
-      ctx.onSendSlideToLive(payload, undefined, it.type === "song" ? { origin: { kind: "song", songId: (it as { songId?: string }).songId } } : undefined);
+      ctx.onSendSlideToLive(payload, undefined, it.type === "song" ? { origin: { kind: "song", songId: (it as { songId?: string }).songId }, sourceItemIdx: idx } : { sourceItemIdx: idx });
       toast.success(`"${it.title}" — slide ${sIdx + 1} → LIVE`);
     } catch (e) {
       console.warn("[playlist] send-slide failed", e);

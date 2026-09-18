@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.446",
+    "version": "0.1.454",
     "date": "2026-09-17",
     "headline": "Themes now come ready-made, keep their moving backgrounds smooth, and apply to many slides or a whole service at once",
     "highlights": [
@@ -18,11 +18,89 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
+    "version": "0.1.453",
+    "date": "2026-09-17",
+    "headline": "The Layers panel now matches ProPresenter",
+    "highlights": [
+      "The Layers panel lists the same seven layers as the clear bar beside your live preview, in the same order - Audio, Messages, Props, Announcements, Slide, Media, Video Input.",
+      "Each layer has one clear button, and Clear All is the same round X you already use on the clear bar. The old press-and-hold Clear All and the eye hide buttons are gone.",
+      "\"Background\" is now called Media, \"Camera\" is now Video Input and the church logo now sits under Props, so the panel and the clear bar say the same thing.",
+      "You can still change the background media, set the church logo, switch a slide between full screen and lower third, and re-send or jump to a slide from the same panel.",
+      "Clearing Messages now also takes a countdown or timer off the screen, and Clear All really does clear everything, including timers.",
+      "The clear keys (F1 to F7) now still work while a menu or picker is open, so you can clear without closing what you are looking at first.",
+      "F5 no longer reloads the app mid-service.",
+      "Clear All has a second shortcut that works on every keyboard - Ctrl+Shift+C on Windows, Command+Shift+C on Mac - because F1 is the brightness key on most Macs.",
+      "The Props clear button now always works, even if your church has not set a logo. Audio is clearly marked as not available yet, instead of looking like a button that does nothing.",
+      "In the old Layers panel, Clear All now stops the camera as well, so both Clear All buttons leave the app in the same state."
+    ]
+  },
+  {
+    "version": "0.1.451",
+    "date": "2026-09-17",
+    "headline": "One Settings window — Bible, CCLI and Automations moved out of the small gear at the bottom of the panel",
+    "highlights": [
+      "The small gear at the bottom-right of the operator panel is gone. There is now one Settings window, opened by the gear at the top next to the Present Flow logo.",
+      "Your CCLI number, your API.Bible key and your licensed translations are now in Settings, under \"Bible & Detection\".",
+      "Automations now have their own section in Settings. Creating, editing, test-running and deleting them all work exactly as before.",
+      "Type \"ccli\" or \"automation\" into the Settings search box to jump straight to them.",
+      "The rest of the bottom icon row is unchanged — Bible, Songs, Cross-references, Layers, Timers and Messages all stay where they were."
+    ]
+  },
+  {
+    "version": "0.1.450",
+    "date": "2026-09-17",
+    "headline": "Songs now open with your chosen song look, even on the first slide of a fresh session",
+    "highlights": [
+      "Sometimes the very first song you put up in a new session came out in the plain default look — white text, no background — until you clicked away to another item and back. That's fixed.",
+      "If your church's themes are slow to load when the console opens, PresentFlow now keeps trying for a few seconds and applies your song look as soon as they arrive. The screen updates in place, with no re-cut or flash."
+    ]
+  },
+  {
+    "version": "0.1.449",
+    "date": "2026-09-17",
+    "headline": "Song backgrounds from your theme now show on the live screen, matching the slide previews",
+    "highlights": [
+      "If you picked a theme for songs, its background now shows on the live screen and projector, not just on the slide previews.",
+      "When the same song is in your service more than once, the live screen uses the theme of the copy you actually clicked.",
+      "Theme logos that had stopped loading after a while now load again."
+    ]
+  },
+  {
+    "version": "0.1.448",
+    "date": "2026-09-17",
+    "headline": "Your Scripture Style and default song and Bible themes are now shared across every computer in your church",
+    "highlights": [
+      "Set the Scripture Style (full screen or lower third, band colour, text size) once and every computer in your church uses it. Before, each computer kept its own.",
+      "The default theme you pick for Songs and for Bible verses is now the same on every computer in your church.",
+      "A change made on one computer shows up on the others within about a minute, without reloading or changing what is on the screen.",
+      "Volunteers can still change the Scripture Style during a service. Changing the default song and Bible themes needs someone who can edit the library.",
+      "Your existing style carries over automatically the first time you open PresentFlow. If two computers had different styles, the first one to open wins."
+    ]
+  },
+  {
+    "version": "0.1.447",
+    "date": "2026-09-17",
+    "headline": "Intel Macs now update automatically, and the Windows pro audio driver is more reliable",
+    "highlights": [
+      "Intel Macs now get PresentFlow updates automatically, like Apple Silicon Macs and Windows. If you're on an Intel Mac and stuck on an older version, install the latest Intel (x64) download once and it will keep itself up to date from then on.",
+      "On Windows, the pro audio driver for USB mixers and interfaces stays switched on reliably instead of occasionally turning itself off at startup."
+    ]
+  },
+  {
+    "version": "0.1.446",
+    "date": "2026-09-17",
+    "headline": "Videos fill the screen like ProPresenter, plus a band tip",
+    "highlights": [
+      "Videos now fill the screen like ProPresenter. A smaller video (like 720p) grows to fit the screen instead of sitting small in the middle. It keeps its shape, with black bars if needed. Pick \"cover\" to fill and crop, or \"fill\" to stretch.",
+      "A tip in lower-third settings lets you try the more visible band. It only shows if your band is still plain black, and nothing changes unless you tap \"Try it\" and save."
+    ]
+  },
+  {
     "version": "0.1.445",
     "date": "2026-09-17",
     "headline": "Pictures and videos fill the screen, and the lower-third band is easier to see",
     "highlights": [
-      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.443)",
+      "Pictures and videos now fill the whole screen, even when you use the lower-third layout. The lower-third band is just for words, like in ProPresenter. (changed in 0.1.445)",
       "The lower-third band is easier to see. If you haven't picked your own band colour, it is now a soft dark bar you can see on a black screen and over pictures. Your own band colour stays the same.",
       "Captions you set on a picture or video still show in the band, and are always easy to read.",
       "Small pictures are no longer blown up until they look blurry."
@@ -175,7 +253,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "The clear buttons beside the preview now match ProPresenter — Messages, Props, Announcements, Slide, Media and Video Input (Audio is coming soon). Each one clears only its own layer.",
       "Full layer controls (show/hide each layer) are still under the Layers icon on the right.",
       "The white ✕ clears everything. The column turns red while something is live, and each live layer is highlighted.",
-      "(Changed in 0.1.438: clicking an image or video in the Media Bin now puts it on the screen. Use the Bg button to put it behind your words.)",
+      "(Changed in 0.1.441: clicking an image or video in the Media Bin now puts it on the screen. Use the Bg button to put it behind your words.)",
       "Keyboard: F1 clears all, F2 slide, F3 media, F4 props, F6 messages, F7 announcements. On a Mac, hold Fn — or turn on \"Use F1, F2, etc. keys as standard function keys\" in Keyboard settings.",
       "With a camera live, media now shows over the camera and under the words, like ProPresenter. Press Clear Media (F3) to see the camera again."
     ]

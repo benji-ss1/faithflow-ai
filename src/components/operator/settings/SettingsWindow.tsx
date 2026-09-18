@@ -22,9 +22,19 @@ import * as Dialog from "@radix-ui/react-dialog";
 import {
   X, Search, SlidersHorizontal, Monitor, Volume2, Cast, Radio, Palette, BookOpen,
   Music, Users, CreditCard, Plug, RefreshCw, Wrench, HelpCircle, MessageSquare,
-  Languages, BarChart3, Wand2, ExternalLink, Laptop, Shield, MonitorSpeaker, Image, Download, Upload, RotateCcw, ChevronDown, Settings,
+  Languages, BarChart3, Wand2, ExternalLink, Laptop, Shield, MonitorSpeaker, Image, Download, Upload, RotateCcw, ChevronDown, Settings, Workflow,
 } from "lucide-react";
+import type { OperatorShellCtx } from "../shell/types";
 import { NdiTab } from "./tabs/NdiTab";
+// 2026-09-17: Bible licensing (CCLI + API.Bible) and Automations moved here from
+// the retired bottom-right gear popover in the operator icon row. Same component
+// bodies — nothing was rewritten, so nothing was lost.
+import dynamic from "next/dynamic";
+// Both are loaded ON DEMAND — the operator console mounts SettingsWindow, and
+// the Automations tab was deliberately kept off the operator hot path when it
+// lived in the sidebar (next/dynamic). That property is preserved here.
+const BibleLicensingTab = dynamic(() => import("../pro/right/tabs/BibleLicensingTab").then((m) => m.BibleLicensingTab), { ssr: false });
+const MacrosTab = dynamic(() => import("../pro/right/tabs/MacrosTab").then((m) => m.MacrosTab), { ssr: false });
 import { AudioTab } from "./tabs/AudioTab";
 import { LanguageTab } from "./tabs/LanguageTab";
 import { UsageTab } from "./tabs/UsageTab";
@@ -43,7 +53,7 @@ const SECTION_KEY = "presentflow.pro.settings.section.v1";
 const LEGACY_SAFE_MODE_KEY = "presentflow.safeMode";
 
 type SectionId =
-  | "general" | "bible" | "songs" | "privacy"
+  | "general" | "bible" | "songs" | "privacy" | "automations"
   | "screens" | "stage" | "audio" | "ndi" | "livestream" | "themes" | "media"
   | "team" | "billing" | "integrations"
   | "updates" | "language" | "usage" | "advanced" | "help" | "feedback";
@@ -61,6 +71,7 @@ const SECTIONS: Section[] = [
   { id: "general", label: "General", group: "Service", icon: SlidersHorizontal, keywords: "safe mode click confirm startup shortcuts version app" },
   { id: "bible", label: "Bible & Detection", group: "Service", icon: BookOpen, keywords: "scripture translation verse confidence auto approve detection kjv niv esv licence license store purchase" },
   { id: "songs", label: "Songs & Library", group: "Service", icon: Music, keywords: "lyrics library import propresenter easyworship ccli arrangement" },
+  { id: "automations", label: "Automations", group: "Service", icon: Workflow, keywords: "macro macros action chain trigger slide run automation sequence" },
   { id: "privacy", label: "Privacy & Transcripts", group: "Service", icon: Shield, keywords: "recording retention delete data sermon transcript gdpr storage" },
   { id: "screens", label: "Screens & Outputs", group: "Output", icon: Monitor, keywords: "display projector stage audience resolution monitor blank identify layers clear lyrics hide" },
   { id: "stage", label: "Stage Display & Transitions", group: "Output", icon: MonitorSpeaker, keywords: "confidence monitor clock notes next slide fade dissolve cut speed" },
@@ -89,6 +100,10 @@ const ROW_INDEX: { section: SectionId; label: string }[] = [
   { section: "bible", label: "Default Bible translation" },
   { section: "bible", label: "Detection confidence & auto-approve" },
   { section: "bible", label: "Bible licences" },
+  { section: "bible", label: "CCLI number" },
+  { section: "bible", label: "API.Bible key" },
+  { section: "automations", label: "Automations (macros)" },
+  { section: "automations", label: "Create or edit an automation" },
   { section: "songs", label: "Song library" },
   { section: "songs", label: "Import songs & slides" },
   { section: "privacy", label: "Transcript retention" },
@@ -385,6 +400,30 @@ function BibleSection({ onUpgrade }: { onUpgrade: () => void }) {
         <SectionHead title="Bible licences" description="Licensed translations your church has activated." />
         <LicenseTab />
       </div>
+      {/* CCLI number + API.Bible key + licensed-translation status. Moved here
+          2026-09-17 from the operator bottom-right gear popover. */}
+      <div className="mt-6">
+        <SectionHead title="CCLI & API.Bible" description="Your church's CCLI licence number and an optional API.Bible key for your own translation quota." />
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)]/60 px-4 py-3">
+          <BibleLicensingTab />
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AutomationsSection({ ctx }: { ctx?: OperatorShellCtx }) {
+  return (
+    <>
+      <SectionHead title="Automations" description="Chain actions together — start a timer and show a message, clear layers, and so on — then fire them in one tap, or from a song slide's Actions menu." />
+      <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)]/60 px-4 py-3">
+        <MacrosTab ctx={ctx} />
+      </div>
+      {!ctx && (
+        <p className="mt-3 text-[12.5px] text-[var(--color-muted-foreground)]">
+          Open Settings from the operator console to test-run an automation on the live output.
+        </p>
+      )}
     </>
   );
 }
@@ -484,10 +523,10 @@ function StageSection({ close }: { close: () => void }) {
     <>
       <SectionHead title="Stage Display & Transitions" description="What the people on stage see, and how slides change on the projector." />
       <Card>
-        <Row label="Stage display" help="Clock, current and next slide, and speaker notes for the preacher's monitor.">
-          <button type="button" onClick={() => { close(); requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("presentflow:open-panel", { detail: { panel: "settings" } }))); }}
-            className="h-8 px-3 rounded-lg text-[13px] font-semibold bg-[var(--color-brand)] text-white hover:opacity-90">Open stage panel</button>
-        </Row>
+        {/* 2026-09-17: this button opened the operator's bottom-right gear popover,
+            which only ever contained Automations + Bible (no stage controls) and has
+            now been retired. Stage display is assigned in Screens & Outputs below. */}
+        <Row label="Stage display" help="Clock, current and next slide, and speaker notes for the preacher's monitor. Assign which display shows it below." />
         <LinkRow label="Assign the stage screen" help="Choose which physical display shows the stage view." href="/settings/screens" cta="Configure" onOpen={() => openScreensPanel(close)} />
         <Row label="Slide transitions" help="Transitions are chosen per slide from the slide menu in the operator console, so what you set is what you see on the projector." />
       </Card>
@@ -602,7 +641,7 @@ function SettingsPortability() {
 
 /* ── the window ──────────────────────────────────────────────────────────── */
 
-export function SettingsWindow() {
+export function SettingsWindow({ ctx }: { ctx?: OperatorShellCtx } = {}) {
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<SectionId>("general");
   const [query, setQuery] = useState("");
@@ -661,6 +700,7 @@ export function SettingsWindow() {
       case "general": return <GeneralSection />;
       case "bible": return <BibleSection onUpgrade={() => setShowUpgrade(true)} />;
       case "songs": return <SongsSection close={() => setOpen(false)} />;
+      case "automations": return <AutomationsSection ctx={ctx} />;
       case "screens": return <ScreensSection close={() => setOpen(false)} />;
       case "audio": return <AudioSection close={() => setOpen(false)} />;
       case "ndi": return <><SectionHead title="NDI Output" description="Send your slides to OBS or another computer over the network." /><NdiTab /></>;

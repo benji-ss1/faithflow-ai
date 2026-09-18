@@ -59,3 +59,19 @@ export function isNarrowMedia(natW: number, natH: number): boolean {
 export function bandCaptionPx(heightPct: number, fontScale = 1): number {
   return Math.max(16, Math.round((heightPct / 100) * CANVAS_H * 0.26 * (fontScale > 0 ? fontScale : 1)));
 }
+
+/** Old (pre-0.1.445) band default. Saved designs keep it; we only HINT. */
+export const BAND_OLD_DEFAULT_COLOR = "#000000";
+
+/** Full-screen (non-band) video: always fill the output box; fit decides crop/letterbox/stretch. */
+export function videoObjectFit(fit?: string): "contain" | "cover" | "fill" {
+  return fit === "cover" ? "cover" : fit === "fill" ? "fill" : "contain";
+}
+
+/** Show the "more visible band" hint only for a saved exact old-black solid/gradient band, not dismissed. */
+export function shouldShowBandHint(band: { mode?: string; color?: string } | null | undefined, dismissed: boolean): boolean {
+  if (dismissed || !band || band.mode === "none") return false;
+  return (band.color ?? "").trim().toLowerCase() === BAND_OLD_DEFAULT_COLOR;
+}
+
+export const bandHintKey = (churchId?: string) => `presentflow.bandHint.dismissed.${churchId || "local"}`;

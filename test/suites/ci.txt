@@ -150,3 +150,15 @@ test/voice-commands.test.ts
 test/whats-new.test.ts
 test/band-media.test.ts
 test/plan-theme-undo.test.ts
+test/adversarial/church-styles-scope.test.ts
+test/church-styles-store.test.ts
+test/live-bg-theme-decor.test.ts
+test/live-item-theme.test.ts
+test/themes-retry.test.ts
+test/s3-key-nesting.test.ts
+test/scripture-design-sanitize.test.ts
+test/settings-tidy.test.ts
+test/video-fit-band-hint.test.ts
+test/pp7-layer-model.test.ts
+test/pp7-rail-parity.test.tsx
+test/pp7-layers-panel.test.tsx

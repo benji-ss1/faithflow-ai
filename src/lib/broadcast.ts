@@ -716,7 +716,7 @@ export function isValidMessageOverlay(overlay: unknown): overlay is MessageOverl
 
 // Basic CSS color: hex or rgb()/rgba(). No `red;--x:url(...)` shenanigans.
 const COLOR_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\(\s*\d+(?:\s*,\s*\d+){2}\s*(?:,\s*(?:0|1|0?\.\d+))?\s*\))$/;
-function isValidColor(c: unknown): boolean {
+export function isValidColor(c: unknown): boolean {
   if (typeof c !== "string") return false;
   if (c.length > 32) return false;
   return COLOR_RE.test(c.trim());
@@ -731,7 +731,7 @@ function isValidMediaUrl(u: unknown): boolean {
 // Font-family is interpolated into a CSS value, so bound it to a safe charset
 // (names, quotes, spaces, commas, dots, hyphens) — a cross-device payload must
 // not be able to inject CSS through it.
-const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
+export const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
 
 // ONE URL POLICY (2026-09-14): delegates to render-url.ts so save, read and
 // output agree. Same-origin relative "/api/media/…" paths are now accepted

@@ -61,6 +61,7 @@ import { RightIconBar } from "./right/RightIconBar";
 import { VerticalClearRail } from "./right/VerticalClearRail";
 import { Pp7ClearRail } from "./right/Pp7ClearRail";
 import { usePp7Layers } from "@/lib/pp7-layers-flag";
+import { usePp7Messages } from "./right/usePp7Layers";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
@@ -2540,17 +2541,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // ProPresenter 7 layer UI (on by default; kill switch in pp7-layers-flag): clear rail beside the
   // preview + F-key clears + Media Bin clicks go behind the words.
   const pp7Layers = usePp7Layers() && ctx.layersEngineOn;
-  // PP7: timers show through the Messages layer, so they light and clear with it.
-  const pp7MessagesActive = messages.state.showing || messagesBoard.active.some((m) => !m.hidden) || timer.state.shown || timers.slots.some((t) => t.shown);
-  const pp7MsgRef = useRef({ messages, messagesBoard, timer, timers });
-  pp7MsgRef.current = { messages, messagesBoard, timer, timers };
-  const pp7ClearMessages = useCallback(() => {
-    const { messages: m, messagesBoard: b, timer: t1, timers: ts } = pp7MsgRef.current;
-    m.hide();
-    b.clearAll();
-    t1.hide();
-    for (const slot of ts.slots) if (slot.shown) ts.hide(slot.def.id);
-  }, []);
+  // PP7: timers ride the Messages layer, so they light it and clear with it
+  // (F6 / the Messages row / Clear All all take a live countdown off screen).
+  // ONE implementation, shared with the PP7 Layers panel (right/usePp7Layers).
+  const { active: pp7MessagesActive, clear: pp7ClearMessages } = usePp7Messages({ messages, messagesBoard, timer, timers });
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
   // Always-current handle to the session so the callback below (captured by
   // effects that don't re-subscribe on every grid change) never reads a stale
@@ -5120,7 +5114,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <AudioDebugOverlay audio={ctx.audio} />
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
       <WhatsNewModal />
-      <SettingsWindow />
+      <SettingsWindow ctx={ctx} />
       <SarahOverlay live={sarahLive} />
     </div>
   );

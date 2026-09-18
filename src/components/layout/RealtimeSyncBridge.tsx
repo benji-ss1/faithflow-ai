@@ -2,6 +2,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getRealtimeClient } from "@/lib/realtime";
+import { refreshChurchStylesFromServer } from "@/lib/church-styles-sync";
 
 /**
  * Bucket 4/9: web ↔ desktop sync bridge. Subscribes to Supabase Postgres
@@ -16,6 +17,9 @@ import { getRealtimeClient } from "@/lib/realtime";
  *   - service_items    (INSERT/UPDATE/DELETE)  — chatty; debounced 500ms
  *   - settings         (UPDATE)                — logo/branding → sidebar
  *   - users            (UPDATE, church-scoped) — role/name → Team page
+ *   - church_preferences (UPDATE, church-scoped) — PR B per-church styles:
+ *                        refetch + hydrate the style cache ONLY (no
+ *                        router.refresh, never re-sends the live slide).
  *
  * Rules honoured (see CLAUDE.md #8):
  *   - BroadcastChannel same-machine primary path is UNTOUCHED — this is
@@ -74,6 +78,10 @@ export function RealtimeSyncBridge({ churchId }: { churchId: string }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "service_items" }, scheduleRefresh)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "settings", filter }, scheduleRefresh)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "users", filter }, scheduleRefresh)
+      // Per-church styles (PR B). The payload is ignored (it's only a nudge);
+      // styles are re-read through the church-scoped getChurchStyles action and
+      // applied only if newer. No-op unless this window hydrated the store.
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "church_preferences", filter }, () => { void refreshChurchStylesFromServer(churchId); })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") dispatchState("synced");
         else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") dispatchState("offline");

@@ -1,7 +1,7 @@
 ---
 headline: Themes now come ready-made, keep their moving backgrounds smooth, and apply to many slides or a whole service at once
 audience: operator
-version: 0.1.446
+version: 0.1.454
 date: 2026-09-17
 highlights:
   - "Seven built-in themes (Default, Classic, Modern, Minimal, Church, Dark, Light) are in the Theme menu. Apply one straight away, or duplicate it and make it your own."

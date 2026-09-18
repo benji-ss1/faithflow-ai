@@ -23,17 +23,22 @@
  * - Logs → dismissed-detections list (new — read from AIDetectionsPanel's
  *   dismissed set via a shared context in a follow-up; MVP shows a
  *   placeholder pointing at browser DevTools console).
- * - Settings → embeds the existing tab bodies (Audio, Messages, Timers,
- *   Themes, Macros) as a small sub-nav.
+ * - Settings → RETIRED (2026-09-17). The bottom-right gear is gone; its two
+ *   sub-tabs (Automations, Bible/CCLI) now live in the main Settings window
+ *   opened from the top-bar gear (Settings › Automations, Settings › Bible &
+ *   Detection). Nothing was lost — the same components render there.
  * - Screens → embeds ScreensPanel (per-machine resolution + display
  *   assignment + Configure Screens button).
  */
 import { useCallback, useEffect, useState } from "react";
 import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import * as Popover from "@radix-ui/react-popover";
-import { BookOpen, Music, Link2, Settings as SettingsIcon, Layers as LayersIcon, Timer as TimerIcon, MessageSquare } from "lucide-react";
+import { BookOpen, Music, Link2, Layers as LayersIcon, Timer as TimerIcon, MessageSquare } from "lucide-react";
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { LayersPanel } from "./LayersPanel";
+import { Pp7LayersPanel } from "./Pp7LayersPanel";
+import { usePp7Layers } from "@/lib/pp7-layers-flag";
+import { usePp7Messages } from "./usePp7Layers";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { TimerApi, MessagesApi, TimersApi, MessagesBoardApi } from "../hooks";
@@ -42,18 +47,15 @@ import { useRightRailDetections } from "./useRightRailDetections";
 import { countCrossRefCandidates } from "@/lib/right-rail-visible";
 import { TimersPanel } from "./TimersPanel";
 import { MessagesPanel } from "./MessagesPanel";
-import dynamic from "next/dynamic";
-// Speed: Automations tab loaded on demand (off the operator hot path).
-const MacrosTab = dynamic(() => import("./tabs/MacrosTab").then((m) => m.MacrosTab), { ssr: false });
 import { ThemesModal } from "../ThemesModal";
-import { BibleLicensingTab } from "./tabs/BibleLicensingTab";
 import { ChannelStrip } from "../../ChannelStrip";
+import { OPEN_SETTINGS_EVENT } from "../../settings/SettingsWindow";
 // Change 5C (2026-07-27) — right-icon Screens tab retired. Duplicated the
 // left-sidebar Hardware > Screens slide-out shipped in v0.1.91 (JPD Fix 7).
 // HardwarePanel still imports ScreensPanel directly; the component is
 // unchanged. Only the right-side entry point is removed.
 
-type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes" | "layers" | "timers" | "messages";
+type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "themes" | "layers" | "timers" | "messages";
 
 // First-run discoverability for the Layers panel: set once the operator opens
 // Layers for the first time. Until then (and only when Layers is enabled for the
@@ -69,6 +71,11 @@ export function RightIconBar({
   timers: TimersApi;
   messagesBoard: MessagesBoardApi;
 }) {
+  // PP7 Layers panel (2026-09-17). Flag OFF ⇒ the legacy LayersPanel renders
+  // exactly as before — `NEXT_PUBLIC_PP7_LAYERS=0` / localStorage
+  // `presentflow.pp7Layers.v1="0"` is a true reversal.
+  const pp7Layers = usePp7Layers();
+  const pp7Messages = usePp7Messages({ messages, messagesBoard, timer, timers });
   const [openKey, setOpenKeyInner] = useState<PopoverKey | null>(null);
   // JPD Fix 5 (2026-07-27): restore the last-open sidebar popover on
   // relaunch and persist changes. Restore runs post-mount (no SSR/hydration
@@ -100,7 +107,10 @@ export function RightIconBar({
   useEffect(() => {
     const openPanel = (name: string | null) => {
       if (name === "layers") { if (LAYERS_V2 && ctx.layersEngineOn) setOpenKey("layers"); return; }
-      if (name === "bible" || name === "songs" || name === "xrefs" || name === "settings") setOpenKey(name);
+      // 2026-09-17: the old sidebar Settings popover is retired. A legacy
+      // ?panel=settings deep-link now opens the real Settings window.
+      if (name === "settings") { window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT)); return; }
+      if (name === "bible" || name === "songs" || name === "xrefs") setOpenKey(name);
     };
     const onOpenPanel = (e: Event) => openPanel((e as CustomEvent<{ panel?: string }>).detail?.panel ?? null);
     window.addEventListener("presentflow:open-panel", onOpenPanel);
@@ -116,18 +126,15 @@ export function RightIconBar({
     const saved = loadSessionState()?.sidebarTab;
     // Change 5C — "screens" removed from the valid-key list. A stale
     // "screens" from a prior version silently no-ops here (bar stays clean).
-    if (saved === "bible" || saved === "songs" || saved === "xrefs" || saved === "settings") {
+    // "settings" removed 2026-09-17 alongside "screens": a stale saved value
+    // silently no-ops (the bar stays clean).
+    if (saved === "bible" || saved === "songs" || saved === "xrefs") {
       setOpenKeyInner(saved);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Audio Guardian (2026-07-27) — the shell's red "⚠ AUDIO" chip needs a
-  // programmatic way into Settings › Audio. The popover state lives here,
-  // so we own the listener. `settingsEpoch` keys SettingsPopoverBody so a
-  // guardian-triggered open remounts it on its default sub-tab ("audio")
-  // even if the popover was already open on Messages/Timers/etc.
-  const [settingsEpoch, setSettingsEpoch] = useState(0);
-  const [settingsInitialTab] = useState<"macros" | "bible">("macros");
+  // programmatic way into the Audio hardware panel. We own the listener.
   // Themes now opens as a full-screen operator modal (not a sidebar popover).
   const [themesModalOpen, setThemesModalOpen] = useState(false);
   useEffect(() => {
@@ -208,10 +215,9 @@ export function RightIconBar({
           Icon={MessageSquare} label="Messages"
           badge={messagesBoard.active.length + (messages.state.showing ? 1 : 0)}
         />
-        <IconTrigger
-          k="settings" openKey={openKey} setOpen={setOpenKey}
-          Icon={SettingsIcon} label="Settings"
-        />
+        {/* 2026-09-17 — Settings gear removed from this row. Its contents
+            (Automations, Bible/CCLI) moved to the main Settings window opened
+            from the top-bar gear beside the logo. */}
         {/* Change 5C (2026-07-27) — Screens icon removed. Left sidebar
             Hardware > Screens (HardwarePanel) is the sole entry point. */}
       </div>
@@ -237,7 +243,9 @@ export function RightIconBar({
           renders and the icon-bar row is clean. */}
       {LAYERS_V2 && openKey === "layers" && (
         <PopoverShell title="Layers" onClose={() => setOpenKey(null)}>
-          <LayersPanel ctx={ctx} />
+          {pp7Layers
+            ? <Pp7LayersPanel ctx={ctx} messagesActive={pp7Messages.active} onClearMessages={pp7Messages.clear} />
+            : <LayersPanel ctx={ctx} />}
         </PopoverShell>
       )}
       {openKey === "timers" && (
@@ -248,11 +256,6 @@ export function RightIconBar({
       {openKey === "messages" && (
         <PopoverShell title="Messages" onClose={() => setOpenKey(null)}>
           <MessagesPanel compose={messages} board={messagesBoard} />
-        </PopoverShell>
-      )}
-      {openKey === "settings" && (
-        <PopoverShell title="Settings" onClose={() => setOpenKey(null)}>
-          <SettingsPopoverBody key={settingsEpoch} ctx={ctx} initialTab={settingsInitialTab} />
         </PopoverShell>
       )}
       {/* Change 5C — Screens popover render block removed. */}
@@ -350,55 +353,6 @@ function PopoverShell({
       </div>
       <div className="max-h-[400px] overflow-y-auto pf-transcript-scroll">
         {children}
-      </div>
-    </div>
-  );
-}
-
-function SettingsPopoverBody({
-  ctx,
-  initialTab = "macros",
-}: {
-  // Automations test-run fires through ctx.dispatchEngineAction — without it
-  // MacrosTab can only show "Test-run needs the live operator console".
-  ctx: OperatorShellCtx;
-  // Messages + Timers moved to their OWN top-level icons (Wave 7, rec6): "take
-  // out messages and timers from this section and give them their own sections."
-  initialTab?: "macros" | "bible";
-}) {
-  const [subTab, setSubTab] = useState<"macros" | "bible">(initialTab);
-  const tabs: { k: typeof subTab; label: string }[] = [
-    { k: "macros", label: "Automations" },
-    { k: "bible", label: "Bible" },
-  ];
-  return (
-    <div className="flex flex-col">
-      {/* 2026-07-25 fix — was `flex-1 min-w-0 px-2 uppercase tracking-wider`
-          which visually collided in the narrow sidebar (5 labels squeezed
-          under ~260px). Switched to natural-width tabs with whitespace-nowrap
-          in an overflow-x-auto rail, and dropped the uppercase/wide-tracking
-          so labels take ~half the width. Fits comfortably without scroll at
-          most sidebar widths, scrolls cleanly when narrower. */}
-      <div className="flex border-b border-[var(--color-border)] overflow-x-auto shrink-0 pf-transcript-scroll">
-        {tabs.map((t) => (
-          <button
-            key={t.k}
-            type="button"
-            onClick={() => setSubTab(t.k)}
-            className={cn(
-              "h-8 px-3 text-[11px] font-medium whitespace-nowrap transition-colors",
-              subTab === t.k
-                ? "text-[var(--color-foreground)] border-b-2 border-[var(--color-brand)]"
-                : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <div className="p-2 text-[12px]">
-        {subTab === "macros" && <MacrosTab ctx={ctx} />}
-        {subTab === "bible" && <BibleLicensingTab />}
       </div>
     </div>
   );

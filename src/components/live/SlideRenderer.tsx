@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, bandMediaBox, fitMediaInBox } from "@/lib/band-media";
+import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, bandMediaBox, fitMediaInBox, videoObjectFit } from "@/lib/band-media";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H, type SlidePayload, type ThemeAppearance, type ScriptureBandWire, type ThemeFrameWire, type SlideObjectWire } from "@/lib/broadcast";
 import { themedObjectTextColor, coversCanvas } from "@/lib/slide-objects";
 import { themeBoxesAllowed as themeBoxesAllowedFor, themeDecorFor, themeDecorPlan } from "@/lib/theme-decor-plan";
@@ -988,14 +988,13 @@ function VideoSlide({ slide, base, className, videoMuted, onVideoRef, fillBox, o
         onError={(e) => { onNatural?.(0, 0); console.warn("[slide] video error:", (e.currentTarget as HTMLVideoElement).error?.message || "unknown"); }}
         ref={setRef}
         style={fillBox ? { ...fillBox, objectFit: slide.fit === "cover" ? "cover" : "contain", objectPosition: "center" } : {
-          maxWidth: "100%",
-          maxHeight: "100%",
-          width: "auto",
-          height: "auto",
-          objectFit: slide.fit === "cover" ? "cover" : "contain",
+          // Full-screen: scale to the output like ProPresenter (contain = letterbox,
+          // enlarge allowed; cover = crop; fill = stretch only when chosen).
+          width: "100%",
+          height: "100%",
+          objectFit: videoObjectFit(slide.fit),
           objectPosition: "center",
           display: "block",
-          margin: "auto",
         }}
       />
     </div>
