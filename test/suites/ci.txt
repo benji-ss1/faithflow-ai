@@ -1,5 +1,5 @@
-# Add new pure tests here. Regenerate: node scripts/run-tests.mjs --all
 # Offline test files that pass on main (no DB / API keys). CI runs these and blocks on failure.
+# Add new pure tests here. Regenerate: node scripts/run-tests.mjs --all
 test/actions.test.ts
 test/adversarial/accuracy-pass2.test.ts
 test/adversarial/accuracy-pass2b-fable.test.ts
@@ -7,11 +7,11 @@ test/adversarial/audio-reconnect.test.ts
 test/adversarial/audio-sessions-cross-church.test.ts
 test/adversarial/auto-approve-safeguards.test.ts
 test/adversarial/auto-approve-shell-rules.test.ts
-test/adversarial/church-styles-scope.test.ts
 test/adversarial/learned-keyterms-cross-church.test.ts
 test/adversarial/media-register-scope.test.ts
 test/adversarial/sermon-backfill-cross-church.test.ts
 test/adversarial/song-chunk-scope.test.ts
+test/adversarial/theme-gaps-scope.test.ts
 test/adversarial/theme-reapply-scope.test.ts
 test/ai-pipeline.test.ts
 test/allusion-matcher.test.ts
@@ -26,7 +26,6 @@ test/audio-hardening.test.ts
 test/audio-lockin-devices.test.ts
 test/audio-setup-diagnostics.test.ts
 test/background-persistence.test.ts
-test/band-media.test.ts
 test/bible-add-verse.test.ts
 test/bible-allusion.test.ts
 test/bible-antireplay.test.ts
@@ -45,8 +44,8 @@ test/bible-silence-advance.test.ts
 test/bible-stutter-combine.test.ts
 test/bible-verse-enum-phonetic.test.ts
 test/bible-verse-range.test.ts
+test/builtin-themes.test.ts
 test/changelog-generator.test.ts
-test/church-styles-store.test.ts
 test/colorway.test.ts
 test/context-parser-nav.test.ts
 test/deepgram-keyterms.test.ts
@@ -67,9 +66,6 @@ test/hex-color.test.ts
 test/keyboard-shortcuts.test.ts
 test/layer-store.test.ts
 test/layer-wire.test.ts
-test/live-bg-theme-decor.test.ts
-test/live-item-theme.test.ts
-test/themes-retry.test.ts
 test/login-guard.test.ts
 test/logo-key.test.ts
 test/media-as-background.stress.test.ts
@@ -107,21 +103,19 @@ test/render-url-allowlist.test.ts
 test/render-url-clean.test.ts
 test/render-url-loopback.test.ts
 test/right-rail-badges.test.ts
-test/s3-key-nesting.test.ts
 test/sarah-answers.test.ts
 test/sarah-scenarios.test.ts
 test/sarah-watchers.test.ts
 test/scenes.test.ts
 test/scripture-chunk.test.ts
-test/scripture-design-sanitize.test.ts
 test/scripture-live-parity.test.ts
 test/scripture-lowerthird.test.ts
 test/service-mode.test.ts
-test/settings-tidy.test.ts
 test/slide-actions-remap.test.ts
 test/slide-paste.test.ts
 test/slide-renderer-empty.test.ts
 test/slide-renderer-quick-edit-blank.test.ts
+test/slide-selection.test.ts
 test/song-best-slide.test.ts
 test/song-chunk-import.test.ts
 test/song-chunk.test.ts
@@ -136,6 +130,8 @@ test/stress-wave6-3.test.ts
 test/text-size-freedom.test.ts
 test/theme-appearance.test.ts
 test/theme-bake.test.ts
+test/theme-decor-designed.test.ts
+test/theme-decor-layer.test.ts
 test/theme-decor.test.ts
 test/theme-editor-model.test.ts
 test/theme-layout-sanitize.test.ts
@@ -148,11 +144,21 @@ test/transition-resolve.test.ts
 test/translation-commands.test.ts
 test/update-banner-arch.test.ts
 test/verse-v2-mishears.test.ts
-test/video-fit-band-hint.test.ts
 test/videopsalm-parser.test.ts
 test/videopsalm.test.ts
 test/voice-commands.test.ts
 test/whats-new.test.ts
+test/band-media.test.ts
+test/plan-theme-undo.test.ts
+test/adversarial/church-styles-scope.test.ts
+test/church-styles-store.test.ts
+test/live-bg-theme-decor.test.ts
+test/live-item-theme.test.ts
+test/themes-retry.test.ts
+test/s3-key-nesting.test.ts
+test/scripture-design-sanitize.test.ts
+test/settings-tidy.test.ts
+test/video-fit-band-hint.test.ts
 test/pp7-layer-model.test.ts
 test/pp7-rail-parity.test.tsx
 test/pp7-layers-panel.test.tsx

@@ -1,7 +1,8 @@
 // Theme Editor PR 1 — reset-theme-owned-fields-then-bake + backup preservation.
 // Run: npx tsx test/theme-rebake.test.ts
 import assert from "node:assert";
-import { rebakeThemeFromOriginal, resetThemeOwnedFields, mergeThemeBackup, reapplySourceForSlide, themeFieldsForConfigs, pruneThemeBackup, copyThemeBackupForDuplicate } from "../src/lib/theme-rebake";
+import { rebakeThemeFromOriginal, resetThemeOwnedFields, mergeThemeBackup, reapplySourceForSlide, themeFieldsForConfigs, reapplyFieldsForConfigs, pruneThemeBackup, copyThemeBackupForDuplicate, appendBakedConfig, readBakedConfigs, pickBakedConfig } from "../src/lib/theme-rebake";
+import { readFileSync } from "node:fs";
 import { bakeThemeIntoObjectsJson } from "../src/lib/theme-bake";
 
 let pass = 0, fail = 0;
@@ -104,6 +105,89 @@ check("duplicated slide inherits the source's pre-theme snapshot", () => {
   assert.deepEqual(next.themeBackup.slides[1], { id: "copy", objectsJson: { o: "orig" } });
   assert.deepEqual(next.slideThemeBackups.copy, { objectsJson: { o: "per" }, themeId: "B" });
   assert.equal(copyThemeBackupForDuplicate({}, "src", "copy"), null);
+});
+
+check("keep-songs bg leftover: re-apply always resets bg even when neither config names it", () => {
+  const orig = { bgColor: "#101010", objects: [{ id: "a", kind: "text", text: "x", fontWeight: 400 }] };
+  // Slide still carries an image baked by an OLD theme version; the edit's
+  // previousConfig was lost (e.g. editor reopened), so the key union is empty.
+  const stale = { bgType: "image", bgImageUrl: "https://x/old.png", bgColor2: "#999999", transition: { effectId: "Fade" }, objects: [{ id: "a", kind: "text", text: "x", fontWeight: 900, fontFamily: "Sora" }] };
+  const fields = reapplyFieldsForConfigs([{ fontFamily: "Inter" }, undefined]);
+  const re = rebakeThemeFromOriginal({ fontFamily: "Inter" }, stale, orig, fields) as any;
+  assert.equal(re.bgImageUrl, undefined);
+  assert.equal(re.bgType, undefined);
+  assert.equal(re.bgColor2, undefined);
+  assert.equal(re.transition, undefined);
+  assert.equal(re.bgColor, "#101010");
+  // text key-union protection kept: fontWeight not named by any config survives
+  assert.equal(re.objects[0].fontWeight, 900);
+  assert.equal(re.objects[0].fontFamily, "Inter");
+  assert.deepEqual([...fields.slide].sort(), ["bgColor", "bgColor2", "bgImageUrl", "bgType", "transition"]);
+});
+
+// ── Server-stored baked configs (review fix: never trust client previousConfig) ──
+// Simulates the actions.ts flow with the pure helpers: whole-song apply stores
+// bakedConfigs; re-apply reads them from the SONG, not the editor.
+const S_ORIG = { bgColor: "#000000", objects: [{ id: "a", kind: "text", text: "x" }] };
+function applyWholeSong(cfg: Record<string, unknown>, current: unknown, settings: Record<string, unknown>) {
+  const prevCfgs = readBakedConfigs((settings.themeBackup as any)?.bakedConfigs);
+  const legacy = typeof settings.appliedThemeId === "string" && !prevCfgs;
+  const merged = mergeThemeBackup(settings.themeBackup, [{ id: "s1", objectsJson: current }], "T");
+  const bc = appendBakedConfig(prevCfgs, cfg, legacy);
+  const { bakedConfigs: _d, ...rest } = merged; void _d;
+  return { slide: bakeThemeIntoObjectsJson(cfg as any, current), settings: { ...settings, appliedThemeId: "T", themeBackup: bc ? { ...rest, bakedConfigs: bc } : rest } };
+}
+function reapply(cfg: Record<string, unknown>, current: unknown, settings: Record<string, unknown>) {
+  const src = reapplySourceForSlide("T", { id: "s1", objectsJson: current }, settings)!;
+  const fields = reapplyFieldsForConfigs([cfg, ...(src.bakedConfigs ?? [])]);
+  return rebakeThemeFromOriginal(cfg as any, current, src.original, fields, src.bakedConfigs) as any;
+}
+const V1 = { bgType: "image", bgImageUrl: "https://x/v1.png" };
+const V2 = { bgType: "image", bgImageUrl: "https://x/v2.png" };
+const V3 = { bgColor: "#223344" };
+
+check("stale older-version song ('Keep songs as they are'): v1-baked song is updated on v3 re-apply", () => {
+  const a = applyWholeSong(V1, S_ORIG, {});
+  assert.deepEqual((a.settings.themeBackup as any).bakedConfigs, [V1]);
+  // theme edited to v2 WITHOUT restyling this song, then to v3 and re-applied
+  const re = reapply(V3, a.slide, a.settings);
+  assert.equal(re.bgImageUrl, undefined, "v1 image leftover reset");
+  assert.equal(re.bgType, undefined);
+  assert.equal(re.bgColor, "#223344");
+});
+check("hand-set background after applying is KEPT on re-apply", () => {
+  const a = applyWholeSong(V1, S_ORIG, {});
+  const operator = { ...a.slide, bgImageUrl: "https://x/operator-flyer.png" };
+  const re = reapply(V2, operator, a.settings);
+  assert.equal(re.bgImageUrl, "https://x/operator-flyer.png");
+});
+check("legacy song (no stored baked config) keeps today's reset-all behaviour", () => {
+  const legacySettings = { appliedThemeId: "T", themeBackup: { slides: [{ id: "s1", objectsJson: S_ORIG }], themeId: "T" } };
+  const cur = { ...S_ORIG, bgType: "image", bgImageUrl: "https://x/anything.png" };
+  const re = reapply(V3, cur, legacySettings);
+  assert.equal(re.bgImageUrl, undefined);
+  assert.equal(re.bgColor, "#223344");
+  // and re-applying a legacy-themed song with a new theme stays legacy (no guessed configs)
+  assert.equal(appendBakedConfig(undefined, V3, true), undefined);
+});
+check("two-operator stale editor: a stale client previousConfig cannot change the outcome", () => {
+  const a = applyWholeSong(V2, S_ORIG, {});
+  const operator = { ...a.slide, bgImageUrl: "https://x/operator-flyer.png" };
+  // Operator B's editor still thinks the previous config was V1 — irrelevant now:
+  const re = reapply(V3, operator, a.settings);
+  assert.equal(re.bgImageUrl, "https://x/operator-flyer.png", "hand-set kept");
+  const re2 = reapply(V3, a.slide, a.settings);
+  assert.equal(re2.bgImageUrl, undefined, "theme-owned v2 image reset");
+  const src = readFileSync(new URL("../src/lib/actions.ts", import.meta.url), "utf8");
+  const body = src.slice(src.indexOf("export async function reapplyThemeToSongs("), src.indexOf("// Themes 4 — extract"));
+  assert.ok(!/opts\.previousConfig/.test(body), "reapply never reads client previousConfig");
+  assert.ok(/src\.bakedConfigs/.test(body));
+});
+check("baked config stored is bake-only (no layout blob) and capped", () => {
+  assert.deepEqual(pickBakedConfig({ bgColor: "#111111", layout: { version: 3 }, logoUrl: "https://x" }), { bgColor: "#111111" });
+  let list: any = [];
+  for (let i = 0; i < 8; i++) list = appendBakedConfig(list, { bgColor: `#00000${i}` }, false);
+  assert.equal(list.length, 5);
 });
 
 console.log(`\ntheme-rebake: ${pass} passed, ${fail} failed`);
