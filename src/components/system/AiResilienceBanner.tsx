@@ -4,8 +4,6 @@ import { useConnectionHealth } from "@/lib/connection/connectionHealth";
 
 type AiResilienceBannerProps = {
   reconnecting: boolean;
-  unavailable: boolean;
-  onRetry: () => void;
 };
 
 /**
@@ -18,60 +16,23 @@ type AiResilienceBannerProps = {
  */
 export function AiResilienceBanner({
   reconnecting,
-  unavailable,
-  onRetry,
 }: AiResilienceBannerProps) {
   const { network } = useConnectionHealth();
 
-  if (network === "offline") {
-    return (
-      <StatusStrip tone="amber">
-        <strong>Offline local mode</strong>
-        <span>Present from your saved service. AI will return when internet returns; use the normal manual controls now.</span>
-      </StatusStrip>
-    );
-  }
+  // Offline is owned by <OfflineIndicator>; a terminal outage is owned by
+  // <AICaptionsBanner>. This component owns the short in-between state only,
+  // preventing overlapping warnings in the operator workspace.
+  if (network === "offline" || !reconnecting) return null;
 
-  if (unavailable) {
-    return (
-      <StatusStrip tone="red">
-        <strong>AI unavailable — manual mode active</strong>
-        <span>Present normally with Preview and Send Live. Nothing will auto-send.</span>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="ml-1 shrink-0 rounded bg-white/15 px-2 py-1 text-[11px] font-bold text-white hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-        >
-          Retry AI
-        </button>
-      </StatusStrip>
-    );
-  }
-
-  if (reconnecting) {
-    return (
-      <StatusStrip tone="amber">
-        <strong>AI reconnecting</strong>
-        <span>Keep presenting manually. It is retrying in the background.</span>
-      </StatusStrip>
-    );
-  }
-
-  return null;
-}
-
-function StatusStrip({ children, tone }: { children: React.ReactNode; tone: "amber" | "red" }) {
-  const colors = tone === "red"
-    ? { background: "rgba(127, 29, 29, 0.96)", border: "#ef4444" }
-    : { background: "rgba(120, 53, 15, 0.96)", border: "#f59e0b" };
   return (
     <div
       role="status"
       aria-live="polite"
-      className="fixed top-2 left-1/2 z-[9998] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-md border px-3 py-2 text-[12px] text-white shadow-lg"
-      style={{ background: colors.background, borderColor: colors.border }}
+      className="pointer-events-none fixed top-[52px] left-1/2 z-[9998] flex -translate-x-1/2 items-center gap-2 rounded-md border border-[var(--color-warning)]/45 bg-[var(--color-elevated)] px-3 py-1.5 text-[11px] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-md)]"
     >
-      {children}
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[var(--color-warning)] shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-warning)_20%,transparent)]" />
+      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-warning)]">AI reconnecting</span>
+      <span className="text-[var(--color-muted-foreground)]">Manual controls remain ready.</span>
     </div>
   );
 }

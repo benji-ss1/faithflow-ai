@@ -2,9 +2,9 @@
 import { useEffect, useState } from "react";
 
 /**
- * Subtle app-wide banner shown only when the browser reports offline, so an
- * operator knows the service is running from the local cache (and that live AI
- * listening is paused). Non-interactive; renders nothing when online.
+ * App-wide local-mode indicator shown only when the browser reports offline.
+ * It is deliberately compact and non-interactive: the normal PresentFlow
+ * operator controls remain the place to keep presenting.
  */
 export function OfflineIndicator() {
   const [offline, setOffline] = useState(false);
@@ -22,10 +22,11 @@ export function OfflineIndicator() {
   return (
     <div
       role="status"
-      className="fixed bottom-3 left-3 z-[9999] flex items-center gap-2 rounded-md bg-amber-600/95 px-3 py-1.5 text-[12px] font-medium text-white shadow-lg pointer-events-none"
+      className="pointer-events-none fixed bottom-3 left-3 z-[9999] flex max-w-[min(420px,calc(100vw-1.5rem))] items-center gap-2 rounded-md border border-[var(--color-warning)]/45 bg-[var(--color-elevated)] px-3 py-2 text-[12px] shadow-[var(--edge-top),var(--shadow-lg)]"
     >
-      <span className="inline-block h-2 w-2 rounded-full bg-white/90" />
-      Offline — presenting from your saved service. Live AI listening is paused.
+      <span aria-hidden className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-warning)] shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-warning)_20%,transparent)]" />
+      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-warning)]">Offline local mode</span>
+      <span className="text-[var(--color-muted-foreground)]">Saved service is ready. AI waits for internet.</span>
     </div>
   );
 }

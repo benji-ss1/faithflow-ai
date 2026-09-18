@@ -2312,8 +2312,6 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       <ServiceModeBanner />
       <AiResilienceBanner
         reconnecting={audio.listening && !audio.ready && !audio.reconnectFailed}
-        unavailable={audio.reconnectFailed}
-        onRetry={restartAudio}
       />
       <div className="fixed top-2 right-3 z-40 flex items-center gap-2">
         {/* R2: persistent "Message live" indicator so the operator can't
