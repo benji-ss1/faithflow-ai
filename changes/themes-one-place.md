@@ -1,7 +1,7 @@
 ---
 headline: Themes now live in one place — the Themes menu on the top bar
 audience: operator
-version: 0.1.455
+version: 0.1.460
 date: 2026-09-18
 highlights:
   - The old Themes window has been put away. Everything it did is now in the Themes menu on the top bar, where you already apply themes.
