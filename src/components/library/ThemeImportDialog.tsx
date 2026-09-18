@@ -55,10 +55,14 @@ function baseName(fileName: string): string {
 }
 
 export function ThemeImportDialog({
-  open, onClose,
+  open, onClose, onDone,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Operator hosts (the Themes popover) pass this so the final button closes
+   *  the dialog instead of hard-navigating to the web /library/themes page,
+   *  which would yank the operator out of the console mid-service. */
+  onDone?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("upload");
   const [files, setFiles] = useState<File[]>([]);
@@ -429,10 +433,10 @@ export function ThemeImportDialog({
                 </button>
                 <button
                   type="button"
-                  onClick={() => { window.location.href = "/library/themes"; }}
+                  onClick={() => { if (onDone) onDone(); else window.location.href = "/library/themes"; }}
                   className="h-9 px-4 rounded-md bg-[var(--color-brand)] text-black text-[12px] font-semibold"
                 >
-                  Go to Themes Library
+                  {onDone ? "Done" : "Go to Themes Library"}
                 </button>
               </div>
             </div>
