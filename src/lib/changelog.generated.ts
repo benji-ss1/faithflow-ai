@@ -4,6 +4,16 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.456",
+    "date": "2026-09-18",
+    "headline": "Adding a text box, shape, image or video to a slide is now one click above the canvas",
+    "highlights": [
+      "The slide and theme editor has a new Add bar across the top of the canvas — Text, Rectangle, Ellipse, Image and Video.",
+      "You no longer have to open the Add tab on the right to put something on a slide. That tab still works exactly as before if you prefer it.",
+      "On narrower Windows screens the bar shows icons only. Hover or focus a button to see its name."
+    ]
+  },
+  {
     "version": "0.1.455",
     "date": "2026-09-18",
     "headline": "The slide and theme editor now shows exactly where things sit, and you can zoom in",

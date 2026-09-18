@@ -28,6 +28,7 @@ import { projectableTextSlide } from "@/lib/broadcast";
 import { CANVAS_W, CANVAS_H, newObjectId } from "@/lib/slide-objects";
 import { loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, type CustomTemplate } from "@/lib/custom-templates";
 import { cn } from "@/lib/utils";
+import { OBJECT_TOOLBAR_ITEMS, type EditorObjectSource } from "@/lib/editor-toolbar";
 import { boundingRect, formatRectStatus, stepZoom, zoomLabel, lockedSizePatch, type EditorZoom } from "@/lib/editor-geometry";
 
 /**
@@ -557,8 +558,9 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
             {/* Left: vertical slide rail (1,2,3,4…) — collapsible */}
             <SlideRail editor={editor} isSong={isSong} itemId={itemId} open={railOpen} onToggle={toggleRail} keepOne={themeMode} />
 
-            {/* Center: big checkerboard canvas, projection-zone controls kept below */}
+            {/* Center: object toolbar, big checkerboard canvas, projection-zone controls kept below */}
             <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+              {isSong && <ObjectToolbar editor={editor} addFocus={addFocus} />}
               <div className="flex-1 min-h-0 min-w-0 relative" style={{ backgroundColor: "#0d0d10", backgroundImage: CHECKER, backgroundSize: "28px 28px" }}>
                 {isSong ? (
                   <SlideCanvas
@@ -769,6 +771,50 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus, lockAspect, setL
   );
 }
 
+// ── Object toolbar (PP7 parity: add objects from the canvas, not a hidden tab) ─
+// Discoverability only. Every button calls the SAME handler the right drawer's
+// "Add" tab already calls, and that tab is untouched — an operator who learned
+// the old path keeps it (CLAUDE.md rule 0).
+//
+// Windows (docs/WINDOWS_DESIGN.md): real <button>s so the no-hover-lift CSS
+// applies; labels collapse to icon-only on narrow Windows viewports via the
+// established `[html[data-platform=win]_&]:max-[...]:hidden` variant, with the
+// name still reachable through `title` + `aria-label`; nothing is hover-only.
+function ObjectToolbar({ editor, addFocus }: { editor: Editor; addFocus: (fn: () => void) => void }) {
+  const [libKind, setLibKind] = useState<"image" | "video" | null>(null);
+  // Driven by the shared OBJECT_TOOLBAR_ITEMS list so the toolbar and the
+  // drawer's Add tab can never drift apart (test-locked).
+  const ICONS: Record<EditorObjectSource, typeof Type> = {
+    text: Type, rect: Square, ellipse: Circle, image: ImageIcon, video: Film,
+  };
+  const run = (src: EditorObjectSource) => {
+    if (src === "text") addFocus(editor.addTextObject);
+    else if (src === "rect") addFocus(() => editor.addShape("rect"));
+    else if (src === "ellipse") addFocus(() => editor.addShape("ellipse"));
+    else setLibKind(src);
+  };
+  const items = OBJECT_TOOLBAR_ITEMS.map((it) => ({ ...it, icon: ICONS[it.source], onClick: () => run(it.source) }));
+  return (
+    <div data-tour="object-toolbar" role="toolbar" aria-label="Add an object to this slide"
+      className="shrink-0 border-b flex items-center gap-1 px-2 h-9 [@media(max-height:620px)]:h-7 overflow-x-auto"
+      style={{ borderColor: HAIR, background: PANEL }}>
+      <span className="shrink-0 mr-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Add</span>
+      {items.map((it) => (
+        <button key={it.source} type="button" onClick={it.onClick} title={it.label} aria-label={it.label}
+          className="shrink-0 h-7 px-2 rounded-md border text-[11px] font-semibold text-[var(--color-foreground)] inline-flex items-center gap-1.5 hover:bg-[var(--color-brand)]/10"
+          style={segOff}>
+          <it.icon className="w-3.5 h-3.5 shrink-0" />
+          <span className="[html[data-platform=win]_&]:max-[1180px]:hidden">{it.label}</span>
+        </button>
+      ))}
+      {libKind && (
+        <MediaLibraryPicker kind={libKind} onClose={() => setLibKind(null)}
+          onPick={(url) => { if (libKind === "video") addFocus(() => editor.addVideo(url)); else addFocus(() => editor.addImage(url)); }} />
+      )}
+    </div>
+  );
+}
+
 // ── Status bar (PP7 parity: X / Y / W / H of the selection + zoom) ────────
 // Read-only readout. It reflects the SAME numbers as the Design panel's X/Y/W/H
 // inputs (canvas units, origin top-left) and updates live while dragging,
@@ -782,7 +828,7 @@ function EditorStatusBar({ editor, zoom, setZoom }: { editor: Editor; zoom: Edit
   const f = formatRectStatus(rect);
   const label = sel.length === 0 ? "No selection" : sel.length === 1 ? `1 object` : `${sel.length} objects`;
   return (
-    <div className="shrink-0 border-t flex items-center gap-3 px-3 h-8 text-[11px] overflow-x-auto" style={{ borderColor: HAIR, background: PANEL }}>
+    <div className="shrink-0 border-t flex items-center gap-3 px-3 h-8 [@media(max-height:620px)]:h-6 text-[11px] overflow-x-auto" style={{ borderColor: HAIR, background: PANEL }}>
       <span className="shrink-0 text-[var(--color-muted-foreground)]">{label}</span>
       <div className="shrink-0 flex items-center gap-2.5 font-mono tabular-nums text-[var(--color-foreground)]">
         {([["X", f.x], ["Y", f.y], ["W", f.w], ["H", f.h]] as const).map(([k, v]) => (
