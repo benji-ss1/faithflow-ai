@@ -2,6 +2,7 @@
 import type { SlideObjectWire } from "@/lib/broadcast";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
+import { flipTransform } from "@/lib/editor-geometry";
 
 /**
  * Read-only projector render of a slide's positioned objects (Phase 1 of the
@@ -49,6 +50,11 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
           // it composes cleanly with the entrance animation's transform instead
           // of being overwritten by it.
           rotate: obj.rotation ? `${obj.rotation}deg` : undefined,
+          // Flip via the INDEPENDENT `scale` property, for the same reason as
+          // `rotate` above. `flipTransform` returns undefined unless a flip flag
+          // is set, so every object authored before flip existed renders
+          // byte-identically (parity-tested in test/editor-geometry.test.ts).
+          scale: flipTransform(obj),
         };
         const key = `${obj.kind}-${i}`;
         // Entrance animation: applied to the positioned box only. `both` fill

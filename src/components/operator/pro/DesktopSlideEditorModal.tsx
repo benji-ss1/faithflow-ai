@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon, PanelLeftClose, PanelLeftOpen, PanelBottom, Palette } from "lucide-react";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon, PanelLeftClose, PanelLeftOpen, PanelBottom, Palette, Link2, Link2Off, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { LayoutDefaultControl } from "@/components/operator/layout/LayoutDefaultControl";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor, type EditableSlide } from "../editor/useSlideEditor";
@@ -28,6 +28,7 @@ import { projectableTextSlide } from "@/lib/broadcast";
 import { CANVAS_W, CANVAS_H, newObjectId } from "@/lib/slide-objects";
 import { loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, type CustomTemplate } from "@/lib/custom-templates";
 import { cn } from "@/lib/utils";
+import { boundingRect, formatRectStatus, stepZoom, zoomLabel, lockedSizePatch, type EditorZoom } from "@/lib/editor-geometry";
 
 /**
  * Desktop full-screen slide editor — reskinned to match the "Projection Zone"
@@ -133,6 +134,11 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
   const hasUnsaved = editor.hasDirtyChanges || (themeMode && themeDirty);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
   const [tab, setTab] = useState<DrawerTab>("add");
+  // Editor view + transform state. Both are EDITOR-ONLY (never saved, never
+  // published): zoom = null means "Fit", the pre-existing default; lockAspect
+  // constrains drag-resize to the object's ratio.
+  const [zoom, setZoom] = useState<EditorZoom>(null);
+  const [lockAspect, setLockAspect] = useState(false);
   // Left slide rail is collapsible; remember the operator's choice.
   const [railOpen, setRailOpen] = useState(true);
   useEffect(() => {
@@ -459,6 +465,11 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
             else if (k === "c") { if (copySelection()) e.preventDefault(); }
             else if (k === "v") { if (clipRef.current.length) { e.preventDefault(); pasteClipboard(); } }
             else if (k === "x") { if (copySelection()) { e.preventDefault(); editor.removeObjects(editor.selectedObjectIds); } }
+            // PP7 parity: "Fit Slide into Edit Window" is Cmd+0 / Ctrl+0.
+            // https://support.renewedvision.com/hc/en-us/articles/360042123293
+            else if (k === "0") { e.preventDefault(); setZoom(null); }
+            else if (k === "=" || k === "+") { e.preventDefault(); setZoom((z) => stepZoom(z, 1)); }
+            else if (k === "-") { e.preventDefault(); setZoom((z) => stepZoom(z, -1)); }
           }}
           className="fixed inset-0 z-[71] flex flex-col overflow-hidden outline-none"
           style={{ background: "var(--color-shell)" }}
@@ -563,6 +574,8 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                     onUpdateObjects={editor.updateObjects}
                     onRemoveObjects={editor.removeObjects}
                     readOnly={false}
+                    zoom={zoom}
+                    lockAspect={lockAspect}
                   />
                 ) : (
                   <div className="w-full h-full grid place-items-center text-[12px] text-[var(--color-muted-foreground)]">
@@ -570,6 +583,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                   </div>
                 )}
               </div>
+              {isSong && <EditorStatusBar editor={editor} zoom={zoom} setZoom={setZoom} />}
               {isSong && <CanvasWarnings slide={editor.currentSlide} />}
               {themeMode && editor.currentSlide && themeMeta[editor.currentSlide.id]?.role === "scripture" && !verseTextOf(editor.currentSlide.objects) && (
                 <div className="shrink-0 flex flex-wrap gap-1 px-3 py-1.5 border-t bg-amber-500/5" style={{ borderColor: "#2a3232" }}>
@@ -584,6 +598,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
 
             {/* Right contextual drawer (fonts, text, image, lower third, templates…) */}
             <RightDrawer editor={editor} churchId={ctx.churchId} tab={tab} setTab={setTab} addFocus={addFocus}
+              lockAspect={lockAspect} setLockAspect={setLockAspect}
               theme={themeMode ? { cfg: themeCfg, setCfg: patchThemeCfg, meta: themeMeta, setMeta: patchThemeMeta, makeDefault, setMakeDefault: (v: boolean) => { setMakeDefault(v); setThemeDirty(true); }, isDefault: themeTarget?.isDefault === true } : null} />
           </div>
         </Dialog.Content>
@@ -720,7 +735,7 @@ const ROLE_LABEL: Record<"main" | "verse" | "reference", string> = { main: "Lyri
 const THEME_PRIMARY_BTN = "h-9 px-4 rounded-lg text-[13px] font-bold inline-flex items-center gap-1.5 bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none";
 const THEME_SECONDARY_BTN = "h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-foreground)] border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200";
 
-function RightDrawer({ editor, churchId, tab, setTab, addFocus, theme = null }: { editor: Editor; churchId: string; tab: DrawerTab; setTab: (t: DrawerTab) => void; addFocus: (fn: () => void) => void; theme?: ThemeDrawerProps | null }) {
+function RightDrawer({ editor, churchId, tab, setTab, addFocus, lockAspect, setLockAspect, theme = null }: { editor: Editor; churchId: string; tab: DrawerTab; setTab: (t: DrawerTab) => void; addFocus: (fn: () => void) => void; lockAspect: boolean; setLockAspect: (v: boolean) => void; theme?: ThemeDrawerProps | null }) {
   if (!editor.isEditable) {
     return <aside className="w-[300px] shrink-0 border-l p-4 text-[12px] text-[var(--color-muted-foreground)]" style={{ borderColor: HAIR, background: PANEL }}>Editing is available for song slides.</aside>;
   }
@@ -743,7 +758,7 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus, theme = null }: 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {tab === "theme" && theme && <ThemeEditorTab editor={editor} churchId={churchId} {...theme} />}
-        {tab === "design" && <DesignPanel editor={editor} themeMode={!!theme} />}
+        {tab === "design" && <DesignPanel editor={editor} themeMode={!!theme} lockAspect={lockAspect} setLockAspect={setLockAspect} />}
         {tab === "add" && <AddPanel editor={editor} churchId={churchId} addFocus={addFocus} />}
         {tab === "templates" && <TemplatesPanel editor={editor} churchId={churchId} />}
         {tab === "background" && <BackgroundPanel editor={editor} />}
@@ -754,8 +769,48 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus, theme = null }: 
   );
 }
 
+// ── Status bar (PP7 parity: X / Y / W / H of the selection + zoom) ────────
+// Read-only readout. It reflects the SAME numbers as the Design panel's X/Y/W/H
+// inputs (canvas units, origin top-left) and updates live while dragging,
+// because a drag writes straight into editor state. With several objects
+// selected it shows their bounding box, like ProPresenter does.
+function EditorStatusBar({ editor, zoom, setZoom }: { editor: Editor; zoom: EditorZoom; setZoom: (z: EditorZoom) => void }) {
+  const slide = editor.currentSlide;
+  const ids = editor.selectedObjectIds;
+  const sel = (slide?.objects ?? []).filter((o) => ids.includes(o.id));
+  const rect = boundingRect(sel.map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h })));
+  const f = formatRectStatus(rect);
+  const label = sel.length === 0 ? "No selection" : sel.length === 1 ? `1 object` : `${sel.length} objects`;
+  return (
+    <div className="shrink-0 border-t flex items-center gap-3 px-3 h-8 text-[11px] overflow-x-auto" style={{ borderColor: HAIR, background: PANEL }}>
+      <span className="shrink-0 text-[var(--color-muted-foreground)]">{label}</span>
+      <div className="shrink-0 flex items-center gap-2.5 font-mono tabular-nums text-[var(--color-foreground)]">
+        {([["X", f.x], ["Y", f.y], ["W", f.w], ["H", f.h]] as const).map(([k, v]) => (
+          <span key={k}><span className="text-[var(--color-muted-foreground)]">{k}</span> {v}</span>
+        ))}
+      </div>
+      <span className="shrink-0 text-[var(--color-muted-foreground)]">{CANVAS_W}×{CANVAS_H}</span>
+      <div className="ml-auto shrink-0 flex items-center gap-1">
+        <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => setZoom(stepZoom(zoom, -1))}
+          className="h-6 w-6 rounded border inline-flex items-center justify-center hover:bg-[var(--color-brand)]/10" style={segOff}>
+          <ZoomOut className="w-3.5 h-3.5" />
+        </button>
+        <span className="min-w-[38px] text-center font-mono tabular-nums text-[var(--color-foreground)]">{zoomLabel(zoom)}</span>
+        <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => setZoom(stepZoom(zoom, 1))}
+          className="h-6 w-6 rounded border inline-flex items-center justify-center hover:bg-[var(--color-brand)]/10" style={segOff}>
+          <ZoomIn className="w-3.5 h-3.5" />
+        </button>
+        <button type="button" title="Fit the slide to the window" onClick={() => setZoom(null)} aria-pressed={zoom === null}
+          className="h-6 px-2 rounded border inline-flex items-center gap-1 font-semibold hover:bg-[var(--color-brand)]/10" style={zoom === null ? segOn : segOff}>
+          <Maximize className="w-3 h-3" /> Fit
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Design (contextual: selected object / group) ────────────────────────────
-function DesignPanel({ editor, themeMode = false }: { editor: Editor; themeMode?: boolean }) {
+function DesignPanel({ editor, themeMode = false, lockAspect = false, setLockAspect }: { editor: Editor; themeMode?: boolean; lockAspect?: boolean; setLockAspect?: (v: boolean) => void }) {
   const isWindows = useIsWindows();
   const slide = editor.currentSlide;
   const selected = slide?.objects.find((o) => o.id === editor.selectedObjectId) ?? null;
@@ -854,9 +909,29 @@ function DesignPanel({ editor, themeMode = false }: { editor: Editor; themeMode?
       <div className="grid grid-cols-4 gap-1.5">
         <div><span className={rowCls}>X</span><input type="number" value={Math.round(selected.x)} onChange={(e) => upd({ x: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
         <div><span className={rowCls}>Y</span><input type="number" value={Math.round(selected.y)} onChange={(e) => upd({ y: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
-        <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)} onChange={(e) => upd({ w: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
-        <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)} onChange={(e) => upd({ h: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)}
+          onChange={(e) => upd(lockAspect ? lockedSizePatch(selected, "w", Number(e.target.value)) : { w: Math.max(20, Number(e.target.value)) })}
+          className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)}
+          onChange={(e) => upd(lockAspect ? lockedSizePatch(selected, "h", Number(e.target.value)) : { h: Math.max(20, Number(e.target.value)) })}
+          className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
       </div>
+      {setLockAspect && (
+        <button
+          type="button"
+          onClick={() => setLockAspect(!lockAspect)}
+          aria-pressed={lockAspect}
+          title={lockAspect ? "Size lock is on — width and height change together" : "Lock the size so width and height change together"}
+          className="w-full h-8 rounded-md border text-[11px] font-semibold text-[var(--color-foreground)] inline-flex items-center justify-center gap-1.5 hover:bg-[var(--color-brand)]/10"
+          style={lockAspect ? segOn : segOff}>
+          {lockAspect ? <Link2 className="w-3.5 h-3.5" /> : <Link2Off className="w-3.5 h-3.5" />}
+          {lockAspect ? "Size locked (keeps its shape)" : "Lock size (keep its shape)"}
+        </button>
+      )}
+      <div><span className={rowCls}>Flip</span><div className="flex gap-0.5">
+        <Toggle on={!!selected.flipH} label="Horizontal" onClick={() => upd({ flipH: !selected.flipH } as Partial<SlideObject>)} />
+        <Toggle on={!!selected.flipV} label="Vertical" onClick={() => upd({ flipV: !selected.flipV } as Partial<SlideObject>)} />
+      </div></div>
       <div><span className={rowCls}>Rotation — {Math.round(selected.rotation ?? 0)}°</span>
         <input type="range" min={-180} max={180} value={selected.rotation ?? 0} onChange={(e) => upd({ rotation: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
       <div><span className={rowCls}>Opacity — {Math.round((selected.opacity ?? 1) * 100)}%</span>

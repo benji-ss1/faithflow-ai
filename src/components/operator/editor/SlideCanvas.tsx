@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CANVAS_W, CANVAS_H, type EditableSlide, type SlideObject } from "@/lib/slide-objects";
 import { cn } from "@/lib/utils";
+import { flipTransform, constrainAspect, type Rect } from "@/lib/editor-geometry";
 import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, isFullZone, resolveZoneRects, FULL_ZONE } from "@/lib/projection-zone";
 
@@ -19,6 +20,8 @@ export function SlideCanvas({
   themeBgStyle,
   backgroundNode,
   objectBadge,
+  zoom = null,
+  lockAspect = false,
 }: {
   slide: EditableSlide | null;
   // Full selection set. Length 1 = classic single-select (with resize handles);
@@ -32,6 +35,13 @@ export function SlideCanvas({
   onUpdateObjects: (patches: { id: string; patch: Partial<SlideObject> }[]) => void;
   onRemoveObjects: (ids: string[]) => void;
   readOnly?: boolean;
+  // Editor view zoom. `null`/absent = "Fit" — the canvas sizes itself to the
+  // available space exactly as it always has (the pre-existing, default path).
+  // A number scales that fitted size and the canvas becomes scrollable.
+  zoom?: number | null;
+  // Size lock: constrain drag-resize to the object's aspect ratio (PP7's chain
+  // link beside W/H). Absent/false = the original unconstrained resize.
+  lockAspect?: boolean;
   // Optional theme-background CSS applied ONLY when the slide has no explicit
   // bgColor/bgImageUrl — lets the media "logo over theme" mode preview the live
   // theme in the editor (WYSIWYG). Callers that don't pass it are unaffected.
@@ -49,6 +59,22 @@ export function SlideCanvas({
   objectBadge?: (o: SlideObject) => string | null;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  // Width the canvas WOULD have at "Fit" (the 16:9 box that fits the padded
+  // container). Only used when zoomed; at Fit the original CSS still drives.
+  const [fitW, setFitW] = useState(0);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const cw = el.clientWidth - 32;   // p-4 both sides
+      const ch = el.clientHeight - 32;
+      if (cw > 0 && ch > 0) setFitW(Math.min(cw, ch * (CANVAS_W / CANVAS_H)));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // Snap guides — teal alignment lines (in canvas units) shown while a moving
   // object's edge/centre snaps to the canvas or another object's edge/centre.
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
@@ -59,6 +85,8 @@ export function SlideCanvas({
   slideRef.current = slide;
   const selRef = useRef(selectedIds);
   selRef.current = selectedIds;
+  const lockRef = useRef(lockAspect);
+  lockRef.current = lockAspect;
   // Which text object (if any) is being edited inline (double-click to enter).
   const [editingId, setEditingId] = useState<string | null>(null);
   // Leaving the slide cancels any in-progress inline edit.
@@ -168,6 +196,12 @@ export function SlideCanvas({
         if (mode.includes("s")) nh = Math.max(20, start.h + dy);
         if (mode.includes("w")) { nw = Math.max(20, start.w - dx); nx = start.x + (start.w - nw); }
         if (mode.includes("n")) { nh = Math.max(20, start.h - dy); ny = start.y + (start.h - nh); }
+        // Size lock: re-derive the rect from the START ratio (not the live one,
+        // which would drift over a long drag). Pure helper, unit-tested.
+        if (lockRef.current) {
+          const c: Rect = constrainAspect(start, { x: nx, y: ny, w: nw, h: nh }, mode);
+          nx = c.x; ny = c.y; nw = c.w; nh = c.h;
+        }
       }
       onUpdateObject(obj.id, { x: nx, y: ny, w: nw, h: nh } as Partial<SlideObject>);
     }
@@ -240,8 +274,24 @@ export function SlideCanvas({
   const pct = (v: number, total: number) => `${(v / total) * 100}%`;
 
   return (
-    <div ref={wrapRef} className="w-full h-full flex items-center justify-center p-4 min-h-0 min-w-0">
-      <div className="relative w-full max-w-full max-h-full" style={{ aspectRatio: "16 / 9" }}>
+    <div
+      ref={wrapRef}
+      className={cn(
+        "w-full h-full flex p-4 min-h-0 min-w-0",
+        // Fit (the default, unchanged): centre and let the canvas shrink to the
+        // box. Zoomed: scroll, and only centre while the canvas is smaller than
+        // the viewport (`justify-center` would otherwise clip the left edge).
+        zoom === null ? "items-center justify-center" : "overflow-auto items-start justify-start",
+      )}
+    >
+      <div
+        className={cn("relative", zoom === null ? "w-full max-w-full max-h-full" : "shrink-0 mx-auto my-auto")}
+        style={zoom === null
+          ? { aspectRatio: "16 / 9" }
+          // Zoom is a multiple of the FITTED size (measured below), so 100% is
+          // literally what "Fit" shows and the readout never lies.
+          : { aspectRatio: "16 / 9", width: fitW > 0 ? fitW * zoom : undefined }}
+      >
         <div
           data-canvas-inner
           className="absolute inset-0 overflow-hidden rounded-md border select-none"
@@ -381,6 +431,9 @@ function ObjectView({
     width: `${(obj.w / CANVAS_W) * 100}%`,
     height: `${(obj.h / CANVAS_H) * 100}%`,
     rotate: obj.rotation ? `${obj.rotation}deg` : undefined,
+    // Same independent `scale` the projector uses (flipTransform) so the editor
+    // shows the flip exactly as it will project.
+    scale: flipTransform(obj),
     cursor: readOnly || locked ? "default" : editing ? "text" : "grab",
     // Hidden objects are dimmed and click-through in the editor (manage them via
     // the Layers panel) — they never render on the projector at all.
