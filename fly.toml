@@ -17,13 +17,14 @@ kill_timeout = 10
 [env]
   NODE_ENV = "production"
   AUDIO_WS_PORT = "3001"
+  AUDIO_DB_POOL_MAX = "6"
 
 [[services]]
   internal_port = 3001
   protocol = "tcp"
   auto_stop_machines = "off"     # audio bridge must stay warm
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 2
 
   [[services.ports]]
     port = 443
@@ -37,4 +38,4 @@ kill_timeout = 10
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
-  memory_mb = 512
+  memory_mb = 2048
