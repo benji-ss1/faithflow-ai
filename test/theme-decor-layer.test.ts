@@ -13,6 +13,12 @@ import type { SlidePayload, ThemeAppearance } from "../src/lib/broadcast";
 import { planOutput } from "../src/lib/output-plan";
 import { renderMatrix, renderCompositorMatrix, SLIDES, APPEARANCES } from "./theme-pr2-fixtures";
 import baseline from "./fixtures/theme-gaps-baseline.json";
+import { fontStack } from "../src/lib/fonts/registry";
+
+// feat/fonts-p1 appends a generic fallback to every font-family at RENDER time
+// (stored data is untouched). This baseline predates that, so map ONLY its
+// font-family declarations through fontStack — every other byte must still match.
+const withFontStacks = (html: string) => html.replace(/font-family:([^;"]+)/g, (_m, f: string) => `font-family:${fontStack(f) ?? f}`);
 
 (globalThis as unknown as { React: typeof React }).React = React;
 let pass = 0, fail = 0;
@@ -36,14 +42,14 @@ async function main() {
     const now = await renderMatrix();
     const base = (baseline as { renderer: Record<string, string> }).renderer;
     assert.equal(Object.keys(now).length, Object.keys(base).length);
-    const diff = Object.keys(base).filter((k) => now[k] !== base[k]);
+    const diff = Object.keys(base).filter((k) => now[k] !== withFontStacks(base[k]));
     assert.deepEqual(diff, []);
   });
   await check("renderCompositorMatrix byte-identical to base", async () => {
     const now = await renderCompositorMatrix();
     const base = (baseline as { compositor: Record<string, string> }).compositor;
     assert.equal(Object.keys(now).length, Object.keys(base).length);
-    const diff = Object.keys(base).filter((k) => now[k] !== base[k]);
+    const diff = Object.keys(base).filter((k) => now[k] !== withFontStacks(base[k]));
     assert.deepEqual(diff, []);
   });
 

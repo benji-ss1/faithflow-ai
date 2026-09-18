@@ -1,4 +1,5 @@
 "use client";
+import { fontStack } from "@/lib/fonts/registry";
 import type { AnnouncementPayload, AnnouncementLogoPosition } from "@/lib/broadcast";
 
 // Placement classes for the announcement logo overlay. The 9-grid mirrors the
@@ -37,7 +38,7 @@ export function AnnouncementLayer({ ann }: { ann: AnnouncementPayload | null | u
   const logoEl = logo ? <AnnouncementLogo logo={logo} /> : null;
   const bgRgba = hexToRgba(style.bgColor || "#000000", (style.bgOpacity ?? 70) / 100);
   const base: React.CSSProperties = {
-    fontFamily: style.fontFamily,
+    fontFamily: fontStack(style.fontFamily),
     fontSize: style.fontSizePx,
     fontWeight: style.fontWeight,
     color: style.textColor,

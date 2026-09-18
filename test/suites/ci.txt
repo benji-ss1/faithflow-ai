@@ -167,3 +167,9 @@ test/editor-geometry.test.ts
 test/editor-toolbar.test.ts
 test/editor-rulers.test.ts
 test/editor-inspector.test.ts
+test/fonts-files.test.ts
+test/fonts-no-cdn.test.ts
+test/fonts-registry.test.ts
+test/slide-identity-fonts.test.ts
+test/autofit-font-cache-key.test.ts
+test/fonts-picker-value.test.ts
