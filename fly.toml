@@ -17,6 +17,7 @@ kill_timeout = 10
 [env]
   NODE_ENV = "production"
   AUDIO_WS_PORT = "3001"
+  AUDIO_DB_POOL_MAX = "6"
 
 [[services]]
   internal_port = 3001
