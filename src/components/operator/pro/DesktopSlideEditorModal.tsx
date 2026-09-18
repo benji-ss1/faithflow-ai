@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon, PanelLeftClose, PanelLeftOpen, PanelBottom, Palette } from "lucide-react";
+import * as Popover from "@radix-ui/react-popover";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon, PanelLeftClose, PanelLeftOpen, PanelBottom, Palette, Ruler, Check, Link2, Link2Off, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { LayoutDefaultControl } from "@/components/operator/layout/LayoutDefaultControl";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor, type EditableSlide } from "../editor/useSlideEditor";
@@ -29,6 +30,10 @@ import { projectableTextSlide } from "@/lib/broadcast";
 import { CANVAS_W, CANVAS_H, newObjectId } from "@/lib/slide-objects";
 import { loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, type CustomTemplate } from "@/lib/custom-templates";
 import { cn } from "@/lib/utils";
+import { OBJECT_TOOLBAR_ITEMS, type EditorObjectSource } from "@/lib/editor-toolbar";
+import { INSPECTOR_SECTIONS, sectionsForKind, type InspectorSection } from "@/lib/editor-inspector";
+import { DEFAULT_VIEW_PREFS, loadViewPrefs, saveViewPrefs, type EditorViewPrefs } from "@/lib/editor-view-prefs";
+import { boundingRect, formatRectStatus, stepZoom, zoomLabel, lockedSizePatch, type EditorZoom } from "@/lib/editor-geometry";
 
 /**
  * Desktop full-screen slide editor — reskinned to match the "Projection Zone"
@@ -134,6 +139,19 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
   const hasUnsaved = editor.hasDirtyChanges || (themeMode && themeDirty);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
   const [tab, setTab] = useState<DrawerTab>("add");
+  // Editor view + transform state. Both are EDITOR-ONLY (never saved, never
+  // published): zoom = null means "Fit", the pre-existing default; lockAspect
+  // constrains drag-resize to the object's ratio.
+  const [zoom, setZoom] = useState<EditorZoom>(null);
+  const [lockAspect, setLockAspect] = useState(false);
+  // View options (rulers / grid / transparency grid / snap guides). Remembered
+  // per operator in localStorage, never in the DB. Loaded after mount so the
+  // server and the first client render agree (docs/WINDOWS_DESIGN.md §1).
+  const [viewPrefs, setViewPrefs] = useState<EditorViewPrefs>(DEFAULT_VIEW_PREFS);
+  useEffect(() => { setViewPrefs(loadViewPrefs()); }, []);
+  const toggleView = useCallback((k: keyof EditorViewPrefs) => {
+    setViewPrefs((p) => { const next = { ...p, [k]: !p[k] }; saveViewPrefs(next); return next; });
+  }, []);
   // Left slide rail is collapsible; remember the operator's choice.
   const [railOpen, setRailOpen] = useState(true);
   useEffect(() => {
@@ -460,6 +478,11 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
             else if (k === "c") { if (copySelection()) e.preventDefault(); }
             else if (k === "v") { if (clipRef.current.length) { e.preventDefault(); pasteClipboard(); } }
             else if (k === "x") { if (copySelection()) { e.preventDefault(); editor.removeObjects(editor.selectedObjectIds); } }
+            // PP7 parity: "Fit Slide into Edit Window" is Cmd+0 / Ctrl+0.
+            // https://support.renewedvision.com/hc/en-us/articles/360042123293
+            else if (k === "0") { e.preventDefault(); setZoom(null); }
+            else if (k === "=" || k === "+") { e.preventDefault(); setZoom((z) => stepZoom(z, 1)); }
+            else if (k === "-") { e.preventDefault(); setZoom((z) => stepZoom(z, -1)); }
           }}
           className="fixed inset-0 z-[71] flex flex-col overflow-hidden outline-none"
           style={{ background: "var(--color-shell)" }}
@@ -547,8 +570,9 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
             {/* Left: vertical slide rail (1,2,3,4…) — collapsible */}
             <SlideRail editor={editor} isSong={isSong} itemId={itemId} open={railOpen} onToggle={toggleRail} keepOne={themeMode} />
 
-            {/* Center: big checkerboard canvas, projection-zone controls kept below */}
+            {/* Center: object toolbar, big checkerboard canvas, projection-zone controls kept below */}
             <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+              {isSong && <ObjectToolbar editor={editor} addFocus={addFocus} />}
               <div className="flex-1 min-h-0 min-w-0 relative" style={{ backgroundColor: "#0d0d10", backgroundImage: CHECKER, backgroundSize: "28px 28px" }}>
                 {isSong ? (
                   <SlideCanvas
@@ -564,6 +588,9 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                     onUpdateObjects={editor.updateObjects}
                     onRemoveObjects={editor.removeObjects}
                     readOnly={false}
+                    zoom={zoom}
+                    lockAspect={lockAspect}
+                    view={viewPrefs}
                   />
                 ) : (
                   <div className="w-full h-full grid place-items-center text-[12px] text-[var(--color-muted-foreground)]">
@@ -571,6 +598,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                   </div>
                 )}
               </div>
+              {isSong && <EditorStatusBar editor={editor} zoom={zoom} setZoom={setZoom} view={viewPrefs} toggleView={toggleView} />}
               {isSong && <CanvasWarnings slide={editor.currentSlide} />}
               {themeMode && editor.currentSlide && themeMeta[editor.currentSlide.id]?.role === "scripture" && !verseTextOf(editor.currentSlide.objects) && (
                 <div className="shrink-0 flex flex-wrap gap-1 px-3 py-1.5 border-t bg-amber-500/5" style={{ borderColor: "#2a3232" }}>
@@ -585,6 +613,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
 
             {/* Right contextual drawer (fonts, text, image, lower third, templates…) */}
             <RightDrawer editor={editor} churchId={ctx.churchId} tab={tab} setTab={setTab} addFocus={addFocus}
+              lockAspect={lockAspect} setLockAspect={setLockAspect}
               theme={themeMode ? { cfg: themeCfg, setCfg: patchThemeCfg, meta: themeMeta, setMeta: patchThemeMeta, makeDefault, setMakeDefault: (v: boolean) => { setMakeDefault(v); setThemeDirty(true); }, isDefault: themeTarget?.isDefault === true } : null} />
           </div>
         </Dialog.Content>
@@ -720,7 +749,7 @@ const ROLE_LABEL: Record<"main" | "verse" | "reference", string> = { main: "Lyri
 const THEME_PRIMARY_BTN = "h-9 px-4 rounded-lg text-[13px] font-bold inline-flex items-center gap-1.5 bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none";
 const THEME_SECONDARY_BTN = "h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-foreground)] border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200";
 
-function RightDrawer({ editor, churchId, tab, setTab, addFocus, theme = null }: { editor: Editor; churchId: string; tab: DrawerTab; setTab: (t: DrawerTab) => void; addFocus: (fn: () => void) => void; theme?: ThemeDrawerProps | null }) {
+function RightDrawer({ editor, churchId, tab, setTab, addFocus, lockAspect, setLockAspect, theme = null }: { editor: Editor; churchId: string; tab: DrawerTab; setTab: (t: DrawerTab) => void; addFocus: (fn: () => void) => void; lockAspect: boolean; setLockAspect: (v: boolean) => void; theme?: ThemeDrawerProps | null }) {
   if (!editor.isEditable) {
     return <aside className="w-[300px] shrink-0 border-l p-4 text-[12px] text-[var(--color-muted-foreground)]" style={{ borderColor: HAIR, background: PANEL }}>Editing is available for song slides.</aside>;
   }
@@ -743,7 +772,7 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus, theme = null }: 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {tab === "theme" && theme && <ThemeEditorTab editor={editor} churchId={churchId} {...theme} />}
-        {tab === "design" && <DesignPanel editor={editor} themeMode={!!theme} />}
+        {tab === "design" && <DesignPanel editor={editor} themeMode={!!theme} lockAspect={lockAspect} setLockAspect={setLockAspect} />}
         {tab === "add" && <AddPanel editor={editor} churchId={churchId} addFocus={addFocus} />}
         {tab === "templates" && <TemplatesPanel editor={editor} churchId={churchId} />}
         {tab === "background" && <BackgroundPanel editor={editor} />}
@@ -754,8 +783,147 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus, theme = null }: 
   );
 }
 
+// ── Object toolbar (PP7 parity: add objects from the canvas, not a hidden tab) ─
+// Discoverability only. Every button calls the SAME handler the right drawer's
+// "Add" tab already calls, and that tab is untouched — an operator who learned
+// the old path keeps it (CLAUDE.md rule 0).
+//
+// Windows (docs/WINDOWS_DESIGN.md): real <button>s so the no-hover-lift CSS
+// applies; labels collapse to icon-only on narrow Windows viewports via the
+// established `[html[data-platform=win]_&]:max-[...]:hidden` variant, with the
+// name still reachable through `title` + `aria-label`; nothing is hover-only.
+function ObjectToolbar({ editor, addFocus }: { editor: Editor; addFocus: (fn: () => void) => void }) {
+  const [libKind, setLibKind] = useState<"image" | "video" | null>(null);
+  // Driven by the shared OBJECT_TOOLBAR_ITEMS list so the toolbar and the
+  // drawer's Add tab can never drift apart (test-locked).
+  const ICONS: Record<EditorObjectSource, typeof Type> = {
+    text: Type, rect: Square, ellipse: Circle, image: ImageIcon, video: Film,
+  };
+  const run = (src: EditorObjectSource) => {
+    if (src === "text") addFocus(editor.addTextObject);
+    else if (src === "rect") addFocus(() => editor.addShape("rect"));
+    else if (src === "ellipse") addFocus(() => editor.addShape("ellipse"));
+    else setLibKind(src);
+  };
+  const items = OBJECT_TOOLBAR_ITEMS.map((it) => ({ ...it, icon: ICONS[it.source], onClick: () => run(it.source) }));
+  return (
+    <div data-tour="object-toolbar" role="toolbar" aria-label="Add an object to this slide"
+      className="shrink-0 border-b flex items-center gap-1 px-2 h-9 [@media(max-height:620px)]:h-7 overflow-x-auto"
+      style={{ borderColor: HAIR, background: PANEL }}>
+      <span className="shrink-0 mr-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Add</span>
+      {items.map((it) => (
+        <button key={it.source} type="button" onClick={it.onClick} title={it.label} aria-label={it.label}
+          className="shrink-0 h-7 px-2 rounded-md border text-[11px] font-semibold text-[var(--color-foreground)] inline-flex items-center gap-1.5 hover:bg-[var(--color-brand)]/10"
+          style={segOff}>
+          <it.icon className="w-3.5 h-3.5 shrink-0" />
+          <span className="[html[data-platform=win]_&]:max-[1180px]:hidden">{it.label}</span>
+        </button>
+      ))}
+      {libKind && (
+        <MediaLibraryPicker kind={libKind} onClose={() => setLibKind(null)}
+          onPick={(url) => { if (libKind === "video") addFocus(() => editor.addVideo(url)); else addFocus(() => editor.addImage(url)); }} />
+      )}
+    </div>
+  );
+}
+
+// ── View menu (PP7 parity: rulers / grid / snap guides) ───────────────────
+// All OFF by default except the snap guides, which already shipped ON — turning
+// those off by default would be a regression, not parity. Choices are per
+// operator (localStorage), never in the DB and never part of a theme or slide.
+//
+// Windows: a real <button> trigger with a visible label (not an icon-only,
+// hover-only affordance), checkbox rows with a visible tick, and the content is
+// height-capped + scrollable so it can't run off a 512 CSS px tall screen.
+const VIEW_ROWS: { key: keyof EditorViewPrefs; label: string; hint: string }[] = [
+  { key: "rulers", label: "Rulers", hint: "Measure along the top and left edges" },
+  { key: "grid", label: "Grid", hint: "Faint lines across the slide" },
+  { key: "snapGuides", label: "Snap guides", hint: "Line things up while you drag" },
+];
+
+function ViewMenu({ view, toggleView }: { view: EditorViewPrefs; toggleView: (k: keyof EditorViewPrefs) => void }) {
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button type="button" title="Show or hide rulers, grid and guides"
+          className="h-6 px-2 rounded border inline-flex items-center gap-1 font-semibold hover:bg-[var(--color-brand)]/10"
+          style={segOff}>
+          <Ruler className="w-3 h-3" /> View
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content sideOffset={6} align="end" collisionPadding={8}
+          className="z-[80] w-[250px] max-w-[calc(100vw-24px)] max-h-[60vh] overflow-y-auto rounded-lg border p-1.5 shadow-[var(--shadow-md)]"
+          style={{ borderColor: HAIR, background: PANEL }}>
+          {VIEW_ROWS.map((r) => {
+            const on = view[r.key];
+            return (
+              <button key={r.key} type="button" onClick={() => toggleView(r.key)} role="checkbox" aria-checked={on}
+                className="w-full text-left rounded-md px-2 py-1.5 flex items-start gap-2 hover:bg-[var(--color-brand)]/10">
+                <span className="mt-px w-3.5 h-3.5 shrink-0 rounded-[3px] border inline-flex items-center justify-center"
+                  style={{ borderColor: on ? AMBER : "var(--color-border)", background: on ? AMBER : "transparent" }}>
+                  {on && <Check className="w-2.5 h-2.5 text-black" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-semibold text-[var(--color-foreground)]">{r.label}</span>
+                  <span className="block text-[10px] leading-snug text-[var(--color-muted-foreground)]">{r.hint}</span>
+                </span>
+              </button>
+            );
+          })}
+          <p className="px-2 pt-1 pb-0.5 text-[9.5px] leading-snug text-[var(--color-muted-foreground)]">
+            Rulers hide themselves automatically on a short screen so the slide stays big enough to work on.
+          </p>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+// ── Status bar (PP7 parity: X / Y / W / H of the selection + zoom) ────────
+// Read-only readout. It reflects the SAME numbers as the Design panel's X/Y/W/H
+// inputs (canvas units, origin top-left) and updates live while dragging,
+// because a drag writes straight into editor state. With several objects
+// selected it shows their bounding box, like ProPresenter does.
+function EditorStatusBar({ editor, zoom, setZoom, view, toggleView }: { editor: Editor; zoom: EditorZoom; setZoom: (z: EditorZoom) => void; view: EditorViewPrefs; toggleView: (k: keyof EditorViewPrefs) => void }) {
+  const slide = editor.currentSlide;
+  const ids = editor.selectedObjectIds;
+  const sel = (slide?.objects ?? []).filter((o) => ids.includes(o.id));
+  const rect = boundingRect(sel.map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h })));
+  const f = formatRectStatus(rect);
+  const label = sel.length === 0 ? "No selection" : sel.length === 1 ? `1 object` : `${sel.length} objects`;
+  return (
+    <div className="shrink-0 border-t flex items-center gap-3 px-3 h-8 [@media(max-height:620px)]:h-6 text-[11px] overflow-x-auto" style={{ borderColor: HAIR, background: PANEL }}>
+      <span className="shrink-0 text-[var(--color-muted-foreground)]">{label}</span>
+      <div className="shrink-0 flex items-center gap-2.5 font-mono tabular-nums text-[var(--color-foreground)]">
+        {([["X", f.x], ["Y", f.y], ["W", f.w], ["H", f.h]] as const).map(([k, v]) => (
+          <span key={k}><span className="text-[var(--color-muted-foreground)]">{k}</span> {v}</span>
+        ))}
+      </div>
+      <span className="shrink-0 text-[var(--color-muted-foreground)]">{CANVAS_W}×{CANVAS_H}</span>
+      <div className="ml-auto shrink-0 flex items-center gap-1">
+        <ViewMenu view={view} toggleView={toggleView} />
+        <span className="w-px h-4" style={{ background: HAIR }} />
+        <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => setZoom(stepZoom(zoom, -1))}
+          className="h-6 w-6 rounded border inline-flex items-center justify-center hover:bg-[var(--color-brand)]/10" style={segOff}>
+          <ZoomOut className="w-3.5 h-3.5" />
+        </button>
+        <span className="min-w-[38px] text-center font-mono tabular-nums text-[var(--color-foreground)]">{zoomLabel(zoom)}</span>
+        <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => setZoom(stepZoom(zoom, 1))}
+          className="h-6 w-6 rounded border inline-flex items-center justify-center hover:bg-[var(--color-brand)]/10" style={segOff}>
+          <ZoomIn className="w-3.5 h-3.5" />
+        </button>
+        <button type="button" title="Fit the slide to the window" onClick={() => setZoom(null)} aria-pressed={zoom === null}
+          className="h-6 px-2 rounded border inline-flex items-center gap-1 font-semibold hover:bg-[var(--color-brand)]/10" style={zoom === null ? segOn : segOff}>
+          <Maximize className="w-3 h-3" /> Fit
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Design (contextual: selected object / group) ────────────────────────────
-function DesignPanel({ editor, themeMode = false }: { editor: Editor; themeMode?: boolean }) {
+function DesignPanel({ editor, themeMode = false, lockAspect = false, setLockAspect }: { editor: Editor; themeMode?: boolean; lockAspect?: boolean; setLockAspect?: (v: boolean) => void }) {
   const isWindows = useIsWindows();
   const slide = editor.currentSlide;
   const selected = slide?.objects.find((o) => o.id === editor.selectedObjectId) ?? null;
@@ -763,6 +931,14 @@ function DesignPanel({ editor, themeMode = false }: { editor: Editor; themeMode?
   const multi = selIds.length > 1;
   const [clip, setClip] = useState<SlideObject | null>(null);
   const upd = (patch: Partial<SlideObject>) => { if (selected) editor.updateObject(selected.id, patch); };
+  // PP7 groups the inspector into Shape / Text / Build. Same controls, same
+  // state, just findable — nothing was added or removed in the move (the
+  // inventory in src/lib/editor-inspector.ts is test-locked against this panel).
+  const [section, setSection] = useState<InspectorSection>("shape");
+  const available = selected ? sectionsForKind(selected.kind) : [];
+  // Selecting a shape while the Text tab is open must not leave a dead tab
+  // showing: fall back to the first section this kind actually has.
+  const activeSection: InspectorSection = available.includes(section) ? section : (available[0] ?? "shape");
 
   if (multi) {
     return (
@@ -824,6 +1000,20 @@ function DesignPanel({ editor, themeMode = false }: { editor: Editor; themeMode?
         </button>
       )}
 
+      {available.length > 1 && (
+        <div role="tablist" aria-label="Object properties" className="grid gap-1" style={{ gridTemplateColumns: `repeat(${available.length}, minmax(0, 1fr))` }}>
+          {INSPECTOR_SECTIONS.filter((sec) => available.includes(sec.id)).map((sec) => {
+            const on = activeSection === sec.id;
+            return (
+              <button key={sec.id} type="button" role="tab" aria-selected={on} onClick={() => setSection(sec.id)}
+                className="h-7 rounded-md border text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10"
+                style={on ? segOn : segOff}>{sec.label}</button>
+            );
+          })}
+        </div>
+      )}
+
+      {activeSection === "shape" && <>
       <div><span className={rowCls}>Layer order</span><div className="flex gap-0.5">
         <ZBtn icon={ChevronsDown} title="Send to back" onClick={() => editor.reorderObject(selected.id, "back")} />
         <ZBtn icon={ArrowDown} title="Send backward" onClick={() => editor.reorderObject(selected.id, "backward")} />
@@ -844,24 +1034,43 @@ function DesignPanel({ editor, themeMode = false }: { editor: Editor; themeMode?
         </div></div>
       </div>
 
-      <div><span className={rowCls}>Entrance</span><div className="flex gap-1.5">
-        <select value={selected.anim ?? "none"} onChange={(e) => upd({ anim: e.target.value as ObjectAnim })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
-          {(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom"] as const).map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <input type="number" min={0} max={10000} step={100} value={selected.animDelayMs ?? 0} onChange={(e) => upd({ animDelayMs: Number(e.target.value) })} title="Delay (ms)" className="w-16 h-8 px-1.5 rounded-md border text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none" style={{ borderColor: "var(--color-border)" }} />
-      </div></div>
-
       <div className="grid grid-cols-4 gap-1.5">
         <div><span className={rowCls}>X</span><input type="number" value={Math.round(selected.x)} onChange={(e) => upd({ x: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
         <div><span className={rowCls}>Y</span><input type="number" value={Math.round(selected.y)} onChange={(e) => upd({ y: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
-        <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)} onChange={(e) => upd({ w: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
-        <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)} onChange={(e) => upd({ h: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)}
+          onChange={(e) => upd(lockAspect ? lockedSizePatch(selected, "w", Number(e.target.value)) : { w: Math.max(20, Number(e.target.value)) })}
+          className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)}
+          onChange={(e) => upd(lockAspect ? lockedSizePatch(selected, "h", Number(e.target.value)) : { h: Math.max(20, Number(e.target.value)) })}
+          className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
       </div>
+      {setLockAspect && (
+        <button
+          type="button"
+          onClick={() => setLockAspect(!lockAspect)}
+          aria-pressed={lockAspect}
+          title={lockAspect ? "Size lock is on — width and height change together" : "Lock the size so width and height change together"}
+          className="w-full h-8 rounded-md border text-[11px] font-semibold text-[var(--color-foreground)] inline-flex items-center justify-center gap-1.5 hover:bg-[var(--color-brand)]/10"
+          style={lockAspect ? segOn : segOff}>
+          {lockAspect ? <Link2 className="w-3.5 h-3.5" /> : <Link2Off className="w-3.5 h-3.5" />}
+          {lockAspect ? "Size locked (keeps its shape)" : "Lock size (keep its shape)"}
+        </button>
+      )}
+      <div><span className={rowCls}>Flip</span><div className="flex gap-0.5">
+        <Toggle on={!!selected.flipH} label="Horizontal" onClick={() => upd({ flipH: !selected.flipH } as Partial<SlideObject>)} />
+        <Toggle on={!!selected.flipV} label="Vertical" onClick={() => upd({ flipV: !selected.flipV } as Partial<SlideObject>)} />
+      </div></div>
       <div><span className={rowCls}>Rotation — {Math.round(selected.rotation ?? 0)}°</span>
         <input type="range" min={-180} max={180} value={selected.rotation ?? 0} onChange={(e) => upd({ rotation: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
       <div><span className={rowCls}>Opacity — {Math.round((selected.opacity ?? 1) * 100)}%</span>
         <input type="range" min={0} max={100} value={(selected.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
 
+      {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
+      {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}
+      {selected.kind === "video" && <VideoProps o={selected} upd={upd} />}
+      </>}
+
+      {activeSection === "text" && <>
       {selected.kind === "text" && themeMode && (
         <div><span className={rowCls}>This text box shows</span><div role="group" aria-label="This text box shows" className="flex gap-0.5">
           {([["main", "Lyrics"], ["verse", "Verse"], ["reference", "Reference"]] as const).map(([r, label]) => (
@@ -870,9 +1079,17 @@ function DesignPanel({ editor, themeMode = false }: { editor: Editor; themeMode?
         </div></div>
       )}
       {selected.kind === "text" && <TextProps o={selected} upd={upd} guardEmptySize={themeMode} />}
-      {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
-      {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}
-      {selected.kind === "video" && <VideoProps o={selected} upd={upd} />}
+      </>}
+
+      {activeSection === "build" && <>
+      <div><span className={rowCls}>Entrance</span><div className="flex gap-1.5">
+        <select value={selected.anim ?? "none"} onChange={(e) => upd({ anim: e.target.value as ObjectAnim })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
+          {(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom"] as const).map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <input type="number" min={0} max={10000} step={100} value={selected.animDelayMs ?? 0} onChange={(e) => upd({ animDelayMs: Number(e.target.value) })} title="Delay (ms)" className="w-16 h-8 px-1.5 rounded-md border text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none" style={{ borderColor: "var(--color-border)" }} />
+      </div></div>
+
+      </>}
     </div>
   );
 }

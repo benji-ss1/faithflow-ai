@@ -26,6 +26,7 @@
  * model; it is NOT new runtime flexibility.
  */
 import type { SlidePayload, ThemeAppearance, VideoInputState, BackgroundSpec } from "@/lib/broadcast";
+import { themeHasDecor } from "@/lib/theme-decor-plan";
 
 export type CompositorMode = "live" | "stage" | "livestream" | "ndi";
 
@@ -40,8 +41,8 @@ export type CompositorMode = "live" | "stage" | "livestream" | "ndi";
 export type SlideRenderMode = "over-video" | "transition" | "plain";
 
 /** Stable per-layer identity. Phase 2's LayerWire[] will reuse these ids. */
-export type OutputLayerId = "background" | "slide" | "theme-logo";
-export type OutputLayerKind = "background" | "slide" | "theme-logo";
+export type OutputLayerId = "background" | "theme-decor" | "slide" | "theme-logo";
+export type OutputLayerKind = "background" | "theme-decor" | "slide" | "theme-logo";
 
 interface OutputLayerBase {
   /** Stable id (z-independent) — the seam Phase 2's wire model plugs into. */
@@ -85,7 +86,19 @@ export interface ThemeLogoLayerPlan extends OutputLayerBase {
   props: Record<string, never>;
 }
 
-export type OutputLayerPlan = BackgroundLayerPlan | SlideLayerPlan | ThemeLogoLayerPlan;
+/**
+ * Theme gaps (PR A): the theme background + decor objects, hosted OUTSIDE the
+ * slide's transition wrapper so a decor video/animation persists across slides.
+ * Present in the list ONLY when the theme has decor (decor-less plans are
+ * byte-identical to before). Disabled over video / transparent keying / stage.
+ */
+export interface ThemeDecorLayerPlan extends OutputLayerBase {
+  id: "theme-decor";
+  kind: "theme-decor";
+  props: { overVideo: boolean; transparentBg: boolean; ignoreThemeLayout: boolean };
+}
+
+export type OutputLayerPlan = BackgroundLayerPlan | ThemeDecorLayerPlan | SlideLayerPlan | ThemeLogoLayerPlan;
 
 export interface CanvasPlan {
   /** Wrap the stack in a PresentationCanvas (livestream renders full-bleed). */
@@ -128,6 +141,8 @@ export interface PlanInput {
    * caller that never sets it gets byte-identical output. Set false by a
    * `logo` layer-patch (enabled:false) to blank the logo layer alone. */
   showThemeLogoOverride?: boolean;
+  /** Theme → Projector: full-screen, no theme boxes/decor (stage always). */
+  ignoreThemeLayout?: boolean;
 }
 
 export function planOutput(input: PlanInput): OutputPlan {
@@ -198,8 +213,16 @@ export function planOutput(input: PlanInput): OutputPlan {
     canvasH = 1080;
   }
 
+  const ignoreThemeLayout = mode === "stage" || !!input.ignoreThemeLayout;
   const layers: OutputLayerPlan[] = [
     { id: "background", kind: "background", z: 0, enabled: showBackground, props: { background } },
+    ...(themeHasDecor(appearance)
+      ? [{
+          id: "theme-decor", kind: "theme-decor", z: 5,
+          enabled: renderMode !== "over-video" && !transparent && !ignoreThemeLayout,
+          props: { overVideo, transparentBg: transparent, ignoreThemeLayout },
+        } satisfies ThemeDecorLayerPlan]
+      : []),
     {
       id: "slide", kind: "slide", z: 10, enabled: true,
       props: { renderMode, overVideo, transparentBg: transparent, videoInput: slideVideoInput, ...(mediaOverCamera ? { mediaOverCamera } : {}) },

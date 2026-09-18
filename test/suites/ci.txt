@@ -162,3 +162,13 @@ test/fonts-picker-value.test.ts
 test/pp7-layer-model.test.ts
 test/pp7-rail-parity.test.tsx
 test/pp7-layers-panel.test.tsx
+test/adversarial/theme-gaps-scope.test.ts
+test/builtin-themes.test.ts
+test/slide-selection.test.ts
+test/theme-decor-designed.test.ts
+test/theme-decor-layer.test.ts
+test/plan-theme-undo.test.ts
+test/editor-geometry.test.ts
+test/editor-toolbar.test.ts
+test/editor-rulers.test.ts
+test/editor-inspector.test.ts

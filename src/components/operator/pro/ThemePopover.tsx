@@ -21,6 +21,33 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { themeConfigToAppearance } from "@/lib/theme-appearance";
 import type { SlidePayload, SlideObjectWire, ThemeAppearance } from "@/lib/broadcast";
+import { BUILTIN_THEMES, getBuiltinTheme, isBuiltinThemeId } from "@/lib/builtin-themes";
+
+/** Built-ins as client themes (constant config; never applied directly — they
+ *  are materialized into a church theme first). */
+const BUILTIN_CLIENT_THEMES: ClientTheme[] = BUILTIN_THEMES.map((b) => ({ id: b.id, name: b.name, config: b.config as Record<string, unknown> }));
+
+/** A theme name not already used (case-insensitive): "X copy", "X copy 2", … */
+export function uniqueThemeName(base: string, taken: string[]): string {
+  const used = new Set(taken.map((n) => n.trim().toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base;
+  for (let i = 2; i < 1000; i++) { const c = `${base} ${i}`; if (!used.has(c.toLowerCase())) return c; }
+  return `${base} ${Date.now()}`;
+}
+
+/** Materialize a built-in into a real church theme (idempotent server-side). */
+export async function materializeBuiltinClient(builtinId: string): Promise<ClientTheme | null> {
+  try {
+    const { materializeBuiltinTheme } = await import("@/lib/actions");
+    const res = await materializeBuiltinTheme(builtinId);
+    if (!res.ok || !res.data) { toast.error(res.ok ? "Could not load built-in theme" : res.error || "Could not load built-in theme"); return null; }
+    if (res.data.created) window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));
+    return { id: res.data.id, name: res.data.name, config: res.data.config as Record<string, unknown> };
+  } catch {
+    toast.error("Could not load built-in theme");
+    return null;
+  }
+}
 
 // Theme Editor (PR 1): the pencil / "Edit…" open the PP7-style editor ON that
 // theme (the same full-screen slide editor). The sliders icon still opens the
@@ -124,12 +151,17 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
     return () => window.removeEventListener("presentflow:themes-changed", onChanged);
   }, [open, load]);
 
-  const byId = useMemo(() => new Map((themes ?? []).map((t) => [t.id, t])), [themes]);
+  const byId = useMemo(() => new Map([...BUILTIN_CLIENT_THEMES, ...(themes ?? [])].map((t) => [t.id, t])), [themes]);
   const recentThemes = recents.map((id) => byId.get(id)).filter((t): t is ClientTheme => !!t).slice(0, 3);
   const detail = detailId ? byId.get(detailId) ?? null : null;
 
-  const apply = async (t: ClientTheme) => {
-    setApplying(t.id);
+  const apply = async (t0: ClientTheme) => {
+    setApplying(t0.id);
+    // A built-in is materialized into a church theme first, then applied
+    // through the one shared path (live outputs + current song + Recents).
+    const t = isBuiltinThemeId(t0.id) ? await materializeBuiltinClient(t0.id) : t0;
+    if (!t) { setApplying(null); return; }
+    if (t.id !== t0.id) load();
     const ok = await applyThemeLive(t);
     setApplying(null);
     if (ok) {
@@ -152,7 +184,28 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
     window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));
   };
 
+  const editTheme = async (t: ClientTheme) => {
+    const target = isBuiltinThemeId(t.id) ? await materializeBuiltinClient(t.id) : t;
+    if (!target) return;
+    onOpenChange(false);
+    openThemeSlideEditor(target.id);
+  };
+
   const duplicate = async (t: ClientTheme) => {
+    if (isBuiltinThemeId(t.id)) {
+      const b = getBuiltinTheme(t.id);
+      if (!b) return;
+      const { createTheme } = await import("@/lib/actions");
+      const cfg = JSON.parse(JSON.stringify(b.config)) as Record<string, unknown>;
+      delete cfg.builtinId; // a copy is the church's own theme, not the built-in
+      const name = uniqueThemeName(`${b.name} copy`, (themes ?? []).map((x) => x.name));
+      const res = await createTheme(name, cfg as never);
+      if (!res.ok) { toast.error(res.error || "Could not duplicate theme"); return; }
+      toast.success(`Created “${name}”`);
+      load();
+      window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));
+      return;
+    }
     const { duplicateTheme } = await import("@/lib/actions");
     const res = await duplicateTheme(t.id);
     if (!res.ok) { toast.error(res.error || "Could not duplicate theme"); return; }
@@ -172,8 +225,9 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
     window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));
   };
 
-  const card = (t: ClientTheme, section: "recent" | "all") => {
+  const card = (t: ClientTheme, section: "recent" | "all" | "builtin") => {
     const renameKey = `${section}:${t.id}`;
+    const builtin = isBuiltinThemeId(t.id);
     return (
     <ContextMenu.Root key={renameKey}>
       <ContextMenu.Trigger asChild>
@@ -217,6 +271,7 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
             <div className="flex items-center gap-1.5 min-w-0 max-w-full">
               {t.isDefault ? <span role="img" aria-label="In use" title="In use" className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#0a84ff]" /> : null}
               <span className="truncate text-[12px] text-[var(--color-foreground)]">{t.name}</span>
+              {builtin ? <span className="shrink-0 rounded px-1 text-[9px] uppercase tracking-wide bg-white/10 text-[var(--color-muted-foreground)]">Built-in</span> : null}
             </div>
           )}
         </div>
@@ -227,8 +282,8 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
             { label: "Apply", run: () => void apply(t) },
             { label: "Open", run: () => setDetailId(t.id) },
             ...(canEdit ? [
-              { label: "Edit…", run: () => { onOpenChange(false); openThemeSlideEditor(t.id); } },
-              { label: "Rename", run: () => { renameDone.current = false; setRenamingId(renameKey); } },
+              { label: "Edit…", run: () => void editTheme(t) },
+              ...(builtin ? [] : [{ label: "Rename", run: () => { renameDone.current = false; setRenamingId(renameKey); } }]),
               { label: "Duplicate", run: () => void duplicate(t) },
             ] : []),
           ].map((it) => (
@@ -236,7 +291,7 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
               {it.label}
             </ContextMenu.Item>
           ))}
-          {canEdit ? (
+          {canEdit && !builtin ? (
             <>
               <ContextMenu.Separator className="my-1 h-px bg-[var(--color-border)]" />
               <ContextMenu.Item onSelect={() => void remove(t)} className="rounded px-2 py-1.5 outline-none data-[highlighted]:bg-red-500/20 text-[var(--color-destructive)]">
@@ -273,7 +328,7 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
                 <header className="h-12 shrink-0 flex items-center gap-2 px-3 border-b border-[var(--color-border)]">
                   <button type="button" className={iconBtn} onClick={() => setDetailId(null)} aria-label="Back to themes"><ChevronLeft className="w-5 h-5" /></button>
                   <div className="flex-1 min-w-0 text-center text-[14px] font-semibold text-[var(--color-foreground)] truncate">{detail.name}</div>
-                  {canEdit ? <button type="button" className={iconBtn} onClick={() => { onOpenChange(false); openThemeSlideEditor(detail.id); }} aria-label={`Edit “${detail.name}”`} title="Edit theme"><Pencil className="w-4 h-4" /></button> : <span className="w-8" aria-hidden />}
+                  {canEdit ? <button type="button" className={iconBtn} onClick={() => void editTheme(detail)} aria-label={`Edit “${detail.name}”`} title="Edit theme"><Pencil className="w-4 h-4" /></button> : <span className="w-8" aria-hidden />}
                 </header>
                 <div className="p-4 overflow-y-auto pf-transcript-scroll">
                   <button type="button" onClick={() => void apply(detail)} title={`Apply “${detail.name}”`} className="block w-1/2 rounded-[4px] ring-1 ring-white/10 hover:ring-2 hover:ring-[var(--color-brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">
@@ -294,17 +349,23 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
                     <div className="flex items-center gap-3 text-[12px] text-[var(--color-destructive)]">Could not load themes.<button type="button" onClick={load} className="rounded px-2 py-1 bg-white/10 text-[var(--color-foreground)] hover:bg-white/15">Retry</button></div>
                   ) : themes === null ? (
                     <div className="text-[12px] text-[var(--color-muted-foreground)]">Loading themes…</div>
-                  ) : themes.length === 0 ? (
-                    <div className="py-6 flex flex-col items-center gap-3 text-[12px] text-[var(--color-muted-foreground)]">No themes yet.{canEdit ? <button type="button" onClick={() => setNewOpen(true)} className="rounded-md px-3 py-1.5 bg-[#0a84ff] text-white hover:bg-[#1a8fff]">New Theme</button> : null}</div>
                   ) : (
                     <>
-                      {recentThemes.length > 0 && (
+                      {themes.length === 0 ? (
+                        <div className="py-4 flex flex-col items-center gap-3 text-[12px] text-[var(--color-muted-foreground)]">No themes yet.{canEdit ? <button type="button" onClick={() => setNewOpen(true)} className="rounded-md px-3 py-1.5 bg-[#0a84ff] text-white hover:bg-[#1a8fff]">New Theme</button> : null}</div>
+                      ) : (
                         <>
-                          <div className="text-[13px] font-semibold text-[var(--color-muted-foreground)] mb-2">Recents</div>
-                          <div className="grid grid-cols-3 gap-3 pb-3 mb-3 border-b border-[var(--color-border)]">{recentThemes.map((t) => card(t, "recent"))}</div>
+                          {recentThemes.length > 0 && (
+                            <>
+                              <div className="text-[13px] font-semibold text-[var(--color-muted-foreground)] mb-2">Recents</div>
+                              <div className="grid grid-cols-3 gap-3 pb-3 mb-3 border-b border-[var(--color-border)]">{recentThemes.map((t) => card(t, "recent"))}</div>
+                            </>
+                          )}
+                          <div className="grid grid-cols-3 gap-3">{themes.map((t) => card(t, "all"))}</div>
                         </>
                       )}
-                      <div className="grid grid-cols-3 gap-3">{themes.map((t) => card(t, "all"))}</div>
+                      <div className="text-[13px] font-semibold text-[var(--color-muted-foreground)] mt-4 pt-3 mb-2 border-t border-[var(--color-border)]" data-builtin-themes="">Built-in</div>
+                      <div className="grid grid-cols-3 gap-3">{BUILTIN_CLIENT_THEMES.map((t) => card(t, "builtin"))}</div>
                     </>
                   )}
                 </div>
@@ -340,9 +401,12 @@ function NewThemeDialog({ open, themes, onClose, onCreated }: { open: boolean; t
     }
     setSaving(true);
     try {
+      const builtin = getBuiltinTheme(baseId);
       const base = themes.find((t) => t.id === baseId);
+      const cfg = JSON.parse(JSON.stringify(builtin?.config ?? base?.config ?? {})) as Record<string, unknown>;
+      if (builtin) delete cfg.builtinId; // a new theme started FROM a built-in is the church's own
       const { createTheme } = await import("@/lib/actions");
-      const res = await createTheme(n, (base?.config ?? {}) as never);
+      const res = await createTheme(n, cfg as never);
       if (!res.ok) { toast.error(res.error || "Could not create theme"); return; }
       if (!res.data) { toast.error("Could not create theme"); return; }
       toast.success(`Theme “${n}” created`);
@@ -379,10 +443,11 @@ function NewThemeDialog({ open, themes, onClose, onCreated }: { open: boolean; t
                 className="w-9 shrink-0 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] py-1.5 text-[12px] text-[var(--color-foreground)] appearance-auto"
               >
                 <option value="">Blank</option>
-                {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {themes.length > 0 ? <optgroup label="Your themes">{themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup> : null}
+                <optgroup label="Built-in">{BUILTIN_THEMES.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</optgroup>
               </select>
             </label>
-            {baseId ? <div className="-mt-3 text-[11px] text-[var(--color-muted-foreground)]">Starts from “{themes.find((t) => t.id === baseId)?.name}”</div> : null}
+            {baseId ? <div className="-mt-3 text-[11px] text-[var(--color-muted-foreground)]">Starts from “{getBuiltinTheme(baseId)?.name ?? themes.find((t) => t.id === baseId)?.name}”</div> : null}
             <div className="flex justify-end gap-3">
               <button type="button" onClick={onClose} className="rounded-md px-4 py-1.5 text-[13px] bg-white/10 text-[var(--color-foreground)] hover:bg-white/15">Cancel</button>
               <button type="submit" disabled={!name.trim() || saving} className="rounded-md px-4 py-1.5 text-[13px] bg-[#0a84ff] text-white hover:bg-[#1a8fff] disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>

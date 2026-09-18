@@ -40,6 +40,10 @@ export type TextObject = {
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
   rotation?: number;
+  // Editor transform (PP7 "Flip Horizontal / Vertical"). Additive + optional:
+  // absent = no flip = exactly how every existing object already renders.
+  flipH?: boolean;
+  flipV?: boolean;
   locked?: boolean;   // editor: can't be dragged/resized/marquee-selected on canvas
   hidden?: boolean;   // hidden from the projector; shown dimmed in the editor
   text: string;
@@ -69,6 +73,10 @@ export type ShapeObject = {
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
   rotation?: number;
+  // Editor transform (PP7 "Flip Horizontal / Vertical"). Additive + optional:
+  // absent = no flip = exactly how every existing object already renders.
+  flipH?: boolean;
+  flipV?: boolean;
   locked?: boolean;   // editor: can't be dragged/resized/marquee-selected on canvas
   hidden?: boolean;   // hidden from the projector; shown dimmed in the editor
   shape: "rect" | "ellipse";
@@ -87,6 +95,10 @@ export type ImageObject = {
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
   rotation?: number;
+  // Editor transform (PP7 "Flip Horizontal / Vertical"). Additive + optional:
+  // absent = no flip = exactly how every existing object already renders.
+  flipH?: boolean;
+  flipV?: boolean;
   locked?: boolean;   // editor: can't be dragged/resized/marquee-selected on canvas
   hidden?: boolean;   // hidden from the projector; shown dimmed in the editor
   url: string;
@@ -113,6 +125,10 @@ export type VideoObject = {
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
   rotation?: number;
+  // Editor transform (PP7 "Flip Horizontal / Vertical"). Additive + optional:
+  // absent = no flip = exactly how every existing object already renders.
+  flipH?: boolean;
+  flipV?: boolean;
   locked?: boolean;   // editor: can't be dragged/resized/marquee-selected on canvas
   hidden?: boolean;   // hidden from the projector; shown dimmed in the editor
   url: string;
@@ -240,4 +256,16 @@ export function extractLyricsFromEditable(slide: EditableSlide): string {
     .map((o) => o.text?.trim() ?? "")
     .filter(Boolean);
   return parts.length > 0 ? parts.join("\n") : (slide.lyrics ?? "");
+}
+
+/**
+ * Theme gaps (PR A): true when the FIRST visible object is an image/video that
+ * covers the whole 1920×1080 canvas — a full-bleed media slide. Theme decor is
+ * suppressed on those (the media would hide it anyway, and a covering flyer is
+ * the operator's own background). Pure; accepts wire or editor objects.
+ */
+export function coversCanvas(objects: ReadonlyArray<{ kind: string; x: number; y: number; w: number; h: number; hidden?: boolean }> | null | undefined): boolean {
+  const first = objects?.find((o) => !o.hidden);
+  if (!first || (first.kind !== "image" && first.kind !== "video")) return false;
+  return first.x <= 0 && first.y <= 0 && first.x + first.w >= CANVAS_W && first.y + first.h >= CANVAS_H;
 }
