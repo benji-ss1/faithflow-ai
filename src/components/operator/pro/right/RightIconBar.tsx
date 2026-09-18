@@ -30,7 +30,7 @@
  * - Screens → embeds ScreensPanel (per-machine resolution + display
  *   assignment + Configure Screens button).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import * as Popover from "@radix-ui/react-popover";
 import { BookOpen, Music, Link2, Layers as LayersIcon, Timer as TimerIcon, MessageSquare } from "lucide-react";
@@ -339,8 +339,18 @@ function PopoverShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  // The shell is rendered INLINE at the bottom of the right aside (see the
+  // comment on IconTrigger: no Portal). The icon bar already sits at the
+  // bottom of that scrolling aside, so an opened panel lands ~315px BELOW the
+  // fold at every viewport (measured 2026-09-18: 911x512, 1093x614, 1280x720)
+  // and the operator sees nothing happen. Pull it into view on open.
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    shellRef.current?.scrollIntoView({ block: "nearest" });
+  }, []);
   return (
     <div
+      ref={shellRef}
       className="border-t border-[var(--color-border)] bg-[var(--color-elevated)]"
       role="dialog"
       aria-label={title}
@@ -358,7 +368,11 @@ function PopoverShell({
           ×
         </button>
       </div>
-      <div className="max-h-[400px] overflow-y-auto pf-transcript-scroll">
+      {/* 400px does not fit a 512-614px CSS viewport (1366x768 @150%/@125%),
+          which is the common Windows church laptop. Same idiom as the editor
+          toolbars' [@media(max-height:620px)] step-down; a no-op at the Mac
+          window height (900), so the Mac class list is unchanged there. */}
+      <div className="max-h-[400px] [@media(max-height:700px)]:max-h-[220px] overflow-y-auto pf-transcript-scroll">
         {children}
       </div>
     </div>

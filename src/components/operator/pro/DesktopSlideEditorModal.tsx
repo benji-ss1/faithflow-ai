@@ -894,13 +894,20 @@ function EditorStatusBar({ editor, zoom, setZoom, view, toggleView }: { editor: 
   const label = sel.length === 0 ? "No selection" : sel.length === 1 ? `1 object` : `${sel.length} objects`;
   return (
     <div className="shrink-0 border-t flex items-center gap-3 px-3 h-8 [@media(max-height:620px)]:h-6 text-[11px] overflow-x-auto" style={{ borderColor: HAIR, background: PANEL }}>
-      <span className="shrink-0 text-[var(--color-muted-foreground)]">{label}</span>
-      <div className="shrink-0 flex items-center gap-2.5 font-mono tabular-nums text-[var(--color-foreground)]">
+      {/* The READOUTS yield first; the View/zoom/Fit cluster never does.
+          Measured 2026-09-18 at 911x512 (1366x768 @150%): with every group
+          shrink-0 the ml-auto cluster was pushed past the canvas column and
+          "Fit" was sliced in half — reachable only by finding a scroll inside
+          an 8px-tall strip. Truncating a coordinate readout is the cheap
+          loss; losing zoom is not. A no-op wherever there is room, so the Mac
+          rendering at normal widths is unchanged. */}
+      <span className="min-w-0 truncate text-[var(--color-muted-foreground)]">{label}</span>
+      <div className="min-w-0 overflow-hidden flex items-center gap-2.5 font-mono tabular-nums text-[var(--color-foreground)]">
         {([["X", f.x], ["Y", f.y], ["W", f.w], ["H", f.h]] as const).map(([k, v]) => (
           <span key={k}><span className="text-[var(--color-muted-foreground)]">{k}</span> {v}</span>
         ))}
       </div>
-      <span className="shrink-0 text-[var(--color-muted-foreground)]">{CANVAS_W}×{CANVAS_H}</span>
+      <span className="min-w-0 truncate text-[var(--color-muted-foreground)]">{CANVAS_W}×{CANVAS_H}</span>
       <div className="ml-auto shrink-0 flex items-center gap-1">
         <ViewMenu view={view} toggleView={toggleView} />
         <span className="w-px h-4" style={{ background: HAIR }} />
