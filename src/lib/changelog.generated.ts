@@ -4,6 +4,22 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.460",
+    "date": "2026-09-18",
+    "headline": "Themes now live in one place — the Themes menu on the top bar",
+    "highlights": [
+      "The old Themes window has been put away. Everything it did is now in the Themes menu on the top bar, where you already apply themes.",
+      "Import from ProPresenter moved there too — it's the upload button at the top of the Themes menu.",
+      "You can still choose a default look for Songs and for Bible verses: it's now at the bottom of the Themes menu.",
+      "Nothing changed about your themes themselves. Settings → Themes & Look still opens the same menu, so old shortcuts keep working.",
+      "Opening Layers now scrolls the panel into view. On smaller screens it used to open below the edge of the right panel, so it looked like nothing had happened.",
+      "In the slide editor, the zoom buttons and the Fit button no longer slide off the right-hand edge on a small screen. The X, Y, W and H numbers shorten instead.",
+      "The projection zone settings under the slide editor now stack into one column when the editor is narrow, so the Margins boxes and the Center button no longer sit on top of each other.",
+      "Right-click menus on a slide now scroll instead of running off the bottom of a short screen, so you can always reach Delete Slide.",
+      "On small Windows screens the card-size slider in the slide header now hides, so the Grid, List and Text view buttons are never cut off."
+    ]
+  },
+  {
     "version": "0.1.459",
     "date": "2026-09-17",
     "headline": "Fonts you pick now really show on the projector",
