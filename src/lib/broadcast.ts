@@ -1261,6 +1261,11 @@ export function isValidAnnouncementStyle(st: unknown): st is AnnouncementStyle {
     if (s[k] !== undefined && (typeof s[k] !== "number" || !Number.isFinite(s[k]))) return false;
   }
   if (s.align !== undefined && !ANNOUNCEMENT_ALIGNS.has(s.align as string)) return false;
+  // Fonts P1 (2026-09-17): fontFamily reaches CSS (AnnouncementLayer renders it
+  // via the registry's fontStack), so hold it to the SAME charset + 120-char cap
+  // as every other font-family on the wire (:937, :986, :1033). Previously it
+  // was only checked for being a string.
+  if (s.fontFamily !== undefined && !FONT_FAMILY_RE.test(s.fontFamily as string)) return false;
   return true;
 }
 

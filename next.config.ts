@@ -68,6 +68,12 @@ const nextConfig: NextConfig = {
       // The service worker script must always revalidate so a new SW deploy is
       // picked up promptly (defense-in-depth beyond the browser's updateViaCache).
       { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
+      // Fonts P1 (2026-09-17): the self-hosted slide faces under /fonts/ are
+      // immutable — a changed face ships under a new filename from
+      // scripts/fonts/build-slide-fonts.py. Year-long immutable caching is the
+      // offline win: once a machine has fetched a face it never asks again, so a
+      // church that drops offline mid-service keeps its real fonts.
+      { source: "/fonts/(.*)", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
     ];
   },
   async redirects() {
