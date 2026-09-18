@@ -1,7 +1,7 @@
 ---
 headline: Fonts you pick now really show on the projector
 audience: operator
-version: 0.1.456
+version: 0.1.459
 date: 2026-09-17
 highlights:
   - Every font in the font menus now really loads, so it shows its true look on the projector, the stage screen and the livestream — before, seven of them quietly fell back to a plain system font. Because they now load, some slides and themes may look different from last Sunday, so it is worth a quick look before the service.
