@@ -193,7 +193,12 @@ function CenterSizeSlider({
     }, 100);
   };
   return (
-    <div className="flex items-center gap-2 pr-2" title={`Card size: ${value}px`}>
+    // Already steps 150 -> 90px under a 640px container. At a 911px viewport
+    // (1366x768 @150%) the centre panel is 381px and the header still ran 402px,
+    // clipping the Grid/List/Text toggle by 21px (measured 2026-09-18). Card size
+    // is a cosmetic preference; the view toggle is a real control, so the slider
+    // is the one that goes. Windows-scoped -> the Mac class list is unchanged.
+    <div className="flex items-center gap-2 pr-2 [html[data-platform=win]_&]:@max-[420px]:hidden" title={`Card size: ${value}px`}>
       <input
         type="range"
         min={min}

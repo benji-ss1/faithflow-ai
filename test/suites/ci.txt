@@ -172,3 +172,4 @@ test/editor-geometry.test.ts
 test/editor-toolbar.test.ts
 test/editor-rulers.test.ts
 test/editor-inspector.test.ts
+test/windows-responsive.test.ts
