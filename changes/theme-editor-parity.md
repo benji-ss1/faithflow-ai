@@ -1,7 +1,7 @@
 ---
 headline: The slide and theme editor now shows exactly where things sit, and you can zoom in
 audience: operator
-version: 0.1.454
+version: 0.1.455
 date: 2026-09-18
 highlights:
   - A new bar under the canvas shows the position and size of whatever you have selected, and it updates live as you drag.

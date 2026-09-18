@@ -10,7 +10,10 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard, setTextClipboard, useTextClipboard, getTextClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
-import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, setServiceItemSlideActions,clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme, applyThemeToSongSlide, removeThemeFromSongSlide } from "@/lib/actions";
+import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, setServiceItemSlideActions,clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme, applyThemeToSongSlides, removeThemeFromSongSlide } from "@/lib/actions";
+import { anyOverlayOpen } from "@/hooks/useOperatorHotkeys";
+import { nextSlideSelection, stripVideoDecor, consumeSelectionEscape } from "@/lib/slide-selection";
+import { BUILTIN_THEMES } from "@/lib/builtin-themes";
 import { BUILT_IN_BACKGROUNDS } from "@/backgrounds/presets/defaultTemplates";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
@@ -125,6 +128,11 @@ type ThemeMenu = {
   onApplyDbThisSlide: (themeId: string) => void;
   onRemoveDbThisSlide: () => void;
   canApplyDb: boolean;
+  // Multi-select (cmd/ctrl/shift-click): apply to every selected slide.
+  selectedCount: number;
+  onApplyDbSelected: (themeId: string) => void;
+  // Built-in themes are materialized into a church theme, then applied.
+  builtins: { id: string; name: string }[];
 };
 import {
   DndContext,
@@ -178,7 +186,9 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const router = useRouter();
   const item = ctx.plan.items[ctx.previewItemIdx];
   // PR 2: thumbnails use the theme THIS item projects with (boxes + decor).
-  const itemAppearance = ctx.appearanceForItem ? ctx.appearanceForItem(ctx.previewItemIdx) : ctx.appearance;
+  const rawItemAppearance = ctx.appearanceForItem ? ctx.appearanceForItem(ctx.previewItemIdx) : ctx.appearance;
+  // Grid thumbnails never decode theme video decor (same rule as the popover).
+  const itemAppearance = useMemo(() => stripVideoDecor(rawItemAppearance), [rawItemAppearance]);
   const slides: SlidePayload[] = item?.slides ?? [];
   // Song auto-switch guard: every send of a song item's slide declares its origin.
   const itemSendOpts = item?.type === "song" ? { origin: { kind: "song" as const, songId: (item as { songId?: string }).songId } } : undefined;
@@ -622,18 +632,51 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       router.refresh();
     })();
   };
+  // A built-in theme id ("builtin:…") is materialized into this church's theme
+  // first; a real theme id passes through.
+  const resolveThemeId = async (themeId: string): Promise<string | null> => {
+    if (!themeId.startsWith("builtin:")) return themeId;
+    const { materializeBuiltinClient } = await import("../ThemePopover");
+    const t = await materializeBuiltinClient(themeId);
+    return t?.id ?? null;
+  };
+  const applyThemeAllResolved = (themeId: string) => {
+    void (async () => { const id = await resolveThemeId(themeId); if (id) applyThemeAll(id); })();
+  };
   // Per-slide theme override (Victor: "individually select the theme for each slide").
-  const applyThemeThisSlide = (themeId: string, slideId: string | undefined) => {
+  // One batch action for one slide or a multi-selection.
+  const applyThemeToSlides = (themeId: string, slideIdsToTheme: (string | undefined)[]) => {
     void (async () => {
       const { toast } = await import("sonner");
       const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
-      if (!songId || !slideId) { toast.error("Only a song slide can take a theme"); return; }
-      const res = await applyThemeToSongSlide(themeId, songId, slideId);
+      const idsClean = slideIdsToTheme.filter((x): x is string => !!x);
+      if (!songId || idsClean.length === 0) { toast.error("Only a song slide can take a theme"); return; }
+      const resolved = await resolveThemeId(themeId);
+      if (!resolved) return;
+      const res = await applyThemeToSongSlides(resolved, songId, idsClean);
       if (!res.ok) { toast.error(res.error ?? "Couldn't theme this slide"); return; }
-      toast.success("Theme applied to this slide — re-send it to update the screen");
+      const n = res.data?.slidesUpdated ?? idsClean.length;
+      toast.success(n === 1 ? "Theme applied to this slide — re-send it to update the screen" : `Theme applied to ${n} slides — re-send to update the screen`);
       router.refresh();
     })();
   };
+  const applyThemeThisSlide = (themeId: string, slideId: string | undefined) => applyThemeToSlides(themeId, [slideId]);
+
+  // ── Multi-select (ProPresenter-style): cmd/ctrl toggles, shift ranges from the
+  // previewed slide, Esc clears. Song slides only (ids = song_slides row ids).
+  const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
+  const itemKey = `${ctx.previewItemIdx}:${(item as { id?: string } | undefined)?.id ?? ""}`;
+  useEffect(() => { setSelectedSlideIds([]); }, [itemKey]);
+  useEffect(() => {
+    if (selectedSlideIds.length === 0) return;
+    // Capture phase + stopImmediatePropagation: Esc clears the selection ONLY —
+    // the global Esc = kill-live hotkey (bubble listeners) must not also fire.
+    const onKey = (e: KeyboardEvent) => {
+      consumeSelectionEscape(e, selectedSlideIds.length, document.activeElement as HTMLElement | null, () => setSelectedSlideIds([]), anyOverlayOpen());
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selectedSlideIds.length]);
   const removeThemeThisSlide = (slideId: string | undefined) => {
     void (async () => {
       const { toast } = await import("sonner");
@@ -938,20 +981,32 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   onSwitchLook: switchLook,
                   looks: BUILT_IN_BACKGROUNDS.map((b) => ({ id: b.id, name: b.name, c1: (b as { shaderPrimaryColor?: string }).shaderPrimaryColor, c2: (b as { shaderSecondaryColor?: string }).shaderSecondaryColor })),
                   dbThemes: themes,
-                  onApplyDb: applyThemeAll,
                   onRemoveDb: removeThemeAll,
                   onApplyDbThisSlide: (themeId) => applyThemeThisSlide(themeId, item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined),
                   onRemoveDbThisSlide: () => removeThemeThisSlide(item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined),
                   canApplyDb: item?.type === "song" && !!(item as { songId?: string }).songId,
+                  selectedCount: selectedSlideIds.length,
+                  onApplyDbSelected: (themeId) => applyThemeToSlides(themeId, selectedSlideIds),
+                  builtins: BUILTIN_THEMES.map((b) => ({ id: b.id, name: b.name })),
+                  onApplyDb: applyThemeAllResolved,
                 }}
                 appearance={itemAppearance ?? undefined}
                 background={ctx.background}
                 selected={idx === ctx.previewSlideIdx}
+                multiSelected={item?.type === "song" && !!item.songSlideRows?.[idx]?.id && selectedSlideIds.includes(item.songSlideRows[idx].id)}
                 canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
                 onSendLive={() => {
                   fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, { ...(itemSendOpts ?? {}), sourceItemIdx: ctx.previewItemIdx }); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
                 }}
-                onSelect={() => {
+                onSelect={(mods) => {
+                  // cmd/ctrl/shift-click builds a multi-selection (song slides
+                  // only) — never previews or fires live.
+                  const rowIds = item?.type === "song" ? (item.songSlideRows ?? []).map((r) => r?.id ?? "") : [];
+                  if (mods && (mods.toggle || mods.range) && rowIds[idx]) {
+                    setSelectedSlideIds((prev) => nextSlideSelection(prev, rowIds, idx, ctx.previewSlideIdx, mods));
+                    return;
+                  }
+                  if (selectedSlideIds.length > 0) setSelectedSlideIds([]);
                   console.log("[click] slide", { id: slideIds[idx], idx, safeMode: safeMode() });
                   // Ignore the ghost click dnd-kit lets through right after a
                   // drag-drop — otherwise reordering could fire a slide live.
@@ -1296,11 +1351,12 @@ function SortableSlideCard(props: {
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
+  multiSelected?: boolean;
   canQuickEdit: boolean;
   canPaste: boolean;
   pasteReason: string | null;
   canPasteText: boolean;
-  onSelect: () => void;
+  onSelect: (mods?: { toggle: boolean; range: boolean }) => void;
   onDouble: () => void;
   onDelete: () => void;
   onQuickEdit: () => void;
@@ -1353,6 +1409,7 @@ function SortableSlideCard(props: {
         appearance={props.appearance}
         background={props.background}
         selected={props.selected}
+        multiSelected={props.multiSelected}
         canQuickEdit={props.canQuickEdit}
         canPaste={props.canPaste}
         pasteReason={props.pasteReason}
@@ -1395,7 +1452,7 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, groupChip, sectionMenu, bgMenu, themeMenu, actionCount, actionTypes, actionsMenu, appearance, background, selected, canQuickEdit, canPaste, pasteReason, canPasteText, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onPasteText, onSendLive,
+  slide, index, groupChip, sectionMenu, bgMenu, themeMenu, actionCount, actionTypes, actionsMenu, appearance, background, selected, multiSelected, canQuickEdit, canPaste, pasteReason, canPasteText, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onPasteText, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
@@ -1409,11 +1466,12 @@ function SlideCard({
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
+  multiSelected?: boolean;
   canQuickEdit: boolean;
   canPaste: boolean;
   pasteReason: string | null;
   canPasteText: boolean;
-  onSelect: () => void;
+  onSelect: (mods?: { toggle: boolean; range: boolean }) => void;
   onDouble: () => void;
   onDelete: () => void;
   onQuickEdit: () => void;
@@ -1431,8 +1489,9 @@ function SlideCard({
           type="button"
           role="gridcell"
           tabIndex={0}
-          onClick={onSelect}
+          onClick={(e) => onSelect({ toggle: e.metaKey || e.ctrlKey, range: e.shiftKey })}
           onDoubleClick={onDouble}
+          aria-selected={multiSelected || undefined}
           // 2026-08-25 fix: stop the right-click from ALSO reaching the grid-level
           // "Paste slide" context menu that wraps the whole grid (commit 0e2fead).
           // Radix ContextMenu.Trigger doesn't stopPropagation, so without this a
@@ -1462,6 +1521,7 @@ function SlideCard({
             "transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-house)]",
             "motion-safe:hover:-translate-y-[3px] active:translate-y-0 active:duration-75",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+            multiSelected && "ring-2 ring-[#0a84ff] ring-offset-1 ring-offset-[var(--color-shell)]",
             selected
               ? "border-2 border-[var(--color-brand)] pf-selected-glow shadow-[var(--shadow-ember)] hover:shadow-[var(--shadow-ember-lg)]"
               : "border border-[var(--color-border)] shadow-[var(--shadow-sm)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--shadow-lg)]",
@@ -1681,7 +1741,7 @@ function SlideCard({
                 <ChevronRight className="w-3.5 h-3.5 opacity-60" />
               </ContextMenu.SubTrigger>
               <ContextMenu.Portal>
-                <ContextMenu.SubContent className="min-w-[210px] max-h-[380px] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                <ContextMenu.SubContent collisionPadding={8} className="min-w-[210px] max-h-[min(380px,var(--radix-context-menu-content-available-height))] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
                   <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Looks · projector</div>
                   {themeMenu.looks.map((l) => (
                     <ContextMenu.Item
@@ -1699,12 +1759,13 @@ function SlideCard({
                       {themeMenu.activeLookId === l.id && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
                     </ContextMenu.Item>
                   ))}
-                  {themeMenu.dbThemes.length > 0 && (
+                  {(themeMenu.dbThemes.length > 0 || themeMenu.builtins.length > 0) && (
                     <>
                       <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
-                      <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Saved themes</div>
-                      {/* Per theme: choose THIS slide (per-slide override) or ALL slides. */}
-                      {themeMenu.dbThemes.map((t) => (
+                      {themeMenu.dbThemes.length > 0 && <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Saved themes</div>}
+                      {/* Per theme: THIS slide (per-slide override), the SELECTED slides, or ALL slides. */}
+                      {[...themeMenu.dbThemes, ...themeMenu.builtins].map((t, ti) => (<div key={t.id}>
+                        {ti === themeMenu.dbThemes.length && themeMenu.builtins.length > 0 && <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Built-in</div>}
                         <ContextMenu.Sub key={t.id}>
                           <ContextMenu.SubTrigger
                             disabled={!themeMenu.canApplyDb}
@@ -1718,11 +1779,14 @@ function SlideCard({
                           <ContextMenu.Portal>
                             <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-[60] min-w-[150px]">
                               <ContextMenu.Item onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDbThisSlide(t.id)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">This slide</ContextMenu.Item>
+                              {themeMenu.selectedCount > 0 && (
+                                <ContextMenu.Item onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDbSelected(t.id)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">Selected slides ({themeMenu.selectedCount})</ContextMenu.Item>
+                              )}
                               <ContextMenu.Item onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDb(t.id)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">All slides</ContextMenu.Item>
                             </ContextMenu.SubContent>
                           </ContextMenu.Portal>
                         </ContextMenu.Sub>
-                      ))}
+                      </div>))}
                       {themeMenu.canApplyDb && (
                         <>
                           <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />

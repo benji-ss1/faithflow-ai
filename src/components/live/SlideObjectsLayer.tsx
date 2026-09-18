@@ -14,7 +14,13 @@ import { flipTransform } from "@/lib/editor-geometry";
  * No drag handles, no interaction — this is output only. Objects render in
  * array order (first = back). Sits above the slide background, below the logo.
  */
-export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, referenceScale = 1, referenceText }: { objects: SlideObjectWire[]; fontScale?: number; themedTextColor?: string | null; referenceScale?: number; referenceText?: string | null }) {
+export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, referenceScale = 1, referenceText, decor, frozen }: {
+  objects: SlideObjectWire[]; fontScale?: number; themedTextColor?: string | null; referenceScale?: number; referenceText?: string | null;
+  /** Theme decor: never intercepts pointer events. */
+  decor?: boolean;
+  /** Operator mini-preview: decor video shows its first frame, no playback. */
+  frozen?: boolean;
+}) {
   // Global font multiplier (operator A-/A+ × Projection-Zone Font). Previously
   // this layer ignored it, so the Font slider / A-/A+ had NO effect on the
   // projector for designed or song slides (only plain-lyric slides scaled).
@@ -32,7 +38,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
   const refT = referenceText?.trim() || null;
   return (
     <div
-      className="absolute inset-0 z-0"
+      className={decor ? "absolute inset-0 z-0 pointer-events-none" : "absolute inset-0 z-0"}
       style={{ containerType: "size" }}
       aria-hidden
     >
@@ -56,7 +62,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
           // byte-identically (parity-tested in test/editor-geometry.test.ts).
           scale: flipTransform(obj),
         };
-        const key = `${obj.kind}-${i}`;
+        const key = (obj as { id?: string }).id ?? `${obj.kind}-${i}`;
         // Entrance animation: applied to the positioned box only. `both` fill
         // mode means it starts hidden/offset and RESTS at the natural state
         // (identity transform, full opacity) — so it never permanently changes
@@ -133,7 +139,8 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
             <div key={key} className={animCls} style={boxStyle}>
               <video
                 src={obj.url}
-                autoPlay
+                autoPlay={!frozen}
+                preload={frozen ? "metadata" : undefined}
                 loop={obj.loop ?? true}
                 muted={obj.muted ?? true}
                 playsInline
