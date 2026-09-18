@@ -10,6 +10,7 @@ import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme,
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { buildColorwayFromPalette } from "@/lib/colorway";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
+import { MAX_THEME_FILE_BYTES, missingMediaMessage } from "@/lib/theme-portable";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isContentTypeEditDenied } from "@/lib/church-styles-store";
 import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
@@ -124,7 +125,11 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
         a.click();
         a.remove();
         URL.revokeObjectURL(href);
-        toast.success("Theme exported");
+        // Backgrounds travel as a reference to this church's own storage. If one
+        // couldn't be included at all, say so instead of shipping a silent gap.
+        const unres = res.data.unresolvedMedia ?? [];
+        if (unres.length) toast.warning(`Exported — but ${unres.join(", ")} couldn't be included. Re-pick it and export again.`);
+        else toast.success("Theme exported");
       } catch {
         toast.error("Could not save the file");
       }
@@ -221,24 +226,29 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
   // via the importTheme server action, which re-sanitises the config).
   function onImportFile(file: File) {
     startTransition(async () => {
+      if (file.size > MAX_THEME_FILE_BYTES) {
+        toast.error("That theme file is too big (over 1 MB). It doesn't look like a PresentFlow theme.");
+        return;
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(await file.text());
       } catch {
-        toast.error("That file isn't valid theme JSON");
+        toast.error("That file isn't valid theme JSON.");
         return;
       }
       const res = await importTheme(parsed);
       if (!res.ok || !res.data) { toast.error((!res.ok && res.error) || "Could not import theme"); return; }
-      const obj = parsed as { name?: unknown; config?: unknown };
-      const name = typeof obj?.name === "string" && obj.name.trim() ? obj.name.trim() : "Imported theme";
-      const config = (obj?.config && typeof obj.config === "object" ? obj.config : {}) as ThemeConfig;
-      refresh([...themes, { id: res.data.id, name, config }]);
-      toast.success(
-        res.data.rejectedFields.length
-          ? `Imported "${name}" (${res.data.rejectedFields.length} unsupported field${res.data.rejectedFields.length === 1 ? "" : "s"} skipped)`
-          : `Imported "${name}"`,
-      );
+      // Trust the SERVER's name/config, not the file: the server is what
+      // sanitised the values and re-hosted (or dropped) the pictures, so the
+      // card must show what was actually saved.
+      const { id, name, config, rejectedFields, missingMedia } = res.data;
+      refresh([...themes, { id, name, config: config as ThemeConfig }]);
+      const missing = missingMediaMessage(missingMedia);
+      if (missing) toast.warning(missing);
+      else if (rejectedFields.length) {
+        toast.success(`Imported "${name}" — ${rejectedFields.length} setting${rejectedFields.length === 1 ? "" : "s"} this version doesn't support ${rejectedFields.length === 1 ? "was" : "were"} skipped.`);
+      } else toast.success(`Imported "${name}"`);
     });
   }
 

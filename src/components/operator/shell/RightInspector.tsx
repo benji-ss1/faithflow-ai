@@ -21,6 +21,7 @@ import {
   createTheme, updateTheme, duplicateTheme, deleteTheme, exportTheme, importTheme, applyThemeToSong,
 } from "@/lib/actions";
 import { toast } from "sonner";
+import { MAX_THEME_FILE_BYTES, missingMediaMessage } from "@/lib/theme-portable";
 
 const TABS: { key: InspectorTab; label: string; icon: typeof Monitor }[] = [
   { key: "output",   label: "Output",   icon: Monitor },
@@ -1307,25 +1308,38 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
     const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `${(r.data?.name ?? "theme").replace(/\W+/g, "_")}.json`;
+    a.href = url; a.download = `${(r.data?.name ?? "theme").replace(/\W+/g, "_")}.pftheme.json`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
+    // Pictures travel as a reference to this church's own storage, so tell the
+    // operator up front when one couldn't be included at all.
+    const unres = r.data?.unresolvedMedia ?? [];
+    if (unres.length) toast.warning(`Exported — but ${unres.join(", ")} couldn't be included. Re-pick it and export again.`);
+    else toast.success("Theme exported");
   };
   const doImportClick = () => fileRef.current?.click();
   const doImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     try {
-      const text = await f.text();
-      const parsed = JSON.parse(text);
+      if (f.size > MAX_THEME_FILE_BYTES) {
+        toast.error("That theme file is too big (over 1 MB). It doesn't look like a PresentFlow theme.");
+        return;
+      }
+      let parsed: unknown;
+      try { parsed = JSON.parse(await f.text()); }
+      catch { toast.error("That file isn't valid theme JSON."); return; }
       const r = await importTheme(parsed);
       if (r.ok && r.data) {
-        toast.success(r.data.rejectedFields.length ? `Imported (skipped: ${r.data.rejectedFields.join(", ")})` : "Imported");
         await refresh();
         setSel(r.data.id);
+        const missing = missingMediaMessage(r.data.missingMedia);
+        if (missing) toast.warning(missing);
+        else if (r.data.rejectedFields.length) toast.success(`Imported "${r.data.name}" — ${r.data.rejectedFields.length} setting(s) this version doesn't support were skipped.`);
+        else toast.success(`Imported "${r.data.name}"`);
       } else if (!r.ok) toast.error(r.error);
-    } catch (err) {
-      toast.error("Invalid theme JSON: " + (err instanceof Error ? err.message : String(err)));
+    } catch {
+      toast.error("That theme couldn't be imported. Try exporting it again.");
     } finally {
       if (fileRef.current) fileRef.current.value = "";
     }
