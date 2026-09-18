@@ -18,7 +18,7 @@ config({ path: ".env.local" });
 
 import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
-import { getDb } from "../src/lib/db/client";
+import { getAudioDb } from "../src/lib/db/audio-client";
 import { transcriptSegments, detectedReferences, servicePlans, bibleTranslations, churchPreferences } from "../src/lib/db/schema";
 import { parseReferences, knownBook, parseBareVerse, isValidChapter, extractCorrections, combineStutteredReference } from "../src/lib/bible-parser";
 import { decideSemanticOverride } from "../src/lib/bible-semantic-override";
@@ -172,7 +172,7 @@ if ((KEY_MISSING || SECRET_MISSING) && process.env.NODE_ENV === "production") {
 if (KEY_MISSING) console.warn("[audio] DEEPGRAM_API_KEY missing — clients will get close code 1011 'deepgram key missing'");
 if (SECRET_MISSING) console.warn("[audio] AUTH_SECRET missing — tickets cannot be verified");
 
-const db = getDb();
+const db = getAudioDb();
 
 /**
  * Open a raw WebSocket to Deepgram's streaming API. We tried the SDK's
