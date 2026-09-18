@@ -4,6 +4,16 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.461",
+    "date": "2026-09-18",
+    "headline": "Save a theme to a file and open it anywhere",
+    "highlights": [
+      "Export any theme to a file you can back up, email, or send to another church. Import it from the Themes area and it comes in as a brand-new theme — your existing themes are never overwritten.",
+      "Fonts, colours, text placement, transitions and scripture settings all come across exactly as they were. Import it back into your own church and you get the pictures too.",
+      "Pictures and videos belong to the church that uploaded them, so they can't travel to a different church. If one can't come with the theme, PresentFlow now tells you which one and reminds you to pick your own background — instead of leaving a broken picture on screen."
+    ]
+  },
+  {
     "version": "0.1.458",
     "date": "2026-09-18",
     "headline": "The editor's properties panel is now split into Shape, Text and Build",
@@ -45,10 +55,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "You can now zoom the canvas in and out, or snap back to Fit. Ctrl+0 (Cmd+0 on a Mac) fits the slide to the window.",
       "\"Lock size\" keeps a box in its shape — drag a corner or type a new width and the height follows, so a logo never gets squashed.",
       "New Flip Horizontal and Flip Vertical buttons mirror the selected box.",
-      "Nothing about your existing slides or themes changed — they project exactly as before.",
-      "Export any theme to a file you can back up, email, or send to another church. Import it from the Themes area and it comes in as a brand-new theme — your existing themes are never overwritten.",
-      "Fonts, colours, text placement, transitions and scripture settings all come across exactly as they were. Import it back into your own church and you get the pictures too.",
-      "Pictures and videos belong to the church that uploaded them, so they can't travel to a different church. If one can't come with the theme, PresentFlow now tells you which one and reminds you to pick your own background — instead of leaving a broken picture on screen."
+      "Nothing about your existing slides or themes changed — they project exactly as before."
     ]
   },
   {
