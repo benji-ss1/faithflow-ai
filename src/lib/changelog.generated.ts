@@ -4,6 +4,18 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.462",
+    "date": "2026-09-18",
+    "headline": "The new Layers panel, theme editor and slide menus now fit small Windows laptops",
+    "highlights": [
+      "Opening Layers now scrolls the panel into view. On smaller screens it used to open below the edge of the right panel, so it looked like nothing had happened.",
+      "In the slide editor, the zoom buttons and the Fit button no longer slide off the right-hand edge on a small screen. The X, Y, W and H numbers shorten instead.",
+      "The projection zone settings under the slide editor now stack into one column when the editor is narrow, so the Margins boxes and the Center button no longer sit on top of each other.",
+      "Right-click menus on a slide now scroll instead of running off the bottom of a short screen, so you can always reach Delete Slide.",
+      "On small Windows screens the card-size slider in the slide header now hides, so the Grid, List and Text view buttons are never cut off."
+    ]
+  },
+  {
     "version": "0.1.461",
     "date": "2026-09-18",
     "headline": "Save a theme to a file and open it anywhere",
@@ -11,6 +23,17 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Export any theme to a file you can back up, email, or send to another church. Import it from the Themes area and it comes in as a brand-new theme — your existing themes are never overwritten.",
       "Fonts, colours, text placement, transitions and scripture settings all come across exactly as they were. Import it back into your own church and you get the pictures too.",
       "Pictures and videos belong to the church that uploaded them, so they can't travel to a different church. If one can't come with the theme, PresentFlow now tells you which one and reminds you to pick your own background — instead of leaving a broken picture on screen."
+    ]
+  },
+  {
+    "version": "0.1.460",
+    "date": "2026-09-18",
+    "headline": "Themes now live in one place — the Themes menu on the top bar",
+    "highlights": [
+      "The old Themes window has been put away. Everything it did is now in the Themes menu on the top bar, where you already apply themes.",
+      "Import from ProPresenter moved there too — it's the upload button at the top of the Themes menu.",
+      "You can still choose a default look for Songs and for Bible verses: it's now at the bottom of the Themes menu.",
+      "Nothing changed about your themes themselves. Settings → Themes & Look still opens the same menu, so old shortcuts keep working."
     ]
   },
   {

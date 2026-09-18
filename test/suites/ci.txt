@@ -175,3 +175,5 @@ test/fonts-registry.test.ts
 test/slide-identity-fonts.test.ts
 test/autofit-font-cache-key.test.ts
 test/fonts-picker-value.test.ts
+test/windows-responsive.test.ts
+test/themes-retirement.test.ts

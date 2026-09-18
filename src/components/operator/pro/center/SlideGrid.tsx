@@ -1178,7 +1178,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
           </div>
           </ContextMenu.Trigger>
           <ContextMenu.Portal>
-            <ContextMenu.Content className="min-w-[180px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+            <ContextMenu.Content collisionPadding={8} className="max-h-[min(420px,var(--radix-context-menu-content-available-height))] overflow-y-auto min-w-[180px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
               <ContextMenu.Item disabled={!canPasteHere} onSelect={() => pasteSlideAt(slides.length)}
                 title={pasteReason ?? undefined}
                 className={cn("px-3 py-1.5 rounded outline-none cursor-pointer", canPasteHere ? "hover:bg-[var(--color-panel)] text-[var(--color-foreground)]" : "opacity-40 cursor-not-allowed")}>
@@ -1581,7 +1581,12 @@ function SlideCard({
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className="min-w-[220px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+        {/* ~13 rows ≈ 390px. Measured 2026-09-18 at 911x512 (1366x768 @150%):
+            the menu rendered 124..512, i.e. flush to the bottom edge with ZERO
+            margin and no scroll — one more attached action or automation and
+            rows fall off-screen (Radix collision-flips, it does not scroll).
+            Same cap + collisionPadding the Theme submenu below already uses. */}
+        <ContextMenu.Content collisionPadding={8} className="min-w-[220px] max-h-[min(420px,var(--radix-context-menu-content-available-height))] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
           {/* Send to output — available for every slide type */}
           <ContextMenu.Item
             onSelect={onSendLive}
@@ -1598,7 +1603,7 @@ function SlideCard({
                 <ChevronRight className="w-3.5 h-3.5 ml-auto" />
               </ContextMenu.SubTrigger>
               <ContextMenu.Portal>
-                <ContextMenu.SubContent className="min-w-[220px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                <ContextMenu.SubContent collisionPadding={8} className="min-w-[220px] max-h-[min(380px,var(--radix-context-menu-content-available-height))] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
                   <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Attached — fire when this slide goes live</div>
                   {actionsMenu.current.length === 0 && (
                     <div className="px-3 py-1.5 text-[11px] text-[var(--color-muted-foreground)]">None attached</div>
@@ -1777,7 +1782,7 @@ function SlideCard({
                             <span className="flex-1 truncate">{t.name}</span><span className="opacity-60">▸</span>
                           </ContextMenu.SubTrigger>
                           <ContextMenu.Portal>
-                            <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-[60] min-w-[150px]">
+                            <ContextMenu.SubContent collisionPadding={8} className="max-h-[min(420px,var(--radix-context-menu-content-available-height))] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-[60] min-w-[150px]">
                               <ContextMenu.Item onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDbThisSlide(t.id)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">This slide</ContextMenu.Item>
                               {themeMenu.selectedCount > 0 && (
                                 <ContextMenu.Item onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDbSelected(t.id)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">Selected slides ({themeMenu.selectedCount})</ContextMenu.Item>
@@ -1820,7 +1825,7 @@ function SlideCard({
                 <ChevronRight className="w-3.5 h-3.5 opacity-60" />
               </ContextMenu.SubTrigger>
               <ContextMenu.Portal>
-                <ContextMenu.SubContent className="min-w-[210px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                <ContextMenu.SubContent collisionPadding={8} className="min-w-[210px] max-h-[min(380px,var(--radix-context-menu-content-available-height))] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
                   <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">This slide only</div>
                   <div className="px-3 py-0.5 text-[10px] text-[var(--color-muted-foreground)]">Drag from the Media bin onto a slide = that slide only. Use “BG” on a media item for every slide.</div>
                   <ContextMenu.Item
