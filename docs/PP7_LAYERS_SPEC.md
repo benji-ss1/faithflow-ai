@@ -153,7 +153,24 @@ Not matching yet:
 Screen Color and the background-colour switch can ride along with (1). Mask is deliberately
 last: it is the one layer with no equivalent anywhere in PresentFlow today.
 
-## 8. Questions for Victor
+## 8. Victor's decisions (2026-09-18) — CONFIRMED
+
+1. **Draw order:** yes — flip Props above Announcements and Media above the camera, and rehearse
+   with a real camera before a service.
+2. **Clear All:** yes — ours stays a fixed Clear All that truly clears everything, with named
+   groups (e.g. "All But Video Input") alongside. We do not copy PP7's editable-Clear-All flaw.
+3. **Audio:** yes — keep the row visible but greyed, as ProPresenter shows it.
+4. **Props:** **no** — do not build the full PP7 prop collection (multiple props, single-prop
+   mode, auto-clear). Keep the single church logo; just make the layer honest.
+5. **Announcements / lobby screen:** deferred. We trial it ourselves later.
+6. **The two undocumented behaviours** (does switching a Look change what is already on screen;
+   does applying a theme replay the transition on live output): **we test them ourselves**, not
+   Victor.
+
+Build order agreed: **items 1, 2 and 3 of §7 in full, item 4 reduced to "keep one logo, make the
+layer honest". Items 5 and 6 are deferred** and stay in this document so they are not lost.
+
+## 9. Original questions (answered above)
 
 1. **Draw order:** confirm we flip Props above Announcements and Media above the camera to
    match ProPresenter, and that we rehearse it with a camera before a service.
