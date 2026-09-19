@@ -3836,17 +3836,22 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       cmd.verb === "next_verse" || cmd.verb === "continue" ||
       cmd.verb === "prev_verse" || cmd.verb === "back";
     if (!isRelNav) return;
+    // A bare "go back" (75) is only the FIRST WORDS of "go back two verses" — stepping
+    // one verse now would beat the finalized count phrase and swallow it via the echo
+    // guard. Leave it for the final (~0.3s later); anchored phrases still early-fire.
+    if (cmd.verb === "back") return;
     const matched = (cmd.matchedText ?? "").toLowerCase().trim();
     const liveText = (ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "").toLowerCase();
     if (matched && liveText.includes(matched)) return; // reading guard
     if (navCommandWordCount(interimText, cmd) > 5) return; // standalone guard (politeness-stripped, command tail)
     if (isNavEcho(cmd.verb)) return; // already fired this command (prior interim tick or final)
+    const count = (cmd.payload as { count?: number } | undefined)?.count ?? 1;
     if (navDir(cmd.verb) === "prev") {
-      dispatchInternal("presentflow:bible-prev", { live: true });
-      toast.info(`Voice: "${cmd.matchedText}" → previous verse`);
+      dispatchInternal("presentflow:bible-prev", { live: true, count });
+      toast.info(`Voice: "${cmd.matchedText}" → ${count > 1 ? `back ${count} verses` : "previous verse"}`);
     } else {
-      dispatchInternal("presentflow:bible-next", { live: true });
-      toast.info(`Voice: "${cmd.matchedText}" → next verse`);
+      dispatchInternal("presentflow:bible-next", { live: true, count });
+      toast.info(`Voice: "${cmd.matchedText}" → ${count > 1 ? `forward ${count} verses` : "next verse"}`);
     }
     recordNavFire(cmd.verb);
     bibleLastAdvanceTsRef.current = Date.now();
@@ -3946,18 +3951,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       cmd.verb === "next_verse" || cmd.verb === "continue" ||
       cmd.verb === "prev_verse" || cmd.verb === "back";
     if (isRelNav && isNavEcho(cmd.verb)) return;
+    const stepCount = (cmd.payload as { count?: number } | undefined)?.count ?? 1;
     if (cmd.verb === "next_verse" || cmd.verb === "continue") {
-      dispatchInternal("presentflow:bible-next", { live: true });
+      dispatchInternal("presentflow:bible-next", { live: true, count: stepCount });
       recordNavFire(cmd.verb);
       bibleLastAdvanceTsRef.current = Date.now();
       bibleMatchStreakRef.current = 0;
-      toast.info(`Voice: "${cmd.matchedText}" → next verse`);
+      toast.info(`Voice: "${cmd.matchedText}" → ${stepCount > 1 ? `forward ${stepCount} verses` : "next verse"}`);
     } else if (cmd.verb === "prev_verse" || cmd.verb === "back") {
-      dispatchInternal("presentflow:bible-prev", { live: true });
+      dispatchInternal("presentflow:bible-prev", { live: true, count: stepCount });
       recordNavFire(cmd.verb);
       bibleLastAdvanceTsRef.current = Date.now();
       bibleMatchStreakRef.current = 0;
-      toast.info(`Voice: "${cmd.matchedText}" → previous verse`);
+      toast.info(`Voice: "${cmd.matchedText}" → ${stepCount > 1 ? `back ${stepCount} verses` : "previous verse"}`);
     } else if (cmd.verb === "repeat_verse") {
       // idx can be null now that hasVerseContext also trips on a live scripture
       // slide (running off AI chips, no selected card). Guard the card deref and
@@ -3979,8 +3985,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // Anchor on the selected card's label, or (when running off chips with no
       // card) the live scripture slide's reference — never deref cards[idx!].
       const verseNumber = (cmd.payload as { verseNumber?: number } | undefined)?.verseNumber;
-      const anchorLabel = (idx != null ? cards[idx]?.label : undefined)
-        ?? (ctx.liveSlide?.kind === "text" ? (ctx.liveSlide.reference ?? undefined) : undefined);
+      // The verse actually on the projector wins over the selected preview card (which
+      // can lag or lead it) — same anchor the relative "next verse" uses.
+      const liveLabel = ctx.liveSlide?.kind === "text" ? (ctx.liveSlide.reference ?? undefined) : undefined;
+      const anchorLabel = (liveLabel && /^(.+?)\s+(\d+):\d+/.test(liveLabel) ? liveLabel : undefined)
+        ?? (idx != null ? cards[idx]?.label : undefined)
+        ?? liveLabel;
       const m = anchorLabel ? /^(.+?)\s+(\d+):\d+/.exec(anchorLabel) : null;
       if (verseNumber && m) {
         const book = m[1];
@@ -4277,7 +4287,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       }
     };
 
-    const advanceRef = async (dir: 1 | -1, live = false) => {
+    const advanceRef = async (dir: 1 | -1, live = false, count = 1) => {
       const parser = await import("@/lib/bible-parser");
       // Base the advance on the CURRENTLY SELECTED card's label so pressing
       // Verse > walks: John 3:16 → 3:17 → 3:18 (not stuck on the input ref).
@@ -4330,19 +4340,31 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // earlier version returned right here for any nextVerse < 1, which
       // meant "Prev verse" at v1 could never cross backward into the
       // previous chapter even though forward crossing worked correctly.
-      const nextVerse = parsed.verseStart + dir;
+      const nextVerse = parsed.verseStart + dir * count;
       const translationCode = bibleSession.state.translation;
       const book = parsed.book;
       const chapter = parsed.chapter;
+
+      // Multi-verse voice steps ("go back five verses") that run past the chapter edge
+      // land on the edge verse (never skip into another chapter); already AT the edge
+      // they fall through to the single-step chapter crossing.
+      const findTarget = (verses: { verse: number; text: string }[]) => {
+        const exact = verses.find((v) => v.verse === nextVerse);
+        if (exact || count <= 1) return exact;
+        const nums = verses.map((v) => v.verse);
+        const edge = dir > 0 ? Math.max(...nums) : Math.min(...nums);
+        if (edge === parsed.verseStart) return undefined;
+        return verses.find((v) => v.verse === edge);
+      };
 
       // ── Pure local path: the current chapter is already cached. ──────────
       const key = chapterKey(translationCode, book, chapter);
       const cached = getCachedChapter(key);
       if (cached) {
-        const hit = cached.verses.find((v) => v.verse === nextVerse);
+        const hit = findTarget(cached.verses);
         if (hit) {
-          applyAdvancedVerse(dir, book, chapter, nextVerse, hit.text, cached.translation, live);
-          maybePrefetchAdjacentChapter(book, chapter, nextVerse, cached.verses.map((v) => v.verse), translationCode);
+          applyAdvancedVerse(dir, book, chapter, hit.verse, hit.text, cached.translation, live);
+          maybePrefetchAdjacentChapter(book, chapter, hit.verse, cached.verses.map((v) => v.verse), translationCode);
           return;
         }
         // nextVerse isn't in this chapter (either < 1 going backward, or
@@ -4379,17 +4401,17 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         await crossChapterBoundary(dir, book, chapter, translationCode, live);
         return;
       }
-      const hit = chapterRes.verses.find((v) => v.verse === nextVerse);
+      const hit = findTarget(chapterRes.verses);
       if (!hit) {
         // Same boundary case as the cached-hit-miss path above, just
         // reached via the cold-cache-fetch branch instead.
         await crossChapterBoundary(dir, book, chapter, translationCode, live);
         return;
       }
-      applyAdvancedVerse(dir, book, chapter, nextVerse, hit.text, chapterRes.translation, live);
-      maybePrefetchAdjacentChapter(book, chapter, nextVerse, chapterRes.verses.map((v) => v.verse), translationCode);
+      applyAdvancedVerse(dir, book, chapter, hit.verse, hit.text, chapterRes.translation, live);
+      maybePrefetchAdjacentChapter(book, chapter, hit.verse, chapterRes.verses.map((v) => v.verse), translationCode);
     };
-    const send = (dir: 1 | -1, live = false) => {
+    const send = (dir: 1 | -1, live = false, count = 1) => {
       // Always advance the reference and append a new card — this is the
       // ProPresenter model. Every press of Verse > appends the next verse
       // as its own card in the grid. dedupe handles double-clicks by
@@ -4410,7 +4432,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       advanceInFlightRef.current = true;
       advanceInFlightLiveRef.current = live;
       voiceNavProjectedRef.current = false;
-      void advanceRef(dir, live).finally(() => {
+      void advanceRef(dir, live, count).finally(() => {
         advanceInFlightRef.current = false;
         advanceInFlightLiveRef.current = false;
         // Record-on-project: the echo guard only suppresses the final when the
@@ -4423,8 +4445,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     };
     // Y1: nonce-gated. Ignore any external dispatchEvent from page scripts.
     // Voice commands attach { live: true } in the payload; manual buttons don't.
-    const nx = (ev: Event) => { if (!isInternalEvent(ev)) return; send(1, internalPayload<{ live?: boolean }>(ev)?.live === true); };
-    const pv = (ev: Event) => { if (!isInternalEvent(ev)) return; send(-1, internalPayload<{ live?: boolean }>(ev)?.live === true); };
+    // Voice multi-verse steps carry a `count` (2..20); manual buttons never do (=> 1).
+    const stepOf = (ev: Event) => {
+      const c = internalPayload<{ count?: number }>(ev)?.count;
+      return typeof c === "number" && Number.isInteger(c) && c >= 1 && c <= 20 ? c : 1;
+    };
+    const nx = (ev: Event) => { if (!isInternalEvent(ev)) return; send(1, internalPayload<{ live?: boolean }>(ev)?.live === true, stepOf(ev)); };
+    const pv = (ev: Event) => { if (!isInternalEvent(ev)) return; send(-1, internalPayload<{ live?: boolean }>(ev)?.live === true, stepOf(ev)); };
     window.addEventListener("presentflow:bible-next", nx);
     window.addEventListener("presentflow:bible-prev", pv);
     return () => {
