@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { isTrivialFrame, frameHash, fitRect, gradientLine, BAKE_BLUR_FILTER } from "../src/components/operator/pro/center/mediaFrameBakeMath";
+import { isTrivialFrame, frameHash, fitRect, gradientLine, BAKE_BLUR_FILTER, bakeBlurFilter } from "../src/components/operator/pro/center/mediaFrameBakeMath";
 import type { MediaFrame } from "../src/components/operator/pro/center/mediaFrame";
 
 let pass = 0, fail = 0;
@@ -62,6 +62,27 @@ check("Slide grid: drop onto a slide", () => { assert.match(grid, /hasBakeableFr
 check("Slide grid: drop into empty space (new image slide)", () => assert.match(grid, /createSongImageSlide\(editableSongId, insertIndex, fb\.url\)/));
 check("no background path passes the raw payload url after a bake", () => assert.doesNotMatch(grid, /setSongSlideBackgroundImage\(slideId, payload\.url\)/));
 check("baking never throws (falls back to the original)", () => assert.match(read("src/components/operator/pro/center/mediaFrameBake.ts"), /catch \{\s*return \{ \.\.\.original, failed: true \};/));
+
+console.log("library tiles show the edit too:");
+check("blur radius shrinks with the drawing scale (canvas filters ignore ctx.scale)", () => {
+  assert.equal(bakeBlurFilter(1), BAKE_BLUR_FILTER);
+  assert.equal(bakeBlurFilter(0.25), "blur(8.5px) brightness(0.62) saturate(1.08)");
+});
+const framedImg = read("src/components/operator/pro/center/FramedImage.tsx");
+check("FramedImage redraws when an edit is saved and falls back to the plain <img>", () => {
+  assert.match(framedImg, /MEDIA_FRAME_CHANGED_EVENT/);
+  assert.match(framedImg, /if \(!framed\) \{[\s\S]*?<img src=\{src\}/);
+  assert.match(framedImg, /drawFrame\(ctx, frame, im, scale\)/);
+});
+check("Media Bin tile + preview draw the edited image", () => {
+  assert.match(bin, /<FramedImage churchId=\{ctx\?\.churchId\} assetId=\{a\.id\}/);
+  assert.match(bin, /<FramedImage churchId=\{churchId\} assetId=\{asset\.id\}/);
+  assert.doesNotMatch(bin, /<img src=\{a\.thumbUrl \|\| a\.url\}/);
+});
+check("Media Browser grid + reorder cards draw the edited image", () => {
+  assert.match(browser, /<FramedImage churchId=\{ctx\.churchId\} assetId=\{a\.id\}/);
+  assert.match(browser, /<FramedImage churchId=\{churchId\} assetId=\{asset\.id\}/);
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
