@@ -230,7 +230,7 @@ export function BottomBar({
     "w-8 h-[28px] grid place-items-center rounded-md text-[var(--color-muted-foreground)] transition-[background,color,transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 active:scale-90 disabled:opacity-40 disabled:pointer-events-none";
 
   return (
-    <div className="h-11 shrink-0 border-t border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-app-bg),var(--color-panel))] shadow-[var(--edge-top)] flex items-center px-2.5 gap-2">
+    <div data-vic="transport" className="h-11 shrink-0 border-t border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-app-bg),var(--color-panel))] shadow-[var(--edge-top)] flex items-center px-2.5 gap-2">
       {/* Left — transport cluster (segmented, with depth) */}
       <div className="flex items-center gap-0.5 h-[34px] rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
         {isVideoLive ? (
@@ -248,7 +248,7 @@ export function BottomBar({
             className={cn(tBtn, isBlank && "text-[var(--color-brand)] bg-[var(--color-brand)]/12 hover:bg-[var(--color-brand)]/16")}
           ><Pause className="w-4 h-4" strokeWidth={2.2} /></button>
         )}
-        <button title="Send to live" onClick={ctx.onSendToLive} className={cn(tBtn, "text-[var(--color-brand)] hover:text-[var(--color-brand)]")}><Play className="w-4 h-4 fill-current" /></button>
+        <button data-vic="send-live" title="Send to live" onClick={ctx.onSendToLive} className={cn(tBtn, "text-[var(--color-brand)] hover:text-[var(--color-brand)]")}><Play className="w-4 h-4 fill-current" /></button>
         <span className="w-px h-4 bg-[var(--color-border)] mx-0.5" aria-hidden />
         <button title="Previous slide" onClick={prev} disabled={!hasPrev} className={tBtn}><SkipBack className="w-4 h-4" strokeWidth={2.2} /></button>
         <button title="Next slide" onClick={next} disabled={!hasNext} className={tBtn}><SkipForward className="w-4 h-4" strokeWidth={2.2} /></button>

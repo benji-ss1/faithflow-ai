@@ -73,6 +73,7 @@ export function FluidTabs({
             key={t.id}
             ref={(el) => { tabRefs.current[t.id] = el; }}
             type="button"
+            data-vic={`tab-${t.id}`}
             onClick={() => onSelect(t.id)}
             aria-pressed={active}
             aria-label={t.label}
@@ -90,6 +91,7 @@ export function FluidTabs({
         <button
           type="button"
           onClick={action.onClick}
+          data-vic="themes"
           aria-label={action.label}
           data-fluid-action={action.label}
           className="relative z-10 flex items-center gap-1.5 h-[30px] px-3 rounded-full text-[12px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors"
