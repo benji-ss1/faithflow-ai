@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * Collapsible-section state that defaults COLLAPSED and REMEMBERS the operator's
@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 export function usePersistedDisclosure(
   key: string,
   defaultOpen = false,
-): [boolean, () => void] {
+): [boolean, () => void, (next: boolean) => void] {
   const [open, setOpen] = useState(defaultOpen);
   useEffect(() => {
     try {
@@ -20,6 +20,14 @@ export function usePersistedDisclosure(
     } catch {
       /* ignore */
     }
+  }, [key]);
+  const setPersistedOpen = useCallback((nextOpen: boolean) => {
+    try {
+      window.localStorage.setItem(key, nextOpen ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+    setOpen(nextOpen);
   }, [key]);
   const toggle = () =>
     setOpen((prev) => {
@@ -31,5 +39,5 @@ export function usePersistedDisclosure(
       }
       return nextOpen;
     });
-  return [open, toggle];
+  return [open, toggle, setPersistedOpen];
 }

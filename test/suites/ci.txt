@@ -184,3 +184,4 @@ test/songs-toolbar.test.ts
 test/pp7-keep-theme-bg.test.ts
 test/pp7-keep-theme-bg-rail.test.tsx
 test/pp7-keep-theme-bg-dom.test.tsx
+test/plan-baked-slide-template.test.ts

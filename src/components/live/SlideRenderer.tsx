@@ -491,11 +491,24 @@ export function SlideRenderer(props: SlideRendererProps) {
       // (bgColor "#000000") covers the theme. A slide with NO per-slide bg goes
       // transparent over the background layer so the theme shows through beneath
       // the objects (scripture/lyrics over the theme). Else the theme fill.
+      // 2026-09-19 (owner: "BG works from Songs, not from a playlist item"): a
+      // WORDS-ONLY slide (every visible object is text — a lyric / verse) whose
+      // own bgColor is just a leftover theme bake (e.g. the near-black #010101 the
+      // bake nudges a black theme to, or #0b0b0b) must NOT paint an opaque box over
+      // an active Background Template / camera. Library sends are lyrics-only (no
+      // objects_json) so they already showed the template; PLAN-item slides carry
+      // the baked objects_json, took the opaque `slideBg` branch here and projected
+      // plain black. This aligns the designed path with the plain-lyric path below
+      // (template/camera BEATS a per-slide colour). An explicit per-slide IMAGE
+      // (bgImageUrl) still wins, and a slide with any non-text object (a media
+      // frame's logo/shape/backstop, a designed graphic) keeps its opaque colour.
+      const wordsOnly = objects.every((o) => o.hidden || o.kind === "text");
+      const slideColourYields = !!overVideo && wordsOnly;
       const designBg: React.CSSProperties = transparentBg
         ? obsTransparentBg // OBS overlay: only the objects render (+ optional editor scrim)
         : slide.bgImageUrl
           ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
-          : slideBg
+          : slideBg && !slideColourYields
             ? { background: slideBg }
             : overVideo
               ? { background: "transparent" }
