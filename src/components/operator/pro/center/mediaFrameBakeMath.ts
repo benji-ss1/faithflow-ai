@@ -6,6 +6,8 @@ import { frameBox, type MediaFrame } from "./mediaFrame";
 
 /** blur-fill / blurred-background look (must match SlideObjectsLayer). */
 export const BAKE_BLUR_FILTER = "blur(34px) brightness(0.62) saturate(1.08)";
+/** The same look at a smaller drawing scale (canvas filters are NOT affected by ctx.scale). */
+export const bakeBlurFilter = (scale = 1) => `blur(${+(34 * scale).toFixed(2)}px) brightness(0.62) saturate(1.08)`;
 
 /** A frame that is just "the whole image, cover, centred" needs no baking. */
 export function isTrivialFrame(f: MediaFrame): boolean {

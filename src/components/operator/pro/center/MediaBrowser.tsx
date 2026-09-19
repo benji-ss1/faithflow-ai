@@ -36,6 +36,7 @@ import { takePendingImport, onOsDropImport, type PendingImport } from "./pending
 import { MediaImageEditor } from "./MediaImageEditor";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { resolveFramedBackground } from "./mediaFrameBake";
+import { FramedImage } from "./FramedImage";
 import { mediaClickAction, AUDIO_NOT_PROJECTABLE_MESSAGE } from "@/lib/media-click";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
 
@@ -769,7 +770,7 @@ export function MediaBrowser({
                       // Grid preview uses the small thumbnail (falls back to the
                       // original server-side); the full-res url is reserved for
                       // projection + theme apply so quality there is unchanged.
-                      <img src={a.thumbUrl ?? a.url} alt={a.fileName} loading="lazy" decoding="async" className="w-full h-full object-contain" />
+                      <FramedImage churchId={ctx.churchId} assetId={a.id} src={a.thumbUrl ?? a.url} fullSrc={a.url} alt={a.fileName} className="w-full h-full object-contain" />
                     )}
 
                     {/* Filename bar — always visible; pencil icon on hover */}
@@ -927,7 +928,7 @@ export function MediaBrowser({
  * no edit, no bulk checkbox (those live on the normal grid). The whole card is
  * the drag handle so it's easy to grab on a touch/trackpad at a live service.
  */
-function SortableMediaCard({ asset }: { asset: Asset }) {
+function SortableMediaCard({ asset, churchId }: { asset: Asset; churchId?: string }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: asset.id });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -950,7 +951,7 @@ function SortableMediaCard({ asset }: { asset: Asset }) {
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         // Small reorder-card preview → thumbnail (falls back to url).
-        <img src={asset.thumbUrl ?? asset.url} alt={asset.fileName} draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none" />
+        <FramedImage churchId={churchId} assetId={asset.id} src={asset.thumbUrl ?? asset.url} fullSrc={asset.url} alt={asset.fileName} className="w-full h-full object-cover pointer-events-none" />
       )}
       <span className="absolute left-1 top-1 grid h-5 w-5 place-items-center rounded bg-black/60 text-white/80">
         <GripVertical className="w-3.5 h-3.5" />
