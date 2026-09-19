@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { PresentationCanvas } from "@/components/live/PresentationCanvas";
+import { isBandSlide } from "@/lib/band-media";
 import type { BackgroundSpec } from "@/lib/broadcast";
 import { SharedBackgroundRenderer, type SharedShaderSpec } from "@/backgrounds/shared/SharedBackgroundRenderer";
 import { FLOOR_GRADIENT, FLOOR_TINT_OPACITY, tintGradient } from "@/backgrounds/shared/shaderUtils";
@@ -39,10 +41,19 @@ export function ThemedSlideCard({
   // overVideo) when the slide carries its own image, making the card === live.
   const hasSlideImage = kind === "text" && !!(slide as { bgImageUrl?: string }).bgImageUrl;
   const showBg = hasBg && themeable && !hasSlideImage;
+  const renderer = <SlideRenderer slide={slide} appearance={appearance} overVideo={showBg} {...rest} />;
   return (
     <>
       {showBg && <CardBackground background={background!} />}
-      <SlideRenderer slide={slide} appearance={appearance} overVideo={showBg} {...rest} />
+      {/* Lower-third BAND slides (verse / song / band media) size their reference +
+          caption in fixed-canvas px, so like /live, the operator preview and the
+          scripture editor they must compose in the 1920x1080 PresentationCanvas and be
+          scaled down. Rendered raw in a ~500px card the reference came out ~4x too big,
+          overlapped the verse and the band clipped it (2026-09-19). Every other slide
+          keeps the raw render exactly as before. */}
+      {isBandSlide(slide as { kind: string; scriptureLayout?: string; layout?: string })
+        ? <PresentationCanvas>{renderer}</PresentationCanvas>
+        : renderer}
     </>
   );
 }

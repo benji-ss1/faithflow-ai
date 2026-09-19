@@ -19,6 +19,19 @@ export const BAND_DEFAULT_EDGE = "inset 0 2px 0 rgba(255,255,255,0.16)";
 export function bandEdgeShadow(color?: string, color2?: string): string | undefined {
   return color && color.toLowerCase() === BAND_DEFAULT_COLOR && !color2 ? BAND_DEFAULT_EDGE : undefined;
 }
+/**
+ * True for a slide the renderer lays out in the fixed 1920x1080 canvas's lower-third band:
+ * a text slide carrying `scriptureLayout: "lowerThird"` (verses AND songs the church
+ * default bands) or an image/video with a per-slide `layout: "third"`. The band branches
+ * size the reference / caption in CANVAS pixels, so an operator card that renders them
+ * outside a PresentationCanvas (ThemedSlideCard) must scale the canvas down or they come
+ * out several times too big and overlap the verse (2026-09-19 owner report).
+ */
+export function isBandSlide(slide: { kind: string; scriptureLayout?: string; layout?: string }): boolean {
+  if (slide.kind === "text") return slide.scriptureLayout === "lowerThird";
+  if (slide.kind === "image" || slide.kind === "video") return slide.layout === "third";
+  return false;
+}
 /** Media is never upscaled beyond this multiple of its natural size. */
 export const MEDIA_MAX_UPSCALE = 1.5;
 /** Aspect (w/h) below which media counts as portrait/narrow. */
