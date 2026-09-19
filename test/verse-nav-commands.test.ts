@@ -22,6 +22,12 @@ check("'Galatians 1' parses at 72 (chip-tier, below the 75 auto-fire bar) and no
   assert.equal(r.book, "Galatians"); assert.equal(r.chapter, 1); assert.equal(r.confidence, 72);
   assert.equal(seedsVerseContext(r.confidence, 68, false), true, "blended ~68 still seeds");
 });
+check("worship mode holds scripture, so it must not seed the chapter either", () => {
+  // A held detection is nav-EXEMPT once it comes back as a bare "verse N", so seeding
+  // from it would let a sung lyric route a verse to the projector during worship.
+  assert.equal(seedsVerseContext(92, 74, false, true), false);
+  assert.equal(seedsVerseContext(92, 74, false, false), true);
+});
 check("fuzzy book (55) / phrase match / shaky blended never seed", () => {
   assert.equal(seedsVerseContext(55, 55, false), false);
   assert.equal(seedsVerseContext(60, 60, false), false);
@@ -100,7 +106,7 @@ console.log("wiring:");
 const audio = read("src/components/operator/useAudioStream.ts");
 const shell = read("src/components/operator/pro/ProOperatorShell.tsx");
 check("audio hook seeds context via seedsVerseContext and picks the newest of voice/live", () => {
-  assert.match(audio, /seedsVerseContext\(r\.confidence, conf, isPhrase\)/);
+  assert.match(audio, /seedsVerseContext\(r\.confidence, conf, isPhrase, worshipHoldsScripture\)/);
   assert.match(audio, /pickVerseContext\(lastActiveRefRef\.current, liveContextSeenRef\.current\)/);
   assert.doesNotMatch(audio, /trustworthyForContext\) lastActiveRefRef/);
 });

@@ -25,7 +25,17 @@ export const BIBLE_CONTEXT_SEED_BLENDED_FLOOR = 60;
 
 /** `parserConfidence` is the raw pattern confidence (identity of the match: an exact book
  * name is 72+, fuzzy books 55-60); `blended` is after the Deepgram utterance multiplier. */
-export function seedsVerseContext(parserConfidence: number, blended: number, isPhrase: boolean): boolean {
+export function seedsVerseContext(
+  parserConfidence: number,
+  blended: number,
+  isPhrase: boolean,
+  worshipHeld = false,
+): boolean {
+  // Worship mode deliberately holds detected scripture at chip-tier so a sung lyric that
+  // happens to parse as a verse can't reach the projector. Such a detection must not
+  // become the chapter a later bare "verse N" resolves against either — that bare verse
+  // is nav-exempt from the cap and WOULD project.
+  if (worshipHeld) return false;
   return !isPhrase && parserConfidence >= BIBLE_CONTEXT_SEED_CONFIDENCE && blended >= BIBLE_CONTEXT_SEED_BLENDED_FLOOR;
 }
 

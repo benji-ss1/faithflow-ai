@@ -597,7 +597,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // Context seeding keys on the PARSER's pattern confidence (>=70), not the blended
       // value: a whole-chapter mention ("Galatians 1", parser 72) must anchor the next
       // "verse 2" even though it is chip-tier (blended ~68) and never projects itself.
-      if (seedsVerseContext(r.confidence, conf, isPhrase)) lastActiveRefRef.current = { book: r.book, chapter: r.chapter, ts: Date.now() };
+      if (seedsVerseContext(r.confidence, conf, isPhrase, worshipHoldsScripture)) lastActiveRefRef.current = { book: r.book, chapter: r.chapter, ts: Date.now() };
       // Restating the exact same reference (even minutes apart) is itself a
       // "make sure this is on screen" signal — flags forceLive so the
       // auto-fire effect can bypass its normal confidence floor. Still
