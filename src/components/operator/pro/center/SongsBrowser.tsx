@@ -23,6 +23,7 @@ import { parseSongText } from "@/lib/import/song-text";
 import { isInternalEvent } from "@/lib/internal-events";
 import type { SongSelection } from "@/lib/song-selection";
 import { ProPresenterImportDialog } from "@/components/library/ProPresenterImportDialog";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useSelectedLibrary, libraryQueryParam, getSelectedLibrary, setSelectedLibrary, type LibraryFilter } from "../left/libraryFilter";
 import { listLibraries, setSongLibrary, type LibraryRow } from "@/lib/actions";
 import * as ContextMenu from "@radix-ui/react-context-menu";
@@ -178,7 +179,6 @@ export function SongsBrowser({
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState<File[] | undefined>(undefined);
   const dragDepth = useRef(0);
-  const vpInputRef = useRef<HTMLInputElement>(null);
 
   const importProFiles = useCallback(async (fileList: FileList | File[]) => {
     if (importing) return;
@@ -494,43 +494,18 @@ export function SongsBrowser({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={loading ? "Loading songs…" : `Search ${songs.length} songs…`}
-            className="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 h-8 text-sm outline-none focus:border-[var(--color-brand)]"
+            className="min-w-0 flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 h-8 text-sm outline-none focus:border-[var(--color-brand)]"
           />
           <button
             type="button"
             onClick={() => setImportDialogOpen(true)}
-            title="Import from ProPresenter (.proBundle, .pro, .pro7, .pro6, .pro5) with background thumbnails"
+            title="Import songs — ProPresenter (.proBundle, .pro, .pro7, .pro6, .pro5), VideoPsalm (.vpagd) or EasyWorship / text (.txt), all in one window"
             className={cn(
-              "h-8 px-2 rounded-md border border-[var(--color-border)] flex items-center gap-1 text-[11px] font-semibold cursor-pointer hover:bg-[var(--color-elevated)]",
+              "shrink-0 h-8 px-2 rounded-md border border-[var(--color-border)] flex items-center gap-1 text-[11px] font-semibold cursor-pointer hover:bg-[var(--color-elevated)]",
               importing && "opacity-50 pointer-events-none",
             )}
           >
             <Upload className="w-3.5 h-3.5" /> {importing ? "Importing…" : "Import"}
-          </button>
-          {/* VideoPsalm (.vpagd) — click-to-import via a hidden file picker (drag-drop
-              also works). EasyWorship (.ews) is detected and scaffolded. */}
-          <input
-            ref={vpInputRef}
-            type="file"
-            accept=".vpagd,.txt,.ews"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              const files = e.target.files;
-              if (files && files.length) void importVideoPsalmFiles(files);
-              e.target.value = ""; // allow re-picking the same file
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => vpInputRef.current?.click()}
-            title="Import VideoPsalm (.vpagd) or plain-text song exports (.txt — incl. EasyWorship: File → Export → Text)"
-            className={cn(
-              "h-8 px-2 rounded-md border border-[var(--color-border)] flex items-center gap-1 text-[11px] font-semibold cursor-pointer hover:bg-[var(--color-elevated)]",
-              importing && "opacity-50 pointer-events-none",
-            )}
-          >
-            <Upload className="w-3.5 h-3.5" /> VideoPsalm
           </button>
           <AddSongDialog
             existingTitles={songs.map((s) => s.title)}
@@ -879,6 +854,7 @@ export function SongsBrowser({
       <ProPresenterImportDialog
         open={importDialogOpen}
         initialFiles={droppedFiles}
+        onOtherFiles={(fs) => void importVideoPsalmFiles(fs)}
         onClose={() => {
           setImportDialogOpen(false);
           setDroppedFiles(undefined);
@@ -894,6 +870,7 @@ export function SongsBrowser({
 }
 
 function AddSongDialog({ onCreated, existingTitles }: { onCreated: (row: SongRow) => void; existingTitles: string[] }) {
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
@@ -908,7 +885,8 @@ function AddSongDialog({ onCreated, existingTitles }: { onCreated: (row: SongRow
     if (t.length > 200) { toast.error("Title too long (max 200 chars)"); return; }
     if (!/[\p{L}\p{N}]/u.test(t)) { toast.error("Song title needs letters or numbers"); return; }
     const dup = existingTitles.some((x) => x.trim().toLowerCase() === t.toLowerCase());
-    if (dup && !window.confirm(`A song titled "${t}" already exists. Create another anyway?`)) return;
+    // In-app dialog — a native confirm() can freeze the Electron shell (Windows checklist #12).
+    if (dup && !(await confirm({ title: `"${t}" already exists`, description: "A song with this title is already in your library. Create another anyway?", confirmLabel: "Create another" }))) return;
     setBusy(true);
     try {
       const fd = new FormData();
@@ -943,14 +921,17 @@ function AddSongDialog({ onCreated, existingTitles }: { onCreated: (row: SongRow
     }
   };
   return (
+    <>
+    {confirmDialog}
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
         <button
           type="button"
-          title="Add new song"
-          className="h-8 px-2 rounded-md border border-[var(--color-border)] bg-[var(--color-brand)] text-black flex items-center gap-1 text-[11px] font-semibold hover:opacity-90"
+          title="Add a new song"
+          aria-label="Add song"
+          className="shrink-0 h-8 px-2.5 rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] text-black flex items-center gap-1 text-[11px] font-semibold hover:opacity-90"
         >
-          <Plus className="w-3.5 h-3.5" /> Add
+          <Plus className="w-3.5 h-3.5" /> Add song
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>
@@ -1031,6 +1012,7 @@ function AddSongDialog({ onCreated, existingTitles }: { onCreated: (row: SongRow
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+    </>
   );
 }
 

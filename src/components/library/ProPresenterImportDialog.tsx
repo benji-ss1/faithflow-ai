@@ -175,13 +175,23 @@ async function expandProBundleDrops(files: File[]): Promise<{ drops: FileDrop[];
   return { drops, expandedFrom, skippedMedia, truncated, skippedFiles };
 }
 
+/** VideoPsalm (.vpagd) and plain-text / EasyWorship-export (.txt, .ews) song files. */
+const OTHER_SONG_FORMATS = /\.(vpagd|txt|ews)$/i;
+
 export function ProPresenterImportDialog({
-  open, onClose, initialFiles,
+  open, onClose, initialFiles, onOtherFiles,
 }: {
   open: boolean;
   onClose: () => void;
   /** Pre-loaded files (used when a drop on the parent surface routes here). */
   initialFiles?: File[];
+  /**
+   * When given, this becomes ONE import window for every song format: VideoPsalm
+   * (.vpagd) and text / EasyWorship (.txt, .ews) files dropped or picked here are handed
+   * to this callback (they parse in the browser); ProPresenter files carry on through
+   * the normal scan → preview → import steps. Absent = ProPresenter only, as before.
+   */
+  onOtherFiles?: (files: File[]) => void;
 }) {
   const [phase, setPhase] = useState<Phase>("upload");
   const [files, setFiles] = useState<File[]>(initialFiles ?? []);
@@ -230,9 +240,18 @@ export function ProPresenterImportDialog({
   const scannedDropsRef = useRef<FileDrop[] | null>(null);
 
   const handleFiles = useCallback((incoming: FileList | File[]) => {
-    const arr = Array.from(incoming).filter((f) => fileMatchesAccept(f.name));
+    const all = Array.from(incoming);
+    const other = onOtherFiles ? all.filter((f) => OTHER_SONG_FORMATS.test(f.name)) : [];
+    const arr = all.filter((f) => fileMatchesAccept(f.name));
+    if (other.length > 0) {
+      onOtherFiles?.(other);
+      // Only VideoPsalm / text / EasyWorship files: they import on their own, so close.
+      if (arr.length === 0) { onClose(); return; }
+    }
     if (arr.length === 0) {
-      toast.error("No ProPresenter files found. Accepted: .proBundle, .pro, .pro6, .pro5, .pro7, .pro7x");
+      toast.error(onOtherFiles
+        ? "No song files found. Accepted: ProPresenter (.proBundle, .pro, .pro6, .pro5, .pro7, .pro7x), VideoPsalm (.vpagd), EasyWorship / text (.txt, .ews)"
+        : "No ProPresenter files found. Accepted: .proBundle, .pro, .pro6, .pro5, .pro7, .pro7x");
       return;
     }
     // NB: no raw-size gate here anymore. Bundles are media-heavy (a 171 MB
@@ -241,7 +260,7 @@ export function ProPresenterImportDialog({
     // matters is the post-strip lyrics size, checked at scan/import time.
     scannedDropsRef.current = null;
     setFiles(arr);
-  }, []);
+  }, [onOtherFiles, onClose]);
 
   const scan = useCallback(() => {
     if (files.length === 0) return;
@@ -356,11 +375,12 @@ export function ProPresenterImportDialog({
         className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <Header phase={phase} onClose={handleClose} pending={pending} />
+        <Header phase={phase} onClose={handleClose} pending={pending} allFormats={!!onOtherFiles} />
 
         <div className="flex-1 overflow-y-auto">
           {phase === "upload" && (
             <UploadStep
+              allFormats={!!onOtherFiles}
               files={files}
               onFiles={handleFiles}
               onScan={scan}
@@ -406,7 +426,7 @@ export function ProPresenterImportDialog({
 
 /* ─── Header ─────────────────────────────────────────────────────────── */
 
-function Header({ phase, onClose, pending }: { phase: Phase; onClose: () => void; pending: boolean }) {
+function Header({ phase, onClose, pending, allFormats }: { phase: Phase; onClose: () => void; pending: boolean; allFormats?: boolean }) {
   const stepIndex = phase === "upload" ? 0
     : phase === "scanning" ? 0
     : phase === "preview" ? 1
@@ -417,7 +437,7 @@ function Header({ phase, onClose, pending }: { phase: Phase; onClose: () => void
     <div className="border-b border-border px-6 py-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Import from ProPresenter</h2>
+          <h2 className="text-base font-semibold text-foreground">{allFormats ? "Import songs" : "Import from ProPresenter"}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Bring over songs and backgrounds from your ProPresenter library.
           </p>
@@ -458,8 +478,10 @@ function Header({ phase, onClose, pending }: { phase: Phase; onClose: () => void
 /* ─── Step 1: Upload ─────────────────────────────────────────────────── */
 
 function UploadStep({
-  files, onFiles, onScan, onClear, error,
+  files, onFiles, onScan, onClear, error, allFormats,
 }: {
+  /** Also accept VideoPsalm / text / EasyWorship files (the merged songs importer). */
+  allFormats?: boolean;
   files: File[];
   onFiles: (fs: FileList | File[]) => void;
   onScan: () => void;
@@ -488,7 +510,7 @@ function UploadStep({
         <input
           type="file"
           multiple
-          accept=".proBundle,.pro,.pro6,.pro5,.pro7,.pro7x,.zip"
+          accept={allFormats ? ".proBundle,.pro,.pro6,.pro5,.pro7,.pro7x,.zip,.vpagd,.txt,.ews" : ".proBundle,.pro,.pro6,.pro5,.pro7,.pro7x,.zip"}
           className="hidden"
           onChange={(e) => e.target.files && onFiles(e.target.files)}
         />
@@ -496,13 +518,15 @@ function UploadStep({
           <Upload className="h-6 w-6" />
         </div>
         <div className="text-base font-semibold text-foreground">
-          Drop your ProPresenter file here
+          {allFormats ? "Drop your song files here" : "Drop your ProPresenter file here"}
         </div>
         <div className="text-sm text-muted-foreground">
           or <span className="text-[var(--color-primary)] underline">click to browse</span>
         </div>
         <div className="text-xs text-muted-foreground">
-          .proBundle, .pro, .pro6, .pro5, .pro7, .pro7x — up to {MAX_TOTAL_MB} MB
+          {allFormats
+            ? <>ProPresenter (.proBundle, .pro, .pro6, .pro5, .pro7), VideoPsalm (.vpagd), EasyWorship / text (.txt) — up to {MAX_TOTAL_MB} MB</>
+            : <>.proBundle, .pro, .pro6, .pro5, .pro7, .pro7x — up to {MAX_TOTAL_MB} MB</>}
         </div>
       </label>
 
