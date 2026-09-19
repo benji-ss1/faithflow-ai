@@ -40,6 +40,11 @@ export type OperatorShellCtx = {
   // to <SlideRenderer appearance={...}> so preview === projector (one source of
   // truth). Null when no theme is active (both sides then use font-display).
   appearance: import("@/lib/broadcast").ThemeAppearance | null;
+  // PP7 "Clear Slide keeps the theme's media" (src/lib/pp7-keep-theme-bg.ts): the
+  // appearance the LIVE surfaces actually show. Equals `appearance` except while
+  // the slide layer is cleared with the theme kept, when it is the last live
+  // theme. The live monitor uses `liveAppearance ?? appearance`.
+  liveAppearance?: import("@/lib/broadcast").ThemeAppearance | null;
   previewItemIdx: number;
   previewSlideIdx: number;
   liveItemIdx: number;
@@ -79,6 +84,11 @@ export type OperatorShellCtx = {
   onBlank: () => void;
   onLogo: () => void;
   onKill: () => void;
+  /** PP7 Slide clear (rail / F2 / panel row): like `onKill`, but keeps the live
+   *  theme's media on screen when it has some. Optional ⇒ falls back to onKill. */
+  onClearLiveSlide?: () => void;
+  /** Drop a theme background a Slide clear kept (Clear Media / Clear All). */
+  onReleaseThemeBg?: () => void;
   onClearSlide: () => void;
   onClearMedia: () => void;
   onClearLowerThird: () => void;

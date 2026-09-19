@@ -319,7 +319,24 @@ export function SlideRenderer(props: SlideRendererProps) {
   // absolute BackgroundLayer (in the legacy/preview path the empty slide is
   // `position:static`, so the absolute template paints on top of it) — a
   // transparent empty slide keeps the template visible in BOTH paths.
-  if (slide.kind === "empty") return <div className={`${base} ${(transparentBg || overVideo) ? "" : "bg-black"} ${className || ""}`} />;
+  if (slide.kind === "empty") {
+    // PP7 "Clear Slide keeps the theme's media" (2026-09-19, src/lib/pp7-keep-theme-bg.ts):
+    // the words are gone but the live theme's background/decor stays. Only on an
+    // opaque surface with nothing else behind it — OBS/NDI alpha keying and a
+    // background template / camera / theme video (overVideo) keep today's
+    // transparent empty slide, so those outputs are unchanged.
+    if (slide.keepThemeBg === true && !transparentBg && !overVideo) {
+      const animated = !hosted && usesAnimatedBg(appearance, false, undefined);
+      const keepDecor = decorFor(false);
+      return (
+        <div className={`${base} ${animated || keepDecor ? "relative" : ""} ${className || ""}`} style={themeBg("#000000")} data-theme-bg-kept="">
+          {animated && <AnimatedThemeBg appearance={appearance} />}
+          {keepDecor ? <SlideObjectsLayer objects={keepDecor} themedTextColor={(themeTextStyle(appearance)?.color as string | undefined) ?? undefined} decor /> : null}
+        </div>
+      );
+    }
+    return <div className={`${base} ${(transparentBg || overVideo) ? "" : "bg-black"} ${className || ""}`} />;
+  }
 
   if (slide.kind === "blank") {
     // Over video OR in OBS transparent mode, a blank slide is fully transparent

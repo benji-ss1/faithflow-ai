@@ -104,7 +104,13 @@ export type SlidePayload =
   | { kind: "video"; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; volume?: number; layout?: "third"; band?: ScriptureBandWire; bandMode?: "fit" | "caption"; caption?: string }
   | { kind: "blank"; bgColor?: string }
   | { kind: "logo"; url?: string }
-  | { kind: "empty" };
+  // `keepThemeBg` (2026-09-19, PP7 "Clear Slide keeps the theme's media"): the
+  // slide layer is empty but the live theme's background/decor stays painted
+  // until Clear Media / Clear All / the next send. Optional + strictly `true`;
+  // slideOutputIdentity ignores it (identity stays "e"), so empty -> empty-with-
+  // theme never replays a transition. An old projector that doesn't know the
+  // field renders a plain black empty slide, exactly as before.
+  | { kind: "empty"; keepThemeBg?: true };
 
 /**
  * Return a copy of a text slide with `newText` applied to BOTH the flattened
@@ -1236,7 +1242,8 @@ function isValidSlide(s: unknown): s is SlidePayload {
       if (st.url !== undefined && !isValidMediaUrl(st.url)) return false;
       return true;
     case "empty":
-      return true;
+      // Optional keepThemeBg: strictly `true` (an allow-list of one value).
+      return st.keepThemeBg === undefined || st.keepThemeBg === true;
     default:
       return false;
   }
@@ -1506,7 +1513,7 @@ export function sanitizeSlide(s: unknown): SlidePayload | null {
       return out;
     }
     case "empty":
-      return { kind: "empty" };
+      return st.keepThemeBg === true ? { kind: "empty", keepThemeBg: true } : { kind: "empty" };
     default:
       return null;
   }
