@@ -253,5 +253,63 @@ check("Clear All does not call liveLayers.clearAll (camera/media stay usable)", 
   assert.equal(calls.includes("clearAll"), false);
 });
 
+// ── Slide vs Media independence (Victor, screen recording 2026-09-19) ───────
+// "Clearing Slide also removes the image underneath it." Each layer's clear must
+// clear ONLY its own layer; the Background Template (Media Bin "Bg" / "Set as
+// global background" / Layers panel "Change media") is the Media layer.
+check("Slide clear with a global media background live: ONLY the slide is killed", () => {
+  const i = inputs({ kind: "text", rows: ["slide", "background"], backgroundSpecActive: true });
+  const { calls, fx } = spy();
+  pp7ClearLayer("slide", i, fx);
+  assert.deepEqual(calls, ["kill"], "no bgNone, no clearLayer:background — media untouched");
+});
+
+check("after Slide clear the media background is STILL live and the slide is idle", () => {
+  // The state the shell reads back after onKill(): empty slide, background row on.
+  const after = pp7LayerActive(inputs({ kind: "empty", rows: ["background"], backgroundSpecActive: true }));
+  assert.equal(after.media, true, "global media survives a Slide clear");
+  assert.equal(after.slide, false);
+  // …and it survives with a live camera too, in both draw orders.
+  for (const pp7DrawOrder of [false, true]) {
+    const withCam = pp7LayerActive(inputs({
+      kind: "empty", rows: pp7DrawOrder ? ["background", "camera"] : ["camera"],
+      backgroundSpecActive: true, videoInputActive: true, pp7DrawOrder,
+    }));
+    assert.equal(withCam.media, true, `media survives a Slide clear over a camera (pp7DrawOrder=${pp7DrawOrder})`);
+  }
+});
+
+check("Clear Media with a live text slide never touches the slide; slide stays lit", () => {
+  const i = inputs({ kind: "text", rows: ["slide", "background"], backgroundSpecActive: true });
+  const { calls, fx } = spy();
+  pp7ClearLayer("media", i, fx);
+  assert.equal(calls.includes("kill"), false, "Clear Media must not clear the slide");
+  assert.deepEqual(calls, ["bgNone", "clearLayer:background"]);
+  // Slide layer is unaffected by the media clear (state after: bg gone, slide on).
+  const after = pp7LayerActive(inputs({ kind: "text", rows: ["slide"] }));
+  assert.equal(after.slide, true);
+  assert.equal(after.media, false);
+});
+
+check("Slide clear then Clear Media, and the reverse: each removes only its own layer", () => {
+  // Slide first, then Media.
+  const a = spy();
+  pp7ClearLayer("slide", inputs({ kind: "text", rows: ["slide", "background"], backgroundSpecActive: true }), a.fx);
+  pp7ClearLayer("media", inputs({ kind: "empty", rows: ["background"], backgroundSpecActive: true }), a.fx);
+  assert.deepEqual(a.calls, ["kill", "bgNone", "clearLayer:background"]);
+  // Media first, then Slide.
+  const b = spy();
+  pp7ClearLayer("media", inputs({ kind: "text", rows: ["slide", "background"], backgroundSpecActive: true }), b.fx);
+  pp7ClearLayer("slide", inputs({ kind: "text", rows: ["slide"] }), b.fx);
+  assert.deepEqual(b.calls, ["bgNone", "clearLayer:background", "kill"]);
+});
+
+check("Clear All is the only single action that clears BOTH slide and media", () => {
+  const { calls, fx } = spy();
+  pp7ClearAll(inputs({ kind: "text", rows: ["slide", "background"], backgroundSpecActive: true }), fx);
+  assert.equal(calls.includes("kill"), true, "slide cleared");
+  assert.equal(calls.includes("bgNone"), true, "media cleared");
+});
+
 console.log(`pp7-layer-model: ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

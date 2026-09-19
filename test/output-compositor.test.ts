@@ -281,5 +281,17 @@ check("blank slide over a template keeps overVideo (template shows through)", ()
   assert.equal(layer(p, "background").enabled, true);
 });
 
+// ---- 11. a CLEARED slide (empty) leaves the Media background painting -------
+// Victor 2026-09-19: Slide clear must leave the Background Template (Media layer).
+// The projector side of that contract: an empty slide never disables the
+// background layer, and the slide stays transparent so the template shows.
+check("empty slide over a template: background layer stays enabled (Slide clear leaves Media)", () => {
+  for (const mode of ["live", "stage", "livestream", "ndi"] as const) {
+    const p = planOutput({ mode, slide: emptySlide, background: shaderBg });
+    assert.equal(layer(p, "background").enabled, true, `${mode}: template still painting under an empty slide`);
+    assert.equal(slideLayer(p).props.overVideo, true, `${mode}: empty slide goes transparent over the template`);
+  }
+});
+
 console.log(`\nOutputCompositor plan: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
