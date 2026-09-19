@@ -8,6 +8,7 @@ import { UpdatePrompt } from "@/components/system/UpdatePrompt";
 import { OutputReloadListener } from "@/components/system/OutputReloadListener";
 import { PostHogProvider } from "@/components/system/PostHogProvider";
 import { OfflineIndicator } from "@/components/system/OfflineIndicator";
+import { OperatorChrome } from "@/components/system/OperatorChrome";
 import "./globals.css";
 import "./slide-fonts.css";
 import "@/styles/openflow.css";
@@ -80,15 +81,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {children}
         <PostHogProvider />
         <ServiceWorkerRegister />
-        <UpdatePrompt />
+        {/* Operator-only chrome: never mounted on /live /stage /livestream /ndi (OperatorChrome). */}
+        <OperatorChrome><UpdatePrompt /></OperatorChrome>
         <OutputReloadListener />
-        <OfflineIndicator />
+        <OperatorChrome><OfflineIndicator /></OperatorChrome>
         {/* Notification style (2026-08-15): the clean, strong dark card — the
             "Added: … [Undo]" look the user asked to standardise on. richColors
             (loud green/red fills) is OFF so EVERY toast — success, error, info,
             undo — renders as the same premium neutral card with a white action
             pill. Semantic meaning still reads via sonner's status icon + the
             message text, without the shouty backgrounds. */}
+        <OperatorChrome>
         <Toaster
           position="top-right"
           theme={isDark ? "dark" : "light"}
@@ -127,6 +130,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             },
           }}
         />
+        </OperatorChrome>
         {isVercelProd ? <Analytics /> : null}
         {isVercelProd ? <SpeedInsights /> : null}
       </body>

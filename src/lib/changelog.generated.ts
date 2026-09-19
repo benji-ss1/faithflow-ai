@@ -4,6 +4,16 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.481",
+    "date": "2026-09-19",
+    "headline": "The update prompt, offline banner and pop-up messages can no longer appear on the projector",
+    "highlights": [
+      "The \"A new version of PresentFlow is available — Reload now\" message used to appear on every screen, including the live projector, each time a new version was released. It now only ever appears on the operator screen.",
+      "The offline banner and all pop-up messages are kept off the projector, stage screen, livestream overlay and NDI feed as well, so the congregation never sees anything meant for the operator.",
+      "The projector still reloads itself onto a new version automatically, exactly as before."
+    ]
+  },
+  {
     "version": "0.1.479",
     "date": "2026-09-19",
     "headline": "Clearing the Slide now leaves your theme's background on screen",
