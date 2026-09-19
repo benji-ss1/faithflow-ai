@@ -20,7 +20,7 @@ type HardwareKey = "screens" | "audio" | "video";
 const HARDWARE_LABELS: Record<HardwareKey, string> = { screens: "Screens", audio: "Audio", video: "Video Input" };
 
 export function HardwareSection() {
-  const [open, toggleOpen] = usePersistedDisclosure("presentflow.pro.sidebar.hardware.v1", false);
+  const [open, toggleOpen, setOpen] = usePersistedDisclosure("presentflow.pro.sidebar.hardware.v1", false);
   // Only one hardware panel open at a time — single key of state.
   const [panel, setPanel] = useState<HardwareKey | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
@@ -43,6 +43,21 @@ export function HardwareSection() {
     setPanel((cur) => (cur === k ? null : k));
     measure();
   }, [measure]);
+
+  // Vic's walkthrough uses the exact same panel operators use. Keeping the
+  // command local means the tutorial never fabricates a screen or duplicates
+  // device setup state.
+  useEffect(() => {
+    const openForVic = (event: Event) => {
+      const panel = (event as CustomEvent<{ panel?: HardwareKey }>).detail?.panel;
+      if (panel !== "screens" && panel !== "video" && panel !== "audio") return;
+      setOpen(true);
+      setPanel(panel);
+      measure();
+    };
+    window.addEventListener("presentflow:vic:hardware", openForVic);
+    return () => window.removeEventListener("presentflow:vic:hardware", openForVic);
+  }, [measure, setOpen]);
 
   // Programmatic opener (2026-09-16) — lets Sarah's spotlight, and the red ⚠ AUDIO
   // chip, open the REAL hardware panel instead of a copy of it.
@@ -108,6 +123,7 @@ export function HardwareSection() {
             <li key={k}>
               <button
                 type="button"
+                data-vic={`hardware-${k}`}
                 title={`Configure ${label.toLowerCase()}`}
                 onClick={() => openPanel(k)}
                 className={

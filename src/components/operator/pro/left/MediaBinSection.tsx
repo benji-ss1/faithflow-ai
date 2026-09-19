@@ -409,6 +409,7 @@ export function MediaBinSection({
 
   return (
     <section
+      data-vic="media-bin"
       className={cn(
         "relative border-t border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col min-h-0 shrink-0",
       )}

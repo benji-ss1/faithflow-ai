@@ -1874,6 +1874,28 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [slideSize, setSlideSize] = useState(160);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+
+  // Vic never renders a simulated operator surface. It asks this shell to
+  // navigate the same state an operator changes through the top bar, then the
+  // guide highlights the now-visible control. Hardware owns its own panel;
+  // forwarding that command preserves its existing setup lifecycle.
+  useEffect(() => {
+    const navigateForVic = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        centerMode?: CenterMode;
+        mediaBinOpen?: boolean;
+        hardware?: "screens" | "video";
+        themes?: boolean;
+      }>).detail;
+      if (!detail) return;
+      if (detail.centerMode) setCenterMode(detail.centerMode);
+      if (typeof detail.mediaBinOpen === "boolean") setMediaStripOpen(detail.mediaBinOpen);
+      if (detail.hardware) window.dispatchEvent(new CustomEvent("presentflow:vic:hardware", { detail: { panel: detail.hardware } }));
+      if (detail.themes) window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"));
+    };
+    window.addEventListener("presentflow:vic:navigate", navigateForVic);
+    return () => window.removeEventListener("presentflow:vic:navigate", navigateForVic);
+  }, []);
   const [slideEditorOpen, setSlideEditorOpen] = useState(false);
   // Target-song mode: when the Songs Library "Edit slide" button opens the
   // editor it passes { songId, title } in the event detail. We fetch that
