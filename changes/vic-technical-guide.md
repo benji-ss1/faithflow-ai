@@ -1,7 +1,7 @@
 ---
 headline: Meet Vic, your technical guide
 audience: operator
-version: 0.1.464
+version: 0.1.471
 date: 2026-09-19
 highlights:
   - Meet Vic in Settings → Help. He gives a concise, clickable tour of the operator workspace without taking control away from you.
