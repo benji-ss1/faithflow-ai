@@ -1,7 +1,7 @@
 ---
 headline: Clearing the Slide now leaves your theme's background on screen
 audience: operator
-version: 0.1.476
+version: 0.1.479
 date: 2026-09-19
 highlights:
   - When you clear the Slide (the Slide button on the clear rail, F2, or the Slide row in the Layers panel), the words go but the theme's background picture, video or animation stays on the projector, the way ProPresenter does it.
