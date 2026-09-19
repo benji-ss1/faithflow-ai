@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { VicGuide } from "./VicGuide";
 
 /**
  * OperatorTour — 5-step in-app spotlight tour of the ProOperatorShell zones.
@@ -35,10 +36,17 @@ const SEEN_KEY = "presentflow.tour.seen";
 
 export function OperatorTour({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [idx, setIdx] = useState(0);
+  const [vicOpen, setVicOpen] = useState(false);
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const targetRef = useRef<HTMLElement | null>(null);
 
   const step = useMemo(() => STEPS[idx], [idx]);
+
+  useEffect(() => {
+    const openVic = () => setVicOpen(true);
+    window.addEventListener("presentflow:open-vic-guide", openVic);
+    return () => window.removeEventListener("presentflow:open-vic-guide", openVic);
+  }, []);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -104,7 +112,8 @@ export function OperatorTour({ open, onClose }: { open: boolean; onClose: () => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, idx]);
 
-  if (!open) return null;
+  if (!open && !vicOpen) return null;
+  if (vicOpen) return <VicGuide open onClose={() => setVicOpen(false)} />;
 
   function next() {
     if (idx < STEPS.length - 1) setIdx(idx + 1);
