@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.471",
+    "version": "0.1.473",
     "date": "2026-09-19",
     "headline": "Add song is back, and one Import window now takes ProPresenter, VideoPsalm and EasyWorship files",
     "highlights": [
@@ -12,6 +12,16 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "The separate VideoPsalm button is gone. Import is now one window: drop or choose ProPresenter, VideoPsalm (.vpagd) and EasyWorship / text (.txt) files together and each is read the right way.",
       "ProPresenter files still go through the same review-and-select steps as before. VideoPsalm and text files import straight away.",
       "Add song works as before: title, artist, theme and size, with a blank first slide ready to edit. If a song with that title already exists you now get an in-app question instead of a browser pop-up."
+    ]
+  },
+  {
+    "version": "0.1.471",
+    "date": "2026-09-19",
+    "headline": "Meet Vic, your technical guide",
+    "highlights": [
+      "Meet Vic in Settings → Help. He gives a concise, clickable tour of the operator workspace without taking control away from you.",
+      "Vic spotlights the library, slide area, live output, transport controls, Songs, Bible, the Media Bin, Screens, Video Input, and Main or Stage display setup.",
+      "When a stage display is relevant, Vic asks whether one is connected so you can follow the right path for your setup."
     ]
   },
   {

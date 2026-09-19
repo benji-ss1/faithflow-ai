@@ -1,7 +1,7 @@
 ---
 headline: Add song is back, and one Import window now takes ProPresenter, VideoPsalm and EasyWorship files
 audience: operator
-version: 0.1.471
+version: 0.1.473
 date: 2026-09-19
 highlights:
   - The orange Add song button is back at the top of the Songs Library. It had been squeezed off the edge of the panel by the extra VideoPsalm button, so you could not see it.
