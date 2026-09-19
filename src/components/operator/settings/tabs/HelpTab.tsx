@@ -31,6 +31,11 @@ export function HelpTab() {
           desc="Learn how to use PresentFlow with an interactive guide"
           onClick={() => openTour()}
         />
+        <TutorialRow
+          title="Meet Vic — Technical Guide"
+          desc="A click-through tour of the operator console, screens, media and outputs"
+          onClick={() => window.dispatchEvent(new Event("presentflow:open-vic-guide"))}
+        />
       </div>
 
       <div>
