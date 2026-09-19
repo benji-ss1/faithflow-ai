@@ -24,6 +24,18 @@
  * encoded HERE as plan-construction logic — each produces the same DOM as
  * before. This is deliberately prep for Phase 2's additive LayerWire[] wire
  * model; it is NOT new runtime flexibility.
+ *
+ * PP7 DRAW ORDER (2026-09-18, `pp7DrawOrder` — see src/lib/pp7-draw-order.ts).
+ * ProPresenter's stack is fixed, and two of ours were in the wrong place. With
+ * the flag on the plan gains two layers so the ORDER itself is right instead of
+ * being patched downstream:
+ *   - `camera` (z -10) — Video Input is the back wall, BELOW Media, so media
+ *     covers a live camera. The slide layer stops painting it (`cameraExternal`)
+ *     and keeps it only to lay the words out (full scrim vs lower-third band).
+ *   - `announcement` (z 15) — below the props (theme logo), which PP7 draws on
+ *     top. Legacy leaves announcements to the route, i.e. above everything.
+ * Flag off, planOutput is byte-identical to what it returned before the change
+ * across all 22,400 fixtures (test/fixtures/output-plan-main.golden.json).
  */
 import type { SlidePayload, ThemeAppearance, VideoInputState, BackgroundSpec } from "@/lib/broadcast";
 import { themeHasDecor } from "@/lib/theme-decor-plan";
@@ -40,9 +52,14 @@ export type CompositorMode = "live" | "stage" | "livestream" | "ndi";
  */
 export type SlideRenderMode = "over-video" | "transition" | "plain";
 
-/** Stable per-layer identity. Phase 2's LayerWire[] will reuse these ids. */
-export type OutputLayerId = "background" | "theme-decor" | "slide" | "theme-logo";
-export type OutputLayerKind = "background" | "theme-decor" | "slide" | "theme-logo";
+/** Stable per-layer identity. Phase 2's LayerWire[] will reuse these ids.
+ *  Listed in paint order. `camera` and `announcement` exist ONLY under the PP7
+ *  draw order (2026-09-18): legacy fuses the camera into the slide's over-video
+ *  render and lets the route paint announcements on top, so neither is a layer
+ *  there. `theme-decor` (theme gaps PR A) is theme chrome that belongs WITH the
+ *  slide — it stays above the media and the camera and below the words. */
+export type OutputLayerId = "camera" | "background" | "theme-decor" | "slide" | "announcement" | "theme-logo";
+export type OutputLayerKind = "camera" | "background" | "theme-decor" | "slide" | "announcement" | "theme-logo";
 
 interface OutputLayerBase {
   /** Stable id (z-independent) — the seam Phase 2's wire model plugs into. */
@@ -53,6 +70,18 @@ interface OutputLayerBase {
   /** Whether this layer paints. Disabled layers stay in the list (stable
    *  identity for Phase 2) but the compositor skips them → same DOM out. */
   enabled: boolean;
+}
+
+export interface CameraLayerPlan extends OutputLayerBase {
+  id: "camera";
+  kind: "camera";
+  props: { videoInput: VideoInputState };
+}
+
+export interface AnnouncementLayerPlan extends OutputLayerBase {
+  id: "announcement";
+  kind: "announcement";
+  props: Record<string, never>;
 }
 
 export interface BackgroundLayerPlan extends OutputLayerBase {
@@ -71,12 +100,17 @@ export interface SlideLayerPlan extends OutputLayerBase {
     overVideo: boolean;
     /** transparentBg flag passed to SlideRenderer (OBS / NDI alpha key). */
     transparentBg: boolean;
-    /** The camera fused into the over-video render (stage-nulled here, once).
-     *  null for the transition/plain branches. */
+    /** The camera behind the over-video render (stage-nulled here, once).
+     *  null for the transition/plain branches.
+     *  LEGACY: OutputSlide PAINTS it (the camera is fused into this layer).
+     *  PP7 draw order: it is painted by the separate `camera` layer BELOW the
+     *  media, and this field only tells OutputSlide how to lay the words out
+     *  (full-screen scrim vs lower-third band) — see `cameraFused`. */
     videoInput: VideoInputState | null;
-    /** ProPresenter 7 layer order: Media draws ABOVE a live camera (below the
-     *  words). Present only when enabled and both are live; absent otherwise. */
-    mediaOverCamera?: BackgroundSpec;
+    /** PP7 draw order only: the camera above is NOT painted here — the separate
+     *  `camera` plan layer owns those pixels, below the media. Absent (legacy)
+     *  means OutputSlide paints the camera itself, as it always has. */
+    cameraExternal?: true;
   };
 }
 
@@ -98,7 +132,9 @@ export interface ThemeDecorLayerPlan extends OutputLayerBase {
   props: { overVideo: boolean; transparentBg: boolean; ignoreThemeLayout: boolean };
 }
 
-export type OutputLayerPlan = BackgroundLayerPlan | ThemeDecorLayerPlan | SlideLayerPlan | ThemeLogoLayerPlan;
+export type OutputLayerPlan =
+  | CameraLayerPlan | BackgroundLayerPlan | ThemeDecorLayerPlan | SlideLayerPlan
+  | AnnouncementLayerPlan | ThemeLogoLayerPlan;
 
 export interface CanvasPlan {
   /** Wrap the stack in a PresentationCanvas (livestream renders full-bleed). */
@@ -129,9 +165,18 @@ export interface PlanInput {
   appearance?: ThemeAppearance | null;
   background?: BackgroundSpec | null;
   videoInput?: VideoInputState | null;
-  /** ProPresenter 7 order (Video Input below Media). Undefined/false ⇒ the
-   *  legacy "camera hides the background" rule, byte-identical. */
-  mediaOverCamera?: boolean;
+  /**
+   * ProPresenter 7 draw order (src/lib/pp7-draw-order.ts):
+   *   Video Input BELOW Media, and Props (theme logo) ABOVE Announcements.
+   * Undefined/false ⇒ the legacy order — the camera hides the background
+   * template and the route paints announcements over everything — byte-identical
+   * (golden-locked, test/pp7-draw-order.test.ts).
+   */
+  pp7DrawOrder?: boolean;
+  /** PP7 draw order only: an announcement is live on this surface, so the plan
+   *  carries an `announcement` layer BELOW the props (theme logo). Legacy paints
+   *  announcements in the route, above everything, and ignores this. */
+  announcementLive?: boolean;
   transparent?: boolean;
   transitionsEnabled?: boolean;
   aspectRatio?: "16:9" | "4:3" | "custom";
@@ -157,12 +202,17 @@ export function planOutput(input: PlanInput): OutputPlan {
 
   // A Background Template renders only when set, NOT in transparent keying mode,
   // and NOT when a live camera is active (camera-wins-over-background-template).
+  const pp7 = !!input.pp7DrawOrder;
+
   const bgActive = !!background && background.type !== "none";
-  const showBackground = bgActive && !transparent && !videoInput;
+  // PP7: Media sits ABOVE Video Input, so a live camera no longer suppresses the
+  // template — the media simply covers the camera (spec §2, "Media covers a live
+  // camera"). Legacy: camera-wins-over-background-template.
+  const showBackground = bgActive && !transparent && (pp7 || !videoInput);
 
   // overVideo: the slide sits over an active (non-transparent) background
-  // template with no camera — its own background must go transparent.
-  const overVideo = bgActive && !transparent && !videoInput;
+  // template (legacy: with no camera) — its own background must go transparent.
+  const overVideo = bgActive && !transparent && (pp7 || !videoInput);
 
   // Video behind the slide? When a background template is showing (and no
   // camera), the template wins and we do NOT route through the video composite.
@@ -172,7 +222,13 @@ export function planOutput(input: PlanInput): OutputPlan {
   // no live camera, and the OLD /stage route ALWAYS used the transition-wrapped
   // SlideRenderer (never OutputSlide), so a theme video background must NOT flip
   // it to the over-video path — parity with the pre-extraction /stage render.
-  const videoBehind = mode !== "stage" && !transparent && hasVideoBehind(videoInput, appearance) && !showBackground;
+  // PP7: a live camera ALWAYS routes through the over-video composite, even with
+  // media showing — the media now paints as its own layer between them, so the
+  // words must still render transparent-backed over the pair. A theme VIDEO
+  // background still loses to a template exactly as before.
+  const videoBehind = pp7
+    ? mode !== "stage" && !transparent && (!!videoInput || (hasVideoBehind(null, appearance) && !showBackground))
+    : mode !== "stage" && !transparent && hasVideoBehind(videoInput, appearance) && !showBackground;
 
   let renderMode: SlideRenderMode;
   if (videoBehind) {
@@ -191,8 +247,9 @@ export function planOutput(input: PlanInput): OutputPlan {
   // The camera is FUSED into the over-video render (OutputSlide owns the video
   // sibling + slide overlay). It only rides the slide layer in that branch.
   const slideVideoInput = renderMode === "over-video" ? videoInput : null;
-  // PP7: with a camera live, media sits between the camera and the words.
-  const mediaOverCamera = !!input.mediaOverCamera && bgActive && !transparent && !!slideVideoInput && background ? background : null;
+  // PP7: the camera is its OWN layer at the bottom of the stack; the slide layer
+  // keeps the camera only to lay the words out (full scrim vs lower-third band).
+  const cameraExternal = pp7 && !!slideVideoInput;
 
   // Theme logo: on for everything except transparent keying modes. A Phase 3
   // `logo` layer-patch can additionally force it off (undefined ⇒ unchanged, so
@@ -214,21 +271,37 @@ export function planOutput(input: PlanInput): OutputPlan {
   }
 
   const ignoreThemeLayout = mode === "stage" || !!input.ignoreThemeLayout;
-  const layers: OutputLayerPlan[] = [
-    { id: "background", kind: "background", z: 0, enabled: showBackground, props: { background } },
-    ...(themeHasDecor(appearance)
-      ? [{
-          id: "theme-decor", kind: "theme-decor", z: 5,
-          enabled: renderMode !== "over-video" && !transparent && !ignoreThemeLayout,
-          props: { overVideo, transparentBg: transparent, ignoreThemeLayout },
-        } satisfies ThemeDecorLayerPlan]
-      : []),
-    {
-      id: "slide", kind: "slide", z: 10, enabled: true,
-      props: { renderMode, overVideo, transparentBg: transparent, videoInput: slideVideoInput, ...(mediaOverCamera ? { mediaOverCamera } : {}) },
-    },
-    { id: "theme-logo", kind: "theme-logo", z: 20, enabled: showThemeLogo, props: {} },
-  ];
+
+  const layers: OutputLayerPlan[] = [];
+  if (pp7 && slideVideoInput) {
+    // Video Input — the back wall, BELOW Media (PP7 §1). Legacy has no such
+    // layer (OutputSlide paints the camera inside the slide layer).
+    layers.push({ id: "camera", kind: "camera", z: -10, enabled: true, props: { videoInput: slideVideoInput } });
+  }
+  layers.push({ id: "background", kind: "background", z: 0, enabled: showBackground, props: { background } });
+  if (themeHasDecor(appearance)) {
+    // Theme decor (theme gaps PR A) is theme CHROME, not a PP7 layer: it belongs
+    // with the slide, so it sits above the media (z 0) and above the new camera
+    // layer (z -10) and below the words (z 10) — the new camera layer can never
+    // cover it. Its enable rule is untouched: over video (camera OR theme video)
+    // the decor is hosted INSIDE the slide render instead, which is still above
+    // the camera, so a live camera never hides decor either way.
+    layers.push({
+      id: "theme-decor", kind: "theme-decor", z: 5,
+      enabled: renderMode !== "over-video" && !transparent && !ignoreThemeLayout,
+      props: { overVideo, transparentBg: transparent, ignoreThemeLayout },
+    });
+  }
+  layers.push({
+    id: "slide", kind: "slide", z: 10, enabled: true,
+    props: { renderMode, overVideo, transparentBg: transparent, videoInput: slideVideoInput, ...(cameraExternal ? { cameraExternal: true as const } : {}) },
+  });
+  if (pp7 && input.announcementLive) {
+    // Announcements draw BELOW Props (PP7 §1). Legacy paints them in the route,
+    // i.e. above everything, so there is no announcement layer there.
+    layers.push({ id: "announcement", kind: "announcement", z: 15, enabled: true, props: {} });
+  }
+  layers.push({ id: "theme-logo", kind: "theme-logo", z: 20, enabled: showThemeLogo, props: {} });
 
   return { layers, canvas: { enabled: canvasEnabled, w: canvasW, h: canvasH } };
 }

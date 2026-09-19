@@ -191,6 +191,9 @@ export interface LayersOpts {
   mode?: LayersMode;
   /** OBS/NDI alpha keying (livestream/ndi only) — background + logo suppressed. */
   transparent?: boolean;
+  /** PP7 draw order (src/lib/pp7-draw-order.ts): Video Input below Media, and
+   *  Announcements below Props. Off ⇒ the legacy derivation, byte-identical. */
+  pp7DrawOrder?: boolean;
 }
 
 // z-order for the derived stack. Matches the legacy compositor intent:
@@ -200,6 +203,11 @@ const Z_CAMERA = 5;
 const Z_SLIDE = 10;
 const Z_LOGO = 20;
 const Z_ANNOUNCEMENT = 30;
+// …and under the PP7 draw order, where the camera is the back wall (below the
+// media) and announcements sit below the props. Keeps the operator's Layers
+// panel — which lists these rows by descending z — honest about what covers what.
+const Z_CAMERA_PP7 = -10;
+const Z_ANNOUNCEMENT_PP7 = 15;
 
 /**
  * Derive the ordered LayerWire[] for an output composite from legacy
@@ -219,14 +227,21 @@ export function outputStateToLayers(state: OutputState, opts?: LayersOpts): Laye
   const appearance = state.appearance ?? null;
 
   const bgActive = !!background && background.type !== "none";
-  // camera-wins-over-background-template + transparent suppresses bg (parity).
-  const backgroundEnabled = bgActive && !transparent && !videoInput;
+  // PP7 draw order (2026-09-18): Media draws ABOVE Video Input, so a live camera
+  // no longer suppresses the template — it is simply covered by it. This is what
+  // lets the clear rail read "media is live" off THIS row alone, instead of the
+  // three-way OR it used to need. Flag off ⇒ the legacy camera-wins rule.
+  // Transparent keying suppresses the background either way (parity).
+  const pp7 = !!opts?.pp7DrawOrder;
+  const backgroundEnabled = bgActive && !transparent && (pp7 || !videoInput);
 
   // over-video resolution — mirrors planOutput's `videoBehind`: a live camera or
   // a theme video sits behind the slide, no template showing, not transparent,
   // not stage. That is exactly when the slide's own background goes transparent.
   const hasVideoBehind = !!videoInput || (appearance?.bgType === "video" && !!appearance.bgVideoUrl);
-  const overVideo = mode !== "stage" && !transparent && hasVideoBehind && !backgroundEnabled;
+  const overVideo = pp7
+    ? mode !== "stage" && !transparent && (hasVideoBehind || backgroundEnabled)
+    : mode !== "stage" && !transparent && hasVideoBehind && !backgroundEnabled;
 
   // Theme logo: on for everything except transparent keying modes (parity).
   const showThemeLogo = !transparent;
@@ -249,7 +264,7 @@ export function outputStateToLayers(state: OutputState, opts?: LayersOpts): Laye
   layers.push({
     id: "camera",
     kind: "camera",
-    z: Z_CAMERA,
+    z: pp7 ? Z_CAMERA_PP7 : Z_CAMERA,
     enabled: !!videoInput,
     payload: videoInput,
     transportScope: "local",
@@ -289,7 +304,7 @@ export function outputStateToLayers(state: OutputState, opts?: LayersOpts): Laye
     layers.push({
       id: "announcement",
       kind: "announcement",
-      z: Z_ANNOUNCEMENT,
+      z: pp7 ? Z_ANNOUNCEMENT_PP7 : Z_ANNOUNCEMENT,
       enabled: true,
       payload: state.announcement,
       transportScope: "all",

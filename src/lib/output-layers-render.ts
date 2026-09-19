@@ -48,6 +48,11 @@ export function toOverrideMap(
 export function layerOpacities(
   overrides?: LayerWire[] | Map<string, LayerWire> | null,
   mask?: ScreenMask | null,
+  /** PP7 draw order: the camera is its OWN plan layer (`camera`), below the
+   *  media, instead of being fused into the slide's over-video render — so its
+   *  opacity must land on that layer, NOT on the slide (which would dim the
+   *  words too, and dim them twice). Off ⇒ the legacy fold, byte-identical. */
+  pp7DrawOrder?: boolean,
 ): Record<string, number> {
   const map = toOverrideMap(overrides);
   const out: Record<string, number> = {};
@@ -68,7 +73,8 @@ export function layerOpacities(
     // into the slide's over-video render); an explicit slide value wins.
     // The camera folds onto the SLIDE plan layer, so an operator override on
     // EITHER id must beat it (cross-id guard, not just same-id).
-    if (!map.has("slide")) putMask("slide", "camera", mask.opacity.camera);
+    if (pp7DrawOrder) putMask("camera", "camera", mask.opacity.camera);
+    else if (!map.has("slide")) putMask("slide", "camera", mask.opacity.camera);
     putMask("slide", "slide", mask.opacity.slide);
     putMask("theme-logo", "logo", mask.opacity.logo);
   }
@@ -76,6 +82,7 @@ export function layerOpacities(
     if (l && typeof l.opacity === "number" && l.opacity >= 0 && l.opacity < 1) out[planId] = l.opacity;
   };
   put("background", map.get("background"));
+  if (pp7DrawOrder) put("camera", map.get("camera"));
   put("slide", map.get("slide"));
   put("theme-logo", map.get("logo"));
   return out;

@@ -35,29 +35,34 @@ assert.equal(isEmptySlideKind("blank"), true);
 assert.equal(isEmptySlideKind("text"), false);
 console.log("pp7-clear: all passed");
 
-// ── PP7 layer order: Media above a live camera (planOutput) ───────────────────
+// ── PP7 layer order: Media above a live camera (planOutput) ──────────────────
+// The full draw-order suite is test/pp7-draw-order.test.ts (+ the DOM half).
+// This keeps the rail's own view of the rule next to the rail's own tests.
 import { planOutput } from "../src/lib/output-plan";
 {
   const cam = { deviceId: "cam1", label: "Cam" };
   const bg = { type: "image" as const, imageUrl: "https://example.com/a.jpg" };
   const text = { kind: "text" as const, text: "Amazing grace" };
-  const slideLayer = (p: ReturnType<typeof planOutput>) => p.layers.find((l) => l.id === "slide")!;
+  const ids = (p: ReturnType<typeof planOutput>) => p.layers.map((l) => l.id);
+  const bgEnabled = (p: ReturnType<typeof planOutput>) => p.layers.find((l) => l.id === "background")!.enabled;
 
   const legacy = planOutput({ mode: "live", slide: text, videoInput: cam, background: bg } as never);
-  assert.equal((slideLayer(legacy).props as { mediaOverCamera?: unknown }).mediaOverCamera, undefined, "legacy: camera hides media (no key)");
-  assert.equal(legacy.layers.find((l) => l.id === "background")!.enabled, false);
+  assert.deepEqual(ids(legacy), ["background", "slide", "theme-logo"], "legacy: the camera is fused into the slide layer");
+  assert.equal(bgEnabled(legacy), false, "legacy: camera hides media");
 
-  const pp7 = planOutput({ mode: "live", slide: text, videoInput: cam, background: bg, mediaOverCamera: true } as never);
-  assert.deepEqual((slideLayer(pp7).props as { mediaOverCamera?: unknown }).mediaOverCamera, bg, "PP7: media drawn over the camera");
+  const pp7 = planOutput({ mode: "live", slide: text, videoInput: cam, background: bg, pp7DrawOrder: true } as never);
+  assert.deepEqual(ids(pp7), ["camera", "background", "slide", "theme-logo"], "PP7: Media draws ABOVE Video Input");
+  assert.equal(bgEnabled(pp7), true, "PP7: the media paints over the camera");
 
-  const noCam = planOutput({ mode: "live", slide: text, background: bg, mediaOverCamera: true } as never);
-  assert.equal((slideLayer(noCam).props as { mediaOverCamera?: unknown }).mediaOverCamera, undefined, "no camera: normal background layer");
-  assert.equal(noCam.layers.find((l) => l.id === "background")!.enabled, true);
+  const noCam = planOutput({ mode: "live", slide: text, background: bg, pp7DrawOrder: true } as never);
+  assert.deepEqual(ids(noCam), ["background", "slide", "theme-logo"], "no camera: no camera layer");
+  assert.equal(bgEnabled(noCam), true);
 
-  const keyed = planOutput({ mode: "livestream", slide: text, videoInput: cam, background: bg, transparent: true, mediaOverCamera: true } as never);
-  assert.equal((slideLayer(keyed).props as { mediaOverCamera?: unknown }).mediaOverCamera, undefined, "transparent keying never paints media");
+  const keyed = planOutput({ mode: "livestream", slide: text, videoInput: cam, background: bg, transparent: true, pp7DrawOrder: true } as never);
+  assert.equal(bgEnabled(keyed), false, "transparent keying never paints media");
+  assert.ok(!ids(keyed).includes("camera"), "transparent keying never paints the camera");
 
-  const stage = planOutput({ mode: "stage", slide: text, videoInput: cam, background: bg, mediaOverCamera: true } as never);
-  assert.equal((slideLayer(stage).props as { mediaOverCamera?: unknown }).mediaOverCamera, undefined, "stage has no camera");
-  console.log("pp7 media-over-camera plan: all passed");
+  const stage = planOutput({ mode: "stage", slide: text, videoInput: cam, background: bg, pp7DrawOrder: true } as never);
+  assert.ok(!ids(stage).includes("camera"), "stage has no camera");
+  console.log("pp7 draw order (rail view): all passed");
 }

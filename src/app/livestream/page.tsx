@@ -8,7 +8,6 @@ import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import { livestreamRenderPlan, DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { parseObsUrl, resolveObsRender, obsThemeColorsOf, applyObsLiveFields, type ObsUrlDefaults } from "@/lib/obs-look";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
-import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 
 if (typeof window !== "undefined" && !(window as unknown as { __ffLivestreamGuarded?: boolean }).__ffLivestreamGuarded) {
   (window as unknown as { __ffLivestreamGuarded: boolean }).__ffLivestreamGuarded = true;
@@ -536,11 +535,8 @@ export default function LivestreamPage() {
             scene={scene}
         scenesPossible={scenesPossible}
             screen="livestream"
+            announcement={showFullOverlays && !sceneHidesLayer(scene, "livestream", "announcement") ? announcement : null}
           />
-          {/* Announcement scrim is a FULL-frame overlay — keep it off the OBS
-              lower-third caption (it would paint over the band). Full mode only.
-              Scenes: route-drawn layer, so routed here (see /live). */}
-          {showFullOverlays && <AnnouncementLayer ann={sceneHidesLayer(scene, "livestream", "announcement") ? null : announcement} />}
           {showFullOverlays && lowerThird && (
             <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">
               <div className="bg-black/70 backdrop-blur-sm border-l-4 border-[color:var(--color-brand)] p-5">

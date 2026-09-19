@@ -26,18 +26,21 @@
  * `planOutput()` is exported and unit-tested (test/output-compositor.test.ts) as
  * the golden record of the precedence rules.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { readPp7LayersFlag, PP7_LAYERS_STORAGE_KEY } from "@/lib/pp7-layers-flag";
+import { useRef, type ReactNode } from "react";
+import { usePp7DrawOrder } from "@/lib/pp7-draw-order";
 import { SlideRenderer } from "./SlideRenderer";
 import { OutputSlide } from "./OutputSlide";
 import { TransitionWrapper } from "./TransitionWrapper";
-import { ThemeLogoLayer } from "./ThemeLayers";
+import { ThemeLogoLayer, themeLogoPaints } from "./ThemeLayers";
 import { ThemeDecorLayer } from "./ThemeDecorLayer";
 import { themeDecorPlan } from "@/lib/theme-decor-plan";
 import { PresentationCanvas } from "./PresentationCanvas";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
+import { LiveVideoLayer } from "./LiveVideoLayer";
+import { AnnouncementLayer } from "./AnnouncementLayer";
 import {
   slideOutputIdentity,
+  type AnnouncementPayload,
   type SlidePayload,
   type ThemeAppearance,
   type VideoInputState,
@@ -72,6 +75,14 @@ export interface OutputCompositorProps {
   /** Theme → Projector (PR 2): ignore the theme's text boxes (full-screen).
    *  Always on for mode="stage" (the stage display stays full-screen). */
   ignoreThemeLayout?: boolean;
+  /**
+   * The announcement overlay for this surface, or null. Under the PP7 draw order
+   * the compositor paints it BELOW the props (theme logo) — PP7 draws Props above
+   * Announcements. With the draw-order flag OFF it is painted LAST, exactly where
+   * the routes used to paint it themselves, so the output is unchanged.
+   * The routes must NOT also render an AnnouncementLayer.
+   */
+  announcement?: AnnouncementPayload | null;
   /** livestream/ndi transparent (OBS alpha-key) mode. */
   transparent?: boolean;
   /** livestream ?transitions=1 gate. */
@@ -139,6 +150,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
     referenceColor, zone, obsBand, obsThemeColors, videoMuted = false, onVideoRef,
     layersEnabled, layerOverrides, previewFrozen = false,
     obsBandExtras, obsOverlay, backgroundDim, scene, screen, scenesPossible,
+    announcement = null,
   } = props;
   // Theme → Projector (PR 2): the stage display always stays full-screen.
   const ignoreLayout = props.mode === "stage" || props.ignoreThemeLayout === true;
@@ -177,22 +189,18 @@ export function OutputCompositor(props: OutputCompositorProps) {
   const resolvedInput: PlanInput = layersEnabled || sceneActive
     ? resolveLayeredInput(baseInput, layersEnabled ? layerOverrides : undefined, mask)
     : baseInput;
-  // ProPresenter 7 layer order (Media above a live camera). Read after mount so
-  // server and first client render match; the flag lives in the same origin's
-  // localStorage/env as the operator.
-  const [pp7Order, setPp7Order] = useState(false);
-  useEffect(() => {
-    const read = () => setPp7Order(!!layersEnabled && readPp7LayersFlag());
-    read();
-    // Kill switch flipped on this machine reaches already-open output windows.
-    const onStorage = (e: StorageEvent) => { if (e.key === PP7_LAYERS_STORAGE_KEY) read(); };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [layersEnabled]);
-  const plan = planOutput(pp7Order ? { ...resolvedInput, mediaOverCamera: true } : resolvedInput);
+  // ProPresenter 7 draw order — Media above Video Input, Props above
+  // Announcements (src/lib/pp7-draw-order.ts). Read after mount so server and
+  // first client render match; both kill switches are live on this machine.
+  // Deliberately INDEPENDENT of `layersEnabled`: the stack order is an output
+  // rule, not a layer-override feature, so it must not depend on NEXT_PUBLIC_LAYERS_V2.
+  const pp7Order = usePp7DrawOrder();
+  const plan = planOutput(
+    pp7Order ? { ...resolvedInput, pp7DrawOrder: true, announcementLive: !!announcement } : resolvedInput,
+  );
   const slide = resolvedInput.slide;
   const opacities = layersEnabled || sceneActive
-    ? layerOpacities(layersEnabled ? layerOverrides : undefined, mask)
+    ? layerOpacities(layersEnabled ? layerOverrides : undefined, mask, pp7Order)
     : {};
 
   // OBS lower-third band transform (livestream lower_third capture mode).
@@ -245,17 +253,27 @@ export function OutputCompositor(props: OutputCompositorProps) {
           </div>
         );
       }
+      case "camera":
+        // PP7 draw order: Video Input is the back wall, painted BELOW Media. In
+        // the legacy order there is no such layer — OutputSlide paints the camera
+        // itself (see `cameraExternal` on the slide layer).
+        return <LiveVideoLayer key="camera" input={layer.props.videoInput} />;
+      case "announcement":
+        // PP7 draw order: Announcements draw BELOW Props (the theme logo).
+        return <AnnouncementLayer key="announcement" ann={announcement} />;
       case "theme-decor":
+        // Theme chrome, drawn with the slide: above the media AND above the PP7
+        // camera layer (both are below it in the plan), below the words.
         return <ThemeDecorLayer key="theme-decor" appearance={appearance} plan={decorPlan} overVideo={layer.props.overVideo} frozen={previewFrozen} />;
       case "slide": {
-        const { renderMode, overVideo, transparentBg, videoInput, mediaOverCamera } = layer.props;
+        const { renderMode, overVideo, transparentBg, videoInput, cameraExternal } = layer.props;
         if (renderMode === "over-video") {
           return (
             <OutputSlide
               key="slide"
               slide={effectiveSlide}
               videoInput={videoInput}
-              mediaNode={mediaOverCamera ? <BackgroundLayer key={mediaOverCamera.shaderPreset ?? mediaOverCamera.type} background={mediaOverCamera} frozen={previewFrozen} /> : undefined}
+              cameraExternal={cameraExternal}
               appearance={appearance}
               fontScale={fontScale}
               referenceScale={referenceScale}
@@ -293,16 +311,59 @@ export function OutputCompositor(props: OutputCompositorProps) {
         );
       }
       case "theme-logo":
+        // Nothing configured ⇒ nothing paints. Returned as null (rather than an
+        // element that renders null) so the announcement split below can tell
+        // whether the props layer really needs to sit above the announcement.
+        if (!themeLogoPaints(appearance)) return null;
         return <ThemeLogoLayer key="theme-logo" appearance={appearance} />;
     }
   }
 
-  const stack: ReactNode = <>{plan.layers.map(renderLayer)}</>;
+  const nodes = plan.layers.map((l) => ({ id: l.id, node: renderLayer(l) }));
+  // Where the announcement sits in the stack. PP7 draw order puts it in the plan
+  // (below the props); legacy has no announcement layer, so it is painted LAST —
+  // byte-identical to the routes painting it themselves, which is what they did
+  // before this prop existed.
+  const annIdx = nodes.findIndex((n) => n.id === "announcement");
+  const legacyAnnouncement = annIdx < 0 && announcement ? <AnnouncementLayer key="announcement" ann={announcement} /> : null;
 
-  if (!plan.canvas.enabled) return stack;
-  return (
-    <PresentationCanvas canvasW={plan.canvas.w} canvasH={plan.canvas.h} zone={zone}>
-      {stack}
+  if (!plan.canvas.enabled) {
+    // livestream renders full-bleed (no PresentationCanvas), so plain paint order
+    // already gives PP7's Props-above-Announcements with nothing else to do.
+    return <>{nodes.map((n) => n.node)}{legacyAnnouncement}</>;
+  }
+
+  const canvas = (children: ReactNode, key?: string) => (
+    <PresentationCanvas key={key} canvasW={plan.canvas.w} canvasH={plan.canvas.h} zone={zone}>
+      {children}
     </PresentationCanvas>
+  );
+
+  // Nothing actually paints above the announcement (no theme logo configured, or
+  // transparent keying suppressed it) → no reason to split the canvas. Keeps the
+  // DOM identical to the legacy path for every surface whose only PP7 change
+  // would have been an empty second canvas.
+  const paintsAboveAnnouncement = nodes.slice(annIdx + 1).some((n) => n.node !== null);
+  if (annIdx < 0 || !paintsAboveAnnouncement) {
+    return <>{canvas(nodes.filter((n) => n.id !== "announcement").map((n) => n.node))}{legacyAnnouncement ?? (annIdx >= 0 ? nodes[annIdx].node : null)}</>;
+  }
+
+  // PP7 draw order WITH a live announcement. The announcement is sized in real
+  // pixels against the WINDOW (the routes always drew it outside the fixed
+  // 1920×1080 presentation canvas), so folding it into the canvas would rescale
+  // an operator's announcement on any non-1080p output — a regression nobody
+  // asked for. Instead the stack is split around it: everything below it in one
+  // canvas, the announcement in its original window-relative box, and the layers
+  // ABOVE it (the props / theme logo) in a second, identical canvas on top. Both
+  // canvases have the same dims + zone, so every layer keeps exactly the geometry
+  // it had — only the paint order changes.
+  return (
+    <>
+      {canvas(nodes.slice(0, annIdx).map((n) => n.node), "canvas-below-announcement")}
+      {nodes[annIdx].node}
+      <div className="absolute inset-0 pointer-events-none">
+        {canvas(nodes.slice(annIdx + 1).map((n) => n.node), "canvas-above-announcement")}
+      </div>
+    </>
   );
 }
