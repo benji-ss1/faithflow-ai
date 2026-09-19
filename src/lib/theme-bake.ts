@@ -46,11 +46,17 @@ export function bakeThemeIntoObjectsJson(cfg: BakeableThemeConfig, rawObjectsJso
   // A pure-black baked bg is read as "unset" by the projector — nudge to near-black.
   const isBlackBg = typeof cfg.bgColor === "string" && ["#000000", "#000", "black", "rgb(0,0,0)"].includes(cfg.bgColor.trim().toLowerCase());
   const bakeBgColor = isBlackBg ? "#010101" : cfg.bgColor;
-  // Gradient themes can't bake to a single solid bgColor — leave the slide's bg so
-  // the live gradient appearance path shows through.
+  // Gradient themes can't bake to a single solid bgColor — the slide's own bg is
+  // CLEARED (not kept) so the live gradient appearance path shows through.
   const bakeGradient = cfg.bgType === "gradient";
+  // A theme that defines a background OWNS the slide's whole background stack.
+  // Field bug 2026-09-19 (Victor): a slide's own non-default bgColor / bgImageUrl
+  // (left by an earlier solid/image theme, or saved by the editor) outranks the
+  // theme's appearance at render time (SlideRenderer: bgImageUrl > bgColor >
+  // theme), so those slides stayed plain while the rest of the song restyled.
+  const themeOwnsBg = !!(cfg.bgType || cfg.bgColor || cfg.bgColor2 || cfg.bgImageUrl);
 
-  return {
+  const out: Record<string, unknown> = {
     ...raw,
     bgType: bakeGradient ? raw.bgType : (cfg.bgType ?? raw.bgType),
     bgColor: bakeGradient ? raw.bgColor : (bakeBgColor ?? raw.bgColor),
@@ -69,4 +75,13 @@ export function bakeThemeIntoObjectsJson(cfg: BakeableThemeConfig, rawObjectsJso
       };
     }),
   };
+  if (themeOwnsBg) {
+    // Whatever the theme does not set is dropped, so nothing older can cover it.
+    out.bgType = bakeGradient ? undefined : cfg.bgType;
+    out.bgColor = bakeGradient ? undefined : bakeBgColor;
+    out.bgColor2 = bakeGradient ? undefined : cfg.bgColor2;
+    out.bgImageUrl = cfg.bgImageUrl;
+    for (const k of ["bgType", "bgColor", "bgColor2", "bgImageUrl"]) if (out[k] === undefined) delete out[k];
+  }
+  return out;
 }
