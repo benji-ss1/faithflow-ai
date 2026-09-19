@@ -18,7 +18,14 @@ function oldBand(raw: unknown) {
     color: hex(b.color, D.color), color2: hex(b.color2, D.color2),
     angle: num(b.angle, 0, 360, D.angle), opacity: num(b.opacity, 0, 1, D.opacity),
     position: b.position === "upper" || b.position === "mid" || b.position === "lower" ? b.position : D.position,
-    offsetY: num(b.offsetY, -25, 25, D.offsetY), heightPct: num(b.heightPct, 10, 60, D.heightPct), fontScale: num(b.fontScale, 0.5, 2, D.fontScale),
+    offsetY: num(b.offsetY, -25, 25, D.offsetY), heightPct: num(b.heightPct, 10, 60, D.heightPct),
+    // 2026-09-19 DELIBERATE extension of this golden (owner request — independent verse vs
+    // reference sizing + width). fontScale's floor dropped 0.5 -> 0.3 so the verse can be
+    // dialled down to the reference line's size; refScale/widthPct are new, and default to
+    // exactly today's rendering (1 / 88), so an untouched church is unchanged. Everything
+    // else in this file still locks the sanitizer to its original behaviour.
+    fontScale: num(b.fontScale, 0.3, 2, D.fontScale),
+    refScale: num(b.refScale, 0.5, 3, D.refScale), widthPct: num(b.widthPct, 50, 100, D.widthPct),
   };
 }
 function oldLoad(parsed: Partial<ScriptureDesign>): ScriptureDesign {
@@ -43,6 +50,7 @@ for (let i = 0; i < 5000; i++) {
   const raw = rnd() < 0.05 ? pick<unknown>([null, "x", 5, []]) : {
     mode: pick<unknown>(["none", "solid", "gradient", "weird", 1]), color: anyVal(), color2: anyVal(), angle: anyVal(), opacity: anyVal(),
     position: pick<unknown>(["upper", "mid", "lower", "side"]), offsetY: anyVal(), heightPct: anyVal(), fontScale: anyVal(),
+    refScale: anyVal(), widthPct: anyVal(),
   };
   assert.deepEqual(sanitizeBandStyle(raw), oldBand(raw)); n++;
 }

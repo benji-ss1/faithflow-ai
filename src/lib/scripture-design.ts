@@ -35,6 +35,8 @@ export type BandStyle = {
   offsetY: number;   // fine vertical nudge, % of screen height (−25..25); + = down
   heightPct: number; // band height, % of screen height
   fontScale: number; // verse size multiplier
+  refScale: number;  // reference-line size multiplier (1 = today's size)
+  widthPct: number;  // width of the verse + reference text area, % of screen width (88 = today)
 };
 
 export type ScriptureDesign = {
@@ -63,7 +65,7 @@ const REF_DEFAULT: TextStyle & { show: boolean; showTranslation: boolean } = {
 // Soft charcoal band by default (BAND_DEFAULT_COLOR, PR #56) — legible over ANY content the church runs underneath.
 export const BAND_DEFAULT: BandStyle = {
   mode: "solid", color: BAND_DEFAULT_COLOR, color2: BAND_DEFAULT_COLOR, angle: 180, opacity: 0.72,
-  position: "lower", offsetY: 0, heightPct: 30, fontScale: 1,
+  position: "lower", offsetY: 0, heightPct: 30, fontScale: 1, refScale: 1, widthPct: 88,
 };
 
 export const DEFAULT_SCRIPTURE_DESIGN: ScriptureDesign = {
@@ -97,7 +99,11 @@ export function sanitizeBandStyle(raw: unknown): BandStyle {
     position: b.position === "upper" || b.position === "mid" || b.position === "lower" ? b.position : D.position,
     offsetY: num(b.offsetY, -25, 25, D.offsetY),
     heightPct: num(b.heightPct, 10, 60, D.heightPct),
-    fontScale: num(b.fontScale, 0.5, 2, D.fontScale),
+    // 2026-09-19: lower bound 0.5 -> 0.3 so the verse can be dialled down to the
+    // reference line's size (owner request); the wire validator already allows 0.1..4.
+    fontScale: num(b.fontScale, 0.3, 2, D.fontScale),
+    refScale: num(b.refScale, 0.5, 3, D.refScale),
+    widthPct: num(b.widthPct, 50, 100, D.widthPct),
   };
 }
 

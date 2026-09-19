@@ -32,6 +32,14 @@ export function isBandSlide(slide: { kind: string; scriptureLayout?: string; lay
   if (slide.kind === "image" || slide.kind === "video") return slide.layout === "third";
   return false;
 }
+/** Reference-line size multiplier for a lower-third scripture band (1 when absent/invalid). */
+export function refScaleOf(v: number | undefined): number {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.max(0.25, Math.min(4, v)) : 1;
+}
+/** Text-area width (% of canvas) of a lower-third scripture band; 88 = the original 6% side margins. */
+export function textWidthOf(v: number | undefined): number {
+  return typeof v === "number" && Number.isFinite(v) ? Math.max(40, Math.min(100, v)) : 88;
+}
 /** Media is never upscaled beyond this multiple of its natural size. */
 export const MEDIA_MAX_UPSCALE = 1.5;
 /** Aspect (w/h) below which media counts as portrait/narrow. */
