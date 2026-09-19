@@ -53,6 +53,13 @@ export interface ThemeDecorPlan {
  * slide's own opaque background and its text).
  */
 export function themeDecorPlan(slide: SlidePayload, appearance: ThemeAppearance | null | undefined, f: ThemeDecorFlags): ThemeDecorPlan | null {
+  // Slide layer cleared but the theme's media kept (PP7 Clear Slide): the theme's
+  // lyrics decor paints with no words. Plain empty ⇒ null, exactly as before.
+  if (slide.kind === "empty") {
+    if (slide.keepThemeBg !== true) return null;
+    const d = themeDecorFor(appearance, false, f);
+    return d ? { decor: d } : null;
+  }
   if (slide.kind !== "text" || slide.scriptureLayout === "lowerThird") return null;
   if (slide.bgImageUrl || !isDefaultSlideBg(slide.bgColor)) return null;
   const wrap = (d: SlideObjectWire[] | undefined) => (d ? { decor: d } : null);

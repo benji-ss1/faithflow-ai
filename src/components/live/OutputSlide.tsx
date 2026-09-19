@@ -56,7 +56,9 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
     // Only text/blank slides composite AS a transparent overlay over the video.
     // Media/image/logo slides render full-bleed and cover the video (which stays
     // mounted behind, so returning to a lyric/verse keeps it playing).
-    const isOverlayKind = slide.kind === "text" || slide.kind === "blank";
+    // (An empty slide that KEEPS the theme's media — PP7 Clear Slide — also lets
+    // the persistent theme decor paint; a plain empty slide never does.)
+    const isOverlayKind = slide.kind === "text" || slide.kind === "blank" || (slide.kind === "empty" && slide.keepThemeBg === true);
     // Camera → full-screen lyrics by default (sanctuary look; operator can switch
     // to lower-third). Theme video background →
     // centered content (it's a backdrop); readability comes from the theme dim

@@ -10,6 +10,7 @@ import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
 import { clearVideoInputLive } from "@/lib/video-input-clear";
 import { pp7MessagesLive, type Pp7ClearEffects, type Pp7LayerInputs } from "@/lib/pp7-layer-model";
 import { usePp7DrawOrder } from "@/lib/pp7-draw-order";
+import { isKeepThemeBgSlide } from "@/lib/pp7-keep-theme-bg";
 import type { TimerApi, MessagesApi, TimersApi, MessagesBoardApi } from "../hooks";
 
 export function usePp7LayerInputs(ctx: OperatorShellCtx, messagesActive: boolean): Pp7LayerInputs {
@@ -19,6 +20,8 @@ export function usePp7LayerInputs(ctx: OperatorShellCtx, messagesActive: boolean
   const backgroundSpecActive = !!ctx.background && ctx.background.type !== "none";
   const videoInputActive = !!ctx.videoInput;
   const pp7DrawOrder = usePp7DrawOrder();
+  // Slide cleared but the theme's media kept (src/lib/pp7-keep-theme-bg.ts).
+  const themeBgKept = isKeepThemeBgSlide(ctx.liveSlide);
   return useMemo<Pp7LayerInputs>(() => ({
     kind,
     rowActive: (id: string) => !!rows.find((r) => r.id === id)?.active,
@@ -27,12 +30,16 @@ export function usePp7LayerInputs(ctx: OperatorShellCtx, messagesActive: boolean
     videoInputActive,
     messagesActive,
     pp7DrawOrder,
-  }), [kind, rows, announcementActive, backgroundSpecActive, videoInputActive, messagesActive, pp7DrawOrder]);
+    themeBgKept,
+  }), [kind, rows, announcementActive, backgroundSpecActive, videoInputActive, messagesActive, pp7DrawOrder, themeBgKept]);
 }
 
 export function usePp7ClearEffects(ctx: OperatorShellCtx, onClearMessages: () => void): Pp7ClearEffects {
   return useMemo<Pp7ClearEffects>(() => ({
-    killSlide: () => ctx.onKill(),
+    // A lone Slide clear routes through the keep-theme-media decision (falls back
+    // to the plain kill when the operator context doesn't provide it).
+    killSlide: (o) => (o?.keepTheme === false || !ctx.onClearLiveSlide ? ctx.onKill() : ctx.onClearLiveSlide()),
+    releaseThemeBg: ctx.onReleaseThemeBg ? () => ctx.onReleaseThemeBg?.() : undefined,
     setBackgroundNone: () => setActiveBackgroundId("none"),
     clearLayer: (id: string) => ctx.liveLayers.clearLayer(id),
     clearVideoInput: () => clearVideoInputLive(),

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { decidePlanPropChange, shouldPinPlanUrl } from "@/lib/operator-plan-select";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { decideSlideClear, isKeepThemeBgSlide, pickOutputAppearance, readPp7KeepThemeBgFlag, usePp7KeepThemeBg } from "@/lib/pp7-keep-theme-bg";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { SCENES_V1, type SceneWire } from "@/lib/scenes";
@@ -759,6 +760,20 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [liveItemThemeConfig, appearance, themesVersion],
   );
+  // PP7 "Clear Slide keeps the theme's media" (src/lib/pp7-keep-theme-bg.ts).
+  // While the slide layer is cleared with the theme kept, the outputs keep
+  // painting the LAST LIVE appearance — `effectiveAppearance` alone would fall
+  // back to the default theme the moment `live` is empty, swapping the
+  // background of a song that has its own theme. Anything else ⇒ identical to
+  // `effectiveAppearance` (same reference), so flag-off / no-clear is a no-op.
+  const [retainedThemeAppearance, setRetainedThemeAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
+  // Synchronous mirror of "the live slide is empty-with-theme-kept": `liveRef`
+  // only updates on render, and Clear All runs several clears in ONE tick.
+  const keepThemeRef = useRef(false);
+  const outputAppearance = useMemo(
+    () => pickOutputAppearance(live, retainedThemeAppearance, effectiveAppearance),
+    [live, retainedThemeAppearance, effectiveAppearance],
+  );
 
 
   // Mutual-exclusivity heal against the EFFECTIVE appearance (2026-08-29): the
@@ -910,7 +925,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     safePost(chRef.current, msg);
   }, []);
   const liveLayers = useLiveLayers(
-    { live, background: backgroundSpec, videoInput, appearance: effectiveAppearance },
+    { live, background: backgroundSpec, videoInput, appearance: outputAppearance },
     emitLayerPatch,
     layersEngineOn,
   );
@@ -962,7 +977,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       referenceScale,
       referenceColor: referenceColor || undefined,
       background: backgroundSpec,
-      appearance: effectiveAppearance,
+      appearance: outputAppearance,
       videoInput,
       zone: activeZone,
       // OBS lower-third config — inert for the projector/stage (they don't read
@@ -1037,7 +1052,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1068,6 +1083,9 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     if (pos) stampLiveItem(pos.itemIdx, slide);
     noteLiveSend(slide, pos);
     setLiveRaw(slide);
+    // Anything other than the keep-theme empty slide ends a kept theme background
+    // (a new send, Esc / the live X, Clear Media, Clear All, un-blank…).
+    if (!isKeepThemeBgSlide(slide)) { keepThemeRef.current = false; setRetainedThemeAppearance(null); }
     // R1b re-arm, centralised 2026-09-16 so EVERY send path (operator slide click,
     // AI scripture auto-fire, banked verse, arrow auto-send, undo/redo) brings back
     // lyrics hidden with the rail T ("Clear Lyrics") and everything the Live-screen
@@ -1592,6 +1610,44 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     setLive({ kind: "empty" });
     chRef.current?.postMessage({ type: "clear" } as LiveMessage);
   }, []);
+
+  // PP7 Slide clear (rail / F2 / Layers-panel row): the words go, the live theme's
+  // media (image / video / animated bg / decor) stays — ProPresenter treats it as
+  // the Media layer. The decision is the pure `decideSlideClear`; "plain" is
+  // exactly today's `clearLive`. Esc / the live X / voice "clear screen" keep
+  // calling `clearLive` directly and still black everything out.
+  const clearLiveSlide = useCallback(() => {
+    const decision = decideSlideClear({
+      prev: liveRef.current,
+      appearance: effectiveAppearance,
+      enabled: readPp7KeepThemeBgFlag(),
+      backgroundTemplateActive: !!backgroundSpec && backgroundSpec.type !== "none",
+      cameraActive: !!videoInput,
+    });
+    if (decision === "noop") return; // a second F2 must not drop the kept theme
+    if (decision === "plain") { clearLive(); return; }
+    keepThemeRef.current = true;
+    setRetainedThemeAppearance(effectiveAppearance);
+    liveOriginRef.current = { origin: { kind: "other" }, identity: slideOutputIdentity({ kind: "empty" }) };
+    // A `set` (not `clear`) so a projector swaps text -> empty-with-theme in ONE
+    // frame: `clear` would blank it and the theme would only reappear when the
+    // next output snapshot lands.
+    const slide: SlidePayload = { kind: "empty", keepThemeBg: true };
+    setLive(slide);
+    chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
+  }, [clearLive, setLive, effectiveAppearance, backgroundSpec, videoInput]);
+  // Clear Media / Clear All: drop a theme background a Slide clear kept.
+  const releaseThemeBg = useCallback(() => {
+    if (!keepThemeRef.current) return;
+    keepThemeRef.current = false;
+    setRetainedThemeAppearance(null);
+    setLive({ kind: "empty" });
+    chRef.current?.postMessage({ type: "clear" } as LiveMessage);
+  }, [setLive]);
+  // Kill switch flipped OFF while a theme background is being kept: restore the
+  // old behaviour now (black), don't wait for the next clear.
+  const keepThemeBgOn = usePp7KeepThemeBg();
+  useEffect(() => { if (!keepThemeBgOn) releaseThemeBg(); }, [keepThemeBgOn, releaseThemeBg]);
 
   // Record projector history on every real change to `live` (skips the change
   // that undo/redo itself caused). A new projection clears the redo branch.
@@ -2343,7 +2399,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       referenceScale,
       referenceColor: referenceColor || undefined,
       background: backgroundSpec,
-      appearance: effectiveAppearance,
+      appearance: outputAppearance,
       videoInput,
       zone: activeZone,
       // Scenes: same condition as the main emit — a Scenes church always sends the
@@ -2368,7 +2424,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     lastOutputStateRef.current = state;
     publishObsPreviewState(state); // after the projector + remote posts
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, activeScene, scenesUiOn]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, activeScene, scenesUiOn]);
   // Actually CLEAR the lower third on the projector (was a placeholder toast
   // that left it on screen — a real live hazard). Reuses the working send path
   // with empty lines, which broadcasts lowerThird:null and toasts "cleared".
@@ -2546,6 +2602,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     background: backgroundSpec,
     videoInput,
     appearance: effectiveAppearance,
+    liveAppearance: outputAppearance,
     zone: activeZone,
     // Decoupling Phase 3 — the operator Layers Panel reads these. `layersEngineOn`
     // is env-flag AND per-church opt-in; when false the panel renders a disabled
@@ -2597,6 +2654,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     onSetPreviewItem: (i) => jumpTo(i, 0),
     onSendToLive: sendPreview,
     onBlank: goBlank, onLogo: goLogo, onKill: clearLive,
+    onClearLiveSlide: clearLiveSlide, onReleaseThemeBg: releaseThemeBg,
     onClearSlide: clearSlide, onClearMedia: clearMedia,
     onClearLowerThird: clearLowerThird, onStageMessage: stageMessage,
     onSendLowerThird: sendLowerThird,
@@ -2790,7 +2848,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // callbacks
     repositionNewItem,
     setAspectRatio, setFitMode, setAutopilotMode, jumpTo, sendPreview,
-    goBlank, goLogo, clearLive, clearSlide, clearMedia, clearLowerThird,
+    goBlank, goLogo, clearLive, clearLiveSlide, releaseThemeBg, outputAppearance, clearSlide, clearMedia, clearLowerThird,
     stageMessage, sendLowerThird, sendMessage, clearMessage, startCountdown, openProjector,
     openStageDisplay, openLivestream, recallBanked, approveDetection,
     rejectDetection, approveSong, rejectSong, editSong, approveCommand,

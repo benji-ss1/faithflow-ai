@@ -213,7 +213,7 @@ export function LivePreviewPanel({ ctx, onVideoRef, hideClearButton = false, rai
           <OutputCompositor
             mode="live"
             slide={ctx.liveSlide}
-            appearance={ctx.appearance}
+            appearance={ctx.liveAppearance ?? ctx.appearance}
             background={ctx.background ?? null}
             videoInput={ctx.videoInput ?? null}
             transition={null}
@@ -239,7 +239,7 @@ export function LivePreviewPanel({ ctx, onVideoRef, hideClearButton = false, rai
                 is what production renders (the layers engine is off there), so
                 without this the operator is shown words the projector is hiding. */}
             {ctx.background && ctx.background.type !== "none" && !sceneHidesLayer(ctx.activeScene, "main", "background") && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} frozen />}
-            <SlideRenderer slide={sceneHidesLayer(ctx.activeScene, "main", "slide") ? { kind: "empty" } : ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
+            <SlideRenderer slide={sceneHidesLayer(ctx.activeScene, "main", "slide") ? { kind: "empty" } : ctx.liveSlide} appearance={(ctx.liveAppearance ?? ctx.appearance) ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
           </PresentationCanvas>
         )}
         {/* 2026-09-16: X = clear EVERYTHING on the live screen (lyrics, verses,

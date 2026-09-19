@@ -36,6 +36,13 @@ export type Pp7LayerInputs = {
    * Undefined/false ⇒ the legacy compensation, unchanged.
    */
   pp7DrawOrder?: boolean;
+  /**
+   * The slide layer was cleared but the live theme's background/decor is being
+   * kept (src/lib/pp7-keep-theme-bg.ts): ProPresenter treats a theme's media as
+   * the Media layer, so the Media row lights and Clear Media removes it.
+   * Undefined/false ⇒ nothing changes.
+   */
+  themeBgKept?: boolean;
 };
 
 /** Which PP7 layers this build can actually drive. Audio has no layer yet. */
@@ -66,7 +73,8 @@ export function pp7LayerActive(i: Pp7LayerInputs): Record<Pp7ClearLayer, boolean
     // what the draw-order fix removes.
     media: i.rowActive("background")
       || (!i.pp7DrawOrder && i.backgroundSpecActive && i.videoInputActive)
-      || (isMediaSlideKind(kind) && i.rowActive("slide")),
+      || (isMediaSlideKind(kind) && i.rowActive("slide"))
+      || !!i.themeBgKept,
     videoInput: i.videoInputActive && i.rowActive("camera"),
   };
 }
@@ -78,8 +86,13 @@ export function pp7AnyLive(active: Record<Pp7ClearLayer, boolean>): boolean {
 
 /** The side effects a clear can run. Supplied by the shell/ctx. */
 export type Pp7ClearEffects = {
-  /** `ctx.onKill()` — blank the slide layer. */
-  killSlide: () => void;
+  /** `ctx.onKill()` — blank the slide layer. A plain Slide clear may KEEP the
+   *  live theme's media (`keepTheme` undefined); Clear All / Clear Media pass
+   *  `{ keepTheme: false }` so they blank everything. */
+  killSlide: (opts?: { keepTheme?: boolean }) => void;
+  /** Drop the theme background a Slide clear kept (Clear Media / Clear All).
+   *  Optional: absent ⇒ nothing to release. */
+  releaseThemeBg?: () => void;
   /** `setActiveBackgroundId("none")`. */
   setBackgroundNone: () => void;
   /** `ctx.liveLayers.clearLayer(id)`. */
@@ -102,17 +115,22 @@ export type Pp7ClearEffects = {
  * Clear exactly ONE PP7 layer. Byte-for-byte the rail's former `clear()`.
  * `i` is read for the decisions (live slide kind, which rows are active).
  */
-export function pp7ClearLayer(layer: Pp7ClearLayer, i: Pp7LayerInputs, fx: Pp7ClearEffects): void {
+export function pp7ClearLayer(layer: Pp7ClearLayer, i: Pp7LayerInputs, fx: Pp7ClearEffects, fromClearAll = false): void {
   switch (layer) {
     case "slide":
-      if (!isMediaSlideKind(i.kind)) fx.killSlide();
+      if (!isMediaSlideKind(i.kind)) {
+        // Clear All blanks the theme background too; a lone Slide clear keeps it.
+        if (fromClearAll) fx.killSlide({ keepTheme: false }); else fx.killSlide();
+      }
       return;
     case "media":
       fx.setBackgroundNone();
       // A background override can show while the base store is already none
       // (e.g. a Layers-panel swap) — clear the layer too so it really goes.
       if (i.rowActive("background")) fx.clearLayer("background");
-      if (isMediaSlideKind(i.kind)) fx.killSlide();
+      if (isMediaSlideKind(i.kind)) fx.killSlide({ keepTheme: false });
+      // A theme background kept by an earlier Slide clear is Media-layer content.
+      fx.releaseThemeBg?.();
       return;
     case "videoInput":
       // Stop the feed like the camera panel's Clear, so it can go live again.
@@ -141,7 +159,7 @@ export function pp7ClearLayer(layer: Pp7ClearLayer, i: Pp7LayerInputs, fx: Pp7Cl
  * all work normally afterwards.
  */
 export function pp7ClearAll(i: Pp7LayerInputs, fx: Pp7ClearEffects): void {
-  for (const layer of PP7_CLEAR_ORDER) pp7ClearLayer(layer, i, fx);
+  for (const layer of PP7_CLEAR_ORDER) pp7ClearLayer(layer, i, fx, true);
   fx.clearLowerThird?.();
 }
 

@@ -28,6 +28,7 @@
  */
 import { useRef, type ReactNode } from "react";
 import { usePp7DrawOrder } from "@/lib/pp7-draw-order";
+import { usePp7KeepThemeBg, isKeepThemeBgSlide } from "@/lib/pp7-keep-theme-bg";
 import { SlideRenderer } from "./SlideRenderer";
 import { OutputSlide } from "./OutputSlide";
 import { TransitionWrapper } from "./TransitionWrapper";
@@ -198,7 +199,11 @@ export function OutputCompositor(props: OutputCompositorProps) {
   const plan = planOutput(
     pp7Order ? { ...resolvedInput, pp7DrawOrder: true, announcementLive: !!announcement } : resolvedInput,
   );
-  const slide = resolvedInput.slide;
+  // PP7 "Clear Slide keeps the theme's media" (src/lib/pp7-keep-theme-bg.ts).
+  // Receiver-side half of the kill switch: with it off, a slide carrying the
+  // keep flag is rendered as a plain empty slide — byte-identical to before.
+  const keepThemeBgOn = usePp7KeepThemeBg();
+  const slide = isKeepThemeBgSlide(resolvedInput.slide) && !keepThemeBgOn ? ({ kind: "empty" } as SlidePayload) : resolvedInput.slide;
   const opacities = layersEnabled || sceneActive
     ? layerOpacities(layersEnabled ? layerOverrides : undefined, mask, pp7Order)
     : {};
