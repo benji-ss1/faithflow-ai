@@ -35,12 +35,47 @@ check("pure-black bg baked as near-black sentinel #010101", () => {
   assert.equal(out.bgColor, "#010101");
 });
 
-check("gradient theme does NOT bake bgColor (leaves slide bg for live gradient)", () => {
+check("gradient theme does NOT bake a solid bgColor and CLEARS the slide's own (it would cover the gradient)", () => {
   const out = bakeThemeIntoObjectsJson(
     { bgType: "gradient", bgColor: "#ff0000", bgColor2: "#00ff00" },
-    { bgColor: "#111111", objects: [] },
+    { bgColor: "#111111", bgColor2: "#222222", bgImageUrl: "https://x/old.png", objects: [] },
   );
-  assert.equal(out.bgColor, "#111111"); // unchanged
+  assert.equal(out.bgColor, undefined);
+  assert.equal(out.bgColor2, undefined);
+  assert.equal(out.bgImageUrl, undefined);
+  assert.ok(!("bgColor" in out));
+});
+
+// Field bug 2026-09-19 (Victor): "apply a theme to a song" only restyled SOME
+// slides. A slide's own bgColor / bgImageUrl outranks the theme at render time
+// (SlideRenderer: bgImageUrl > bgColor > theme), so any slide still carrying an
+// older background (an earlier solid/image theme, or an editor-saved colour) kept
+// it. A theme that defines a background now owns the slide's whole bg stack.
+check("solid theme clears a stale image left by an earlier theme", () => {
+  const out = bakeThemeIntoObjectsJson({ bgType: "solid", bgColor: "#00aa44" }, { bgType: "image", bgImageUrl: "https://x/a.png", bgColor: "#123456", bgColor2: "#654321", objects: [] });
+  assert.equal(out.bgColor, "#00aa44");
+  assert.equal(out.bgType, "solid");
+  assert.ok(!("bgImageUrl" in out) && !("bgColor2" in out));
+});
+
+check("image theme replaces the slide's image and drops a stale colour", () => {
+  const out = bakeThemeIntoObjectsJson({ bgType: "image", bgImageUrl: "https://x/new.png" }, { bgColor: "#222222", bgImageUrl: "https://x/old.png", objects: [] });
+  assert.equal(out.bgImageUrl, "https://x/new.png");
+  assert.ok(!("bgColor" in out));
+});
+
+check("every slide of a song ends up with the same background whatever it carried before", () => {
+  const before = [null, { objects: [] }, { bgColor: "#222222", objects: [] }, { bgColor: "#000000", objects: [textObj()] }, { bgImageUrl: "https://x/old.png", objects: [] }, { bgType: "solid", bgColor: "#00aa44", objects: [] }];
+  for (const cfg of [{ bgType: "gradient", bgColor: "#111", bgColor2: "#999" }, { bgType: "solid", bgColor: "#336699" }, { bgType: "image", bgImageUrl: "https://x/i.png" }] as const) {
+    const bgs = before.map((b) => { const o = bakeThemeIntoObjectsJson(cfg, b); return JSON.stringify([o.bgColor, o.bgColor2, o.bgImageUrl]); });
+    assert.equal(new Set(bgs).size, 1, `${cfg.bgType}: ${bgs.join(" | ")}`);
+  }
+});
+
+check("a theme with NO background fields leaves the slide's own background alone", () => {
+  const out = bakeThemeIntoObjectsJson({ fontFamily: "Inter" }, { bgColor: "#222222", bgImageUrl: "https://x/old.png", objects: [] });
+  assert.equal(out.bgColor, "#222222");
+  assert.equal(out.bgImageUrl, "https://x/old.png");
 });
 
 check("contrast guard: light text on light bg flips to readable", () => {
