@@ -17,7 +17,11 @@ import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
 import { OVERLAY_POSITIONS } from "./broadcast";
 import { requireUser, requireRole, requireCap, hasCap } from "./session";
-import { deleteObject, getBuffer, putBuffer, statObject, readObjectHead } from "./s3";
+import { deleteObject, getBuffer, putBuffer, statObject, readObjectHead, keyFromPresignedUrl, presignGet } from "./s3";
+import {
+  toPortableTheme, parsePortableTheme, applyPortableMedia, keyBelongsToChurch,
+  describePath, MAX_THEME_FILE_BYTES, type PortableTheme,
+} from "./theme-portable";
 import { validateMediaRegistration, verifyUploadedObject, isChurchUploadKey, THUMBNAIL_MAX_SOURCE_BYTES } from "./media-types";
 import { isAudioMediaSupported, AUDIO_NOT_READY_ERROR } from "./server/media-audio-support";
 import { after } from "next/server";
@@ -2512,28 +2516,89 @@ export async function deleteMessageTemplate(id: string): Promise<Result> {
   return { ok: true };
 }
 
-export async function exportTheme(id: string): Promise<Result<{ name: string; config: ThemeConfig }>> {
+/**
+ * Export a theme as a portable PresentFlow theme file (.pftheme.json, v1).
+ *
+ * SECURITY (the reason this is not just `SELECT config`): theme backgrounds and
+ * logos are stored as SIGNED S3 GET URLs whose key is `{churchId}/…`. Handing
+ * one of those to another church in a downloadable file would give them a live,
+ * working read credential for this church's storage. So every media reference is
+ * replaced by its STABLE object key in a `media` manifest (see theme-portable.ts)
+ * and re-signed on import ONLY for the church that owns it. `name` + `config`
+ * stay at the top level so files stay readable by the older `{name, config}`
+ * importer. Read-only, church-scoped.
+ */
+export async function exportTheme(id: string): Promise<Result<PortableTheme & { unresolvedMedia: string[] }>> {
   const user = await requireUser();
   const db = getDb();
   const [row] = await db.select().from(themes)
     .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId))).limit(1);
   if (!row) return { ok: false, error: "Theme not found" };
-  return { ok: true, data: { name: row.name, config: (row.config as ThemeConfig) ?? {} } };
+  const { file, unresolved } = toPortableTheme(
+    row.name,
+    (row.config as ThemeConfig) ?? {},
+    (url) => keyFromPresignedUrl(url),
+    { churchId: user.churchId },
+  );
+  return { ok: true, data: { ...file, unresolvedMedia: unresolved.map((u) => describePath(u.path)) } };
 }
 
-export async function importTheme(json: unknown): Promise<Result<{ id: string; rejectedFields: string[] }>> {
+/**
+ * Import a portable theme file. ALWAYS creates a NEW theme — it never updates or
+ * overwrites an existing one, so an import can't silently change the look of a
+ * service that is already built on a theme.
+ *
+ * Accepts the v1 envelope AND the legacy `{ name, config }` files churches have
+ * already exported (rule 0 — don't break what works).
+ *
+ * Every write is church-scoped and every value is re-sanitised server-side:
+ *  • sanitizeThemeConfig drops unknown keys, clamps numbers, validates colours
+ *    and runs every URL through cleanRenderUrl (no javascript:/data:svg/foreign
+ *    same-origin paths); sanitizeThemeLayout rejects prototype-pollution keys.
+ *  • `builtinId` is stripped (no allowBuiltinId) so an imported theme can never
+ *    impersonate a built-in and hijack its find-or-create slot.
+ *  • media is re-signed ONLY when the stable key belongs to THIS church; a key
+ *    from any other church is dropped and reported by name. An imported theme
+ *    therefore never holds a link into another church's storage.
+ */
+export async function importTheme(json: unknown): Promise<Result<{ id: string; name: string; config: ThemeConfig; rejectedFields: string[]; missingMedia: string[] }>> {
   const user = await requireCap("edit_library");
-  if (!json || typeof json !== "object") return { ok: false, error: "Invalid theme JSON" };
-  const obj = json as { name?: unknown; config?: unknown };
-  const name = typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : "Imported theme";
-  const { config, rejected } = sanitizeThemeConfig(obj.config);
+  // Bound the parse cost of a hostile upload before touching it.
+  if (typeof json === "string" && json.length > MAX_THEME_FILE_BYTES) {
+    return { ok: false, error: "That theme file is too big (over 1 MB)." };
+  }
+  if (json && typeof json === "object") {
+    let size = 0;
+    try { size = JSON.stringify(json).length; } catch { size = MAX_THEME_FILE_BYTES + 1; }
+    if (size > MAX_THEME_FILE_BYTES) return { ok: false, error: "That theme file is too big (over 1 MB)." };
+  }
+  const parsed = parsePortableTheme(json, (url) => keyFromPresignedUrl(url));
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  const { name, config, media, unresolved } = parsed.data;
+
+  // Re-sign ONLY this church's own objects. The key's first segment is the
+  // owning church id — the same ownership rule /api/media/url enforces.
+  const resolved = new Map<string, string>();
+  for (const ref of media) {
+    if (!keyBelongsToChurch(ref.s3Key, user.churchId)) continue;
+    try {
+      const url = await presignGet(ref.s3Key);
+      if (url) resolved.set(ref.s3Key, url);
+    } catch { /* treated as missing below */ }
+  }
+  const { config: withMedia, missing } = applyPortableMedia(config, media, (ref) => resolved.get(ref.s3Key) ?? null);
+  const missingMedia = [...missing, ...unresolved.map((u) => describePath(u.path))];
+
+  const { config: clean, rejected } = sanitizeThemeConfig(withMedia);
   if (rejected.length > 0) console.warn("[importTheme] rejected fields:", rejected);
   const db = getDb();
   const [row] = await db.insert(themes).values({
-    churchId: user.churchId, name, config,
+    churchId: user.churchId, name, config: clean,
   }).returning({ id: themes.id });
-  return { ok: true, data: { id: row.id, rejectedFields: rejected } };
+  revalidatePath("/library/themes");
+  return { ok: true, data: { id: row.id, name, config: clean, rejectedFields: rejected, missingMedia } };
 }
+
 
 /**
  * Built-in themes — turn a "builtin:<slug>" into a real church theme row so

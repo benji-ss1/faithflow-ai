@@ -7,14 +7,20 @@
  * Save As" with a ▾ to start from an existing theme.
  *
  * Reuses the existing theme data (/api/themes), server actions and the shared
- * apply path (applyThemeLive). The full editor is the existing ThemesModal,
- * opened via `presentflow:open-themes-settings`.
+ * apply path (applyThemeLive). The editor is the desktop slide editor in theme
+ * mode (`presentflow:open-slide-editor` with a themeId).
+ *
+ * 2026-09-18: this popover REPLACED the legacy ThemesManager screen. The two
+ * capabilities that lived only there — "Import from ProPresenter" and the
+ * per-content-type default look — moved here. Parity table:
+ * docs/THEMES_MANAGER_RETIREMENT.md.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import * as Popover from "@radix-ui/react-popover";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { ChevronLeft, ChevronRight, Palette, Pencil, Plus, SlidersHorizontal } from "lucide-react";
+import { ChevronLeft, ChevronRight, Palette, Pencil, Plus, SlidersHorizontal, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { applyThemeLive, readThemeRecents, type ClientTheme } from "@/lib/theme-apply-client";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -22,6 +28,13 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { themeConfigToAppearance } from "@/lib/theme-appearance";
 import type { SlidePayload, SlideObjectWire, ThemeAppearance } from "@/lib/broadcast";
 import { BUILTIN_THEMES, getBuiltinTheme, isBuiltinThemeId } from "@/lib/builtin-themes";
+// Lazily loaded: ThemeImportDialog statically imports server actions, and the
+// Themes popover is mounted on every operator render. Deferring it keeps that
+// module (and its server-only chain) out of the popover's import graph.
+const ThemeImportDialog = dynamic(() => import("@/components/library/ThemeImportDialog").then((m) => m.ThemeImportDialog), { ssr: false });
+import { isContentTypeEditDenied } from "@/lib/church-styles-store";
+import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
+import { useLegacyThemes } from "@/lib/legacy-themes-flag";
 
 /** Built-ins as client themes (constant config; never applied directly — they
  *  are materialized into a church theme first). */
@@ -50,8 +63,8 @@ export async function materializeBuiltinClient(builtinId: string): Promise<Clien
 }
 
 // Theme Editor (PR 1): the pencil / "Edit…" open the PP7-style editor ON that
-// theme (the same full-screen slide editor). The sliders icon still opens the
-// old Themes screen until parity is verified.
+// theme (the same full-screen slide editor). The sliders icon (legacy screen)
+// is now shown ONLY when the NEXT_PUBLIC_LEGACY_THEMES escape hatch is on.
 function openThemeSlideEditor(themeId: string) {
   window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor", { detail: { themeId } }));
 }
@@ -115,6 +128,8 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
   const [recents, setRecents] = useState<string[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const legacyThemes = useLegacyThemes();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [applying, setApplying] = useState<string | null>(null);
   const [canEdit, setCanEdit] = useState(false);
@@ -341,7 +356,8 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
                 <header className="h-12 shrink-0 flex items-center gap-2 px-3 border-b border-[var(--color-border)]">
                   <Palette className="w-5 h-5 text-[var(--color-brand)]" aria-hidden />
                   <div className="flex-1 text-center text-[14px] font-semibold text-[var(--color-foreground)]">Themes</div>
-                  {canEdit ? <button type="button" className={iconBtn} onClick={() => { onOpenChange(false); openThemeEditor(); }} aria-label="All themes (classic screen)" title="All themes (classic screen)"><SlidersHorizontal className="w-4 h-4" /></button> : null}
+                  {canEdit && legacyThemes ? <button type="button" className={iconBtn} onClick={() => { onOpenChange(false); openThemeEditor(); }} aria-label="All themes (classic screen)" title="All themes (classic screen)"><SlidersHorizontal className="w-4 h-4" /></button> : null}
+                  {canEdit ? <button type="button" className={iconBtn} onClick={() => setImportOpen(true)} aria-label="Import from ProPresenter" title="Import from ProPresenter"><Upload className="w-4 h-4" /></button> : null}
                   {canEdit ? <button type="button" className={iconBtn} onClick={() => setNewOpen(true)} aria-label="New theme" title="New theme"><Plus className="w-5 h-5" /></button> : null}
                 </header>
                 <div className="flex-1 min-h-0 overflow-y-auto p-3 pf-transcript-scroll">
@@ -366,6 +382,7 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
                       )}
                       <div className="text-[13px] font-semibold text-[var(--color-muted-foreground)] mt-4 pt-3 mb-2 border-t border-[var(--color-border)]" data-builtin-themes="">Built-in</div>
                       <div className="grid grid-cols-3 gap-3">{BUILTIN_CLIENT_THEMES.map((t) => card(t, "builtin"))}</div>
+                      <ContentTypeDefaults themes={themes} />
                     </>
                   )}
                 </div>
@@ -380,8 +397,63 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
         onClose={() => setNewOpen(false)}
         onCreated={(id) => { setNewOpen(false); load(); setDetailId(id); window.dispatchEvent(new CustomEvent("presentflow:themes-changed")); }}
       />
+      <ThemeImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onDone={() => { setImportOpen(false); load(); window.dispatchEvent(new CustomEvent("presentflow:themes-changed")); }}
+      />
       {confirmDialog}
     </>
+  );
+}
+
+/**
+ * Default look per content type (Songs / Bible verses) — the one capability
+ * that lived ONLY in the legacy ThemesManager's operator mode
+ * (ThemesManager.tsx ContentTypeStyleBar). Church-scoped through
+ * church-styles-store; a server refusal (no edit_library) disables the picker
+ * rather than letting a volunteer set a value that never saves.
+ */
+function ContentTypeDefaults({ themes }: { themes: ClientTheme[] }) {
+  const [styles, setStyles] = useState<ContentTypeStyles>({});
+  const [denied, setDenied] = useState(false);
+  useEffect(() => {
+    const load = () => { setStyles(loadContentTypeStyles()); setDenied(isContentTypeEditDenied()); };
+    load();
+    window.addEventListener("presentflow:content-type-styles-changed", load);
+    return () => window.removeEventListener("presentflow:content-type-styles-changed", load);
+  }, []);
+  const set = (type: ContentStyleType, themeId: string) => {
+    const next: ContentTypeStyles = { ...styles };
+    if (themeId) next[type] = themeId; else delete next[type];
+    setStyles(next);
+    saveContentTypeStyles(next);
+  };
+  return (
+    <div className="mt-4 pt-3 border-t border-[var(--color-border)]" data-content-type-defaults="">
+      <div className="text-[13px] font-semibold text-[var(--color-muted-foreground)] mb-2">Default look per content type</div>
+      <div className="grid grid-cols-2 gap-3">
+        {CONTENT_STYLE_TYPES.map(({ key, label }) => (
+          <label key={key} className="flex flex-col gap-1 text-[11px] text-[var(--color-muted-foreground)]">
+            <span>{label}</span>
+            <select
+              value={styles[key] ?? ""}
+              onChange={(e) => set(key, e.target.value)}
+              disabled={denied}
+              title={denied ? "Only someone who can edit the library can change this" : undefined}
+              className="h-8 px-2 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] text-[12px] text-[var(--color-foreground)] outline-none disabled:opacity-60"
+            >
+              <option value="">Church default</option>
+              {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </label>
+        ))}
+      </div>
+      <p className="mt-2 text-[10.5px] leading-snug text-[var(--color-muted-foreground)]">
+        Songs and Bible verses use these looks on the projector, stage &amp; livestream on every computer in your church — unless a specific item overrides it.
+        {denied && " Only someone who can edit the library can change these."}
+      </p>
+    </div>
   );
 }
 

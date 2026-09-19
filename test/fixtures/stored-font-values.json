@@ -1,0 +1,8 @@
+{
+  "_note": "Distinct stored fontFamily values. Local dev DB (localhost) read-only query 2026-09-17 across themes.config (incl. nested), song_slides.objects_json, announcements.font_family + known prod values. Unknown values must pass through untouched.",
+  "localDb": ["Courier New", "Georgia"],
+  "knownProd": ["Inter", "Sora", "Arial"],
+  "pickerLegacy": ["Plus Jakarta Sans", "Playfair Display", "Cormorant Garamond", "Fraunces", "Spectral", "Montserrat", "DM Serif Display", "Helvetica", "Helvetica Neue", "Times New Roman"],
+  "stacks": ["Inter, system-ui, sans-serif", "Georgia, serif", "ui-monospace, SFMono-Regular, monospace", "Inter, sans-serif"],
+  "oddballs": ["inter", "  Sora  ", "'Times New Roman'", "\"Playfair Display\"", "Comic Sans MS", "Garamond", "Times", "serif", "TEST"]
+}

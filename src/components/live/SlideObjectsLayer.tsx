@@ -1,7 +1,9 @@
 "use client";
+import { fontStack } from "@/lib/fonts/registry";
 import type { SlideObjectWire } from "@/lib/broadcast";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
+import { flipTransform } from "@/lib/editor-geometry";
 
 /**
  * Read-only projector render of a slide's positioned objects (Phase 1 of the
@@ -55,6 +57,11 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
           // it composes cleanly with the entrance animation's transform instead
           // of being overwritten by it.
           rotate: obj.rotation ? `${obj.rotation}deg` : undefined,
+          // Flip via the INDEPENDENT `scale` property, for the same reason as
+          // `rotate` above. `flipTransform` returns undefined unless a flip flag
+          // is set, so every object authored before flip existed renders
+          // byte-identically (parity-tested in test/editor-geometry.test.ts).
+          scale: flipTransform(obj),
         };
         const key = (obj as { id?: string }).id ?? `${obj.kind}-${i}`;
         // Entrance animation: applied to the positioned box only. `both` fill
@@ -80,7 +87,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
               <div
                 className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
                 style={{
-                  fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
+                  fontFamily: fontStack(obj.fontFamily) || "Inter, system-ui, sans-serif",
                   fontSize: `${((obj.fontSize ?? 96) * objFs / SLIDE_CANVAS_H) * 100}cqh`,
                   fontWeight: obj.fontWeight ?? 600,
                   // Default-white text inherits the theme's textColor when the

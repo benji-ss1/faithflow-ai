@@ -21,15 +21,15 @@ import { SCENE_SCREENS, SCENE_LAYER_IDS } from "./scenes";
 // the 1920×1080 virtual canvas the editor uses; renderers scale by percentage.
 // A wire-validated subset of the editor's SlideObject (src/lib/slide-objects.ts).
 export type SlideObjectWire =
-  | { kind: "text"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; text: string;
+  | { kind: "text"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; text: string;
       fontFamily?: string; fontSize?: number; fontWeight?: number; color?: string;
       align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean; opacity?: number;
       lineHeight?: number; letterSpacing?: number; uppercase?: boolean; shadow?: boolean; stroke?: string; strokeWidth?: number;
       role?: "main" | "verse" | "reference" }
-  | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
+  | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
-  | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; posX?: number; posY?: number; zoom?: number; opacity?: number; blurFill?: boolean; blur?: boolean }
-  | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number };
+  | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; posX?: number; posY?: number; zoom?: number; opacity?: number; blurFill?: boolean; blur?: boolean }
+  | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number };
 
 export const SLIDE_CANVAS_W = 1920;
 export const SLIDE_CANVAS_H = 1080;
@@ -1025,6 +1025,9 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
   if (p.animDelayMs !== undefined && (typeof p.animDelayMs !== "number" || !Number.isFinite(p.animDelayMs) || p.animDelayMs < 0 || p.animDelayMs > 10000)) return false;
   if (p.rotation !== undefined && (typeof p.rotation !== "number" || !Number.isFinite(p.rotation) || p.rotation < -360 || p.rotation > 360)) return false;
   if (p.opacity !== undefined && (typeof p.opacity !== "number" || !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1)) return false;
+  // Flip (PP7 "Flip Horizontal / Vertical"). Booleans only; absent = no flip.
+  if (p.flipH !== undefined && typeof p.flipH !== "boolean") return false;
+  if (p.flipV !== undefined && typeof p.flipV !== "boolean") return false;
   if (p.locked !== undefined && typeof p.locked !== "boolean") return false;
   if (p.hidden !== undefined && typeof p.hidden !== "boolean") return false;
   switch (p.kind) {
@@ -1120,7 +1123,7 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
     sig += "|o" + s.objects.length + ":" + s.objects.map((o) => {
       // `h` only when hidden (theme scripture hides its reference object) — a
       // visible object's signature is byte-identical to before.
-      const base = `${o.kind[0]}${Math.round(o.x)},${Math.round(o.y)},${Math.round(o.w)},${Math.round(o.h)}${o.rotation ? "@" + Math.round(o.rotation) : ""}${o.hidden ? "h" : ""}`;
+      const base = `${o.kind[0]}${Math.round(o.x)},${Math.round(o.y)},${Math.round(o.w)},${Math.round(o.h)}${o.rotation ? "@" + Math.round(o.rotation) : ""}${o.flipH ? "H" : ""}${o.flipV ? "V" : ""}${o.hidden ? "h" : ""}`;
       // Include the visual text style so a style-only edit (font/size/weight/
       // align/uppercase) changes the identity — otherwise the already-live skip
       // in sendSlideToLive silently swallows it for callers that don't force.
@@ -1258,6 +1261,11 @@ export function isValidAnnouncementStyle(st: unknown): st is AnnouncementStyle {
     if (s[k] !== undefined && (typeof s[k] !== "number" || !Number.isFinite(s[k]))) return false;
   }
   if (s.align !== undefined && !ANNOUNCEMENT_ALIGNS.has(s.align as string)) return false;
+  // Fonts P1 (2026-09-17): fontFamily reaches CSS (AnnouncementLayer renders it
+  // via the registry's fontStack), so hold it to the SAME charset + 120-char cap
+  // as every other font-family on the wire (:937, :986, :1033). Previously it
+  // was only checked for being a string.
+  if (s.fontFamily !== undefined && !FONT_FAMILY_RE.test(s.fontFamily as string)) return false;
   return true;
 }
 

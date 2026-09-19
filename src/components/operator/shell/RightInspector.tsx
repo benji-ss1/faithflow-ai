@@ -1,4 +1,6 @@
 "use client";
+import { FontOptions, WeightOptions, selectedFontValue } from "@/components/fonts/FontOptions";
+import { weightOptionsFor } from "@/lib/fonts/registry";
 import { useEffect, useRef, useState } from "react";
 import {
   Monitor, MessageSquare, Package, Volume2, Layers, Sparkles, Radio, Activity,
@@ -21,6 +23,7 @@ import {
   createTheme, updateTheme, duplicateTheme, deleteTheme, exportTheme, importTheme, applyThemeToSong,
 } from "@/lib/actions";
 import { toast } from "sonner";
+import { MAX_THEME_FILE_BYTES, missingMediaMessage } from "@/lib/theme-portable";
 
 const TABS: { key: InspectorTab; label: string; icon: typeof Monitor }[] = [
   { key: "output",   label: "Output",   icon: Monitor },
@@ -452,7 +455,6 @@ function StatusTab({ ctx }: { ctx: OperatorShellCtx }) {
 
 // ------------------------- Phase 5D editor tabs -------------------------
 
-const SAFE_FONTS = ["Inter", "Helvetica Neue", "Arial", "Georgia", "Times New Roman", "Courier New"];
 
 function SlideTab() {
   const editor = useSlideEditorCtx();
@@ -590,18 +592,18 @@ function TextTab() {
 
       <Section label="Font family">
         <select
-          value={t.fontFamily || "Inter"}
+          value={selectedFontValue(t.fontFamily || "Inter")}
           onChange={(e) => patch({ fontFamily: e.target.value })}
           className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
           style={{ background: "#1a2020", borderColor: "#2a3232" }}
         >
-          {SAFE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+          <FontOptions current={t.fontFamily || "Inter"} />
         </select>
       </Section>
 
       <Section label="Weight">
         <div className="inline-flex items-center rounded-md border" style={{ borderColor: "#2a3232" }}>
-          {[400, 500, 600, 700].map((w) => {
+          {segmentWeights(t.fontFamily || "Inter", t.fontWeight ?? 600).map((w) => {
             const on = (t.fontWeight ?? 600) === w;
             return (
               <button key={w} onClick={() => patch({ fontWeight: w })}
@@ -955,10 +957,10 @@ function AnnounceTab({ ctx }: { ctx: OperatorShellCtx }) {
       </Section>
 
       <Section label="Font family">
-        <select value={style.fontFamily} onChange={(e) => patchStyle({ fontFamily: e.target.value })}
+        <select value={selectedFontValue(style.fontFamily)} onChange={(e) => patchStyle({ fontFamily: e.target.value })}
           className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
           style={{ background: "#1a2020", borderColor: "#2a3232" }}>
-          {SAFE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+          <FontOptions current={style.fontFamily} />
         </select>
       </Section>
 
@@ -971,7 +973,7 @@ function AnnounceTab({ ctx }: { ctx: OperatorShellCtx }) {
 
       <Section label="Weight">
         <div className="inline-flex rounded-md border" style={{ borderColor: "#2a3232" }}>
-          {[400, 500, 600, 700].map((w) => {
+          {segmentWeights(style.fontFamily, style.fontWeight).map((w) => {
             const on = style.fontWeight === w;
             return (
               <button key={w} onClick={() => patchStyle({ fontWeight: w })}
@@ -1307,25 +1309,38 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
     const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `${(r.data?.name ?? "theme").replace(/\W+/g, "_")}.json`;
+    a.href = url; a.download = `${(r.data?.name ?? "theme").replace(/\W+/g, "_")}.pftheme.json`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
+    // Pictures travel as a reference to this church's own storage, so tell the
+    // operator up front when one couldn't be included at all.
+    const unres = r.data?.unresolvedMedia ?? [];
+    if (unres.length) toast.warning(`Exported — but ${unres.join(", ")} couldn't be included. Re-pick it and export again.`);
+    else toast.success("Theme exported");
   };
   const doImportClick = () => fileRef.current?.click();
   const doImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     try {
-      const text = await f.text();
-      const parsed = JSON.parse(text);
+      if (f.size > MAX_THEME_FILE_BYTES) {
+        toast.error("That theme file is too big (over 1 MB). It doesn't look like a PresentFlow theme.");
+        return;
+      }
+      let parsed: unknown;
+      try { parsed = JSON.parse(await f.text()); }
+      catch { toast.error("That file isn't valid theme JSON."); return; }
       const r = await importTheme(parsed);
       if (r.ok && r.data) {
-        toast.success(r.data.rejectedFields.length ? `Imported (skipped: ${r.data.rejectedFields.join(", ")})` : "Imported");
         await refresh();
         setSel(r.data.id);
+        const missing = missingMediaMessage(r.data.missingMedia);
+        if (missing) toast.warning(missing);
+        else if (r.data.rejectedFields.length) toast.success(`Imported "${r.data.name}" — ${r.data.rejectedFields.length} setting(s) this version doesn't support were skipped.`);
+        else toast.success(`Imported "${r.data.name}"`);
       } else if (!r.ok) toast.error(r.error);
-    } catch (err) {
-      toast.error("Invalid theme JSON: " + (err instanceof Error ? err.message : String(err)));
+    } catch {
+      toast.error("That theme couldn't be imported. Try exporting it again.");
     } finally {
       if (fileRef.current) fileRef.current.value = "";
     }
@@ -1437,10 +1452,10 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
           </Section>
 
           <Section label="Font family">
-            <select value={cfg.fontFamily || "Inter"} onChange={(e) => patchConfig({ fontFamily: e.target.value })}
+            <select value={selectedFontValue(cfg.fontFamily || "Inter")} onChange={(e) => patchConfig({ fontFamily: e.target.value })}
               className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
               style={{ background: "#1a2020", borderColor: "#2a3232" }}>
-              {SAFE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+              <FontOptions current={cfg.fontFamily || "Inter"} />
             </select>
           </Section>
 
@@ -1453,7 +1468,7 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
 
           <Section label="Weight">
             <div className="inline-flex rounded-md border" style={{ borderColor: "#2a3232" }}>
-              {[400, 500, 600, 700].map((w) => {
+              {segmentWeights(cfg.fontFamily || "Inter", cfg.fontWeight ?? 600).map((w) => {
                 const on = (cfg.fontWeight ?? 600) === w;
                 return (
                   <button key={w} onClick={() => patchConfig({ fontWeight: w })}
@@ -1513,4 +1528,12 @@ function hexAlpha(hex: string, alpha: number): string {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!m) return `rgba(0,0,0,${alpha})`;
   return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${alpha})`;
+}
+
+/** Weight segment buttons (compact 400–700 band), limited to weights the font
+ *  really has, always including the stored weight so it stays highlighted. */
+function segmentWeights(font: string | null | undefined, current: number | undefined): number[] {
+  const real = weightOptionsFor(font, current, [400, 500, 600, 700]);
+  const band = real.filter((w) => (w >= 400 && w <= 700) || w === current);
+  return band.length ? band : real;
 }

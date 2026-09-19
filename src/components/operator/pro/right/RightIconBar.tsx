@@ -30,7 +30,7 @@
  * - Screens → embeds ScreensPanel (per-machine resolution + display
  *   assignment + Configure Screens button).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import * as Popover from "@radix-ui/react-popover";
 import { BookOpen, Music, Link2, Layers as LayersIcon, Timer as TimerIcon, MessageSquare } from "lucide-react";
@@ -48,6 +48,7 @@ import { countCrossRefCandidates } from "@/lib/right-rail-visible";
 import { TimersPanel } from "./TimersPanel";
 import { MessagesPanel } from "./MessagesPanel";
 import { ThemesModal } from "../ThemesModal";
+import { readLegacyThemesFlag, OPEN_THEME_POPOVER_EVENT } from "@/lib/legacy-themes-flag";
 import { ChannelStrip } from "../../ChannelStrip";
 import { OPEN_SETTINGS_EVENT } from "../../settings/SettingsWindow";
 // Change 5C (2026-07-27) — right-icon Screens tab retired. Duplicated the
@@ -145,9 +146,14 @@ export function RightIconBar({
       // Audio hardware panel in the left sidebar instead.
       window.dispatchEvent(new CustomEvent("presentflow:open-hardware", { detail: { panel: "audio" } }));
     };
-    // Themes now opens as a full-screen operator modal.
+    // 2026-09-18: the legacy Themes screen (ThemesManager in ThemesModal) is
+    // RETIRED. This event — still fired by Settings → "Open themes" and by any
+    // legacy deep-link — now forwards to the PP7 Themes popover so nothing
+    // dead-ends. With the NEXT_PUBLIC_LEGACY_THEMES escape hatch on, it opens
+    // the old modal exactly as before. See docs/THEMES_MANAGER_RETIREMENT.md.
     const onOpenThemesSettings = () => {
-      setThemesModalOpen(true);
+      if (readLegacyThemesFlag()) { setThemesModalOpen(true); return; }
+      window.dispatchEvent(new CustomEvent(OPEN_THEME_POPOVER_EVENT));
     };
     window.addEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
     window.addEventListener("presentflow:open-themes-settings", onOpenThemesSettings);
@@ -260,9 +266,10 @@ export function RightIconBar({
       )}
       {/* Change 5C — Screens popover render block removed. */}
 
-      {/* Themes — full-screen operator modal (opened from the top-bar Themes
-          button via the presentflow:open-themes-settings event). */}
-      <ThemesModal open={themesModalOpen} onClose={() => setThemesModalOpen(false)} />
+      {/* Themes — RETIRED legacy modal. Only ever mounted when the
+          NEXT_PUBLIC_LEGACY_THEMES escape hatch brings it back; the live
+          surface is the ThemePopover on the top bar. */}
+      {themesModalOpen ? <ThemesModal open onClose={() => setThemesModalOpen(false)} /> : null}
     </div>
   );
 }
@@ -332,8 +339,18 @@ function PopoverShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  // The shell is rendered INLINE at the bottom of the right aside (see the
+  // comment on IconTrigger: no Portal). The icon bar already sits at the
+  // bottom of that scrolling aside, so an opened panel lands ~315px BELOW the
+  // fold at every viewport (measured 2026-09-18: 911x512, 1093x614, 1280x720)
+  // and the operator sees nothing happen. Pull it into view on open.
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    shellRef.current?.scrollIntoView({ block: "nearest" });
+  }, []);
   return (
     <div
+      ref={shellRef}
       className="border-t border-[var(--color-border)] bg-[var(--color-elevated)]"
       role="dialog"
       aria-label={title}
@@ -351,7 +368,11 @@ function PopoverShell({
           ×
         </button>
       </div>
-      <div className="max-h-[400px] overflow-y-auto pf-transcript-scroll">
+      {/* 400px does not fit a 512-614px CSS viewport (1366x768 @150%/@125%),
+          which is the common Windows church laptop. Same idiom as the editor
+          toolbars' [@media(max-height:620px)] step-down; a no-op at the Mac
+          window height (900), so the Mac class list is unchanged there. */}
+      <div className="max-h-[400px] [@media(max-height:700px)]:max-h-[220px] overflow-y-auto pf-transcript-scroll">
         {children}
       </div>
     </div>

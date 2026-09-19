@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/lib/projection-zone";
+import { cn } from "@/lib/utils";
 
 // The Projection Zone's bottom control strip — Size / Font / Margins / Screen +
 // Center / Reset — factored out so it can sit UNDER the slide-editor canvas
@@ -41,7 +42,13 @@ export function ProjectionZoneControls({ className }: { className?: string }) {
   };
 
   return (
-    <div className={className} style={{ background: "#0f0f11", borderColor: "#ffffff14" }}>
+    // @container: the rows below sized themselves off the VIEWPORT (md:), but
+    // this bar lives inside the slide editor's canvas column, which is only
+    // ~407px wide at a 911px viewport (1366x768 @150%) because the 184px slide
+    // rail + 320px inspector are shrink-0. Measured 2026-09-18: the grid ran
+    // 462px into a 407px box and the R-margin input sat UNDER the Center
+    // button. Container width is the honest input here.
+    <div className={cn(className, "@container")} style={{ background: "#0f0f11", borderColor: "#ffffff14" }}>
       <div className="px-4 pt-2 flex items-center justify-between gap-3 flex-wrap">
         <div className="text-[11px] text-white/45">
           Projection zone — where text lands on the projector. Changes are live.
@@ -58,7 +65,7 @@ export function ProjectionZoneControls({ className }: { className?: string }) {
           <span className="tabular-nums">{res.width}×{res.height}</span>
         </div>
       </div>
-      <div className="px-4 py-2.5 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-[12px] text-white/80">
+      <div className="px-4 py-2.5 grid grid-cols-1 @[520px]:grid-cols-2 gap-x-8 gap-y-2 text-[12px] text-white/80">
         <label className="flex items-center gap-3">
           <span className="w-14 shrink-0 text-white/50">Size</span>
           <input type="range" min={0.25} max={1} step={0.01} value={Math.min(z.w, z.h)}
@@ -72,7 +79,7 @@ export function ProjectionZoneControls({ className }: { className?: string }) {
             onChange={(e) => patch({ fontScale: Number(e.target.value) })} className="flex-1 accent-[#e8501a]" />
           <span className="w-10 text-right tabular-nums">{z.fontScale.toFixed(2)}×</span>
         </label>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="w-14 shrink-0 text-white/50">Margins</span>
           {(["marginTop", "marginBottom", "marginLeft", "marginRight"] as const).map((m, i) => (
             <label key={m} className="flex items-center gap-1">
@@ -83,7 +90,7 @@ export function ProjectionZoneControls({ className }: { className?: string }) {
             </label>
           ))}
         </div>
-        <div className="flex items-center gap-2 justify-end">
+        <div className="flex items-center gap-2 justify-end flex-wrap">
           <button className="px-3 py-1.5 rounded-md text-[12px]" style={{ color: AMBER, border: `1px solid ${AMBER}55` }}
             onClick={() => patch({ x: (1 - z.w) / 2, y: (1 - z.h) / 2 })}>Center</button>
           <button className="px-3 py-1.5 rounded-md text-[12px] text-white/70 hover:text-white" style={{ border: "1px solid #ffffff1a" }}

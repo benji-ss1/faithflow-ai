@@ -26,6 +26,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { domMatrix, domKey, type DomFixture } from "./pp7-draw-order-dom-matrix";
 import { PP7_DRAW_ORDER_STORAGE_KEY } from "../src/lib/pp7-draw-order";
+import { fontStack } from "../src/lib/fonts/registry";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 for (const k of ["window", "document", "navigator", "HTMLElement", "Element", "CustomEvent", "Event", "KeyboardEvent", "MouseEvent", "Node", "localStorage"] as const) {
@@ -45,7 +46,12 @@ function check(name: string, fn: () => void) {
   catch (e) { console.error(`  FAIL  ${name}\n        ${(e as Error).message}`); fail++; }
 }
 
-const golden = JSON.parse(readFileSync(new URL("./fixtures/output-dom-main.golden.json", import.meta.url), "utf8")) as Record<string, string>;
+// The golden was captured before feat/fonts-p1, which appends a generic fallback to every
+// font-family at RENDER time. Map ONLY its font-family declarations through fontStack —
+// every other byte must still match exactly.
+const withFontStacks = (html: string) => html.replace(/font-family:\s*([^;"]+)/g, (_m, f: string) => `font-family: ${fontStack(f.trim()) ?? f.trim()}`);
+const rawGolden = JSON.parse(readFileSync(new URL("./fixtures/output-dom-main.golden.json", import.meta.url), "utf8")) as Record<string, string>;
+const golden: Record<string, string> = Object.fromEntries(Object.entries(rawGolden).map(([k, v]) => [k, withFontStacks(v)]));
 
 /** Fixtures whose rendering the PP7 draw order is ALLOWED to change: exactly the
  *  ones with a live camera (swap 2) or a live announcement over live props

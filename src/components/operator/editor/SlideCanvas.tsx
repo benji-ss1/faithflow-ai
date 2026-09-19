@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CANVAS_W, CANVAS_H, type EditableSlide, type SlideObject } from "@/lib/slide-objects";
 import { cn } from "@/lib/utils";
+import { flipTransform, constrainAspect, type Rect } from "@/lib/editor-geometry";
+import { DEFAULT_VIEW_PREFS, RULER_SIZE, RULER_PAD, rulerTicks, markerPct, rulersVisible, type EditorViewPrefs } from "@/lib/editor-view-prefs";
 import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, isFullZone, resolveZoneRects, FULL_ZONE } from "@/lib/projection-zone";
 
@@ -19,6 +21,9 @@ export function SlideCanvas({
   themeBgStyle,
   backgroundNode,
   objectBadge,
+  zoom = null,
+  lockAspect = false,
+  view = DEFAULT_VIEW_PREFS,
 }: {
   slide: EditableSlide | null;
   // Full selection set. Length 1 = classic single-select (with resize handles);
@@ -32,6 +37,17 @@ export function SlideCanvas({
   onUpdateObjects: (patches: { id: string; patch: Partial<SlideObject> }[]) => void;
   onRemoveObjects: (ids: string[]) => void;
   readOnly?: boolean;
+  // Editor view zoom. `null`/absent = "Fit" — the canvas sizes itself to the
+  // available space exactly as it always has (the pre-existing, default path).
+  // A number scales that fitted size and the canvas becomes scrollable.
+  zoom?: number | null;
+  // Size lock: constrain drag-resize to the object's aspect ratio (PP7's chain
+  // link beside W/H). Absent/false = the original unconstrained resize.
+  lockAspect?: boolean;
+  // Editor view options (rulers / grid / transparency grid / snap guides).
+  // Absent = DEFAULT_VIEW_PREFS, which is exactly the pre-existing look: no
+  // rulers, no grid, no checker, snap guides ON.
+  view?: EditorViewPrefs;
   // Optional theme-background CSS applied ONLY when the slide has no explicit
   // bgColor/bgImageUrl — lets the media "logo over theme" mode preview the live
   // theme in the editor (WYSIWYG). Callers that don't pass it are unaffected.
@@ -49,6 +65,40 @@ export function SlideCanvas({
   objectBadge?: (o: SlideObject) => string | null;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  // Width the canvas WOULD have at "Fit" (the 16:9 box that fits the padded
+  // container). Only used when zoomed; at Fit the original CSS still drives.
+  // Viewport height drives the ruler auto-hide (see RULER_MIN_VIEWPORT_H).
+  const [viewportH, setViewportH] = useState(1080);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const on = () => setViewportH(window.innerHeight);
+    on();
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  const [fitW, setFitW] = useState(0);
+  // Padding around the canvas box. It already existed (16px); rulers only widen
+  // it to RULER_PAD so the gutters have somewhere to sit — the canvas box itself
+  // is never made smaller to make room for them.
+  const padRef = useRef(16);
+  // Rulers auto-hide on a short viewport (1366x768 @150% = 512 CSS px tall)
+  // rather than taking another slice of an already-tight canvas.
+  const showRulers = rulersVisible(view, viewportH);
+  padRef.current = showRulers ? RULER_PAD : 16;
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const pad = padRef.current * 2;
+      const cw = el.clientWidth - pad;
+      const ch = el.clientHeight - pad;
+      if (cw > 0 && ch > 0) setFitW(Math.min(cw, ch * (CANVAS_W / CANVAS_H)));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showRulers]);
   // Snap guides — teal alignment lines (in canvas units) shown while a moving
   // object's edge/centre snaps to the canvas or another object's edge/centre.
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
@@ -59,6 +109,13 @@ export function SlideCanvas({
   slideRef.current = slide;
   const selRef = useRef(selectedIds);
   selRef.current = selectedIds;
+  const lockRef = useRef(lockAspect);
+  lockRef.current = lockAspect;
+  const snapRef = useRef(view.snapGuides);
+  snapRef.current = view.snapGuides;
+  // Pointer position in CANVAS UNITS, for the ruler markers. Only tracked while
+  // the rulers are actually on screen, so it costs nothing when they're off.
+  const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   // Which text object (if any) is being edited inline (double-click to enter).
   const [editingId, setEditingId] = useState<string | null>(null);
   // Leaving the slide cancels any in-progress inline edit.
@@ -147,7 +204,7 @@ export function SlideCanvas({
         // Snap the moving object's left/centre/right (and top/mid/bottom) to the
         // canvas edges/centre OR any other object's edges/centre, within a
         // threshold — and remember the snapped line to draw a guide.
-        const T = 20; // canvas units
+        const T = snapRef.current ? 20 : 0; // canvas units; 0 = guides off
         const others = (slideRef.current?.objects ?? []).filter((o) => o.id !== obj.id);
         const xTargets = [0, CANVAS_W / 2, CANVAS_W, ...others.flatMap((o) => [o.x, o.x + o.w / 2, o.x + o.w])];
         const yTargets = [0, CANVAS_H / 2, CANVAS_H, ...others.flatMap((o) => [o.y, o.y + o.h / 2, o.y + o.h])];
@@ -168,6 +225,12 @@ export function SlideCanvas({
         if (mode.includes("s")) nh = Math.max(20, start.h + dy);
         if (mode.includes("w")) { nw = Math.max(20, start.w - dx); nx = start.x + (start.w - nw); }
         if (mode.includes("n")) { nh = Math.max(20, start.h - dy); ny = start.y + (start.h - nh); }
+        // Size lock: re-derive the rect from the START ratio (not the live one,
+        // which would drift over a long drag). Pure helper, unit-tested.
+        if (lockRef.current) {
+          const c: Rect = constrainAspect(start, { x: nx, y: ny, w: nw, h: nh }, mode);
+          nx = c.x; ny = c.y; nw = c.w; nh = c.h;
+        }
       }
       onUpdateObject(obj.id, { x: nx, y: ny, w: nw, h: nh } as Partial<SlideObject>);
     }
@@ -240,8 +303,26 @@ export function SlideCanvas({
   const pct = (v: number, total: number) => `${(v / total) * 100}%`;
 
   return (
-    <div ref={wrapRef} className="w-full h-full flex items-center justify-center p-4 min-h-0 min-w-0">
-      <div className="relative w-full max-w-full max-h-full" style={{ aspectRatio: "16 / 9" }}>
+    <div
+      ref={wrapRef}
+      style={{ padding: showRulers ? RULER_PAD : 16 }}
+      className={cn(
+        "w-full h-full flex min-h-0 min-w-0",
+        // Fit (the default, unchanged): centre and let the canvas shrink to the
+        // box. Zoomed: scroll, and only centre while the canvas is smaller than
+        // the viewport (`justify-center` would otherwise clip the left edge).
+        zoom === null ? "items-center justify-center" : "overflow-auto items-start justify-start",
+      )}
+    >
+      <div
+        className={cn("relative", zoom === null ? "w-full max-w-full max-h-full" : "shrink-0 mx-auto my-auto")}
+        style={zoom === null
+          ? { aspectRatio: "16 / 9" }
+          // Zoom is a multiple of the FITTED size (measured below), so 100% is
+          // literally what "Fit" shows and the readout never lies.
+          : { aspectRatio: "16 / 9", width: fitW > 0 ? fitW * zoom : undefined }}
+      >
+        {showRulers && <CanvasRulers pointer={pointer} />}
         <div
           data-canvas-inner
           className="absolute inset-0 overflow-hidden rounded-md border select-none"
@@ -273,7 +354,23 @@ export function SlideCanvas({
             if (readOnly) return;
             if (e.target === e.currentTarget) beginMarquee(e);
           }}
+          onMouseMove={showRulers ? (e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return;
+            setPointer({
+              x: ((e.clientX - r.left) / r.width) * CANVAS_W,
+              y: ((e.clientY - r.top) / r.height) * CANVAS_H,
+            });
+          } : undefined}
+          onMouseLeave={showRulers ? () => setPointer(null) : undefined}
         >
+          {/* Grid — sixteenths of the canvas, in PERCENT so it stays true at
+              every zoom and window size. Sits under every object. */}
+          {view.grid && (
+            <div className="pointer-events-none absolute inset-0 z-0" aria-hidden style={{
+              backgroundImage: "repeating-linear-gradient(to right,rgba(255,255,255,0.10) 0 1px,transparent 1px 6.25%),repeating-linear-gradient(to bottom,rgba(255,255,255,0.10) 0 1px,transparent 1px 6.25%)",
+            }} />
+          )}
           {/* Live theme/background preview layer (media "logo on background"
               editor) — clipped by the canvas, sits behind every object + guide.
               pointer-events-none so it never intercepts drags. */}
@@ -381,6 +478,9 @@ function ObjectView({
     width: `${(obj.w / CANVAS_W) * 100}%`,
     height: `${(obj.h / CANVAS_H) * 100}%`,
     rotate: obj.rotation ? `${obj.rotation}deg` : undefined,
+    // Same independent `scale` the projector uses (flipTransform) so the editor
+    // shows the flip exactly as it will project.
+    scale: flipTransform(obj),
     cursor: readOnly || locked ? "default" : editing ? "text" : "grab",
     // Hidden objects are dimmed and click-through in the editor (manage them via
     // the Layers panel) — they never render on the projector at all.
@@ -629,5 +729,55 @@ export function SlideThumb({ slide, className }: { slide: EditableSlide; classNa
         return <div key={o.id} style={{ ...s, background: "#333" }} />;
       })}
     </div>
+  );
+}
+
+/**
+ * Ruler gutters.
+ *
+ * CRITICAL to the no-regression proof: these are SIBLINGS of `[data-canvas-inner]`
+ * inside the aspect wrapper, positioned into the padding that already surrounded
+ * the canvas. The canvas box keeps `absolute inset-0`, so its own coordinate
+ * space is byte-identical with rulers on or off — which means every overlay
+ * positioned in % of it (Projection-Zone preview, snap guides, marquee, object
+ * badges, and the objects themselves) lands in exactly the same place.
+ * Test-locked in test/editor-rulers.test.ts.
+ */
+function CanvasRulers({ pointer }: { pointer: { x: number; y: number } | null }) {
+  const face = { background: "#141418", borderColor: "#2a3232" };
+  const tick = (major: boolean) => (major ? "60%" : "35%");
+  return (
+    <>
+      {/* Top ruler */}
+      <div aria-hidden className="pointer-events-none absolute left-0 right-0 border-b overflow-hidden"
+        style={{ ...face, top: -RULER_SIZE, height: RULER_SIZE }}>
+        {rulerTicks(CANVAS_W).map((t) => (
+          <div key={`tx${t.pct}`} className="absolute bottom-0 w-px bg-white/30"
+            style={{ left: `${t.pct}%`, height: tick(t.major) }} />
+        ))}
+        {rulerTicks(CANVAS_W).filter((t) => t.label).map((t) => (
+          <span key={`lx${t.pct}`} className="absolute top-px -translate-x-1/2 text-[8px] font-mono text-white/45"
+            style={{ left: `${t.pct}%` }}>{t.label}</span>
+        ))}
+        {pointer && (
+          <div className="absolute inset-y-0 w-px bg-[#e8501a]" style={{ left: `${markerPct(pointer.x, CANVAS_W)}%` }} />
+        )}
+      </div>
+      {/* Left ruler */}
+      <div aria-hidden className="pointer-events-none absolute top-0 bottom-0 border-r overflow-hidden"
+        style={{ ...face, left: -RULER_SIZE, width: RULER_SIZE }}>
+        {rulerTicks(CANVAS_H).map((t) => (
+          <div key={`ty${t.pct}`} className="absolute right-0 h-px bg-white/30"
+            style={{ top: `${t.pct}%`, width: tick(t.major) }} />
+        ))}
+        {rulerTicks(CANVAS_H).filter((t) => t.label).map((t) => (
+          <span key={`ly${t.pct}`} className="absolute left-px -translate-y-1/2 text-[8px] font-mono text-white/45"
+            style={{ top: `${t.pct}%` }}>{t.label}</span>
+        ))}
+        {pointer && (
+          <div className="absolute inset-x-0 h-px bg-[#e8501a]" style={{ top: `${markerPct(pointer.y, CANVAS_H)}%` }} />
+        )}
+      </div>
+    </>
   );
 }

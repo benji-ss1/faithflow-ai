@@ -4,13 +4,104 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.455",
+    "version": "0.1.464",
     "date": "2026-09-18",
     "headline": "Layers now stack exactly like ProPresenter — media covers a live camera, props sit above announcements",
     "highlights": [
       "A picture, video or motion on the Media layer now covers a live camera instead of vanishing behind it. To see the camera again, clear Media (F3).",
       "Your church logo now sits on top of an announcement instead of underneath it, so it is never hidden.",
       "Nothing else moved — the words, backgrounds, camera overlays, stage screen and OBS overlay all look exactly as they did."
+    ]
+  },
+  {
+    "version": "0.1.463",
+    "date": "2026-09-18",
+    "headline": "Save a theme to a file and open it anywhere",
+    "highlights": [
+      "Export any theme to a file you can back up, email, or send to another church. Import it from the Themes area and it comes in as a brand-new theme — your existing themes are never overwritten.",
+      "Fonts, colours, text placement, transitions and scripture settings all come across exactly as they were. Import it back into your own church and you get the pictures too.",
+      "Pictures and videos belong to the church that uploaded them, so they can't travel to a different church. If one can't come with the theme, PresentFlow now tells you which one and reminds you to pick your own background — instead of leaving a broken picture on screen."
+    ]
+  },
+  {
+    "version": "0.1.462",
+    "date": "2026-09-18",
+    "headline": "The new Layers panel, theme editor and slide menus now fit small Windows laptops",
+    "highlights": [
+      "Opening Layers now scrolls the panel into view. On smaller screens it used to open below the edge of the right panel, so it looked like nothing had happened.",
+      "In the slide editor, the zoom buttons and the Fit button no longer slide off the right-hand edge on a small screen. The X, Y, W and H numbers shorten instead.",
+      "The projection zone settings under the slide editor now stack into one column when the editor is narrow, so the Margins boxes and the Center button no longer sit on top of each other.",
+      "Right-click menus on a slide now scroll instead of running off the bottom of a short screen, so you can always reach Delete Slide.",
+      "On small Windows screens the card-size slider in the slide header now hides, so the Grid, List and Text view buttons are never cut off."
+    ]
+  },
+  {
+    "version": "0.1.460",
+    "date": "2026-09-18",
+    "headline": "Themes now live in one place — the Themes menu on the top bar",
+    "highlights": [
+      "The old Themes window has been put away. Everything it did is now in the Themes menu on the top bar, where you already apply themes.",
+      "Import from ProPresenter moved there too — it's the upload button at the top of the Themes menu.",
+      "You can still choose a default look for Songs and for Bible verses: it's now at the bottom of the Themes menu.",
+      "Nothing changed about your themes themselves. Settings → Themes & Look still opens the same menu, so old shortcuts keep working."
+    ]
+  },
+  {
+    "version": "0.1.459",
+    "date": "2026-09-17",
+    "headline": "Fonts you pick now really show on the projector",
+    "highlights": [
+      "Every font in the font menus now really loads, so it shows its true look on the projector, the stage screen and the livestream — before, seven of them quietly fell back to a plain system font. Because they now load, some slides and themes may look different from last Sunday, so it is worth a quick look before the service.",
+      "Bold, light and italic now look bold, light and italic. Each font only offers the weights it really has — Georgia, Arial and Times New Roman now offer regular and bold only, because that is all your computer actually has.",
+      "The font menu is now split into \"PresentFlow fonts\", which look the same on every computer in the church, and \"System fonts\", which can look different from machine to machine. Fonts that cannot show Yoruba or Igbo letters say so in the list.",
+      "The fonts are built into PresentFlow, so they keep working with no internet once they have loaded, on Windows as well as Mac.",
+      "Text is measured after its font has loaded, so a slide no longer resizes a moment after it goes live — and lyrics still never get cut off.",
+      "Your saved themes and slides are untouched: whatever font you picked before is still picked, and a font we do not recognise is offered as \"Keep current\" instead of being swapped out."
+    ]
+  },
+  {
+    "version": "0.1.458",
+    "date": "2026-09-18",
+    "headline": "The editor's properties panel is now split into Shape, Text and Build",
+    "highlights": [
+      "Selecting something in the slide or theme editor now gives you Shape, Text and Build tabs instead of one long list you had to scroll.",
+      "Shape holds position, size, flip, rotation, see-through and colours. Text holds the wording, font and spacing. Build holds the entrance animation.",
+      "Every setting you had before is still there and still does the same thing — nothing was removed or renamed.",
+      "Tabs that would have nothing in them are not shown. A shape or a picture has no Text tab, because there is no wording to change."
+    ]
+  },
+  {
+    "version": "0.1.457",
+    "date": "2026-09-18",
+    "headline": "Rulers, a grid and a transparency checker for the slide and theme editor",
+    "highlights": [
+      "A new View button in the editor's bottom bar turns on rulers along the top and left edges, a grid over the slide, and a checkerboard that shows where a slide has no background of its own.",
+      "The rulers show a marker that follows your pointer, so you can line things up by eye.",
+      "Everything is off to start with and PresentFlow remembers what you switched on, on this computer.",
+      "Snap guides — the lines that appear while you drag something into line — work exactly as before, and you can now switch them off from the same menu.",
+      "On a short screen the rulers hide themselves so the slide stays big enough to work on."
+    ]
+  },
+  {
+    "version": "0.1.456",
+    "date": "2026-09-18",
+    "headline": "Adding a text box, shape, image or video to a slide is now one click above the canvas",
+    "highlights": [
+      "The slide and theme editor has a new Add bar across the top of the canvas — Text, Rectangle, Ellipse, Image and Video.",
+      "You no longer have to open the Add tab on the right to put something on a slide. That tab still works exactly as before if you prefer it.",
+      "On narrower Windows screens the bar shows icons only. Hover or focus a button to see its name."
+    ]
+  },
+  {
+    "version": "0.1.455",
+    "date": "2026-09-18",
+    "headline": "The slide and theme editor now shows exactly where things sit, and you can zoom in",
+    "highlights": [
+      "A new bar under the canvas shows the position and size of whatever you have selected, and it updates live as you drag.",
+      "You can now zoom the canvas in and out, or snap back to Fit. Ctrl+0 (Cmd+0 on a Mac) fits the slide to the window.",
+      "\"Lock size\" keeps a box in its shape — drag a corner or type a new width and the height follows, so a logo never gets squashed.",
+      "New Flip Horizontal and Flip Vertical buttons mirror the selected box.",
+      "Nothing about your existing slides or themes changed — they project exactly as before."
     ]
   },
   {

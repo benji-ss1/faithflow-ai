@@ -1,4 +1,5 @@
 "use client";
+import { fontStack } from "@/lib/fonts/registry";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, bandMediaBox, fitMediaInBox, videoObjectFit } from "@/lib/band-media";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H, type SlidePayload, type ThemeAppearance, type ScriptureBandWire, type ThemeFrameWire, type SlideObjectWire } from "@/lib/broadcast";
@@ -109,7 +110,7 @@ export function themeTextStyle(appearance: ThemeAppearance | null | undefined): 
   else if (appearance.bgColor && (appearance.bgType === "solid" || appearance.bgType === "gradient" || appearance.bgType === undefined)) {
     s.color = readableTextColor(appearance.bgColor);
   }
-  if (appearance.fontFamily) s.fontFamily = appearance.fontFamily;
+  if (appearance.fontFamily) s.fontFamily = fontStack(appearance.fontFamily);
   if (typeof appearance.fontWeight === "number") s.fontWeight = appearance.fontWeight;
   if (appearance.align) s.textAlign = appearance.align;
   if (appearance.textShadow === false) s.textShadow = "none";
@@ -132,7 +133,7 @@ export function themeFrameBoxStyle(f: Pick<ThemeFrameWire, "x" | "y" | "w" | "h"
 export function themeFrameTextStyle(f: ThemeFrameWire): React.CSSProperties {
   const s: React.CSSProperties = {};
   if (f.color) s.color = f.color;
-  if (f.fontFamily) s.fontFamily = f.fontFamily;
+  if (f.fontFamily) s.fontFamily = fontStack(f.fontFamily);
   if (typeof f.fontWeight === "number") s.fontWeight = f.fontWeight;
   if (f.align) s.textAlign = f.align;
   if (f.italic) s.fontStyle = "italic";
@@ -552,7 +553,8 @@ export function SlideRenderer(props: SlideRendererProps) {
           // Default-white inherits the theme textColor when the theme bg is
           // showing; an explicit colour still wins (themedObjectTextColor).
           ...(soleText.color ? { color: themedObjectTextColor(soleText.color, themedTextColor) } : (themedTextColor ? { color: themedTextColor } : {})),
-          ...(soleText.fontFamily ? { fontFamily: soleText.fontFamily } : {}),
+          // Render-time generic fallback only (stored object + identity untouched).
+          ...(soleText.fontFamily ? { fontFamily: fontStack(soleText.fontFamily) } : {}),
           ...(soleText.fontWeight ? { fontWeight: soleText.fontWeight } : {}),
           ...(soleText.align ? { textAlign: soleText.align } : {}),
           ...(soleText.italic ? { fontStyle: "italic" } : {}),
