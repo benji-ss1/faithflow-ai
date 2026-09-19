@@ -971,7 +971,10 @@ export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUr
  * design bg) collapse to "|", leaving their identity behaviour unchanged.
  */
 export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): string {
-  let sig = `${s.bgColor ?? ""}|${s.bgImageUrl ?? ""}|${s.bgImageFrame ? JSON.stringify(s.bgImageFrame) : ""}`;
+  let sig = `${s.bgColor ?? ""}|${s.bgImageUrl ?? ""}`;
+  // Preserve the long-standing plain-slide signature ("|") when no saved
+  // frame exists. A frame is visible design state, so append it only when set.
+  if (s.bgImageFrame) sig += `|${JSON.stringify(s.bgImageFrame)}`;
   // Lower-third layout + band are visible design: fold them in so a layout/band
   // change updates the output identity (crossfades + defeats the already-live
   // skip). A plain (non-lower-third) slide adds nothing here → identity unchanged.
