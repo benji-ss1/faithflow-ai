@@ -40,6 +40,30 @@ export function refScaleOf(v: number | undefined): number {
 export function textWidthOf(v: number | undefined): number {
   return typeof v === "number" && Number.isFinite(v) ? Math.max(40, Math.min(100, v)) : 88;
 }
+/**
+ * The lower-third verse's LOCKED size, in canvas px (2026-09-19 owner report: "the text
+ * does not persist … if you call one verse a hundred verses the sizing must persist").
+ *
+ * It is derived from the BAND GEOMETRY and the operator's Verse size — never from the
+ * verse itself — so every verse in a chapter renders at the same size instead of each
+ * one auto-fitting to its own length (short verse huge, long verse tiny). A verse that
+ * genuinely cannot fit still shrinks (the caller passes this as the fit CEILING, so
+ * shrink-to-fit is unchanged and nothing is ever clipped); it just can never grow past
+ * the size that was set.
+ *
+ * Calibrated against the pre-change output: at the default 30% band this is ~71px, which
+ * is what a typical verse already fitted at — so churches see consistency, not a jump.
+ * The factor is exactly 2x the reference line's (0.11), so Verse size 50% renders the
+ * verse at precisely the reference's size and below that it goes smaller still.
+ */
+export const BAND_VERSE_PX_FACTOR = 0.22;
+export function bandVersePx(bandHeightPct: number, fontScale?: number, globalScale?: number): number {
+  const h = Number.isFinite(bandHeightPct) && bandHeightPct > 0 ? bandHeightPct : 30;
+  const f = Number.isFinite(fontScale) && (fontScale as number) > 0 ? (fontScale as number) : 1;
+  const g = Number.isFinite(globalScale) && (globalScale as number) > 0 ? (globalScale as number) : 1;
+  return Math.max(8, Math.round((h / 100) * 1080 * BAND_VERSE_PX_FACTOR * f * g));
+}
+
 /** Media is never upscaled beyond this multiple of its natural size. */
 export const MEDIA_MAX_UPSCALE = 1.5;
 /** Aspect (w/h) below which media counts as portrait/narrow. */

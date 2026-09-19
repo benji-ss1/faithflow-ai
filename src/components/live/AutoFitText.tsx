@@ -136,7 +136,7 @@ function warnOverflowOnce(text: string, floorPx: number) {
   );
 }
 
-export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit, fontScale = 1, reserveVerticalRatio = 0, verticalAlign = "center", editable, onEditInput }:
+export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit, fontScale = 1, reserveVerticalRatio = 0, verticalAlign = "center", wrapToBox, editable, onEditInput }:
   {
     text: string;
     className?: string;
@@ -156,6 +156,12 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // fit stays correct for a different font/weight.
     textStyle?: React.CSSProperties;
     maxPx?: number;
+    /** Give the text an EXPLICIT pixel width equal to the measured box, so long text
+     *  MUST wrap instead of shrinking onto one tiny line (2026-09-19). This is the same
+     *  mechanism `projectorFit` already uses; the scripture lower-third band needs it
+     *  WITHOUT projectorFit, because projectorFit sizes against the full 1920x1080
+     *  canvas and would overflow the band. Absent → shrink-to-fit, exactly as before. */
+    wrapToBox?: boolean;
     paddingRatio?: number;
     // B3 (2026-08-11): operator manual size. AUTO = 1.0 (pure largest-fit).
     // A−/A+ nudge this multiplier; it scales the fitted size, clamped to the
@@ -236,6 +242,8 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   // pagination). Live-projector callers omit the prop and get the
   // sanctuary-readability default (24 px).
   const effectiveMinPx = Math.max(1, Math.min(maxPx, minPx ?? MIN_READABLE_PX));
+  const wrapToBoxRef = useRef(wrapToBox);
+  wrapToBoxRef.current = wrapToBox;
   const lastFittedRef = useRef<number>(effectiveMinPx);
   // While the operator is actively editing (Quick Edit), the `text` prop is
   // frozen (to keep the caret stable), so the fit cache is keyed on the OLD
@@ -440,6 +448,18 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     }
     setTightLine(false);
 
+    // Explicit wrap width (2026-09-19). Without a definite width this element
+    // shrink-wraps, so a long verse never wraps — the search just shrinks it until the
+    // WHOLE verse fits on ONE line (John 3:16 came out at the 24px floor while "Jesus
+    // wept." sat at 150px: the "all over the place" the owner reported). Pinning the
+    // width to the measured box makes long text wrap and the search grow it to fill the
+    // height instead. Same mechanism the projector path already uses.
+    if (wrapToBoxRef.current) {
+      t.style.width = `${bw}px`;
+      projWrapPxRef.current = bw;
+      if (projWrapPx !== bw) setProjWrapPx(bw);
+    }
+
     // T3 cache hit — same text, same box → skip binary search entirely.
     // Cache key includes effectiveMinPx so grid thumbnails don't share
     // cache entries with live-projector renders of the same text (different
@@ -575,7 +595,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
     };
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [currentText, fontScale, fontToken, reserveVerticalRatio, maxPx]);
+  }, [currentText, fontScale, fontToken, reserveVerticalRatio, maxPx, wrapToBox]);
 
   useEffect(() => {
     const box = boxRef.current;
@@ -732,11 +752,11 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
           // collapses when the DOM box shrink-wraps (the one-tiny-line bug). Falls
           // back to 100% until the first fit computes the width. Non-projector
           // surfaces (thumbnails) keep shrink-to-fit (maxWidth only).
-          width: projectorFit ? (projWrapPx != null ? `${projWrapPx}px` : "100%") : undefined,
+          width: (projectorFit || wrapToBox) ? (projWrapPx != null ? `${projWrapPx}px` : "100%") : undefined,
           // Non-projector keeps maxWidth:100% (shrink-to-fit thumbnails). Projector
           // uses the explicit px width above as the sole width authority, so a
           // collapsed box can't re-clamp it back down to one tiny line.
-          maxWidth: projectorFit ? undefined : "100%",
+          maxWidth: (projectorFit || wrapToBox) ? undefined : "100%",
           maxHeight: "100%",
           // ProPresenter-style crowd readability (2026-08-11, user: always-on for
           // lyrics). The fit measures the transformed (wider) glyphs, so sizing
