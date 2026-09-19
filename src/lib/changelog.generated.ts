@@ -4,13 +4,33 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.469",
+    "version": "0.1.474",
     "date": "2026-09-19",
     "headline": "Applying a theme to a song now restyles every slide, not just some of them",
     "highlights": [
       "When you apply a theme to a song, every slide now takes on the theme's background. Before, a slide that already had its own background colour or picture (for example from an earlier theme) stayed plain while the others changed.",
       "Switching from one theme to another on the same song now really switches. A picture background from the first theme no longer sits on top of the second theme's colour or gradient.",
       "Use Undo in the confirmation message, or Remove theme, to put every slide back exactly as it was."
+    ]
+  },
+  {
+    "version": "0.1.471",
+    "date": "2026-09-19",
+    "headline": "Meet Vic, your technical guide",
+    "highlights": [
+      "Meet Vic in Settings → Help. He gives a concise, clickable tour of the operator workspace without taking control away from you.",
+      "Vic spotlights the library, slide area, live output, transport controls, Songs, Bible, the Media Bin, Screens, Video Input, and Main or Stage display setup.",
+      "When a stage display is relevant, Vic asks whether one is connected so you can follow the right path for your setup."
+    ]
+  },
+  {
+    "version": "0.1.470",
+    "date": "2026-09-19",
+    "headline": "Media Bin pictures now look the way you edited them",
+    "highlights": [
+      "After you crop, zoom or blur an image in the media editor, its tile in the Media Bin and Media Library now shows your edited version instead of the original photo.",
+      "The larger preview you get by double-clicking a tile shows your edit too.",
+      "Images you have not edited look exactly as before, and the tile updates the moment you save an edit."
     ]
   },
   {

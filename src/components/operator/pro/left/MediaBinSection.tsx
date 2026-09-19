@@ -42,6 +42,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isImageAsset } from "@/lib/media-drop";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
 import { resolveFramedBackground } from "../center/mediaFrameBake";
+import { FramedImage } from "../center/FramedImage";
 import { mediaClickAction, AUDIO_NOT_PROJECTABLE_MESSAGE } from "@/lib/media-click";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { MediaImportWizard } from "../center/MediaImportWizard";
@@ -615,8 +616,7 @@ export function MediaBinSection({
                             // eslint-disable-next-line jsx-a11y/media-has-caption
                             <video src={a.url} muted preload="none" poster={a.thumbUrl || undefined} className="w-full h-full object-cover pointer-events-none" />
                           ) : (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={a.thumbUrl || a.url} alt={a.fileName || ""} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none" />
+                            <FramedImage churchId={ctx?.churchId} assetId={a.id} src={a.thumbUrl || a.url} fullSrc={a.url} alt={a.fileName || ""} className="w-full h-full object-cover pointer-events-none" />
                           )
                         ) : (
                           <div className="w-full h-full grid place-items-center text-[9px] text-[var(--color-muted-foreground)] px-1 text-center">{a.fileName || a.kind || "Asset"}</div>
@@ -698,7 +698,7 @@ export function MediaBinSection({
       />
 
       {/* Double-click quick preview (item 4) */}
-      {preview && <MediaPreviewModal asset={preview} onClose={() => setPreview(null)} />}
+      {preview && <MediaPreviewModal asset={preview} churchId={ctx?.churchId} onClose={() => setPreview(null)} />}
 
       {/* E2: crop/frame image editor — same modal the full Media browser uses. */}
       {editAsset && ctx && (
@@ -714,7 +714,7 @@ export function MediaBinSection({
 }
 
 // ── Quick preview modal ───────────────────────────────────────────────────────
-function MediaPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+function MediaPreviewModal({ asset, onClose, churchId }: { asset: Asset; onClose: () => void; churchId?: string }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
     window.addEventListener("keydown", onKey, true);
@@ -750,8 +750,7 @@ function MediaPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => vo
             // eslint-disable-next-line jsx-a11y/media-has-caption
             <video src={asset.url} controls autoPlay className="max-w-[90vw] max-h-[80vh] rounded-lg shadow-2xl" />
           ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={asset.url} alt={asset.fileName || ""} className="max-w-[90vw] max-h-[80vh] object-contain rounded-lg shadow-2xl" />
+            <FramedImage churchId={churchId} assetId={asset.id} src={asset.url} alt={asset.fileName || ""} canvasWidth={1280} className="max-w-[90vw] max-h-[80vh] object-contain rounded-lg shadow-2xl" />
           )
         ) : (
           <div className="text-white/70 text-sm">This asset has no file to preview.</div>
