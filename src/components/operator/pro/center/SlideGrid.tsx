@@ -23,6 +23,7 @@ import type { ActionSpec } from "@/engine/actions/spec";
 import { parseMediaDropPayload, isImageAsset, resolveMediaDrop, MEDIA_DROP_MIME } from "@/lib/media-drop";
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
 import { loadMediaFrame, buildMediaFrameSlide, MEDIA_FRAME_CHANGED_EVENT } from "./mediaFrame";
+import { resolveFramedBackground, hasBakeableFrame } from "./mediaFrameBake";
 import { useRouter } from "next/navigation";
 import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal, ChevronRight, Check, Layers, Zap, Image as ImageIcon, Palette, Timer, MessageSquare, Sparkles, Captions, Workflow, Trash2 } from "lucide-react";
 import { describeSpec, specKey } from "@/engine/actions/describe";
@@ -839,9 +840,14 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     e.stopPropagation();
     setBgDropIdx(null);
     setNewDropActive(false);
+    // An image the operator cropped / blurred / framed in the media editor must drop as
+    // THAT picture, not the original file — so it is baked first (a moment, then cached).
+    const needsBake = canAcceptMediaDrop && isImageAsset(payload) && hasBakeableFrame(ctx.churchId, payload.id);
+    let bgUrl = payload.url;
     // INSTANT PREVIEW: paint the new background on the card immediately, before any
     // server round-trip, so the drop feels instant (D1). Cleared once real data lands.
-    if (canAcceptMediaDrop && isImageAsset(payload)) {
+    // (Skipped when a frame must be baked — painting the original would flash the wrong image.)
+    if (canAcceptMediaDrop && isImageAsset(payload) && !needsBake) {
       setOptimisticBg((m) => ({ ...m, [idx]: payload.url }));
       // INSTANT LIVE: if this exact slide is what's currently on the projector,
       // re-send it with the new background right away so /live updates instantly too.
@@ -854,14 +860,24 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       const { toast } = await import("sonner");
       if (!canAcceptMediaDrop) { toast.error("This item can't take a slide background"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
       if (!isImageAsset(payload)) { toast.error("Only images can be used as a slide background"); return; }
+      if (needsBake) {
+        const fb = await resolveFramedBackground(ctx.churchId, { id: payload.id, url: payload.url, fileName: payload.title });
+        if (fb.failed) toast.error("Couldn't apply your edit to the background — used the original image");
+        bgUrl = fb.url;
+        setOptimisticBg((m) => ({ ...m, [idx]: bgUrl }));
+        const base = displaySlides[idx] ?? slides[idx];
+        if (idx === liveSlideIdx && base) {
+          ctx.onSendSlideToLive({ ...(base as Extract<SlidePayload, { kind: "text" }>), bgImageUrl: bgUrl }, null, { instant: true, carryLiveOrigin: true });
+        }
+      }
       if (editableSongId) {
         const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
         if (!slideId) { toast.error("Couldn't find that slide"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
-        const res = await setSongSlideBackgroundImage(slideId, payload.url);
+        const res = await setSongSlideBackgroundImage(slideId, bgUrl);
         if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
       } else {
         if (!itemId) { toast.error("Couldn't find that item"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
-        const res = await setServiceItemSlideBackground(itemId, idx, payload.url);
+        const res = await setServiceItemSlideBackground(itemId, idx, bgUrl);
         if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
       }
       toast.success(`Background set on slide ${idx + 1} only — use “BG” for every slide`);
@@ -881,12 +897,15 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       const { toast } = await import("sonner");
       if (!canAcceptMediaDrop) { toast.error("Image slides can't be added to this item"); return; }
       if (!isImageAsset(payload)) { toast.error("Only images can be added as a slide"); return; }
+      // Use the operator's edited (cropped / blurred / framed) picture, not the original file.
+      const fb = await resolveFramedBackground(ctx.churchId, { id: payload.id, url: payload.url, fileName: payload.title });
+      if (fb.failed) toast.error("Couldn't apply your edit to the slide — used the original image");
       if (editableSongId) {
-        const res = await createSongImageSlide(editableSongId, insertIndex, payload.url);
+        const res = await createSongImageSlide(editableSongId, insertIndex, fb.url);
         if (!res.ok) { toast.error(res.error ?? "Couldn't add the slide"); return; }
       } else {
         if (!itemId) { toast.error("Couldn't find that item"); return; }
-        const res = await addServiceItemImageSlide(itemId, payload.url);
+        const res = await addServiceItemImageSlide(itemId, fb.url);
         if (!res.ok) { toast.error(res.error ?? "Couldn't add the slide"); return; }
       }
       toast.success("Added a full-screen image slide");

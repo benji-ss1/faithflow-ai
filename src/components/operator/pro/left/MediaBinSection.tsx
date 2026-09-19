@@ -41,6 +41,7 @@ import { deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } fro
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isImageAsset } from "@/lib/media-drop";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
+import { resolveFramedBackground } from "../center/mediaFrameBake";
 import { mediaClickAction, AUDIO_NOT_PROJECTABLE_MESSAGE } from "@/lib/media-click";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { MediaImportWizard } from "../center/MediaImportWizard";
@@ -154,13 +155,17 @@ export function MediaBinSection({
   }, [hasOpened]);
 
   // ── Actions (all reuse existing paths) ─────────────────────────────────────
-  const setAsBackground = (a: Asset) => {
+  const setAsBackground = async (a: Asset) => {
     if (isAudioAsset(a)) { toast.error(AUDIO_NOT_PROJECTABLE); return; }
     if (!a.url) { toast.error("This asset has no file to use as a background"); return; }
     const prev = snapshotBackgroundState();
+    const kind = normalizeMediaKind(a.kind || "image");
+    // A saved crop / blur / logo layout must come with the image — use the framed copy.
+    const fb = kind === "image" ? await resolveFramedBackground(ctx?.churchId, { id: a.id, url: a.url, fileName: a.fileName || undefined, mediaKey: a.mediaKey || undefined }) : null;
+    if (fb?.failed) toast.error("Couldn't apply your edit to the background — used the original image");
     const bg = setMediaAsBackground({
-      id: a.id, url: a.url, fileName: a.fileName || "Media",
-      kind: normalizeMediaKind(a.kind || "image"), mediaKey: a.mediaKey || undefined,
+      id: a.id, url: fb?.url ?? a.url, fileName: a.fileName || "Media",
+      kind, mediaKey: fb?.mediaKey ?? (a.mediaKey || undefined),
     });
     toast.success(`“${bg.name}” is now your background — it stays behind every slide`, {
       id: "pf-media-background",
@@ -193,7 +198,7 @@ export function MediaBinSection({
   // Set as the CURRENTLY-LIVE slide's per-slide background (images only). Re-sends
   // the live text slide with bgImageUrl set — the words stay on top, exactly like
   // the drag-onto-slide path (6C). No-op with a clear message when nothing text is live.
-  const setCurrentSlideBg = (a: Asset) => {
+  const setCurrentSlideBg = async (a: Asset) => {
     if (!ctx) return;
     if (!a.url || !isImageAsset({ kind: a.kind ?? undefined, url: a.url })) {
       toast.error("Only an image can be a slide background — use ‘Set as global background’ for video");
@@ -204,7 +209,9 @@ export function MediaBinSection({
       toast.error("No lyric/text slide is live — project a slide first, then set its background");
       return;
     }
-    ctx.onSendSlideToLive({ ...live, bgImageUrl: a.url }, null, { instant: true, carryLiveOrigin: true });
+    const fb = await resolveFramedBackground(ctx.churchId, { id: a.id, url: a.url, fileName: a.fileName || undefined, mediaKey: a.mediaKey || undefined });
+    if (fb.failed) toast.error("Couldn't apply your edit to the background — used the original image");
+    ctx.onSendSlideToLive({ ...live, bgImageUrl: fb.url }, null, { instant: true, carryLiveOrigin: true });
     toast.success("Background set on the live slide");
   };
 

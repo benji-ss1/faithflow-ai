@@ -35,6 +35,7 @@ import { MediaImportWizard } from "./MediaImportWizard";
 import { takePendingImport, onOsDropImport, type PendingImport } from "./pendingImport";
 import { MediaImageEditor } from "./MediaImageEditor";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
+import { resolveFramedBackground } from "./mediaFrameBake";
 import { mediaClickAction, AUDIO_NOT_PROJECTABLE_MESSAGE } from "@/lib/media-click";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
 
@@ -396,9 +397,13 @@ export function MediaBrowser({
   // mutual-exclusivity) as every Background Template. Undoable: snapshot the
   // prior background state and restore it exactly on Undo (mirrors the theme
   // quick-change Undo idiom).
-  const setAsBackground = (a: Asset) => {
+  const setAsBackground = async (a: Asset) => {
     const prev = snapshotBackgroundState();
-    const bg = setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: normalizeMediaKind(a.kind), mediaKey: a.mediaKey });
+    const kind = normalizeMediaKind(a.kind);
+    // A saved crop / blur / logo layout must come with the image — use the framed copy.
+    const fb = kind === "image" ? await resolveFramedBackground(ctx.churchId, { id: a.id, url: a.url, fileName: a.fileName, mediaKey: a.mediaKey }) : null;
+    if (fb?.failed) toast.error("Couldn't apply your edit to the background — used the original image");
+    const bg = setMediaAsBackground({ id: a.id, url: fb?.url ?? a.url, fileName: a.fileName, kind, mediaKey: fb?.mediaKey ?? a.mediaKey });
     setSelectedId(a.id);
     toast.success(`“${bg.name}” is now your background — it stays behind every slide`, {
       id: "pf-media-background",
