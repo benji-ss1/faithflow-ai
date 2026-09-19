@@ -17,11 +17,12 @@
 import { CANVAS_W, CANVAS_H, type SlideObject, type ImageObject, type ShapeObject } from "@/lib/slide-objects";
 import { registerMediaAsset, deleteMediaAsset } from "@/lib/actions";
 import { loadMediaFrame, buildMediaFrameSlide, type MediaFrame } from "./mediaFrame";
-import { BAKE_BLUR_FILTER, isTrivialFrame, frameHash, fitRect, gradientLine } from "./mediaFrameBakeMath";
+import { BAKE_BLUR_FILTER, bakeBlurFilter, isTrivialFrame, frameHash, fitRect, gradientLine } from "./mediaFrameBakeMath";
 
-export { BAKE_BLUR_FILTER, isTrivialFrame, frameHash, fitRect, gradientLine };
+export { BAKE_BLUR_FILTER, bakeBlurFilter, isTrivialFrame, frameHash, fitRect, gradientLine };
 
-function drawImageObject(ctx: CanvasRenderingContext2D, img: HTMLImageElement, o: ImageObject) {
+function drawImageObject(ctx: CanvasRenderingContext2D, img: HTMLImageElement, o: ImageObject, scale: number) {
+  const blurFilter = bakeBlurFilter(scale);
   const iw = img.naturalWidth, ih = img.naturalHeight;
   if (!iw || !ih) return;
   const fit = o.fit ?? "contain";
@@ -33,14 +34,14 @@ function drawImageObject(ctx: CanvasRenderingContext2D, img: HTMLImageElement, o
   };
   const drawCover = () => { const r = fitRect(iw, ih, o.x, o.y, o.w, o.h, "cover", 50, 50); ctx.drawImage(img, r.dx, r.dy, r.dw, r.dh); };
   if (o.blurFill === true && fit === "contain") {
-    ctx.filter = BAKE_BLUR_FILTER;
+    ctx.filter = blurFilter;
     aboutCentre(drawCover, o.x + o.w / 2, o.y + o.h / 2, 1.15);
     ctx.filter = "none";
   }
   const r = fitRect(iw, ih, o.x, o.y, o.w, o.h, fit, px, py);
   const ox = o.x + (o.w * px) / 100, oy = o.y + (o.h * py) / 100;
   if (o.blur) {
-    ctx.filter = BAKE_BLUR_FILTER;
+    ctx.filter = blurFilter;
     aboutCentre(() => ctx.drawImage(img, r.dx, r.dy, r.dw, r.dh), ox, oy, 1.15);
     ctx.filter = "none";
   } else {
@@ -62,14 +63,18 @@ function drawShapeObject(ctx: CanvasRenderingContext2D, o: ShapeObject) {
   ctx.restore();
 }
 
-/** Draw the frame onto a 1920×1080 canvas. `transparent` = theme-background frames keep alpha. */
-export function drawFrame(ctx: CanvasRenderingContext2D, frame: MediaFrame, img: HTMLImageElement): { transparent: boolean } {
+/**
+ * Draw the frame in 1920×1080 canvas units. `transparent` = theme-background frames keep alpha.
+ * For a smaller canvas (thumbnails) call ctx.scale(w/1920, w/1920) first and pass that
+ * factor as `scale`, so the blur radius shrinks with it.
+ */
+export function drawFrame(ctx: CanvasRenderingContext2D, frame: MediaFrame, img: HTMLImageElement, scale = 1): { transparent: boolean } {
   const { bgColor, objects } = buildMediaFrameSlide(frame, img.src);
   const transparent = bgColor === undefined;
   if (!transparent) { ctx.fillStyle = bgColor; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H); }
   for (const raw of objects as SlideObject[]) {
     if (raw.kind === "shape") drawShapeObject(ctx, raw as ShapeObject);
-    else if (raw.kind === "image") drawImageObject(ctx, img, raw as ImageObject);
+    else if (raw.kind === "image") drawImageObject(ctx, img, raw as ImageObject, scale);
   }
   return { transparent };
 }
