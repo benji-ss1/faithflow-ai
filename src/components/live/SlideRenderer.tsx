@@ -1,7 +1,7 @@
 "use client";
 import { fontStack } from "@/lib/fonts/registry";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, bandMediaBox, fitMediaInBox, videoObjectFit } from "@/lib/band-media";
+import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, refScaleOf, textWidthOf, bandVersePx, bandMediaBox, fitMediaInBox, videoObjectFit } from "@/lib/band-media";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H, type SlidePayload, type ThemeAppearance, type ScriptureBandWire, type ThemeFrameWire, type SlideObjectWire } from "@/lib/broadcast";
 import { themedObjectTextColor, coversCanvas } from "@/lib/slide-objects";
 import { themeBoxesAllowed as themeBoxesAllowedFor, themeDecorFor, themeDecorPlan } from "@/lib/theme-decor-plan";
@@ -390,14 +390,23 @@ export function SlideRenderer(props: SlideRendererProps) {
       // Layout inside the band: a small pad, the verse fit-box, then the reference
       // line at the band's bottom. All in % of the canvas height.
       const pad = bandH * 0.06;
-      const refH = bandH * 0.20;
+      // Reference size scales with band height (bigger band → bigger reference),
+      // in canvas px so it scales with the surface via PresentationCanvas. The band's
+      // own refScale (Scripture Style "Reference size") multiplies it; 1 = unchanged.
+      const refPx = Math.round((bandH / 100) * 1080 * 0.11 * (referenceScale ?? 1) * refScaleOf(band?.refScale));
+      // The reference row is 20% of the band, and GROWS (max half the band) when a
+      // larger reference wouldn't fit it, so a big reference never overlaps the verse.
+      // At refScale 1 the max() is the old 20% exactly.
+      const refH = Math.min(bandH * 0.5, Math.max(bandH * 0.20, (refPx / 1080) * 100 * 1.15));
       const verseTop = bandTop + pad;
       const verseH = Math.max(4, bandH - pad * 2 - refH);
       const ltRef = slide.reference?.trim();
       const refTop = bandTop + bandH - refH - pad * 0.5;
-      // Reference size scales with band height (bigger band → bigger reference),
-      // in canvas px so it scales with the surface via PresentationCanvas.
-      const refPx = Math.round((bandH / 100) * 1080 * 0.11 * (referenceScale ?? 1));
+      // The locked verse size: geometry x Verse size x the operator's global A-/A+.
+      const lockedVersePx = bandVersePx(bandH, vScale, fontScale);
+      // Text-area width (% of canvas), centred. 88 = the original 6% side margins.
+      const textW = textWidthOf(band?.widthPct);
+      const textLeft = (100 - textW) / 2;
       const themeTxt = (themeTextStyle(appearance)?.color as string | undefined);
       // Verse colour:
       //  • Over a band → auto-contrast against the OPERATOR'S band colour (a light
@@ -426,7 +435,7 @@ export function SlideRenderer(props: SlideRendererProps) {
             <div className="absolute inset-x-0 pointer-events-none" aria-hidden
               style={{ top: `${bandTop}%`, height: `${bandH}%`, background: bandBg, opacity: band!.opacity ?? 1, boxShadow: bandEdgeShadow(band!.color, band!.color2) }} />
           )}
-          <div className="absolute" style={{ top: `${verseTop}%`, height: `${verseH}%`, left: "6%", width: "88%" }}>
+          <div className="absolute" style={{ top: `${verseTop}%`, height: `${verseH}%`, left: `${textLeft}%`, width: `${textW}%` }}>
             {/* projectorFit is deliberately OFF: the projector-fit path sizes vs the
                FULL 1920×1080 canvas (ignoring this box) → would overflow the band.
                OFF → AutoFitText measures THIS explicitly-sized box and fits the
@@ -434,7 +443,21 @@ export function SlideRenderer(props: SlideRendererProps) {
                every surface, since the box has real % dims (no shrink-wrap collapse). */}
             <AutoFitText
               text={slide.text}
-              maxPx={Math.round(150 * vScale)}
+              // SIZE PERSISTENCE (2026-09-19 owner report: "the text does not persist …
+              // if you call one verse a hundred verses the sizing must persist"). The
+              // ceiling is the church's LOCKED size, derived from the band geometry +
+              // the Verse size setting — NOT from this verse's length — so every verse
+              // renders at the same size instead of each auto-fitting to itself (short
+              // verse huge, long verse tiny). It is still a CEILING, so a verse that
+              // genuinely can't fit shrinks exactly as before and is never clipped; and
+              // fontScale is folded into the locked px instead of
+              // multiplying the fitted result, which is what made it vary per verse.
+              maxPx={lockedVersePx}
+              // Long verses must WRAP inside the band. Without an explicit width this
+              // element shrink-wraps, so the fit search shrank the WHOLE verse onto ONE
+              // line: John 3:16 rendered at the 24px floor while "Jesus wept." sat at
+              // 150px. Same mechanism the projector path already used.
+              wrapToBox
               paddingRatio={0.03}
               projectorFit={false}
               // Pagination OFF: the live projector has no page-advance, so a
@@ -447,7 +470,7 @@ export function SlideRenderer(props: SlideRendererProps) {
               // real size lever is AutoFitText's fontScale prop (shown = best*scale),
               // so fold vScale in there (× any incoming projector fontScale). maxPx
               // stays scaled so a scaled-up verse isn't clamped by the ceiling.
-              fontScale={(fontScale && fontScale > 0 ? fontScale : 1) * vScale}
+              fontScale={1}
               className="font-display font-semibold"
               textStyle={{
                 ...themeTextStyle(appearance),
@@ -460,7 +483,7 @@ export function SlideRenderer(props: SlideRendererProps) {
           </div>
           {ltRef && (
             <div className="absolute flex items-center justify-center pointer-events-none"
-              style={{ top: `${refTop}%`, height: `${refH}%`, left: "6%", width: "88%" }}>
+              style={{ top: `${refTop}%`, height: `${refH}%`, left: `${textLeft}%`, width: `${textW}%` }}>
               <span className="font-display font-semibold uppercase tracking-wide" style={{
                 fontSize: `${refPx}px`, lineHeight: 1,
                 opacity: 0.9, color: verseColor, ...(referenceColor ? { color: referenceColor } : {}),

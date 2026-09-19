@@ -1,7 +1,7 @@
 ---
 headline: Saying "Galatians 1" then "verse 2" now goes to Galatians 1:2, and "go back five verses" really goes back five
 audience: operator
-version: 0.1.484
+version: 0.1.487
 date: 2026-09-19
 highlights:
   - When the preacher says "verse 2" with no book or chapter, it now means the chapter they named most recently, or the verse that is on the projector if you changed it by hand since. Before, "Galatians 1" then "verse 2" could land on Galatians 2:2 and "next verse" carried on from there.

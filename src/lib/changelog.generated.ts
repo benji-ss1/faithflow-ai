@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.484",
+    "version": "0.1.487",
     "date": "2026-09-19",
     "headline": "Saying \"Galatians 1\" then \"verse 2\" now goes to Galatians 1:2, and \"go back five verses\" really goes back five",
     "highlights": [
@@ -12,6 +12,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "\"Go back two verses\", \"go back five verses\", \"back up three verses\", \"go forward two verses\" and \"skip two verses\" now move the number of verses said. \"Go back five verses\" used to move back one.",
       "Natural ways of asking for the next verse are no longer ignored for being too long, for example \"let's move on to the next verse\", \"take us to the next verse\" and \"show me the next verse please\". A sentence that only happens to contain \"next verse\" is still ignored.",
       "\"Go to verse 5\" and its variants now start from the verse that is actually on the projector, not the card selected in the preview."
+    ]
+  },
+  {
+    "version": "0.1.486",
+    "date": "2026-09-19",
+    "headline": "Lower-third verses now keep the size you set, instead of changing with every verse",
+    "highlights": [
+      "The verse size you set in Third band is now the size every verse uses. Before, each verse was sized to its own length, so a short verse like \"Jesus wept.\" came out huge and a normal verse came out small.",
+      "Long verses were being squeezed onto a single line and shrunk until they fitted. John 3:16 was coming out at the smallest readable size on one line. Verses now wrap onto as many lines as the band allows and stay large.",
+      "A verse that genuinely cannot fit still shrinks so it is never cut off, but it only shrinks as far as it has to.",
+      "The operator preview and the projector, stage screen and livestream all changed together, so they still match each other exactly.",
+      "Full screen scripture slides, songs and every other slide are unchanged."
+    ]
+  },
+  {
+    "version": "0.1.485",
+    "date": "2026-09-19",
+    "headline": "Set the verse size and the reference size separately, and choose how wide the scripture text sits",
+    "highlights": [
+      "In Edit scripture slide, Third band now has a Verse size and a Reference size slider instead of one Text size. You can make the verse the same size as the JOHN 3:16 (NIV) line, or make the reference much larger, without one changing the other.",
+      "Verse size now goes down to 30% (it used to stop at 60%), so the verse really can match the reference line.",
+      "A new Width slider narrows or widens the scripture text area from 50% to 100% of the screen. It moves the verse and the reference together so they stay lined up.",
+      "A bigger reference can no longer sit on top of the verse - the line it sits on grows to fit it and the verse shrinks to suit.",
+      "Churches that do not touch the new sliders see no change at all on the projector, the stage screen or the livestream."
     ]
   },
   {

@@ -49,6 +49,8 @@ export type ScriptureBandWire = {
   topPct?: number;      // band top, 0..100
   heightPct?: number;   // band height, 1..100
   fontScale?: number;   // verse size multiplier, >0 (default 1)
+  refScale?: number;    // reference-line size multiplier (default 1); absent on older senders
+  widthPct?: number;    // verse + reference text width, % of the canvas (default 88); absent on older senders
   // Paint — omit ALL of these for a transparent ("none") band. `opacity` is
   // required whenever `color` is set.
   color?: string;       // solid fill, or gradient start
@@ -1123,7 +1125,7 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
   // skip). A plain (non-lower-third) slide adds nothing here → identity unchanged.
   if (s.scriptureLayout) {
     const b = s.scriptureBand;
-    sig += `|lt${b ? `${b.topPct ?? ""},${b.heightPct ?? ""},${b.fontScale ?? ""},${b.color ?? ""},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity ?? ""},${b.textColor ?? ""}` : "none"}`;
+    sig += `|lt${b ? `${b.topPct ?? ""},${b.heightPct ?? ""},${b.fontScale ?? ""},${b.color ?? ""},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity ?? ""},${b.textColor ?? ""}${b.refScale !== undefined || b.widthPct !== undefined ? `,r${b.refScale ?? ""},w${b.widthPct ?? ""}` : ""}` : "none"}`;
   }
   if (s.objects?.length) {
     sig += "|o" + s.objects.length + ":" + s.objects.map((o) => {
@@ -1195,6 +1197,8 @@ function isValidScriptureBand(b: unknown): boolean {
   if (!numInRange(p.topPct, 0, 100)) return false;
   if (!numInRange(p.heightPct, 1, 60)) return false;
   if (!numInRange(p.fontScale, 0.1, 4)) return false;
+  if (!numInRange(p.refScale, 0.25, 4)) return false;
+  if (!numInRange(p.widthPct, 40, 100)) return false;
   // Paint: `color` optional (absent = transparent band); if present, opacity is
   // required + bounded.
   if (p.color !== undefined) {

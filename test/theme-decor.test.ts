@@ -170,7 +170,7 @@ async function main() {
     const s = src("src/components/live/SlideRenderer.tsx");
     assert.ok(s.includes("maxPx={Math.min(400, Math.max(8, Math.round((frame.fontSize ?? 120) * Math.max(1, scale))))}"));
     assert.ok(s.includes("minPx={Math.min(textMinPx ?? 8, 8)}"));
-    assert.ok(src("src/components/live/AutoFitText.tsx").includes("[currentText, fontScale, fontToken, reserveVerticalRatio, maxPx]"), "refit when maxPx changes");
+    assert.ok(src("src/components/live/AutoFitText.tsx").match(/\[currentText, fontScale, fontToken, reserveVerticalRatio, maxPx[^\]]*\]/), "refit when maxPx changes");
   });
 
   console.log("Operator wiring (source invariants):");
