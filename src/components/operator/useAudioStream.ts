@@ -4,6 +4,7 @@ import { isWindowsUA } from "@/lib/platform";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { detectAll, SuggestionDedupe, WORSHIP_SCRIPTURE_CAP, type DetectAllResult } from "@/lib/ai-detection";
 import { parseBareVerse, parseBookVerseOnly, isValidChapter } from "@/lib/bible-parser";
+import { liveVerseContext, pickVerseContext, seedsVerseContext, type StampedVerseContext } from "@/lib/bible-verse-context";
 import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection/lyric-fragment";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor, AUDIO_SOURCE_TYPE_KEY } from "@/lib/voice-commands";
@@ -328,7 +329,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // Last book/chapter actually detected — resolves bare "verse 11" / "what
   // does verse 7 say" mentions (no book/chapter spoken) against whatever
   // passage is currently active in the service.
-  const lastActiveRefRef = useRef<{ book: string; chapter: number } | null>(null);
+  const lastActiveRefRef = useRef<StampedVerseContext | null>(null);
+  // The verse live on the projector + when this hook first saw it there, so a bare
+  // "verse N" follows whichever the operator/preacher touched most recently.
+  const liveContextSeenRef = useRef<StampedVerseContext | null>(null);
   // A preacher restating the SAME reference (even minutes apart, well
   // outside the 30s dedupe cooldown above) is itself a strong "put this on
   // screen" signal — tracked separately so it can flag forceLive on the
@@ -430,10 +434,18 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     }
 
     // Bare "verse 11" / "what does verse 7 say" — no book or chapter spoken
-    // at all. Only meaningful once a passage is already active (see
-    // lastActiveRefRef above), and only as a fallback when the parser found
-    // nothing, so it can never override an actual spoken reference.
-    if (result.scripture.length === 0 && lastActiveRefRef.current) {
+    // at all. Only meaningful once a passage is already active (the preacher's last
+    // named chapter, or the verse on the projector — whichever is newer), and only
+    // as a fallback when the parser found nothing, so it can never override an
+    // actual spoken reference.
+    const liveCtx = liveVerseContext((base as { liveText?: string }).liveText);
+    const seen = liveContextSeenRef.current;
+    if (!liveCtx) liveContextSeenRef.current = null;
+    else if (!seen || seen.book !== liveCtx.book || seen.chapter !== liveCtx.chapter) {
+      liveContextSeenRef.current = { ...liveCtx, ts: Date.now() };
+    }
+    const activeCtx = pickVerseContext(lastActiveRefRef.current, liveContextSeenRef.current);
+    if (result.scripture.length === 0 && activeCtx) {
       // "Book verse N" — a DIFFERENT book named but no chapter ("Acts of the
       // Apostles verse 4"). Checked first since it names an explicit book;
       // same book as active → carry the chapter over, different book →
@@ -441,7 +453,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // default of verse 1).
       const bookVerse = parseBookVerseOnly(text);
       if (bookVerse) {
-        const chapter = bookVerse.book === lastActiveRefRef.current.book ? lastActiveRefRef.current.chapter : 1;
+        const chapter = bookVerse.book === activeCtx.book ? activeCtx.chapter : 1;
         if (isValidChapter(bookVerse.book, chapter)) {
           result.scripture = [{
             book: bookVerse.book, chapter,
@@ -451,9 +463,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         }
       } else {
         const bare = parseBareVerse(text);
-        if (bare && isValidChapter(lastActiveRefRef.current.book, lastActiveRefRef.current.chapter)) {
+        if (bare && isValidChapter(activeCtx.book, activeCtx.chapter)) {
           result.scripture = [{
-            book: lastActiveRefRef.current.book, chapter: lastActiveRefRef.current.chapter,
+            book: activeCtx.book, chapter: activeCtx.chapter,
             verseStart: bare.verse, verseEnd: bare.verse,
             confidence: 90, matchedText: bare.matchedText, needsSemanticFallback: false, isNavigationCommand: true,
           }];
@@ -582,7 +594,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // pattern's ceiling; genuine low-confidence-but-real hits (the
       // pre-existing semantic-fallback tier) sit at 72+ and are unaffected.
       const trustworthyForContext = conf >= BIBLE_AUTOFIRE_CONFIDENCE && !isPhrase;
-      if (trustworthyForContext) lastActiveRefRef.current = { book: r.book, chapter: r.chapter };
+      // Context seeding keys on the PARSER's pattern confidence (>=70), not the blended
+      // value: a whole-chapter mention ("Galatians 1", parser 72) must anchor the next
+      // "verse 2" even though it is chip-tier (blended ~68) and never projects itself.
+      if (seedsVerseContext(r.confidence, conf, isPhrase, worshipHoldsScripture)) lastActiveRefRef.current = { book: r.book, chapter: r.chapter, ts: Date.now() };
       // Restating the exact same reference (even minutes apart) is itself a
       // "make sure this is on screen" signal — flags forceLive so the
       // auto-fire effect can bypass its normal confidence floor. Still

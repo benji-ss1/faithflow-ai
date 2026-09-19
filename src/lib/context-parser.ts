@@ -78,6 +78,14 @@ export function spokenToNumber(word: string): number | null {
   return total;
 }
 
+// "two"/"2"/"five" -> { count } for the multi-verse step patterns; null (pattern falls
+// through) for anything that is not a plain number 2..20 ("a"/"one" are the existing
+// single-step patterns; 21+ is a mishear, not a command).
+function stepCount(word: string): Record<string, unknown> | null {
+  const n = spokenToNumber(word);
+  return n === null || n < 2 || n > 20 ? null : { count: n };
+}
+
 // Combinatorial synonym groups for verse navigation. Every intent below is
 // built as (LEAD VERB PHRASE) + (OBJECT NOUN), so each regex covers dozens
 // of realistic spoken variants while still requiring a verb-anchored phrase
@@ -149,6 +157,15 @@ const PATTERNS: { verb: ContextVerb; re: RegExp; confidence: number; capture?: (
   { verb: "continue", re: /\bverse\s+(?:number\s+)?(?:continues|goes\s+on)\b/i, confidence: 75 },
   { verb: "continue", re: /\bgo\s+on\b/i, confidence: 68 },
   { verb: "continue", re: /\bmoving\s+on\b/i, confidence: 65 },
+
+  // Multi-verse steps: "go back two verses", "back up 5 verses",
+  // "go forward three verses", "skip ahead 2 verses". The plural noun anchors them (a
+  // bare "back"/"forward" stays unmatched; a trailing "two verses back/before" is NOT a
+  // command — it is ordinary narration). Payload carries `count` (2..20); the bare
+  // "go back" below would otherwise silently step ONE verse for "go back five verses".
+  { verb: "prev_verse", re: /\b(?:(?:go|jump|skip|move)\s+back|back\s+up|rewind)\s+(?:by\s+)?([a-z0-9\-]+)\s+verses\b/i, confidence: 90, capture: (m) => stepCount(m[1]) },
+  { verb: "next_verse", re: /\b(?:go|jump|skip|move)\s+(?:forward|ahead|on)\s+(?:by\s+)?([a-z0-9\-]+)\s+verses\b/i, confidence: 90, capture: (m) => stepCount(m[1]) },
+  { verb: "next_verse", re: /\b(?:skip|advance)(?:\s+ahead)?\s+([a-z0-9\-]+)\s+verses\b/i, confidence: 88, capture: (m) => stepCount(m[1]) },
 
   { verb: "back", re: /\bgo\s+back\b/i, confidence: 75 },
 
@@ -296,10 +313,23 @@ export function terseCommandWordCount(text: string): number {
 // Narration ("we're gonna see this in the next verse") stays blocked.
 const NAV_ANCHORED_TEXT_RE = /\bback\s+(?:one|a)\s+verse\b|\bcontinue\s+reading\b/i;
 const NAV_TAIL_BREAK_RE = /(?:\b(?:can\s+we|could\s+we|would\s+we|shall\s+we|can\s+you|could\s+you|would\s+you|let\s+us|let's|please|kindly|okay|ok|alright)|\d+\s*:\s*\d+|\b(?:verse|chapter)\s+\d+)\s*[,.]?\s*$/i;
+// A WHOLE utterance that is nothing but an anchored next/previous-verse command (after
+// politeness/filler is stripped) is a command by construction — narration can't match
+// it because every word must belong to the command. Counted as 2 so a natural lead-in
+// ("let's move on to the next verse", "take us to the next verse", "show me the next
+// verse please") is never dropped by the 5-word standalone guard.
+const PURE_LEAD = "(?:go|move|jump|skip|turn|proceed|carry|scroll|read|show|bring)(?:\\s+(?:me|us|on|up))?(?:\\s+(?:to|onto))?|take\\s+us\\s+to|give\\s+us|have|on\\s+to|onto";
+const PURE_NAV_RE = new RegExp(`^(?:(?:${PURE_LEAD})\\s+)?(?:(?:the|me|us)\\s+)*(?:next|previous|following)\\s+(?:verse|one)$`, "i");
+export function isPureNavCommand(text: string): boolean {
+  const t = repairNavVerseHomophones(text).replace(NAV_FILLER_RE, " ").replace(/[,.?!;:]/g, " ").replace(/\s+/g, " ").trim();
+  return PURE_NAV_RE.test(t);
+}
+
 export function navCommandWordCount(
   text: string,
   cmd: { verb: string; confidence: number; matchedText?: string } | null | undefined,
 ): number {
+  if (isPureNavCommand(text)) return 2;
   const whole = terseCommandWordCount(text);
   const matchedText = cmd?.matchedText;
   if (!cmd || !matchedText) return whole;

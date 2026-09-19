@@ -186,6 +186,7 @@ test/pp7-keep-theme-bg-rail.test.tsx
 test/pp7-keep-theme-bg-dom.test.tsx
 test/plan-baked-slide-template.test.ts
 test/output-surfaces.test.ts
+test/verse-nav-commands.test.ts
 test/band-slide-card.test.ts
 test/scripture-size-width.test.ts
 test/band-size-persistence.test.ts
