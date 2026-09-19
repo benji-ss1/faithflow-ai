@@ -1,6 +1,8 @@
 "use client";
 import type { BackgroundSpec } from "@/lib/broadcast";
 import { ShaderBackground } from "./ShaderBackground";
+import { buildMediaFrameSlide } from "@/components/operator/pro/center/mediaFrame";
+import { SlideObjectsLayer } from "@/components/live/SlideObjectsLayer";
 
 /**
  * BackgroundLayer — renders the active background on the projector, BETWEEN the
@@ -35,6 +37,10 @@ export function BackgroundLayer({ background, frozen = false }: { background: Ba
       />
     );
   } else if (background.type === "image" && background.imageUrl) {
+    if (background.imageFrame) {
+      const composed = buildMediaFrameSlide(background.imageFrame, background.imageUrl);
+      content = <div style={{ ...fill, background: composed.bgColor }}><SlideObjectsLayer objects={composed.objects} /></div>;
+    } else {
     const fit = background.imageFit === "stretch" ? "fill" : background.imageFit === "fit" ? "contain" : "cover";
     content = (
       <img
@@ -49,6 +55,7 @@ export function BackgroundLayer({ background, frozen = false }: { background: Ba
         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
       />
     );
+    }
   } else if (background.type === "video" && background.videoUrl) {
     content = (
       <video

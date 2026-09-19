@@ -1,10 +1,17 @@
 "use client";
 import { useEffect, useRef, useCallback } from "react";
-import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
+import type { SlidePayload, ThemeAppearance, MediaFrameWire } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
 import { AutoFitText } from "./AutoFitText";
 import { AnimatedThemeBg } from "./ThemeLayers";
 import { SlideObjectsLayer } from "./SlideObjectsLayer";
+import { buildMediaFrameSlide } from "@/components/operator/pro/center/mediaFrame";
+
+/** Exact Media editor composition for a saved per-slide background. */
+function FramedImageBackground({ url, frame }: { url: string; frame: MediaFrameWire }) {
+  const composed = buildMediaFrameSlide(frame, url);
+  return <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ background: composed.bgColor }}><SlideObjectsLayer objects={composed.objects} /></div>;
+}
 
 // Drop-shadow applied to text ONLY in the OBS/NDI transparent-overlay mode
 // (transparentBg). There's no background scrim in that mode, so this keeps white
@@ -269,11 +276,12 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       const shadowWhenBandless = (transparentBg || !hasPaint) ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {};
       const ltBg: React.CSSProperties = (overVideo || transparentBg)
         ? { background: "transparent" }
-        : slide.bgImageUrl
+        : slide.bgImageUrl && !slide.bgImageFrame
           ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
           : themeBackgroundStyle(appearance, "#0b0b0b");
       return (
         <div className={`${base} relative ${className || ""}`} style={ltBg}>
+          {slide.bgImageUrl && slide.bgImageFrame && !transparentBg && !overVideo && <FramedImageBackground url={slide.bgImageUrl} frame={slide.bgImageFrame} />}
           {hasPaint && (
             <div className="absolute inset-x-0 pointer-events-none" aria-hidden
               style={{ top: `${bandTop}%`, height: `${bandH}%`, background: bandBg, opacity: band!.opacity ?? 1 }} />
@@ -345,7 +353,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       // the objects (scripture/lyrics over the theme). Else the theme fill.
       const designBg: React.CSSProperties = transparentBg
         ? { background: "transparent" } // OBS overlay: only the objects render
-        : slide.bgImageUrl
+        : slide.bgImageUrl && !slide.bgImageFrame
           ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
           : slideBg
             ? { background: slideBg }
@@ -397,7 +405,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           ...(transparentBg ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {}),
         };
         return (
-          <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={designBg}>
+          <div className={`${base} relative ${className || ""}`} style={designBg}>
+            {slide.bgImageUrl && slide.bgImageFrame && !transparentBg && <FramedImageBackground url={slide.bgImageUrl} frame={slide.bgImageFrame} />}
             {animated && <AnimatedThemeBg appearance={appearance} />}
             <AutoFitText
               text={soleText.text}
@@ -413,7 +422,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
               // sit in the top/bottom portion over the camera.
               reserveVerticalRatio={overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0}
               verticalAlign={overVideo ? verticalAlign : "center"}
-              className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
+              className={`text-white font-display font-semibold relative z-[1]`}
               textStyle={{ ...themeTextStyle(appearance), ...objStyle }}
               editable={editable}
               onEditInput={onEditInput}
@@ -438,6 +447,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       if (transparentBg) designedContainerStyle.filter = OBS_OVERLAY_DROP_SHADOW;
       return (
         <div className={`${base} relative ${className || ""}`} style={designedContainerStyle}>
+          {slide.bgImageUrl && slide.bgImageFrame && !transparentBg && <FramedImageBackground url={slide.bgImageUrl} frame={slide.bgImageFrame} />}
           <SlideObjectsLayer objects={objects} fontScale={fontScale} themedTextColor={themedTextColor} referenceScale={referenceScale} referenceText={dRefText} />
           {showDesignedFooter && (
             <div className="absolute inset-x-0 bottom-0 flex justify-center pointer-events-none" style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}>
@@ -460,7 +470,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     // (field bug 6C: "background not fully set to the back of the image").
     const bg = transparentBg
       ? { background: "transparent" }
-      : slide.bgImageUrl
+      : slide.bgImageUrl && !slide.bgImageFrame
         ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
         : overVideo
           ? { background: "transparent" }
@@ -471,11 +481,12 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     const refText = slide.reference?.trim();
     return (
       <div
-        className={`${base} ${animated ? "relative" : ""} ${className || ""}`}
+        className={`${base} relative ${className || ""}`}
         // Reserve bottom room for the fixed reference footer so a long verse body
         // fits ABOVE it instead of overlapping.
         style={refText ? { ...bg, paddingBottom: projectorFit ? "8%" : "12%" } : bg}
       >
+        {slide.bgImageUrl && slide.bgImageFrame && !transparentBg && <FramedImageBackground url={slide.bgImageUrl} frame={slide.bgImageFrame} />}
         {animated && <AnimatedThemeBg appearance={appearance} />}
         <AutoFitText
           text={slide.text}

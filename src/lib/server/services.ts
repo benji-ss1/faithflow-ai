@@ -20,8 +20,8 @@ import { cleanRenderUrl } from "../render-url";
 // designed slide always projects — one bad value can never no-op the slide on
 // the projector (the whole-OutputState wire validator would otherwise reject it).
 function projectableSongSlide(text: string, objectsJson: unknown): SlidePayload {
-  const raw = objectsJson as { bgColor?: unknown; bgImageUrl?: unknown; objects?: unknown } | null | undefined;
-  return projectableTextSlide(text, raw?.bgColor, raw?.bgImageUrl, raw?.objects);
+  const raw = objectsJson as { bgColor?: unknown; bgImageUrl?: unknown; bgImageFrame?: unknown; objects?: unknown } | null | undefined;
+  return projectableTextSlide(text, raw?.bgColor, raw?.bgImageUrl, raw?.objects, raw?.bgImageFrame);
 }
 
 export type ExpandedItem = {

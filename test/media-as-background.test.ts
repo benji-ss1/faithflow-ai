@@ -66,6 +66,15 @@ test("image asset → valid PFBackground + valid BackgroundSpec", () => {
   assert.ok(isValidBackgroundSpec(toBackgroundSpec(bg)), "spec must validate");
 });
 
+test("saved Media editor frame survives global-BG serialization", () => {
+  const frame = { fit: "contain" as const, posX: 42, posY: 58, zoom: 1.4, blurFill: true, bgMode: "background" as const, bgKind: "blur" as const };
+  const bg = buildMediaBackground({ ...IMG, frame });
+  const spec = toBackgroundSpec(bg);
+  assert.deepEqual(spec.imageFrame, frame, "saved crop/fill data must reach the projector wire");
+  assert.ok(isValidBackgroundSpec(spec), "framed spec must remain wire-valid");
+  assert.equal(toBackgroundSpec(buildMediaBackground(IMG)).imageFrame, undefined, "unedited media remains on the legacy URL-only path");
+});
+
 test("video asset → type video, videoUrl, valid spec", () => {
   const bg = buildMediaBackground(VID);
   assert.equal(bg.type, "video");

@@ -143,7 +143,7 @@ export function MediaBinSection({
     const prev = snapshotBackgroundState();
     const bg = setMediaAsBackground({
       id: a.id, url: a.url, fileName: a.fileName || "Media",
-      kind: normalizeMediaKind(a.kind || "image"), mediaKey: a.mediaKey || undefined,
+      kind: normalizeMediaKind(a.kind || "image"), mediaKey: a.mediaKey || undefined, frame: ctx ? loadMediaFrame(ctx.churchId, a.id) : null,
     });
     toast.success(`“${bg.name}” is now your background — it stays behind every slide`, {
       id: "pf-media-background",
@@ -186,7 +186,7 @@ export function MediaBinSection({
       toast.error("No lyric/text slide is live — project a slide first, then set its background");
       return;
     }
-    ctx.onSendSlideToLive({ ...live, bgImageUrl: a.url }, null, { instant: true });
+    ctx.onSendSlideToLive({ ...live, bgImageUrl: a.url, bgImageFrame: loadMediaFrame(ctx.churchId, a.id) || undefined }, null, { instant: true });
     toast.success("Background set on the live slide");
   };
 

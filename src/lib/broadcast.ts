@@ -24,6 +24,15 @@ export type SlideObjectWire =
   | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; posX?: number; posY?: number; zoom?: number; opacity?: number; blurFill?: boolean; blur?: boolean }
   | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number };
 
+/** Serialized, validated version of the Media editor's saved composition. */
+export type MediaFrameWire = {
+  fit: "contain" | "cover" | "fill"; posX: number; posY: number; zoom: number;
+  blurFill?: boolean; bgMode?: "matte" | "background";
+  bgKind?: "solid" | "theme" | "gradient" | "blur";
+  bgSolid?: string; gradFrom?: string; gradTo?: string; gradAngle?: number;
+  logoSizePct?: number; logoPosX?: number; logoPosY?: number;
+};
+
 export const SLIDE_CANVAS_W = 1920;
 export const SLIDE_CANVAS_H = 1080;
 export const MAX_SLIDE_OBJECTS = 60;
@@ -62,7 +71,7 @@ export type SlidePayload =
   // `reference`, when present, is rendered as a fixed always-visible footer
   // (scripture reference like "John 3:16 (KJV)") that never gets shrunk or
   // paginated off with the verse body — the body sizes independently above it.
-  | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[]; reference?: string; scriptureLayout?: "lowerThird"; scriptureBand?: ScriptureBandWire }
+  | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; bgImageFrame?: MediaFrameWire; objects?: SlideObjectWire[]; reference?: string; scriptureLayout?: "lowerThird"; scriptureBand?: ScriptureBandWire }
   | { kind: "image"; url: string; fit?: "contain" | "cover" | "fill"; blurFill?: boolean }
   | { kind: "video"; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; volume?: number }
   | { kind: "blank"; bgColor?: string }
@@ -256,6 +265,8 @@ export type BackgroundSpec = {
   imageUrl?: string;
   imageFit?: "fill" | "fit" | "stretch" | "tile";
   imageBlur?: number;
+  /** Saved Media editor composition. Optional so legacy URL-only backgrounds are unchanged. */
+  imageFrame?: MediaFrameWire;
   videoUrl?: string;
   videoSpeed?: number;
   overlayColor?: string;
@@ -694,6 +705,7 @@ export function isValidBackgroundSpec(b: unknown): b is BackgroundSpec {
   if (!["none", "image", "shader", "video"].includes(s.type as string)) return false;
   if (s.shaderPreset !== undefined && (typeof s.shaderPreset !== "string" || s.shaderPreset.length > 40)) return false;
   if (s.imageFit !== undefined && !["fill", "fit", "stretch", "tile"].includes(s.imageFit as string)) return false;
+  if (s.imageFrame !== undefined && !isValidMediaFrameWire(s.imageFrame)) return false;
   for (const k of ["primaryColor", "secondaryColor", "overlayColor"] as const) {
     if (s[k] !== undefined && !isValidColor(s[k])) return false;
   }
@@ -852,6 +864,19 @@ function isCanvasCoord(v: unknown): boolean {
   return typeof v === "number" && Number.isFinite(v) && v >= -SLIDE_CANVAS_W && v <= SLIDE_CANVAS_W * 2;
 }
 
+export function isValidMediaFrameWire(v: unknown): v is MediaFrameWire {
+  if (!v || typeof v !== "object" || Array.isArray(v) || hasPollutionKey(v)) return false;
+  const f = v as Record<string, unknown>;
+  const num = (key: string, lo: number, hi: number, required = false) =>
+    f[key] === undefined ? !required : typeof f[key] === "number" && Number.isFinite(f[key]) && (f[key] as number) >= lo && (f[key] as number) <= hi;
+  if (!["contain", "cover", "fill"].includes(f.fit as string) || !num("posX", 0, 100, true) || !num("posY", 0, 100, true) || !num("zoom", 1, 8, true)) return false;
+  if (f.blurFill !== undefined && typeof f.blurFill !== "boolean") return false;
+  if (f.bgMode !== undefined && f.bgMode !== "matte" && f.bgMode !== "background") return false;
+  if (f.bgKind !== undefined && !["solid", "theme", "gradient", "blur"].includes(f.bgKind as string)) return false;
+  for (const key of ["bgSolid", "gradFrom", "gradTo"]) if (f[key] !== undefined && !isValidColor(f[key])) return false;
+  return num("gradAngle", 0, 360) && num("logoSizePct", 10, 100) && num("logoPosX", 0, 100) && num("logoPosY", 0, 100);
+}
+
 export function isValidSlideObject(o: unknown): o is SlideObjectWire {
   if (!o || typeof o !== "object") return false;
   if (hasPollutionKey(o)) return false;
@@ -920,13 +945,14 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
  * block), never silently no-ops on the projector. Used server-side when
  * building the projectable plan.
  */
-export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUrl?: unknown, objects?: unknown): SlidePayload {
-  const out: { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[] } = {
+export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUrl?: unknown, objects?: unknown, bgImageFrame?: unknown): SlidePayload {
+  const out: { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; bgImageFrame?: MediaFrameWire; objects?: SlideObjectWire[] } = {
     kind: "text",
     text: typeof text === "string" ? text.slice(0, 5000) : "",
   };
   if (isValidColor(bgColor)) out.bgColor = bgColor as string;
   if (isValidRenderUrl(bgImageUrl)) out.bgImageUrl = bgImageUrl as string;
+  if (isValidMediaFrameWire(bgImageFrame)) out.bgImageFrame = bgImageFrame;
   if (Array.isArray(objects)) {
     const valid = objects.filter(isValidSlideObject).slice(0, MAX_SLIDE_OBJECTS);
     if (valid.length > 0) out.objects = valid;
@@ -945,7 +971,7 @@ export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUr
  * design bg) collapse to "|", leaving their identity behaviour unchanged.
  */
 export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): string {
-  let sig = `${s.bgColor ?? ""}|${s.bgImageUrl ?? ""}`;
+  let sig = `${s.bgColor ?? ""}|${s.bgImageUrl ?? ""}|${s.bgImageFrame ? JSON.stringify(s.bgImageFrame) : ""}`;
   // Lower-third layout + band are visible design: fold them in so a layout/band
   // change updates the output identity (crossfades + defeats the already-live
   // skip). A plain (non-lower-third) slide adds nothing here → identity unchanged.
@@ -1026,6 +1052,7 @@ function isValidSlide(s: unknown): s is SlidePayload {
       if (typeof st.text !== "string" || st.text.length > 5000) return false;
       if (st.bgColor !== undefined && !isValidColor(st.bgColor)) return false;
       if (st.bgImageUrl !== undefined && !isValidRenderUrl(st.bgImageUrl)) return false;
+      if (st.bgImageFrame !== undefined && !isValidMediaFrameWire(st.bgImageFrame)) return false;
       if (st.objects !== undefined) {
         if (!Array.isArray(st.objects) || st.objects.length > MAX_SLIDE_OBJECTS) return false;
         if (!st.objects.every(isValidSlideObject)) return false;
@@ -1204,6 +1231,7 @@ export function sanitizeSlide(s: unknown): SlidePayload | null {
       };
       if (isValidColor(st.bgColor)) out.bgColor = st.bgColor as string;
       if (isValidRenderUrl(st.bgImageUrl)) out.bgImageUrl = st.bgImageUrl as string;
+      if (isValidMediaFrameWire(st.bgImageFrame)) out.bgImageFrame = st.bgImageFrame;
       if (Array.isArray(st.objects)) {
         const valid = st.objects.filter(isValidSlideObject).slice(0, MAX_SLIDE_OBJECTS);
         if (valid.length > 0) out.objects = valid;

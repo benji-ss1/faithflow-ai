@@ -16,6 +16,7 @@
  */
 import { addCustomBackground, setActiveBackgroundId } from "./store/backgroundStore";
 import type { PFBackground } from "./models/BackgroundTypes";
+import type { MediaFrame } from "@/components/operator/pro/center/mediaFrame";
 
 /** The helper's public surface takes a NORMALIZED kind — the stringly
  *  `startsWith("video")` sniffing is done ONCE at the boundary (normalizeMediaKind),
@@ -32,6 +33,7 @@ export interface MediaBgAsset {
    *  restarts (the presign only lives ~6h). Optional: an optimistic/legacy asset
    *  may not carry it, in which case the stored `url` is used until it expires. */
   mediaKey?: string;
+  frame?: MediaFrame | null;
 }
 
 /** Collapse a MIME-ish/loose media kind ("image/png", "video/mp4", "image", "video")
@@ -79,6 +81,7 @@ export function buildMediaBackground(asset: MediaBgAsset): PFBackground {
     imageUrl: asset.url,
     imageFit: "fill",
     imageBlur: 0,
+    ...(asset.frame ? { imageFrame: asset.frame } : {}),
     ...(asset.mediaKey ? { mediaKey: asset.mediaKey } : {}),
   };
 }

@@ -2,6 +2,7 @@
 // existing theme system). A background sits BETWEEN the theme background color
 // and the projected text. type "none" ⇒ existing theme background shows through.
 import type { BackgroundSpec } from "@/lib/broadcast";
+import type { MediaFrame } from "@/components/operator/pro/center/mediaFrame";
 
 export type BackgroundType = "none" | "image" | "shader" | "video";
 
@@ -37,6 +38,8 @@ export interface PFBackground {
   imageFit?: "fill" | "fit" | "stretch" | "tile";
   imageBlur?: number; // 0..20 px
   imageOpacity?: number; // 0..1
+  /** Exact saved Media editor composition; absent preserves legacy URL-only render. */
+  imageFrame?: MediaFrame;
 
   // Shader (animated)
   shaderPreset?: ShaderPreset;
@@ -67,6 +70,7 @@ export function toBackgroundSpec(bg: PFBackground | null | undefined): Backgroun
     ...(bg.imageUrl ? { imageUrl: bg.imageUrl } : {}),
     ...(bg.imageFit ? { imageFit: bg.imageFit } : {}),
     ...(typeof bg.imageBlur === "number" ? { imageBlur: bg.imageBlur } : {}),
+    ...(bg.imageFrame ? { imageFrame: bg.imageFrame } : {}),
     ...(bg.videoUrl ? { videoUrl: bg.videoUrl } : {}),
     ...(typeof bg.videoPlaybackSpeed === "number" ? { videoSpeed: bg.videoPlaybackSpeed } : {}),
     ...(bg.overlayColor ? { overlayColor: bg.overlayColor } : {}),

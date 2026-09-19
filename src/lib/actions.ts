@@ -1013,7 +1013,7 @@ export async function duplicateSongSlide(slideId: string): Promise<Result<{ id: 
 // thumbnail ONTO a slide). Preserves the slide's existing objectsJson (objects +
 // bgColor); only swaps bgImageUrl. Plain-lyric slides gain a minimal objectsJson
 // carrying just the background, so the drop is durable either way.
-export async function setSongSlideBackgroundImage(slideId: string, url: string): Promise<Result> {
+export async function setSongSlideBackgroundImage(slideId: string, url: string, frame?: unknown): Promise<Result> {
   const user = await requireCap("edit_library");
   const db = getDb();
   const owned = await assertSlideOwned(db, slideId, user.churchId);
@@ -1022,12 +1022,15 @@ export async function setSongSlideBackgroundImage(slideId: string, url: string):
   if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) {
     return { ok: false, error: "That media has no usable image URL" };
   }
+  const { isValidMediaFrameWire } = await import("./broadcast");
+  if (frame !== undefined && !isValidMediaFrameWire(frame)) return { ok: false, error: "That image frame is invalid" };
   const [row] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
-  const oj = (row?.objectsJson ?? null) as { bgColor?: string; bgImageUrl?: string; objects?: Array<Record<string, unknown>> } | null;
+  const oj = (row?.objectsJson ?? null) as Record<string, unknown> | null;
   const nextJson = {
-    bgColor: oj?.bgColor,
+    ...oj,
     bgImageUrl: clean,
-    objects: Array.isArray(oj?.objects) ? oj!.objects : [],
+    ...(frame === undefined ? {} : { bgImageFrame: frame }),
+    objects: Array.isArray(oj?.objects) ? oj.objects : [],
   };
   await db.update(songSlides).set({ objectsJson: nextJson }).where(eq(songSlides.id, slideId));
   revalidatePath(`/library/songs/${owned.songId}`);
@@ -1047,7 +1050,7 @@ export async function clearSongSlideBackgroundImage(slideId: string): Promise<Re
   if (!oj || !oj.bgImageUrl) return { ok: true, data: { cleared: false } }; // nothing to clear
   // Spread the existing objectsJson and ONLY drop the image — preserve bgColor,
   // bgType, bgColor2, transition and any other persisted background fields.
-  const nextJson = { ...oj, bgImageUrl: undefined };
+  const nextJson = { ...oj, bgImageUrl: undefined, bgImageFrame: undefined };
   await db.update(songSlides).set({ objectsJson: nextJson }).where(eq(songSlides.id, slideId));
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true, data: { cleared: true } };
@@ -1056,7 +1059,7 @@ export async function clearSongSlideBackgroundImage(slideId: string): Promise<Re
 
 // A4 (2026-09-09): set the SAME background image on EVERY slide of a song
 // ("use this image for all slides"). Preserves each slide's other fields.
-export async function setAllSongSlidesBackgroundImage(songId: string, url: string): Promise<Result<{ count: number }>> {
+export async function setAllSongSlidesBackgroundImage(songId: string, url: string, frame?: unknown): Promise<Result<{ count: number }>> {
   const user = await requireCap("edit_library");
   const db = getDb();
   const song = await assertSongOwned(db, songId, user.churchId);
@@ -1065,12 +1068,14 @@ export async function setAllSongSlidesBackgroundImage(songId: string, url: strin
   if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) {
     return { ok: false, error: "That media has no usable image URL" };
   }
+  const { isValidMediaFrameWire } = await import("./broadcast");
+  if (frame !== undefined && !isValidMediaFrameWire(frame)) return { ok: false, error: "That image frame is invalid" };
   const rows = await db.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
     .from(songSlides).where(eq(songSlides.songId, songId));
   let count = 0;
   for (const r of rows) {
     const oj = (r.objectsJson ?? null) as Record<string, unknown> | null;
-    const nextJson = oj ? { ...oj, bgImageUrl: clean } : { bgColor: undefined, bgImageUrl: clean, objects: [] };
+    const nextJson = oj ? { ...oj, bgImageUrl: clean, ...(frame === undefined ? {} : { bgImageFrame: frame }) } : { bgColor: undefined, bgImageUrl: clean, ...(frame === undefined ? {} : { bgImageFrame: frame }), objects: [] };
     await db.update(songSlides).set({ objectsJson: nextJson }).where(eq(songSlides.id, r.id));
     count++;
   }
@@ -1092,7 +1097,7 @@ export async function clearAllSongSlideBackgrounds(songId: string): Promise<Resu
     const oj = (r.objectsJson ?? null) as Record<string, unknown> | null;
     if (!oj || !oj.bgImageUrl) continue;
     // Spread + drop only the image (preserve gradient/transition/etc).
-    await db.update(songSlides).set({ objectsJson: { ...oj, bgImageUrl: undefined } }).where(eq(songSlides.id, r.id));
+    await db.update(songSlides).set({ objectsJson: { ...oj, bgImageUrl: undefined, bgImageFrame: undefined } }).where(eq(songSlides.id, r.id));
     count++;
   }
   if (count > 0) revalidatePath(`/library/songs/${songId}`);

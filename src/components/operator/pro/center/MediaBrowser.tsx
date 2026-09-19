@@ -393,7 +393,7 @@ export function MediaBrowser({
   // quick-change Undo idiom).
   const setAsBackground = (a: Asset) => {
     const prev = snapshotBackgroundState();
-    const bg = setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: normalizeMediaKind(a.kind), mediaKey: a.mediaKey });
+    const bg = setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: normalizeMediaKind(a.kind), mediaKey: a.mediaKey, frame: loadMediaFrame(ctx.churchId, a.id) });
     setSelectedId(a.id);
     toast.success(`“${bg.name}” is now your background — it stays behind every slide`, {
       id: "pf-media-background",

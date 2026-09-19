@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.401",
+    date: "2026-09-19",
+    headline: "Edited media now stays exactly as you framed it on screen",
+    highlights: [
+      "Crop, pan, zoom, blur-fill and background changes saved in Edit image now carry through when you set that media as a global background, set it behind the current slide, or drag it onto a song slide. The live projector uses the same saved composition as the editor and thumbnail.",
+    ],
+  },
+  {
     version: "0.1.400",
     date: "2026-09-10",
     headline: "A cleaner slide + Bible view — readable section labels, search that opens the verse, tidier toolbar",

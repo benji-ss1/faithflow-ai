@@ -182,7 +182,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   // a media image is dropped on ONE slide, so that slide's card updates immediately
   // (no wait for the server round-trip + router.refresh). Cleared automatically once
   // the real slide data catches up (the effect below), so it never masks a change.
-  const [optimisticBg, setOptimisticBg] = useState<Record<number, string>>({});
+  const [optimisticBg, setOptimisticBg] = useState<Record<number, { url: string; frame?: ReturnType<typeof loadMediaFrame> }>>({});
   const displaySlides: SlidePayload[] = useMemo(() => {
     return slides.map((s, i) => {
       let base = s;
@@ -200,7 +200,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       // clear-effect reconciles against that). Non-song items persist per-item and
       // wouldn't reconcile here, so we don't fold an optimistic override onto them.
       const ob = optimisticBg[i];
-      if (ob !== undefined && base.kind === "text" && item?.type === "song") return { ...base, bgImageUrl: ob === "" ? undefined : ob };
+      if (ob !== undefined && base.kind === "text" && item?.type === "song") return { ...base, bgImageUrl: ob.url || undefined, bgImageFrame: ob.frame || undefined };
       return base;
     });
     // ctx.churchId + item identity drive this; slides is derived from item.
@@ -211,13 +211,13 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     setOptimisticBg((prev) => {
       if (Object.keys(prev).length === 0) return prev;
       let changed = false;
-      const next: Record<number, string> = {};
-      for (const [k, url] of Object.entries(prev)) {
+      const next: Record<number, { url: string; frame?: ReturnType<typeof loadMediaFrame> }> = {};
+      for (const [k, value] of Object.entries(prev)) {
         const i = Number(k);
         const real = (slides[i] as { bgImageUrl?: string } | undefined)?.bgImageUrl;
-        const want = url === "" ? undefined : url;
+        const want = value.url || undefined;
         if (real === want) { changed = true; continue; }
-        next[i] = url;
+        next[i] = value;
       }
       return changed ? next : prev;
     });
@@ -495,18 +495,20 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   };
   // Set the optimistic override for EVERY slide index at once (used by the
   // all-slides operations so all cards update instantly, like a Theme change).
-  const setOptimisticAll = (value: string) => {
-    setOptimisticBg(() => { const n: Record<number, string> = {}; slides.forEach((_, i) => { n[i] = value; }); return n; });
+  const setOptimisticAll = (value: { url: string; frame?: ReturnType<typeof loadMediaFrame> }) => {
+    setOptimisticBg(() => { const n: Record<number, { url: string; frame?: ReturnType<typeof loadMediaFrame> }> = {}; slides.forEach((_, i) => { n[i] = value; }); return n; });
   };
   // BACKGROUND = per-slide IMAGE. Use this slide's image on every slide of the song.
   const useImageOnAllSlides = (url?: string) => {
     const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
     if (!songId || !url) { void import("sonner").then(({ toast }) => toast.error(!url ? "This slide has no image to use" : "Only songs can do this")); return; }
-    setOptimisticAll(url);          // INSTANT: every card shows the image now
+    const sourceFrame = slides.find((s) => s.kind === "text" && s.bgImageUrl === url) as Extract<SlidePayload, { kind: "text" }> | undefined;
+    const frame = sourceFrame?.bgImageFrame;
+    setOptimisticAll({ url, frame }); // INSTANT: every card shows the image now
     reSendLiveWithBg(url);          // INSTANT: /live updates if a slide of this item is live
     void (async () => {
       const { toast } = await import("sonner");
-      const res = await setAllSongSlidesBackgroundImage(songId, url);
+      const res = await setAllSongSlidesBackgroundImage(songId, url, frame);
       if (!res.ok) { toast.error(res.error ?? "Couldn't set image"); setOptimisticBg({}); return; }
       toast.success(`Image set on ${res.data?.count ?? 0} slide${(res.data?.count ?? 0) === 1 ? "" : "s"}`);
       router.refresh();
@@ -523,7 +525,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const removeSlideBackground = (idx: number) => {
     const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
     if (!slideId) { void import("sonner").then(({ toast }) => toast.error("Couldn't find that slide")); return; }
-    setOptimisticBg((m) => ({ ...m, [idx]: "" }));  // INSTANT: this card clears now
+    setOptimisticBg((m) => ({ ...m, [idx]: { url: "" } }));  // INSTANT: this card clears now
     if (idx === liveSlideIdx) {
       reSendLiveWithBg(undefined);                   // INSTANT: /live clears ONLY if THIS exact slide is live
     }
@@ -539,7 +541,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const removeAllSlideBackgrounds = () => {
     const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
     if (!songId) { void import("sonner").then(({ toast }) => toast.error("Only songs can do this")); return; }
-    setOptimisticAll("");            // INSTANT: every card clears now
+    setOptimisticAll({ url: "" });   // INSTANT: every card clears now
     reSendLiveWithBg(undefined);     // INSTANT: /live clears if a slide of this item is live
     void (async () => {
       const { toast } = await import("sonner");
@@ -752,15 +754,16 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     e.stopPropagation();
     setBgDropIdx(null);
     setNewDropActive(false);
+    const frame = isImageAsset(payload) ? loadMediaFrame(ctx.churchId, payload.id) : null;
     // INSTANT PREVIEW: paint the new background on the card immediately, before any
     // server round-trip, so the drop feels instant (D1). Cleared once real data lands.
     if (canAcceptMediaDrop && isImageAsset(payload)) {
-      setOptimisticBg((m) => ({ ...m, [idx]: payload.url }));
+      setOptimisticBg((m) => ({ ...m, [idx]: { url: payload.url, frame } }));
       // INSTANT LIVE: if this exact slide is what's currently on the projector,
       // re-send it with the new background right away so /live updates instantly too.
       const base = displaySlides[idx] ?? slides[idx];
       if (idx === liveSlideIdx && base) {
-        ctx.onSendSlideToLive({ ...(base as Extract<SlidePayload, { kind: "text" }>), bgImageUrl: payload.url }, null, { instant: true });
+        ctx.onSendSlideToLive({ ...(base as Extract<SlidePayload, { kind: "text" }>), bgImageUrl: payload.url, bgImageFrame: frame || undefined }, null, { instant: true });
       }
     }
     void (async () => {
@@ -770,7 +773,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       if (editableSongId) {
         const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
         if (!slideId) { toast.error("Couldn't find that slide"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
-        const res = await setSongSlideBackgroundImage(slideId, payload.url);
+        const res = await setSongSlideBackgroundImage(slideId, payload.url, frame || undefined);
         if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
       } else {
         if (!itemId) { toast.error("Couldn't find that item"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
