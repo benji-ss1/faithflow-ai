@@ -79,6 +79,15 @@ check("a second Slide clear while the theme is kept is a no-op (F2 twice must no
 check("a slide that owns its background clears WITH that background (baked into the slide)", () => {
   assert.equal(decideSlideClear(base({ prev: { kind: "text", text: "x", bgImageUrl: "https://x/own.jpg" } })), "plain");
   assert.equal(decideSlideClear(base({ prev: { kind: "text", text: "x", bgColor: "#ff0000" } })), "plain");
+  // A slide whose image IS the live theme's (baked in by "Apply theme to song",
+  // src/lib/theme-bake.ts) is the THEME's media, not the slide's: it keeps.
+  assert.equal(decideSlideClear(base({ prev: { kind: "text", text: "x", bgImageUrl: "https://x/worship.jpg", bgColor: "#010101" } })), "keep");
+  assert.equal(decideSlideClear(base({ prev: { kind: "text", text: "x", bgImageUrl: "https://x/worship.jpg" } })), "keep");
+  // …but a DIFFERENT image is the slide's own.
+  assert.equal(decideSlideClear(base({ prev: { kind: "text", text: "x", bgImageUrl: "https://x/other.jpg" } })), "plain");
+  // A video/animated theme's baked colour (its bgColor or the #010101 nudge) is the theme's too.
+  assert.equal(decideSlideClear(base({ appearance: auroraTheme, prev: { kind: "text", text: "x", bgColor: "#101040" } })), "keep");
+  assert.equal(decideSlideClear(base({ appearance: videoTheme, prev: { kind: "text", text: "x", bgColor: "#010101" } })), "keep");
   // The default black bgColor every song/scripture slide carries is "unset".
   assert.equal(decideSlideClear(base({ prev: { kind: "text", text: "x", bgColor: "#000000" } })), "keep");
   // A designed slide whose first object covers the canvas hides the theme.

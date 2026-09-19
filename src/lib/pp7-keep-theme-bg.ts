@@ -92,13 +92,26 @@ function defaultBlack(c: string | undefined): boolean {
   return v === "#000000" || v === "#000" || v === "black" || v === "rgb(0,0,0)" || v === "rgb(0, 0, 0)";
 }
 
+const normColor = (c: string | undefined) => (c ?? "").trim().toLowerCase();
+
 /** Was the THEME background actually what showed behind this live slide? A slide
- *  with its own background (image / colour / a designed full-canvas layout) owns
- *  its pixels — that media is "baked into the slide" and clears with it. */
-function themeBgWasShowing(s: SlidePayload): boolean {
+ *  with its OWN background (a different image / colour / a designed full-canvas
+ *  layout) owns its pixels — that media is "baked into the slide" and clears with
+ *  it. BUT applying a theme to a song bakes the THEME's own background into every
+ *  slide (src/lib/theme-bake.ts: the theme's image URL, its colour, or the
+ *  near-black "#010101" nudge), and that is the theme's media, not the slide's:
+ *  a baked slide whose image/colour IS the live theme's still counts. */
+function themeBgWasShowing(s: SlidePayload, appearance: ThemeAppearance | null | undefined): boolean {
+  const isThemeColor = (c: string | undefined) =>
+    defaultBlack(c) || normColor(c) === "#010101" || (!!appearance?.bgColor && normColor(c) === normColor(appearance.bgColor));
   if (s.kind === "blank") return defaultBlack(s.bgColor);
   if (s.kind !== "text") return false; // image / video / logo / empty
-  if (s.bgImageUrl || !defaultBlack(s.bgColor)) return false;
+  if (s.bgImageUrl) {
+    // The image must be the live theme's own (baked), else it is the slide's.
+    if (!(appearance?.bgType === "image" && appearance.bgImageUrl === s.bgImageUrl)) return false;
+  } else if (!isThemeColor(s.bgColor)) {
+    return false;
+  }
   // A designed slide whose first object covers the canvas hides the theme behind
   // it — the same rule themeDecorPlan() uses.
   if (s.objects && s.objects.length > 0 && coversCanvas(s.objects)) return false;
@@ -131,7 +144,7 @@ export function decideSlideClear(i: SlideClearInputs): "keep" | "noop" | "plain"
   if (!i.enabled) return "plain";
   if (isKeepThemeBgSlide(i.prev)) return "noop";
   if (i.backgroundTemplateActive || i.cameraActive) return "plain";
-  if (!themeBgWasShowing(i.prev)) return "plain";
+  if (!themeBgWasShowing(i.prev, i.appearance)) return "plain";
   if (!themeMediaRetainable(i.appearance)) return "plain";
   return "keep";
 }
