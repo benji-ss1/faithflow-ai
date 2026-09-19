@@ -1,7 +1,7 @@
 "use client";
 import { fontStack } from "@/lib/fonts/registry";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, refScaleOf, textWidthOf, bandMediaBox, fitMediaInBox, videoObjectFit } from "@/lib/band-media";
+import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, refScaleOf, textWidthOf, bandVersePx, bandMediaBox, fitMediaInBox, videoObjectFit } from "@/lib/band-media";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H, type SlidePayload, type ThemeAppearance, type ScriptureBandWire, type ThemeFrameWire, type SlideObjectWire } from "@/lib/broadcast";
 import { themedObjectTextColor, coversCanvas } from "@/lib/slide-objects";
 import { themeBoxesAllowed as themeBoxesAllowedFor, themeDecorFor, themeDecorPlan } from "@/lib/theme-decor-plan";
@@ -402,6 +402,8 @@ export function SlideRenderer(props: SlideRendererProps) {
       const verseH = Math.max(4, bandH - pad * 2 - refH);
       const ltRef = slide.reference?.trim();
       const refTop = bandTop + bandH - refH - pad * 0.5;
+      // The locked verse size: geometry x Verse size x the operator's global A-/A+.
+      const lockedVersePx = bandVersePx(bandH, vScale, fontScale);
       // Text-area width (% of canvas), centred. 88 = the original 6% side margins.
       const textW = textWidthOf(band?.widthPct);
       const textLeft = (100 - textW) / 2;
@@ -441,7 +443,21 @@ export function SlideRenderer(props: SlideRendererProps) {
                every surface, since the box has real % dims (no shrink-wrap collapse). */}
             <AutoFitText
               text={slide.text}
-              maxPx={Math.round(150 * vScale)}
+              // SIZE PERSISTENCE (2026-09-19 owner report: "the text does not persist …
+              // if you call one verse a hundred verses the sizing must persist"). The
+              // ceiling is the church's LOCKED size, derived from the band geometry +
+              // the Verse size setting — NOT from this verse's length — so every verse
+              // renders at the same size instead of each auto-fitting to itself (short
+              // verse huge, long verse tiny). It is still a CEILING, so a verse that
+              // genuinely can't fit shrinks exactly as before and is never clipped; and
+              // fontScale is folded into the locked px instead of
+              // multiplying the fitted result, which is what made it vary per verse.
+              maxPx={lockedVersePx}
+              // Long verses must WRAP inside the band. Without an explicit width this
+              // element shrink-wraps, so the fit search shrank the WHOLE verse onto ONE
+              // line: John 3:16 rendered at the 24px floor while "Jesus wept." sat at
+              // 150px. Same mechanism the projector path already used.
+              wrapToBox
               paddingRatio={0.03}
               projectorFit={false}
               // Pagination OFF: the live projector has no page-advance, so a
@@ -454,7 +470,7 @@ export function SlideRenderer(props: SlideRendererProps) {
               // real size lever is AutoFitText's fontScale prop (shown = best*scale),
               // so fold vScale in there (× any incoming projector fontScale). maxPx
               // stays scaled so a scaled-up verse isn't clamped by the ceiling.
-              fontScale={(fontScale && fontScale > 0 ? fontScale : 1) * vScale}
+              fontScale={1}
               className="font-display font-semibold"
               textStyle={{
                 ...themeTextStyle(appearance),
