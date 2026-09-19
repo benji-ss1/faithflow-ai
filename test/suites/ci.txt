@@ -128,6 +128,7 @@ test/spring-load.test.ts
 test/stale-action.test.ts
 test/stress-wave6-3.test.ts
 test/text-size-freedom.test.ts
+test/font-scale-clamp.test.ts
 test/theme-appearance.test.ts
 test/theme-bake.test.ts
 test/theme-decor-designed.test.ts

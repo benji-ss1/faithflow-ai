@@ -408,6 +408,45 @@ export type LayerWire =
 // bounded well beyond the legacy 0/10/20 stack. The array is capped so a hostile
 // snapshot can't balloon memory.
 export const MAX_LAYERS = 16;
+
+/** Upper bound for the font/reference multipliers that travel on the wire, and
+ *  the single place the operator's published scale is computed.
+ *
+ *  2026-09-20 field bug this fixes: the operator publishes the PRODUCT of the
+ *  text-size slider (max 2.5) and the zone's FONT multiplier (ProjectionZoneControls'
+ *  "Font" slider, max 2.0 — NOT the zone Size/zoom slider, which does not feed
+ *  this), so the raw product reaches 5.0. This bound was a bare `4` and
+ *  `sanitizeOutputState` RESET anything above it to 1, so pushing BOTH sliders near
+ *  their tops made the projector silently snap back to 100% mid-service — while the
+ *  operator's own preview (reading the UNCLAMPED product via shellCtx) still showed
+ *  the large text, so the two disagreed with no warning. Both settings persist, so
+ *  once set the fault was sticky across sessions. Affects ALL slide text, not just
+ *  verses. Became reachable 2026-09-16 when the slider was widened 0.6-1.6 -> 0.3-2.5
+ *  (before that the worst case was 1.6 * 2 = 3.2, safely under 4).
+ *
+ *  WHY THIS STAYS AT 4 rather than being raised to 5 to cover the full slider range:
+ *  `isValidOutputStateExternal` REJECTS a whole OutputState whose fontScale exceeds
+ *  this (realtime.ts drops the frame and returns), and a cross-device projector /
+ *  stage / OBS tab that was loaded BEFORE a deploy keeps running its old bound. If we
+ *  started publishing 4.5 those stale surfaces would discard every frame and FREEZE
+ *  on their last slide — worse than the bug being fixed. So the operator's product is
+ *  CLAMPED to this bound at source instead (`publishedFontScale`): the size stays
+ *  large, nothing resets, and every receiver old or new accepts it. Raising this to 5
+ *  is a separate, later change that must ship at least one release AFTER any source
+ *  that emits above 4. Keeping it at 4 also keeps OBS_MAX_FONT_SCALE (obs-look.ts,
+ *  also 4) consistent, so livestream text size stays monotonic. */
+export const OUTPUT_FONT_SCALE_MAX = 4;
+
+/** The operator's effective text scale as published to EVERY output — one function
+ *  so the wire payloads and the operator's own preview can never disagree (that
+ *  divergence was half the 2026-09-20 bug). Clamped to the wire bound so a stale
+ *  remote surface can never reject the frame. Pure; unit-tested in
+ *  test/font-scale-clamp.test.ts. */
+export function publishedFontScale(sliderScale: number, zoneFontScale: number): number {
+  const slider = Number.isFinite(sliderScale) && sliderScale > 0 ? sliderScale : 1;
+  const zone = Number.isFinite(zoneFontScale) && zoneFontScale > 0 ? zoneFontScale : 1;
+  return Math.min(OUTPUT_FONT_SCALE_MAX, slider * zone);
+}
 // Sanity window for the monotonic `rev` / `layersEpoch` stamps. Revs are
 // Date.now()-seeded on the origin, so an honest stamp is always within a small
 // clock-skew of "now". A stamp more than this far in the FUTURE is either a
@@ -1411,11 +1450,11 @@ export function isValidOutputState(s: unknown): s is OutputState {
   // this file's hardening posture consistent).
   if (st.fontScale !== undefined) {
     const f = st.fontScale;
-    if (typeof f !== "number" || !Number.isFinite(f) || f <= 0 || f > 4) return false;
+    if (typeof f !== "number" || !Number.isFinite(f) || f <= 0 || f > OUTPUT_FONT_SCALE_MAX) return false;
   }
   if (st.referenceScale !== undefined) {
     const r = st.referenceScale;
-    if (typeof r !== "number" || !Number.isFinite(r) || r <= 0 || r > 4) return false;
+    if (typeof r !== "number" || !Number.isFinite(r) || r <= 0 || r > OUTPUT_FONT_SCALE_MAX) return false;
   }
   if (st.referenceColor !== undefined && st.referenceColor !== null && !isValidColor(st.referenceColor)) return false;
   if (st.background !== undefined && st.background !== null && !isValidBackgroundSpec(st.background)) return false;
@@ -1560,13 +1599,19 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   }
   if (out.nextItem !== undefined && out.nextItem !== null && !isValidNextItem(out.nextItem)) out.nextItem = null;
   if (out.transition !== undefined && !isValidTransitionSpec(out.transition)) out.transition = undefined;
+  // Scales fail-open TOWARDS THE OPERATOR'S INTENT: a finite, positive value that
+  // is merely too large is CLAMPED to the bound (still big), never reset to 1
+  // (back to default) — the 2026-09-20 "projector snaps to 100%" bug. Only a
+  // value that cannot be interpreted at all (non-finite, <= 0) falls back to 1.
   if (out.fontScale !== undefined) {
     const f = out.fontScale;
-    if (typeof f !== "number" || !Number.isFinite(f) || f <= 0 || f > 4) out.fontScale = 1;
+    if (typeof f !== "number" || !Number.isFinite(f) || f <= 0) out.fontScale = 1;
+    else if (f > OUTPUT_FONT_SCALE_MAX) out.fontScale = OUTPUT_FONT_SCALE_MAX;
   }
   if (out.referenceScale !== undefined) {
     const r = out.referenceScale;
-    if (typeof r !== "number" || !Number.isFinite(r) || r <= 0 || r > 4) out.referenceScale = 1;
+    if (typeof r !== "number" || !Number.isFinite(r) || r <= 0) out.referenceScale = 1;
+    else if (r > OUTPUT_FONT_SCALE_MAX) out.referenceScale = OUTPUT_FONT_SCALE_MAX;
   }
   if (out.referenceColor !== undefined && out.referenceColor !== null && !isValidColor(out.referenceColor)) out.referenceColor = undefined;
   if (out.background !== undefined && out.background !== null && !isValidBackgroundSpec(out.background)) out.background = null;
