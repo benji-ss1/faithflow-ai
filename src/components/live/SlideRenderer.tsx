@@ -1,7 +1,7 @@
 "use client";
 import { fontStack } from "@/lib/fonts/registry";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, bandMediaBox, fitMediaInBox, videoObjectFit } from "@/lib/band-media";
+import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, refScaleOf, textWidthOf, bandMediaBox, fitMediaInBox, videoObjectFit } from "@/lib/band-media";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H, type SlidePayload, type ThemeAppearance, type ScriptureBandWire, type ThemeFrameWire, type SlideObjectWire } from "@/lib/broadcast";
 import { themedObjectTextColor, coversCanvas } from "@/lib/slide-objects";
 import { themeBoxesAllowed as themeBoxesAllowedFor, themeDecorFor, themeDecorPlan } from "@/lib/theme-decor-plan";
@@ -390,14 +390,21 @@ export function SlideRenderer(props: SlideRendererProps) {
       // Layout inside the band: a small pad, the verse fit-box, then the reference
       // line at the band's bottom. All in % of the canvas height.
       const pad = bandH * 0.06;
-      const refH = bandH * 0.20;
+      // Reference size scales with band height (bigger band → bigger reference),
+      // in canvas px so it scales with the surface via PresentationCanvas. The band's
+      // own refScale (Scripture Style "Reference size") multiplies it; 1 = unchanged.
+      const refPx = Math.round((bandH / 100) * 1080 * 0.11 * (referenceScale ?? 1) * refScaleOf(band?.refScale));
+      // The reference row is 20% of the band, and GROWS (max half the band) when a
+      // larger reference wouldn't fit it, so a big reference never overlaps the verse.
+      // At refScale 1 the max() is the old 20% exactly.
+      const refH = Math.min(bandH * 0.5, Math.max(bandH * 0.20, (refPx / 1080) * 100 * 1.15));
       const verseTop = bandTop + pad;
       const verseH = Math.max(4, bandH - pad * 2 - refH);
       const ltRef = slide.reference?.trim();
       const refTop = bandTop + bandH - refH - pad * 0.5;
-      // Reference size scales with band height (bigger band → bigger reference),
-      // in canvas px so it scales with the surface via PresentationCanvas.
-      const refPx = Math.round((bandH / 100) * 1080 * 0.11 * (referenceScale ?? 1));
+      // Text-area width (% of canvas), centred. 88 = the original 6% side margins.
+      const textW = textWidthOf(band?.widthPct);
+      const textLeft = (100 - textW) / 2;
       const themeTxt = (themeTextStyle(appearance)?.color as string | undefined);
       // Verse colour:
       //  • Over a band → auto-contrast against the OPERATOR'S band colour (a light
@@ -426,7 +433,7 @@ export function SlideRenderer(props: SlideRendererProps) {
             <div className="absolute inset-x-0 pointer-events-none" aria-hidden
               style={{ top: `${bandTop}%`, height: `${bandH}%`, background: bandBg, opacity: band!.opacity ?? 1, boxShadow: bandEdgeShadow(band!.color, band!.color2) }} />
           )}
-          <div className="absolute" style={{ top: `${verseTop}%`, height: `${verseH}%`, left: "6%", width: "88%" }}>
+          <div className="absolute" style={{ top: `${verseTop}%`, height: `${verseH}%`, left: `${textLeft}%`, width: `${textW}%` }}>
             {/* projectorFit is deliberately OFF: the projector-fit path sizes vs the
                FULL 1920×1080 canvas (ignoring this box) → would overflow the band.
                OFF → AutoFitText measures THIS explicitly-sized box and fits the
@@ -460,7 +467,7 @@ export function SlideRenderer(props: SlideRendererProps) {
           </div>
           {ltRef && (
             <div className="absolute flex items-center justify-center pointer-events-none"
-              style={{ top: `${refTop}%`, height: `${refH}%`, left: "6%", width: "88%" }}>
+              style={{ top: `${refTop}%`, height: `${refH}%`, left: `${textLeft}%`, width: `${textW}%` }}>
               <span className="font-display font-semibold uppercase tracking-wide" style={{
                 fontSize: `${refPx}px`, lineHeight: 1,
                 opacity: 0.9, color: verseColor, ...(referenceColor ? { color: referenceColor } : {}),

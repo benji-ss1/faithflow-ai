@@ -7,7 +7,7 @@
 import { projectableTextSlide, type SlidePayload, type ScriptureBandWire } from "@/lib/broadcast";
 import { newObjectId, type EditableSlide, type SlideObject, type TextObject } from "@/lib/slide-objects";
 import { designFromThemeScripture, type ThemeScriptureOptions } from "@/lib/theme-scripture";
-import { DEFAULT_SCRIPTURE_DESIGN, sanitizeBandStyle, clampNum, type TextStyle, type BandStyle, type ScriptureDesign } from "@/lib/scripture-design";
+import { DEFAULT_SCRIPTURE_DESIGN, BAND_DEFAULT, sanitizeBandStyle, clampNum, type TextStyle, type BandStyle, type ScriptureDesign } from "@/lib/scripture-design";
 import { getScriptureStyle, setLocalScriptureStyle } from "@/lib/church-styles-store";
 
 // Types, defaults and sanitizers live in the pure, server-safe
@@ -38,6 +38,10 @@ export function bandWireFromDesign(d: ScriptureDesign): ScriptureBandWire | unde
   // Geometry is ALWAYS carried (even for a "none" band) so the verse is placed
   // in the right third; paint is added only for solid/gradient.
   const wire: ScriptureBandWire = { topPct: bandTopPct(b), heightPct: b.heightPct, fontScale: b.fontScale };
+  // Only when changed from the default, so an untouched church's wire (and output
+  // identity) is byte-identical to before these controls existed.
+  if (b.refScale !== BAND_DEFAULT.refScale) wire.refScale = b.refScale;
+  if (b.widthPct !== BAND_DEFAULT.widthPct) wire.widthPct = b.widthPct;
   if (b.mode !== "none") {
     wire.color = b.color;
     wire.opacity = b.opacity;
