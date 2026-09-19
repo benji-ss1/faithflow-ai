@@ -180,3 +180,4 @@ test/fonts-picker-value.test.ts
 test/windows-responsive.test.ts
 test/themes-retirement.test.ts
 test/media-frame-bake.test.ts
+test/songs-toolbar.test.ts
