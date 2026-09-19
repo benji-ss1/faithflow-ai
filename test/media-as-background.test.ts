@@ -32,7 +32,7 @@ g.window = { localStorage: mem, dispatchEvent: () => true };
 import { buildMediaBackground, setMediaAsBackground, normalizeMediaKind, type MediaBgAsset } from "../src/backgrounds/mediaAsBackground";
 import { readActiveBackgroundId, readActiveBackground, setActiveBackgroundId, snapshotBackgroundState, restoreBackgroundState } from "../src/backgrounds/store/backgroundStore";
 import { toBackgroundSpec } from "../src/backgrounds/models/BackgroundTypes";
-import { isValidBackgroundSpec, type OutputState, type SlidePayload } from "../src/lib/broadcast";
+import { isValidBackgroundSpec, isValidMediaFrameWire, projectableTextSlide, sanitizeSlide, slideDesignSig, type OutputState, type SlidePayload } from "../src/lib/broadcast";
 import { outputStateToLayers } from "../src/lib/output-layers";
 
 let passed = 0, failed = 0;
@@ -73,6 +73,42 @@ test("saved Media editor frame survives global-BG serialization", () => {
   assert.deepEqual(spec.imageFrame, frame, "saved crop/fill data must reach the projector wire");
   assert.ok(isValidBackgroundSpec(spec), "framed spec must remain wire-valid");
   assert.equal(toBackgroundSpec(buildMediaBackground(IMG)).imageFrame, undefined, "unedited media remains on the legacy URL-only path");
+});
+
+test("gradient saved frame survives the background wire without losing its editor values", () => {
+  const frame = { fit: "contain" as const, posX: 15, posY: 85, zoom: 2, bgMode: "background" as const, bgKind: "gradient" as const, gradFrom: "#112233", gradTo: "#aabbcc", gradAngle: 225, logoSizePct: 45, logoPosX: 37, logoPosY: 61 };
+  const spec = toBackgroundSpec(buildMediaBackground({ ...IMG, frame }));
+  assert.deepEqual(spec.imageFrame, frame);
+  assert.ok(isValidBackgroundSpec(spec));
+});
+
+test("malformed saved frames are rejected before they can reach the projector", () => {
+  assert.equal(isValidMediaFrameWire({ fit: "cover", posX: 50, posY: 50, zoom: 1 }), true);
+  assert.equal(isValidMediaFrameWire({ fit: "cover", posX: 101, posY: 50, zoom: 1 }), false, "out-of-range pan");
+  assert.equal(isValidMediaFrameWire({ fit: "cover", posX: 50, posY: 50, zoom: 0.5 }), false, "invalid zoom");
+  assert.equal(isValidMediaFrameWire({ fit: "contain", posX: 50, posY: 50, zoom: 1, bgSolid: 'url(javascript:bad)' }), false, "unsafe CSS colour");
+});
+
+test("saved frame survives the song-slide projection converter", () => {
+  const frame = { fit: "fill" as const, posX: 33, posY: 67, zoom: 1.8, blurFill: true };
+  const slide = projectableTextSlide("Words", "#000000", IMG.url, [], frame);
+  assert.equal(slide.kind, "text");
+  assert.deepEqual((slide as Extract<SlidePayload, { kind: "text" }>).bgImageFrame, frame);
+});
+
+test("saved frame survives defensive incoming-slide sanitization", () => {
+  const frame = { fit: "cover" as const, posX: 27, posY: 73, zoom: 1.25, bgMode: "background" as const, bgKind: "blur" as const };
+  const slide = sanitizeSlide({ kind: "text", text: "Words", bgImageUrl: IMG.url, bgImageFrame: frame });
+  assert.equal(slide?.kind, "text");
+  assert.deepEqual((slide as Extract<SlidePayload, { kind: "text" }>).bgImageFrame, frame);
+});
+
+test("a saved-frame change updates live identity while legacy unframed identity stays unchanged", () => {
+  const plain = projectableTextSlide("Words", "#000000", IMG.url, []);
+  const framed = projectableTextSlide("Words", "#000000", IMG.url, [], { fit: "cover", posX: 50, posY: 50, zoom: 1 });
+  const reframed = projectableTextSlide("Words", "#000000", IMG.url, [], { fit: "cover", posX: 60, posY: 50, zoom: 1 });
+  assert.equal(slideDesignSig(plain as Extract<SlidePayload, { kind: "text" }>), "#000000|https://cdn.example.com/pic.jpg");
+  assert.notEqual(slideDesignSig(framed as Extract<SlidePayload, { kind: "text" }>), slideDesignSig(reframed as Extract<SlidePayload, { kind: "text" }>), "a changed crop must repaint an already-live slide");
 });
 
 test("video asset → type video, videoUrl, valid spec", () => {
