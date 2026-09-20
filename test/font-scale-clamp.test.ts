@@ -43,6 +43,8 @@ import {
 import { FONT_SCALE_MAX, FONT_SCALE_MIN, REFERENCE_SCALE_MAX, REFERENCE_SCALE_MIN } from "../src/components/operator/pro/operatorConstants";
 import { ZONE_FONT_SCALE_MAX, ZONE_FONT_SCALE_MIN, normalizeZone } from "../src/lib/projection-zone";
 import { OBS_MAX_FONT_SCALE } from "../src/lib/obs-look";
+import { resolveShownSize, searchCeilingPx } from "../src/components/live/AutoFitText";
+import { projectorCeilingPx, PROJECTOR_MAX_BODY_FRACTION } from "../src/lib/projectorFontSize";
 
 let pass = 0, fail = 0;
 function check(name: string, fn: () => void) {
@@ -89,6 +91,52 @@ check("DRIFT RECORD: the raw slider product exceeds the bound and is deliberatel
     "raw product no longer exceeds the bound — re-read the rollout note in broadcast.ts before changing this");
   assert.equal(effective(FONT_SCALE_MAX, ZONE_FONT_SCALE_MAX), OUTPUT_FONT_SCALE_MAX,
     "the top of both sliders must clamp to the bound, not reset");
+});
+
+check("NO VISIBLE COST: clamping to 4 renders identically to an uncapped 5", () => {
+  // The clamp caps the operator's raw 5.0 at 4.0. This proves that costs them
+  // NOTHING on screen, so the safe bound is free.
+  //
+  // The operator scale is NOT a px multiplier: `resolveShownSize` returns the
+  // FITTED size unchanged for any scale >= 1, and the scale only raises the fit
+  // search ceiling (`searchCeilingPx` = projectorCeilingPx(H) * scale, where
+  // projectorCeilingPx = PROJECTOR_MAX_BODY_FRACTION * H). Text can never render
+  // larger than the box it must fit inside, so once the ceiling reaches the
+  // container height it stops binding altogether and the box governs.
+  //
+  // Ceiling stops binding at scale >= 1 / PROJECTOR_MAX_BODY_FRACTION = 3.34.
+  // Both 4 and 5 are above that, so they produce the SAME fitted size.
+  const bindingThreshold = 1 / PROJECTOR_MAX_BODY_FRACTION;
+  assert.ok(OUTPUT_FONT_SCALE_MAX > bindingThreshold,
+    `the bound (${OUTPUT_FONT_SCALE_MAX}) must exceed the ceiling-binding threshold ` +
+    `(${bindingThreshold.toFixed(2)}), otherwise clamping WOULD shrink text on screen`);
+
+  // Concretely: at the bound, the ceiling already exceeds the container for every
+  // realistic surface (4K projector down to a short lower-third band).
+  for (const containerH of [2160, 1080, 720, 400, 259, 120]) {
+    const ceilingAtBound = searchCeilingPx(Math.round(projectorCeilingPx(containerH)), OUTPUT_FONT_SCALE_MAX);
+    assert.ok(ceilingAtBound >= containerH,
+      `container ${containerH}px: ceiling ${ceilingAtBound}px still binds at the bound — ` +
+      `clamping could visibly shrink text here`);
+    // ...and raising the bound would not change that, i.e. nothing is gained.
+    const ceilingUncapped = searchCeilingPx(Math.round(projectorCeilingPx(containerH)), FONT_SCALE_MAX * ZONE_FONT_SCALE_MAX);
+    assert.ok(ceilingUncapped >= containerH, `container ${containerH}px: uncapped also non-binding`);
+  }
+});
+
+check("NO VISIBLE COST: scale >= 1 never shrinks the fitted size", () => {
+  // resolveShownSize is the function that turns the operator scale into pixels.
+  // For any scale >= 1 it returns the fitted size UNCHANGED — so the clamp (which
+  // only ever lowers a value from 5 to 4, both >= 1) cannot shrink anything.
+  for (const best of [24, 80, 200, 640]) {
+    assert.equal(resolveShownSize(best, OUTPUT_FONT_SCALE_MAX), best, "clamped scale keeps the fitted size");
+    assert.equal(resolveShownSize(best, FONT_SCALE_MAX * ZONE_FONT_SCALE_MAX), best, "uncapped scale gives the same");
+    assert.equal(
+      resolveShownSize(best, OUTPUT_FONT_SCALE_MAX),
+      resolveShownSize(best, FONT_SCALE_MAX * ZONE_FONT_SCALE_MAX),
+      "clamped and uncapped are indistinguishable",
+    );
+  }
 });
 
 check("DRIFT GUARD: the wire bound stays in step with the OBS ceiling", () => {
