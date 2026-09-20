@@ -83,7 +83,7 @@ import { SettingsWindow } from "../settings/SettingsWindow";
 import { SarahOverlay } from "@/components/setup/sarah/SarahOverlay";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
 import { matchNextSlide, isLikelyEndOfSong, scoreCoverage, slideWords, matchBestSlide } from "@/lib/ai-detection/lyric-position";
-import { parseContextCommand, navCommandWordCount } from "@/lib/context-parser";
+import { parseContextCommand, navCommandInUtterance } from "@/lib/context-parser";
 // Audio Guardian (2026-07-27) — native-capture self-healing watchdog.
 // The shell only CONSUMES its state events (toasts + red chip); the state
 // machine itself lives in src/lib/audio/audioGuardian.ts, fed by
@@ -3829,8 +3829,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       (cards.length > 0 && idx != null && !!cards[idx] && !cards[idx].placeholder) ||
       (ctx.liveSlide?.kind === "text" && !!ctx.liveSlide.reference);
     if (!hasVerseContext) return;
-    const cmd = parseContextCommand(interimText, { hasVerseContext, hasSlideContext: false, hasSongContext: false });
-    if (!cmd) return;
+    // 2026-09-20: clause-level. "And that is why he came. Next verse." is a command;
+    // the old whole-utterance word count threw it away. navCommandInUtterance takes the
+    // LAST pure-command clause, so a trailing command wins.
+    const hit = navCommandInUtterance(interimText, { hasVerseContext, hasSlideContext: false, hasSongContext: false });
+    if (!hit) return;
+    const cmd = hit.cmd;
     if (cmd.confidence < 70) return;
     const isRelNav =
       cmd.verb === "next_verse" || cmd.verb === "continue" ||
@@ -3843,7 +3847,6 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const matched = (cmd.matchedText ?? "").toLowerCase().trim();
     const liveText = (ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "").toLowerCase();
     if (matched && liveText.includes(matched)) return; // reading guard
-    if (navCommandWordCount(interimText, cmd) > 5) return; // standalone guard (politeness-stripped, command tail)
     if (isNavEcho(cmd.verb)) return; // already fired this command (prior interim tick or final)
     const count = (cmd.payload as { count?: number } | undefined)?.count ?? 1;
     if (navDir(cmd.verb) === "prev") {
@@ -3883,8 +3886,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       (cards.length > 0 && idx != null && !!cards[idx] && !cards[idx].placeholder) ||
       (ctx.liveSlide?.kind === "text" && !!ctx.liveSlide.reference);
     if (!hasVerseContext) return;
-    const cmd = parseContextCommand(last.text, { hasVerseContext, hasSlideContext: false, hasSongContext: false });
-    if (!cmd) return;
+    const navHit = navCommandInUtterance(last.text, { hasVerseContext, hasSlideContext: false, hasSongContext: false });
+    if (!navHit) return;
+    const cmd = navHit.cmd;
     // parseContextCommand's own `confidence` field isn't gated anywhere
     // upstream — it returns the first pattern match regardless of score.
     // Below CONFIRM_FLOOR we drop entirely; CONFIRM_FLOOR..70 offers a one-tap
@@ -3895,7 +3899,6 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // "next verse" also occur in ordinary preaching AND inside the verses being
     // read aloud. Only act when it's a genuine, terse COMMAND — never on
     // incidental speech or scripture. Two guards:
-    const utterance = last.text.trim();
     const matched = (cmd.matchedText ?? "").toLowerCase().trim();
     //  (1) READING guard — if the matched phrase is part of the verse currently
     //      on the projector, the preacher is READING it, not commanding. Skip.
@@ -3905,8 +3908,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     //      "go to the next verse"), not buried in a sentence ("we're gonna see
     //      this in the next verse", "go back to what I said earlier"). Require a
     //      short utterance so a phrase embedded in narration never fires.
-    const wordCount = navCommandWordCount(utterance, cmd);
-    if (wordCount > 5) return;
+    // The standalone guard is now the PURE-CLAUSE rule inside navCommandInUtterance
+    // (a clause counts only when nothing but politeness/lead-ins surrounds the command),
+    // which is why the word count that used to drop "…he came. Next verse." is gone.
     const navFireFloor = 70;
     // CONFIDENCE-GATED CONFIRMATION (2026-08-20 field directive): when the
     // command is plausible but not certain (CONFIRM_FLOOR..69) — e.g. "go on",

@@ -143,6 +143,14 @@ const PATTERNS: { verb: ContextVerb; re: RegExp; confidence: number; capture?: (
     const n = spokenToNumber(m[1]);
     return n === null || n < 1 ? null : { verseNumber: n };
   } },
+  // "do we have verse 7", "do you have verse 7", "have we got verse 7", "can we see
+  // verse 7", "show / read / turn to / pull up / bring up verse 7" (2026-09-20 field
+  // recording: the operator asked "Do we have verse 7, please?" and NOTHING matched).
+  // All are verb-anchored on the noun "verse" + a number, per this file's safety rule.
+  { verb: "goto_bible_verse", re: /\b(?:do\s+(?:we|you)\s+have|have\s+(?:we|you)\s+got|can\s+(?:we|i|you)\s+(?:see|have|get)|let'?s\s+(?:see|look\s+at)|look\s+at|pull\s+up|bring\s+up|put\s+up|show|read|turn\s+to|take\s+us\s+to|give\s+us)\s+(?:me\s+|us\s+)?(?:the\s+)?verses?\s+([a-z0-9\-]+)\b/i, confidence: 86, capture: (m) => {
+    const n = spokenToNumber(m[1]);
+    return n === null || n < 1 ? null : { verseNumber: n };
+  } },
   { verb: "goto_bible_verse", re: /\bgo\s+back\s+to\s+([a-z0-9\-]+)\b/i, confidence: 80, capture: (m) => {
     const n = spokenToNumber(m[1]);
     return n === null || n < 1 ? null : { verseNumber: n };
@@ -343,6 +351,86 @@ export function navCommandWordCount(
   const prefix = repaired.slice(0, idx);
   if (!NAV_TAIL_BREAK_RE.test(prefix)) return whole;
   return Math.min(whole, terseCommandWordCount(repaired.slice(idx)));
+}
+
+
+// ── Holistic, clause-level command detection (2026-09-20, owner field recording) ──
+// The old guard counted words across the WHOLE utterance, so a perfectly clear command
+// that followed a sentence was thrown away: "And that is why he came. Next verse." and
+// "Go back to verse 4. Do we have verse 7, please?" both did nothing. The owner's point:
+// if someone says a sentence, then a full stop or comma, then "next verse", that IS the
+// command.
+//
+// So: split the utterance into CLAUSES on sentence/clause punctuation, look for a command
+// in each, and take the LAST one — the most recent intent wins, which is why
+// "Go back to verse 4. Do we have verse 7" ends on verse 7.
+//
+// The safety rule that replaces the word count is stricter AND more permissive in the
+// right way: a clause only counts when it is PURE COMMAND — after stripping politeness,
+// filler and request lead-ins, nothing is left but the command itself. So:
+//    "Next verse."                      -> fires (nothing else in the clause)
+//    "Can we go to next verse, please?" -> fires ("can we"/"please" are lead-ins)
+//    "In the next verse, Paul says"     -> does NOT fire ("in" survives the strip, so the
+//                                          clause is a phrase about a verse, not a command)
+//    "we're gonna see this in the next verse" -> does NOT fire (plenty left over)
+// This is what makes narration safe without a word limit.
+const NAV_LEAD_IN_RE = /\b(?:do\s+(?:we|you)\s+have|have\s+(?:we|you)\s+got|can\s+(?:we|you|i)|could\s+(?:we|you|i)|would\s+(?:we|you)|shall\s+we|will\s+you|let\s+us|let's|i\s+(?:want|need)\s+(?:to|you\s+to)|we\s+(?:want|need)\s+to)\b/gi;
+// Words that may be left over and still mean "nothing but the command": articles,
+// pronouns/objects of the request, and bare politeness.
+const NAV_RESIDUE_RE = /^(?:the|a|an|us|me|it|to|that|this|there|ok|okay|k|now|then|and|so|please|thanks|thank|you|yeah|yep|alright|amen|church|guys|sir|pastor)$/i;
+
+/** Split an utterance into clauses on sentence/clause punctuation. */
+export function navClauses(text: string): string[] {
+  return text.split(/[.!?;,]+/).map((c) => c.trim()).filter(Boolean);
+}
+
+/** True when `clause` is nothing but `matchedText` plus politeness/filler/lead-ins. */
+export function isPureCommandClause(clause: string, matchedText: string): boolean {
+  if (!matchedText) return false;
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9'\s]/g, " ").replace(/\s+/g, " ").trim();
+  const c = norm(clause);
+  const m = norm(matchedText);
+  if (!m) return false;
+  const idx = c.indexOf(m);
+  if (idx < 0) return false;
+  const rest = (c.slice(0, idx) + " " + c.slice(idx + m.length))
+    .replace(NAV_LEAD_IN_RE, " ")
+    .replace(NAV_FILLER_RE, " ");
+  return rest.split(/\s+/).filter(Boolean).every((w) => NAV_RESIDUE_RE.test(w));
+}
+
+// A command anchored on the NOUN ("next verse", "verse 7", "previous one") is
+// unambiguous enough to be obeyed when it trails a sentence. A BARE directional verb
+// ("go back", "continue reading", "go on") is not — field recordings caught "…and God is
+// saying, go back" and "I want us to see. Continue reading", which are preaching, not
+// commands. So a bare verb must be the WHOLE utterance to fire; an anchored one may be
+// any clause of it. This is what lets "And that is why he came. Next verse." work while
+// those two stay blocked.
+const NAV_NOUN_ANCHOR_RE = /\b(?:verses?|one|line|passage|slide)\b/i;
+export function navNeedsWholeUtterance(matchedText: string): boolean {
+  return !NAV_NOUN_ANCHOR_RE.test(matchedText || "");
+}
+
+export type NavHit = { cmd: ContextCommand; clause: string };
+
+/**
+ * The command an utterance is actually giving, or null. Scans clauses left to right and
+ * keeps the LAST pure-command clause, so a trailing command wins over an earlier one.
+ */
+export function navCommandInUtterance(text: string, available: ContextAvailability): NavHit | null {
+  if (typeof text !== "string" || !text.trim()) return null;
+  const repaired = repairNavVerseHomophones(text);
+  const clauses = navClauses(repaired);
+  let hit: NavHit | null = null;
+  for (const clause of clauses) {
+    const cmd = parseContextCommand(clause, available);
+    if (!cmd) continue;
+    if (!isPureCommandClause(clause, cmd.matchedText)) continue;
+    // Bare directional verb: only when it is the entire utterance.
+    if (navNeedsWholeUtterance(cmd.matchedText) && clauses.length > 1) continue;
+    hit = { cmd, clause };
+  }
+  return hit;
 }
 
 export function parseContextCommand(text: string, available: ContextAvailability): ContextCommand | null {
