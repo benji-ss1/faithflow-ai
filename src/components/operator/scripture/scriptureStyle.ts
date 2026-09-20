@@ -145,6 +145,10 @@ export function scriptureSlidePayload(verseText: string, reference: string, tran
 // liveGuardText) identifies the live verse by it.
 export function themeScripturePayload(verseText: string, reference: string, translation: string | undefined, opts: ThemeScriptureOptions): SlidePayload {
   const d = designFromThemeScripture(opts, DEFAULT_SCRIPTURE_DESIGN);
+  // A theme can now carry the lower-third BAND (2026-09-20). Take the same plain
+  // band payload a saved Scripture Style takes — the renderer owns the geometry, so
+  // preview, projector, stage and livestream stay identical to a saved band.
+  if (d.layout === "lowerThird") return scriptureLowerThirdPayload(verseText, reference, translation, d);
   const label = reference ? referenceLabel(reference, translation, d.reference.showTranslation) : "";
   const inline = opts.position === "inline" && d.reference.show && !!label;
   const verseObj: TextObject = { ...textObjectFrom(d.verse, inline ? `${verseText} — ${label}` : verseText), role: "verse" };
