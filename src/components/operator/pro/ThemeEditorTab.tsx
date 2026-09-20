@@ -288,6 +288,20 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
             </button>
           </div>
         )}
+        {/* 2026-09-20: a theme can now carry the lower-third BAND, not just full-screen
+            boxes — so a church can get a band from a theme without having to save a
+            church-wide Scripture Style first. */}
+        <Group label="Scripture layout">
+          <Seg on={get<string>(cfg, "scriptureLayout", "fullscreen") !== "lowerThird"} label="Full screen" onClick={() => setCfg({ scriptureLayout: "fullscreen" })} />
+          <Seg on={get<string>(cfg, "scriptureLayout", "fullscreen") === "lowerThird"} label="Third band" onClick={() => setCfg({ scriptureLayout: "lowerThird" })} />
+        </Group>
+        {get<string>(cfg, "scriptureLayout", "fullscreen") === "lowerThird" && (
+          <p className="text-[10px] text-[var(--color-muted-foreground)] leading-snug">
+            Verses from this theme appear in a band. Fine-tune the band (third, height, verse
+            and reference size, width, colour) in <b className="text-[var(--color-foreground)]">Edit scripture slide</b>;
+            saving there stores it for the whole church and takes over from this theme.
+          </p>
+        )}
         <Group label="Show reference">
           <Seg on={get<boolean>(cfg, "scriptureShowReference", true) === true} label="On" onClick={() => setCfg({ scriptureShowReference: true })} />
           <Seg on={get<boolean>(cfg, "scriptureShowReference", true) === false} label="Off" onClick={() => setCfg({ scriptureShowReference: false })} />

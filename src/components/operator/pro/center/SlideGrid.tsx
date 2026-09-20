@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { ThemedSlideCard } from "./ThemedSlideCard";
+import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
 import type { BackgroundSpec } from "@/lib/broadcast";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
@@ -108,6 +109,10 @@ function openContextMenuAt(el: HTMLElement | null) {
 // drag-from-media-bin, use this slide's image on all slides, or clear one/all.
 type BgMenu = {
   thisImageUrl?: string;
+  /** 2026-09-20: pick a background from the media library. Until now the ONLY way to
+   *  give a song slide a background was to drag one out of the Media bin, which no
+   *  button advertised — so it looked like the whole theme had to be edited. */
+  onChooseImage: () => void;
   onUseOnAll: () => void;
   onRemove: () => void;
   onRemoveAll: () => void;
@@ -833,6 +838,35 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   // in types is the cross-OS signal that a media drag is in progress.
   const isMediaDrag = (e: React.DragEvent) => e.dataTransfer.types.includes(MEDIA_DROP_MIME);
 
+  // Apply a background image chosen from the media library to ONE slide. Same
+  // optimistic-paint + instant-live-resend + persist path the Media-bin drop uses; no
+  // frame baking, because a library pick is already the picture the operator chose.
+  const applyChosenBackground = (idx: number, url: string) => {
+    void (async () => {
+      const { toast } = await import("sonner");
+      if (!canAcceptMediaDrop) { toast.error("This item can't take a slide background"); return; }
+      setOptimisticBg((m) => ({ ...m, [idx]: url }));
+      const base = displaySlides[idx] ?? slides[idx];
+      if (idx === liveSlideIdx && base) {
+        ctx.onSendSlideToLive({ ...(base as Extract<SlidePayload, { kind: "text" }>), bgImageUrl: url }, null, { instant: true, carryLiveOrigin: true });
+      }
+      const revert = () => setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; });
+      if (editableSongId) {
+        const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+        if (!slideId) { toast.error("Couldn't find that slide"); revert(); return; }
+        const res = await setSongSlideBackgroundImage(slideId, url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); revert(); return; }
+      } else {
+        if (!itemId) { toast.error("Couldn't find that item"); revert(); return; }
+        const res = await setServiceItemSlideBackground(itemId, idx, url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); revert(); return; }
+      }
+      toast.success("Background set on this slide");
+    })();
+  };
+
+  const [bgPickIdx, setBgPickIdx] = useState<number | null>(null);
+
   const dropMediaOnSlide = (idx: number, e: React.DragEvent) => {
     const payload = readMediaDrag(e);
     if (!payload) return;
@@ -988,6 +1022,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 } : null}
                 bgMenu={{
                   thisImageUrl: ((displaySlides[idx] ?? s) as { bgImageUrl?: string }).bgImageUrl,
+                  onChooseImage: () => setBgPickIdx(idx),
                   onUseOnAll: () => useImageOnAllSlides(((displaySlides[idx] ?? s) as { bgImageUrl?: string }).bgImageUrl),
                   onRemove: () => removeSlideBackground(idx),
                   onRemoveAll: removeAllSlideBackgrounds,
@@ -1352,6 +1387,13 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
           </div>
         );
       })()}
+      {bgPickIdx !== null && (
+        <MediaLibraryPicker
+          kind="image"
+          onClose={() => setBgPickIdx(null)}
+          onPick={(url) => { const i = bgPickIdx; setBgPickIdx(null); if (i !== null) applyChosenBackground(i, url); }}
+        />
+      )}
     </div>
   );
 }
@@ -1574,6 +1616,25 @@ function SlideCard({
             >
               <span className="truncate">{groupChip.label}</span>
             </div>
+          )}
+          {/* Background button (2026-09-20). The per-slide background controls existed only
+              behind a right-click, so operators believed the whole THEME had to be edited
+              to change a song's background. This surfaces the SAME menu — no new storage,
+              no new precedence — on hover, next to the other card controls. */}
+          {bgMenu && bgMenu.canEdit && (
+            <span
+              role="button"
+              tabIndex={-1}
+              aria-label="Background for this slide"
+              title="Background for this slide — choose an image, use it on all slides, or clear it"
+              className="absolute bottom-1.5 right-1.5 h-5 w-5 flex items-center justify-center rounded-md opacity-0 group-hover/slide:opacity-100 transition-opacity cursor-pointer z-10"
+              style={{ background: "rgba(0,0,0,0.55)", color: "rgba(255,255,255,0.88)", border: "1px solid rgba(255,255,255,0.14)" }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openContextMenuAt(e.currentTarget.closest("button")); }}
+            >
+              <ImageIcon className="w-3 h-3" />
+            </span>
           )}
           {/* Slide-actions badge (Phase 4) — a tiny lightning row on the top-right
               when this slide has attached actions (ProPresenter-style). */}
@@ -1847,6 +1908,13 @@ function SlideCard({
                 <ContextMenu.SubContent collisionPadding={8} className="min-w-[210px] max-h-[min(380px,var(--radix-context-menu-content-available-height))] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
                   <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">This slide only</div>
                   <div className="px-3 py-0.5 text-[10px] text-[var(--color-muted-foreground)]">Drag from the Media bin onto a slide = that slide only. Use “BG” on a media item for every slide.</div>
+                  <ContextMenu.Item
+                    onSelect={() => bgMenu.onChooseImage()}
+                    title="Pick a picture from your media library for this slide"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5 opacity-70" /> Choose image…
+                  </ContextMenu.Item>
                   <ContextMenu.Item
                     disabled={!bgMenu.thisImageUrl}
                     onSelect={() => bgMenu.thisImageUrl && bgMenu.onUseOnAll()}
