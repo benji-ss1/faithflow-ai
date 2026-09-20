@@ -26,6 +26,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { domMatrix, domKey, type DomFixture } from "./pp7-draw-order-dom-matrix";
 import { PP7_DRAW_ORDER_STORAGE_KEY } from "../src/lib/pp7-draw-order";
+import { TRANSPARENT_SLIDE_STORAGE_KEY } from "../src/lib/transparent-slide";
 import { fontStack } from "../src/lib/fonts/registry";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
@@ -66,6 +67,10 @@ function mayChange(f: DomFixture): boolean {
 async function renderAll(drawOrder: boolean): Promise<Record<string, string>> {
   const { OutputCompositor } = await import("../src/components/live/OutputCompositor");
   dom.window.localStorage.setItem(PP7_DRAW_ORDER_STORAGE_KEY, drawOrder ? "1" : "0");
+  // This file is about DRAW ORDER only. Pin the (separate, later) transparent-slide
+  // kill switch OFF so its own change to the slide surface can never masquerade as a
+  // draw-order regression here. test/transparent-slide.test.ts covers that flag.
+  dom.window.localStorage.setItem(TRANSPARENT_SLIDE_STORAGE_KEY, "0");
   const out: Record<string, string> = {};
   for (const f of domMatrix()) {
     const fixture = f as unknown as Record<string, unknown>;
