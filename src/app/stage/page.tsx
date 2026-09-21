@@ -356,7 +356,12 @@ export default function StagePage() {
       {/* CURRENT — dominant, full width so text is as large as possible */}
       <div className="relative flex-1 min-h-0">
         <div className="absolute top-3 left-4 text-[11px] font-mono uppercase tracking-widest text-white/45 z-10">Current</div>
-        {(timerOverlay || countdownStr || Object.keys(namedTimers).length > 0) && (
+        {/* Scene routing (2026-09-21): "timer" is a ROUTE-DRAWN layer, so this
+            surface applies the mask itself — same as `announcement` below. The
+            legacy `countdownStr` (OutputState.countdownEndsAt) renders in this
+            same chip and IS a countdown, so hiding "Timer" for this screen hides
+            it too. Default (no scene) = unchanged. */}
+        {(timerOverlay || countdownStr || Object.keys(namedTimers).length > 0) && !sceneHidesLayer(scene, "stage", "timer") && (
           <div className="absolute top-3 right-4 z-10 flex flex-col items-end gap-1.5">
             {(timerOverlay || countdownStr) && (
               <div className="flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">

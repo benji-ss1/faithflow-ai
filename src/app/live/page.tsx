@@ -604,7 +604,7 @@ export default function LivePage() {
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
               placement keeps overlays off the slide text unless the operator
               explicitly picks "center". */}
-          {timerOverlay && (() => {
+          {timerOverlay && !sceneHidesLayer(scene, "main", "timer") && (() => {
             const pos = timerOverlay.position ?? "top-right";
             const over = timerOverlay.remainingSec < 0;
             const color = over ? "#f87171" : "#ffffff";
@@ -621,7 +621,7 @@ export default function LivePage() {
           })()}
           {/* Wave 7: named timers, grouped per position so multiple in one
               corner stack instead of overlapping. */}
-          {Object.values(namedTimers).length > 0 && (() => {
+          {Object.values(namedTimers).length > 0 && !sceneHidesLayer(scene, "main", "timer") && (() => {
             const groups: Record<string, TimerItem[]> = {};
             for (const t of Object.values(namedTimers)) { const p = t.position ?? "top-right"; (groups[p] ??= []).push(t); }
             return Object.entries(groups).map(([pos, items]) => (

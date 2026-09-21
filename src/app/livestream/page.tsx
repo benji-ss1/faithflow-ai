@@ -574,7 +574,7 @@ export default function LivestreamPage() {
           ))}
         </div>
       )}
-      {timerOverlay && mode === "full" && (() => {
+      {timerOverlay && mode === "full" && !sceneHidesLayer(scene, "livestream", "timer") && (() => {
         const over = timerOverlay.remainingSec < 0;
         const color = over ? "#f87171" : "#ffffff";
         const n = over; const a = Math.abs(Math.round(timerOverlay.remainingSec)); const m = Math.floor(a / 60); const s = a % 60;
@@ -589,7 +589,7 @@ export default function LivestreamPage() {
       })()}
       {/* Wave 7: named (keyed) timers — stacked top-right, below the legacy one.
           Sized by the operator's per-timer scale (public OBS surface). */}
-      {Object.values(namedTimers).length > 0 && mode === "full" && (
+      {Object.values(namedTimers).length > 0 && mode === "full" && !sceneHidesLayer(scene, "livestream", "timer") && (
         <div className="absolute top-[20%] right-[6%] pointer-events-none flex flex-col items-end gap-[3vh] leading-none">
           {Object.values(namedTimers).map((t) => {
             const scale = t.scale ?? 1;
