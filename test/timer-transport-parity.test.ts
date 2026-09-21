@@ -117,4 +117,20 @@ const console_ = read("../src/components/operator/OperatorConsole.tsx");
 assert.ok(/onRequestSnapshot\(\(\) => \{[\s\S]*?senderNowMs: Date\.now\(\)/.test(console_),
   "the snapshot provider must re-stamp senderNowMs on replay");
 
+/* ── 13. The LAN relay re-stamps on REPLAY, but not on live publish ──────── */
+// A cached snapshot carries the clock from when it was built. Replayed to a
+// joining OBS source twenty minutes later, an un-restamped frame would make it
+// measure a twenty-minute offset and render every timer wrong. The LIVE publish
+// must NOT be re-stamped — that value is already fresh, and re-stamping it
+// would paper over a genuinely stale frame.
+const lan = read("../electron/lan/LanOverlayServer.ts");
+assert.ok(/function restampTimers/.test(lan), "the LAN relay must have a re-stamp helper");
+const replaySends = lan.match(/restampTimers\(this\.lastState\)/g) ?? [];
+assert.equal(replaySends.length, 2, "both replay paths (on-connect and snapshot_request) must re-stamp");
+const publishBody = lan.split("publish(state: unknown)")[1]?.split("\n  }")[0] ?? "";
+assert.ok(publishBody.length > 0, "publish() must exist");
+assert.ok(!/restampTimers/.test(publishBody), "the LIVE publish must NOT re-stamp — that frame is already current");
+assert.ok(/catch \{ return state; \}/.test(lan),
+  "the helper must never throw: main must not die on a malformed relay payload");
+
 console.log("timer-transport-parity: all guards passed");

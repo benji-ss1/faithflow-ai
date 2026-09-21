@@ -116,7 +116,10 @@ test("hostile frames are rejected", () => {
     ["too many timers", { timers: Array.from({ length: 17 }, (_, i) => ({ ...base().timers[0], id: `x${i}` })), senderNowMs: 1, rev: 1 }],
     ["NaN senderNowMs", { timers: [], senderNowMs: NaN, rev: 1 }],
     ["negative senderNowMs", { timers: [], senderNowMs: -1, rev: 1 }],
-    ["rev far in the future", { timers: [], senderNowMs: Date.now(), rev: Date.now() + 99 * 86_400_000 }],
+    // Same correction as anchorMs: rev is seeded from the SENDER's clock and is
+    // MONOTONIC-ONLY. Ordering is enforced receiver-side (rev <= lastRev), which
+    // is what actually stops a ghost tab. Only a nonsense epoch is refused.
+    ["rev beyond a sane epoch", { timers: [], senderNowMs: Date.now(), rev: 5_000_000_000_000 }],
   ];
   for (const [why, v] of bad) assert.equal(isValidTimersWire(v), false, why);
 });
@@ -133,10 +136,19 @@ test("a hostile individual timer is rejected", () => {
     ["non-hex trigger colour", { ...ok, colorTriggers: [{ atSec: 5, color: "red" }] }],
     ["too many triggers", { ...ok, colorTriggers: Array.from({ length: 9 }, () => ({ atSec: 5, color: "#ff0000" })) }],
     ["bad position", { ...ok, position: "nowhere" }],
-    ["anchor far in the future", { ...ok, anchorMs: Date.now() + 99 * 86_400_000 }],
+    // NOTE: an anchor merely "far ahead of MY clock" must NOT be rejected —
+    // it is a SENDER-clock stamp, and a device with a wrong clock is exactly
+    // what skew correction exists for. Only a nonsense epoch is refused.
+    ["anchor beyond a sane epoch", { ...ok, anchorMs: 5_000_000_000_000 }],
   ];
   for (const [why, v] of bad) assert.equal(isValidTimerWire(v), false, why);
   assert.equal(isValidTimerWire(ok), true, "the good one still passes");
+  // REGRESSION: anchorMs/rev were bounded against the RECEIVER's clock, so a
+  // sender more than a day out had every frame rejected — the timer silently
+  // never appeared, on exactly the devices skew correction exists to serve.
+  const yearOut = Date.now() + 365 * 86_400_000;
+  assert.equal(isValidTimerWire({ ...ok, anchorMs: yearOut }), true,
+    "a sender whose clock is a year out must still validate");
 });
 
 test("prototype pollution is rejected, not absorbed", () => {

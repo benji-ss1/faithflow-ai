@@ -96,6 +96,31 @@ function looksLikeOutputState(x: unknown): x is Record<string, unknown> {
   return "live" in s && typeof s.live === "object";
 }
 
+/**
+ * Re-stamp a replayed snapshot's timer clock (2026-09-21).
+ *
+ * A networked timer carries `senderNowMs` — the operator's clock when the frame
+ * was BUILT — and the receiver derives its clock offset from it. A cached
+ * snapshot replayed twenty minutes later would therefore make a joining OBS
+ * source measure a twenty-minute offset and render every timer wrong.
+ *
+ * `anchorMs` is absolute and untouched, so re-stamping is safe — it is the
+ * whole point. Main and the renderer are the same process tree on one machine,
+ * so Date.now() agrees between them; this is a LAN relay, not a cross-clock hop.
+ *
+ * Deliberately structural, not schema-aware: main cannot import the renderer's
+ * types, and must never throw on a malformed relay payload.
+ */
+function restampTimers(state: unknown): unknown {
+  try {
+    const s = state as { timersWire?: { senderNowMs?: unknown } };
+    if (!s || typeof s !== "object") return state;
+    const tw = s.timersWire;
+    if (!tw || typeof tw !== "object" || typeof tw.senderNowMs !== "number") return state;
+    return { ...(s as object), timersWire: { ...(tw as object), senderNowMs: Date.now() } };
+  } catch { return state; }
+}
+
 export class LanOverlayServer {
   private server: http.Server | null = null;
   private wss: WebSocketServer | null = null;
@@ -191,7 +216,8 @@ export class LanOverlayServer {
         // Snapshot-on-connect: OBS never stares at black — it gets the current
         // slide immediately.
         if (this.lastState != null) {
-          try { socket.send(JSON.stringify({ type: "output", state: this.lastState })); } catch { /* ignore */ }
+          // Replay: re-stamp so a joining OBS measures a correct clock offset.
+          try { socket.send(JSON.stringify({ type: "output", state: restampTimers(this.lastState) })); } catch { /* ignore */ }
         }
         socket.on("message", (raw) => {
           // Clients are receive-only. The one thing we honour is an explicit
@@ -199,7 +225,7 @@ export class LanOverlayServer {
           try {
             const msg = JSON.parse(String(raw));
             if (msg && msg.type === "snapshot_request" && this.lastState != null) {
-              socket.send(JSON.stringify({ type: "output", state: this.lastState }));
+              socket.send(JSON.stringify({ type: "output", state: restampTimers(this.lastState) }));
             }
           } catch { /* ignore malformed */ }
         });
@@ -301,6 +327,7 @@ export class LanOverlayServer {
     res.writeHead(upstream.status, relay);
     res.end(buf);
   }
+
 
   /** Fan a full OutputState frame out to every connected OBS overlay. Stores it
    * as the snapshot for future joiners. Called from the operator renderer via

@@ -430,6 +430,7 @@ function LookEditor({ slot, setLook }: { slot: TimerSlot; setLook: (p: Partial<T
       <label className="flex items-center gap-2 text-[12px] cursor-pointer select-none">
         <input type="checkbox" checked={a.showLabel} onChange={(e) => setLook({ showLabel: e.target.checked })} />
         Show the timer&apos;s name above it
+        <span className="text-[10px] text-[var(--color-muted-foreground)]">(off by default, like ProPresenter)</span>
       </label>
 
       <div className={label}>Format</div>

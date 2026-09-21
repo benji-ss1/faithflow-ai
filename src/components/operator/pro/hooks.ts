@@ -204,7 +204,14 @@ export type TimersApi = {
 type RuntimeMeta = { shown: boolean } & TimerAppearance;
 
 export const TIMER_APPEARANCE_DEFAULTS: TimerAppearance = {
-  position: "top-right", scale: 1, showLabel: true, leadingZeros: false, colorTriggers: [],
+  // showLabel DEFAULTS FALSE (2026-09-21). ProPresenter never puts a timer's
+  // NAME on an output — the name is an internal identifier, and any label on
+  // screen is text the operator deliberately typed into a stage layout or
+  // message. We were printing it by default, so an operator could get
+  // "PRE-SERVICE COUNTDOWN" burned onto the projector without ever asking for
+  // it. The toggle stays; only the default changed (CLAUDE.md rule 0a —
+  // ProPresenter's default wins over ours).
+  position: "top-right", scale: 1, showLabel: false, leadingZeros: false, colorTriggers: [],
 };
 
 export function useTimersSession(): TimersApi {
@@ -292,7 +299,7 @@ export function useTimersSession(): TimersApi {
             scale: Number.isFinite(sc) && sc >= 0.25 && sc <= 8 ? sc : TIMER_APPEARANCE_DEFAULTS.scale,
             color: hex(e.color),
             overrunColor: hex(e.overrunColor),
-            showLabel: e.showLabel !== false,
+            showLabel: e.showLabel === true,
             showHours: typeof e.showHours === "boolean" ? e.showHours : undefined,
             leadingZeros: e.leadingZeros === true,
             colorTriggers: Array.isArray(e.colorTriggers)

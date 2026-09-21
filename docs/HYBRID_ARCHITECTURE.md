@@ -76,7 +76,29 @@ Make the **shell itself** boot offline and prefer local.
 - Nothing here self-hosts or forks the data model — Supabase stays the source of truth.
 
 ## Recommended execution order
-Phase 0 (SW app-shell) → Phase 1 (service cache) → Phase 4 (degradation UX) → Phase 2a (offline guard) → Phase 3 (shell resilience — already done). **Status as of 0.1.142: Phases 0, 1, 2a, 3, 4 all shipped.** Only Phase 2b (optimistic offline edit queue) remains, and it is deliberately deferred as unsafe/unnecessary for live single-operator services. Phases 0–1 deliver ~90% of the "runs offline" value with zero DMG and near-zero risk.
+> ## ⚠️ CORRECTION 2026-09-21 — PHASE 0 IS NOT IN EFFECT
+>
+> The status line below is STALE and overstates our offline resilience. The
+> Phase-0 app-shell service worker was later **deliberately disabled as a
+> kill-switch** (`public/sw.js` line 1: "DISABLED"; it now purges all caches and
+> unregisters itself, and `ServiceWorkerRegister.tsx` actively unregisters).
+> The reason was sound — a stale cached build could pin the desktop app to an
+> old version — but the consequence is real and must not be planned against:
+>
+> **The app cannot cold-start without a working connection.** `electron/main.ts`
+> `loadWithRecovery()` retries the hosted URL indefinitely, so a venue with bad
+> wifi at 8:45am gets a splash screen, not a service. ProPresenter, once
+> activated, needs no internet at all — that is the bar we are measured against.
+>
+> What IS still true: the service cache (IndexedDB, `src/lib/offline/`) survives
+> and is used once the shell has loaded. So we degrade well mid-service, and
+> fail hard at cold start.
+>
+> Anyone planning offline work should treat app-shell caching as an OPEN problem
+> needing a versioned, build-id-pinned cache with a non-looping refresh escape
+> hatch — not as shipped.
+
+Phase 0 (SW app-shell) → Phase 1 (service cache) → Phase 4 (degradation UX) → Phase 2a (offline guard) → Phase 3 (shell resilience — already done). **Status as of 0.1.142 (SUPERSEDED — see the correction above): Phases 0, 1, 2a, 3, 4 all shipped.** Only Phase 2b (optimistic offline edit queue) remains, and it is deliberately deferred as unsafe/unnecessary for live single-operator services. Phases 0–1 deliver ~90% of the "runs offline" value with zero DMG and near-zero risk.
 
 ## Open decisions for the user
 - Confirm the outage scenarios to optimize for (wifi drop mid-service vs. no-internet-at-launch vs. Vercel outage) — all covered, but priority order affects sequencing.

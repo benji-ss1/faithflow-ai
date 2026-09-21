@@ -627,6 +627,9 @@ export type TimersWire = {
 };
 
 export const MAX_WIRE_TIMERS = 16;
+/** A loose sanity ceiling for SENDER-clock stamps (~year 2100). Deliberately
+ *  NOT relative to the receiver's clock — see isValidTimerWire. */
+const MAX_SANE_EPOCH_MS = 4_102_444_800_000;
 export const MAX_COLOR_TRIGGERS = 8;
 const TIMER_WIRE_TYPES = new Set(["countdown", "countdown_to", "elapsed"]);
 
@@ -637,8 +640,14 @@ export function isValidTimerWire(v: unknown): v is TimerWire {
   if (typeof o.id !== "string" || !LAYER_ID_RE.test(o.id)) return false;
   if (typeof o.type !== "string" || !TIMER_WIRE_TYPES.has(o.type)) return false;
   if (typeof o.running !== "boolean") return false;
+  // anchorMs is a SENDER-clock stamp, so it must NOT be bounded against the
+  // RECEIVER's clock — that is exactly backwards and defeats the whole point of
+  // skew correction. A device whose clock is days out is precisely the case
+  // this feature exists to fix; bounding it here rejected the frame before
+  // foldClockSync ever ran, and the timer silently never appeared. Sanity-bound
+  // it loosely instead — computeRemainingSec handles any finite anchor safely.
   if (o.anchorMs !== null && (!fin(o.anchorMs) || (o.anchorMs as number) < 0
-      || (o.anchorMs as number) > Date.now() + REV_MAX_SKEW_MS)) return false;
+      || (o.anchorMs as number) > MAX_SANE_EPOCH_MS)) return false;
   if (!fin(o.baseSec) || (o.baseSec as number) < -86400 || (o.baseSec as number) > 86400) return false;
   if (!fin(o.durationSec) || (o.durationSec as number) < 0 || (o.durationSec as number) > 86400) return false;
   if (o.targetMs != null && (!fin(o.targetMs) || (o.targetMs as number) <= 0)) return false;
@@ -681,7 +690,11 @@ export function isValidTimersWire(v: unknown): v is TimersWire {
   // senderNowMs is deliberately NOT bounded against the receiver's clock: a
   // device whose clock is wrong is exactly the case this field exists to fix.
   if (!fin(o.senderNowMs) || (o.senderNowMs as number) <= 0) return false;
-  if (!fin(o.rev) || (o.rev as number) < 0 || (o.rev as number) > Date.now() + REV_MAX_SKEW_MS) return false;
+  // rev is MONOTONIC-ONLY, seeded from the SENDER's clock. Same bug as
+  // anchorMs: comparing it to the receiver's clock rejected every frame from a
+  // sender more than a day out. Ordering is enforced receiver-side by
+  // `rev <= lastRev`, which is what actually guards against a ghost tab.
+  if (!fin(o.rev) || (o.rev as number) < 0 || (o.rev as number) > MAX_SANE_EPOCH_MS) return false;
   return true;
 }
 
