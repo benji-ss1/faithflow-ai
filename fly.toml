@@ -17,6 +17,13 @@ kill_timeout = 10
 [env]
   NODE_ENV = "production"
   AUDIO_WS_PORT = "3001"
+  # The bridge is a LONG-LIVED process serving every church at once, so the
+  # default pool of 6 (sized for a short-lived Vercel instance) is a hard
+  # ceiling: a burst of simultaneous detections queues on it and surfaces as
+  # "verse lookup timed out". Safe to raise because the app reaches Postgres
+  # through Supavisor, which multiplexes onto far fewer server connections
+  # (verified: max_connections = 60). 12 x 2 machines is still well inside that.
+  PG_POOL_MAX = "12"
 
 [[services]]
   internal_port = 3001

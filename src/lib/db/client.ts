@@ -24,11 +24,37 @@ let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
  * enough to serve the next one without a full reconnect, while still well
  * under Supabase's pooler-side idle limits.
  */
+/**
+ * 2026-09-21: pool size is now configurable, because the two consumers of this
+ * function have opposite shapes and were sharing one number:
+ *
+ *  - VERCEL: many short-lived Fluid instances, each opening its OWN pool. Total
+ *    connections = instances x max, so a big `max` here multiplies badly.
+ *  - THE FLY AUDIO BRIDGE: two long-lived processes serving EVERY church at
+ *    once. A small `max` here is a hard ceiling — a burst of simultaneous
+ *    detections queues on it and surfaces as "verse lookup timed out".
+ *
+ * Verified on the live DB: `max_connections = 60` (57 usable) and the app
+ * reaches Postgres through Supavisor (Supabase's pooler), which multiplexes
+ * client connections onto far fewer server ones. That is what makes raising the
+ * bridge's pool safe; on a DIRECT connection it would not be.
+ *
+ * Default stays 6 so nothing changes unless PG_POOL_MAX is set (the Fly bridge
+ * sets it in fly.toml). Clamped so a typo cannot exhaust the database.
+ */
+export const DEFAULT_PG_POOL_MAX = 6;
+
+function poolMax(): number {
+  const raw = Number(process.env.PG_POOL_MAX);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_PG_POOL_MAX;
+  return Math.max(1, Math.min(24, Math.floor(raw)));
+}
+
 export function getDb() {
   if (_db) return _db;
   _pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    max: 6,
+    max: poolMax(),
     idleTimeoutMillis: 45_000,
     connectionTimeoutMillis: 8_000,
   });

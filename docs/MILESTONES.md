@@ -36,8 +36,11 @@ table if it is more than a few weeks old.
 | Fly redundancy | Machine-level **yes**. Region-level **no** — both in `lhr` | as above |
 | Vercel | Fluid Compute **ON**, elastic concurrency ON, region `dub1`, Node 24 | Vercel project API `defaultResourceConfig` |
 | Supabase | **Pro** plan | Supabase dashboard |
-| `DATABASE_URL` port | **Unknown** — write-only secret. 6543 pooler vs 5432 direct decides connection headroom | Supabase → Database → Connection Pooling |
-| Redis / Upstash | **NOT configured.** `RATE_LIMIT_BACKEND` is set in Vercel but **nothing in `src/` reads it** | `vercel env ls production` |
+| Supabase DB | `mdjdemrtykflfucggbqt` "PresentflowAPP", **eu-west-1 (Ireland)**, PG 17 | Supabase MCP `list_projects` |
+| Connection pooling | **Supavisor (the pooler) IS in use** — confirmed via `pg_stat_activity`. `max_connections = 60` (57 usable) | `select * from pg_stat_activity` |
+| Indexes | `idx_transcript_segments_plan_ts` + `idx_detected_references_segment` **created & valid 2026-09-21** | `pg_index.indisvalid` |
+| Transcript retention | **7 days**, all 9 churches. Prune still DRY RUN (`PRUNE_TRANSCRIPTS_ENABLED` unset) | `select transcript_retention_days...` |
+| Redis / Upstash | **NOT provisioned.** Code is ready (`src/lib/rate-limit-redis.ts`) and inert until `UPSTASH_REDIS_REST_URL` + `_TOKEN` are set. `RATE_LIMIT_BACKEND` remains a dead env var | `vercel env ls production` |
 | Uptime monitoring | UptimeRobot (owner-managed, external) + Sentry + PostHog + `/api/health*` | — |
 | Warm/cold latency | ~0.1–0.5s warm; **~24s** cold on a freshly deployed instance | `curl -w '%{time_total}'` |
 

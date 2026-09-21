@@ -94,6 +94,32 @@ check("the script and the cron share ONE implementation", () => {
   assert.match(script, /transcript-retention/, "two copies of a delete path will drift");
 });
 
+console.log("connection pool is sized per consumer, and cannot be fat-fingered:");
+check("PG_POOL_MAX is clamped and defaults to the safe value", async () => {
+  const mod = await import("../src/lib/db/client");
+  assert.equal(mod.DEFAULT_PG_POOL_MAX, 6);
+  const src = read("src/lib/db/client.ts");
+  // max_connections is 60 on the live DB — an unclamped env typo could exhaust it.
+  assert.match(src, /Math\.max\(1, Math\.min\(24, Math\.floor\(raw\)\)\)/);
+  assert.match(src, /if \(!Number\.isFinite\(raw\) \|\| raw <= 0\) return DEFAULT_PG_POOL_MAX/);
+});
+check("the Fly bridge raises its own pool, the web app does not", () => {
+  assert.match(read("fly.toml"), /PG_POOL_MAX = "12"/);
+});
+
+console.log("shared rate limits degrade rather than lock a church out:");
+check("Redis backend falls back to the in-memory limiter, never open, never closed", () => {
+  const src = read("src/lib/rate-limit-redis.ts");
+  assert.match(src, /return this\.fallback\.check\(key, opts\)/, "a Redis outage must not remove rate limiting");
+  assert.match(src, /return this\.fallback\.peek\(key, opts\)/);
+  assert.match(src, /AbortSignal\.timeout\(2_000\)/, "must never become the slowest thing in a request");
+});
+check("it is inert until BOTH Upstash vars are set", () => {
+  const src = read("src/lib/rate-limit-redis.ts");
+  assert.match(src, /if \(!url \|\| !token\) return "memory"/);
+  assert.match(read("src/instrumentation.ts"), /installSharedRateLimiter/);
+});
+
 console.log("the hot tables are indexed:");
 check("transcript_segments and detected_references have indexes", () => {
   const schema = read("src/lib/db/schema.ts");
