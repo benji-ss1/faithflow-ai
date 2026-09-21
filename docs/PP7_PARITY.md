@@ -13,8 +13,17 @@ a row says OPEN, it is still broken.**
 |---|---|---|
 | R1 | **Designed text boxes hard-clip on overflow.** PP7 offers four scale-to-fit modes. Ours rendered a fixed `fontSize` inside `overflow: hidden`, so a too-long line silently vanished off the projector. | ✅ **FIXED 2026-09-21** — `src/lib/text-fit.ts` + `FittedText.tsx`, `textScale` on the object + wire + a "Scale to fit" control in the editor. Default `"down"`: text that fits is byte-identical (DOM goldens prove it), text that would clip now shrinks. **Not yet seen on a projector.** |
 | R2 | **Theme apply wipes all manual text formatting.** PP7 preserves "special" (differential) bold/italic/underline/colour — formatting that differs from the rest of its text box. We have one style per object, no per-run model, so every re-apply stomps it. | OPEN |
-| R3 | **No Clear Groups and no Clear to Logo (F12).** PP7 has both; F-keys only map F1–F7 here. IMAG operators have no safe "clear all but camera". | OPEN |
+| R3 | **No Clear Groups and no Clear to Logo (F12).** IMAG operators had no safe "clear all but camera". | ✅ **FIXED 2026-09-21** — `PP7_CLEAR_GROUPS` + `pp7ClearGroup()`, rail buttons, and **F12** wired. "All But Video Input" (PP7's own worked example) and "Clear to Logo". Clear All stays FIXED per Victor 2026-09-18 — groups are additive, so the panic button can't be configured away. Clear to Logo is **hidden** when no church logo is set rather than being a button that does nothing. |
 | R4 | **No video trim (in/out points) and no end-of-clip action.** PP7 has both; we have only `loop` on/off. | OPEN |
+
+### Open question on R3
+
+PP7's docs verify Clear to Logo clears the **Media** layer and sends the logo
+there. Whether it also clears Props / Announcements / Video Input is **not
+documented** (their guide pages are down — flagged `[?]` in `PP7_LAYERS_SPEC`).
+We clear the content layers and **leave the camera**, because "clear to logo" is
+an end-of-service action and killing a live IMAG feed with it would be a nasty
+surprise. Revisit if a real PP7 install says otherwise.
 
 ## 🟡 Yellow — a power user notices
 

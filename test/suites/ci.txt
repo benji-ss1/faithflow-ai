@@ -198,3 +198,4 @@ test/slide-bg-explicit.test.tsx
 test/scale-hardening.test.ts
 test/text-fit.test.ts
 test/windows-media.test.ts
+test/pp7-clear-groups.test.ts

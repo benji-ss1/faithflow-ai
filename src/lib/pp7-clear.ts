@@ -35,7 +35,64 @@ export const PP7_CLEAR_KEY: Record<Pp7ClearLayer, string> = {
   videoInput: "",
 };
 
-export type Pp7ClearTarget = Pp7ClearLayer | "all";
+/**
+ * CLEAR GROUPS (PP7 7.7+). A named clear that hits several layers at once.
+ *
+ * ProPresenter builds Clear All itself as an EDITABLE group, and warns that if
+ * you edit it you no longer have a clear that truly clears everything. Victor
+ * (2026-09-18) signed off NOT copying that flaw: our Clear All stays FIXED and
+ * always clears everything, and named groups sit ALONGSIDE it. So the panic
+ * button can never be broken by a configuration change.
+ *
+ * "All But Video Input" is ProPresenter's own worked example and the one that
+ * matters most here: with IMAG, an operator needs to dump every graphic while
+ * leaving the camera on screen. Until now they had no safe way to do that —
+ * Clear All killed the camera too, so they cleared layers one at a time under
+ * pressure.
+ */
+export type Pp7ClearGroup = {
+  id: string;
+  name: string;
+  /** Cleared in rail order regardless of the order written here. */
+  layers: readonly Pp7ClearLayer[];
+  /** Put the church logo on the projector once the layers are clear. */
+  toLogo?: boolean;
+  /** Bare F-key, if it has one. */
+  key?: string;
+  /** Shown on hover so an operator knows what it will do BEFORE pressing it. */
+  description: string;
+};
+
+const ALL_LAYERS = PP7_CLEAR_ORDER;
+
+export const PP7_CLEAR_GROUPS: readonly Pp7ClearGroup[] = [
+  {
+    id: "all-but-video-input",
+    name: "All But Video Input",
+    layers: ALL_LAYERS.filter((l) => l !== "videoInput"),
+    description: "Clears every layer but leaves the camera on screen (IMAG).",
+  },
+  {
+    id: "to-logo",
+    name: "Clear to Logo",
+    // PP7's docs verify it clears the Media layer and sends the logo there.
+    // Whether it also clears Props / Announcements / Video Input is NOT
+    // documented (their guide pages are down — flagged [?] in PP7_LAYERS_SPEC).
+    // We clear the content layers and leave the CAMERA, because "clear to logo"
+    // is an end-of-service action and killing a live IMAG feed with it would be
+    // a nasty surprise. Revisit if a real PP7 install says otherwise.
+    layers: ALL_LAYERS.filter((l) => l !== "videoInput"),
+    toLogo: true,
+    key: "F12",
+    description: "Clears the screen and shows the church logo.",
+  },
+];
+
+export function pp7ClearGroupById(id: string): Pp7ClearGroup | undefined {
+  return PP7_CLEAR_GROUPS.find((g) => g.id === id);
+}
+
+export type Pp7ClearTarget = Pp7ClearLayer | "all" | { group: string };
 
 /**
  * Second Clear All binding (2026-09-17). A default Mac keyboard sends F1 to the
@@ -56,6 +113,8 @@ export function decodePp7ClearKey(e: { key: string; metaKey?: boolean; ctrlKey?:
   if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return null;
   switch (e.key) {
     case "F1": return "all";
+    // PP7's Clear to Logo. Same key on Mac and Windows.
+    case "F12": return { group: "to-logo" };
     case "F2": return "slide";
     case "F3": return "media";
     case "F4": return "props";
