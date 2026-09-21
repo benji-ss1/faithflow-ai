@@ -102,3 +102,45 @@ test("a junk timer mask value is dropped, and never hides (fail-open)", () => {
   const cfg = sanitizeSceneConfig({ screens: { main: { layers: { timer: "nope" } } } } as unknown as SceneConfig);
   assert.equal(sceneHidesLayer(wire(cfg), "main", "timer"), false);
 });
+
+// ── Wiring backstop ────────────────────────────────────────────────────────
+// The gating lives in JSX on three separate pages, each of which must pass ITS
+// OWN screen id. A copy-paste slip (e.g. "stage" pasted into livestream/page.tsx)
+// would compile cleanly, pass every test above, and silently route the wrong
+// screen — so assert the literal in each file. Cheap insurance for a real class
+// of bug that type-checking cannot catch, since all ids are valid SceneScreens.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ROUTE_SCREEN: Array<[string, string]> = [
+  ["src/app/live/page.tsx", "main"],
+  ["src/app/stage/page.tsx", "stage"],
+  ["src/app/livestream/page.tsx", "livestream"],
+];
+
+test("each output route gates the timer with its OWN screen id", () => {
+  for (const [file, screen] of ROUTE_SCREEN) {
+    const src = readFileSync(join(ROOT, file), "utf8");
+    const calls = [...src.matchAll(/sceneHidesLayer\(\s*[A-Za-z.]+\s*,\s*"([a-z]+)"\s*,\s*"timer"\s*\)/g)];
+    assert.ok(calls.length > 0, `${file}: expected at least one timer scene gate`);
+    for (const m of calls) {
+      assert.equal(m[1], screen, `${file}: timer gate must use screen "${screen}", got "${m[1]}"`);
+    }
+    // And the screen id used must be a real SceneScreen.
+    assert.ok(SCENE_SCREENS.includes(screen as (typeof SCENE_SCREENS)[number]));
+  }
+});
+
+test("every surface that RENDERS a timer also gates it", () => {
+  // If a route draws a timer but never calls sceneHidesLayer for it, that screen
+  // silently ignores the operator's routing choice.
+  for (const [file] of ROUTE_SCREEN) {
+    const src = readFileSync(join(ROOT, file), "utf8");
+    const rendersTimer = /namedTimers|timerOverlay/.test(src);
+    const gatesTimer = /sceneHidesLayer\([^)]*"timer"\)/.test(src);
+    assert.equal(rendersTimer, true, `${file}: expected to render timers`);
+    assert.equal(gatesTimer, true, `${file}: renders timers but never gates them`);
+  }
+});

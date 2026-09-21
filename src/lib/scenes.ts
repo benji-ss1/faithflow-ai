@@ -38,7 +38,8 @@ export const SCENE_SCREEN_LABELS: Record<SceneScreen, string> = {
  *
  * EXCEPTION — ROUTE-DRAWN layers ("announcement", "timer"): the compositor never
  * sees these; each output route draws them itself and therefore applies the scene
- * mask itself (see /live, /stage, /livestream + multiview.ts). They are NOT emitted
+ * mask itself (see /live, /stage, /livestream; "announcement" additionally in
+ * multiview.ts, which draws no timer at all). They are NOT emitted
  * by `outputStateToLayers()`, so a mask on them is composable only with the route's
  * own render, never with the operator's override map. "timer" (2026-09-21) follows
  * the "announcement" precedent exactly — see docs/PP7_TIMERS_PLAN.md Phase 1.
