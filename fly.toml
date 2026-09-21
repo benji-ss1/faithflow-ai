@@ -34,7 +34,14 @@ kill_timeout = 10
     timeout = "5s"
     grace_period = "30s"
 
+# 2026-09-21 scale hardening, sized for the 20+ concurrent-church target.
+# Was: shared/1cpu/512MB — one Deepgram socket, one Node process and one pg pool
+# for EVERY church at once, with Whisper two-pass buffers held per session. At
+# 512MB a Sunday with 20 live services risks the OOM killer, which on a single
+# machine takes every church down together.
+# 2 shared vCPUs + 2GB is the smallest step that gives real headroom; revisit
+# with real Sunday metrics rather than guessing higher now.
 [[vm]]
   cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 512
+  cpus = 2
+  memory_mb = 2048
