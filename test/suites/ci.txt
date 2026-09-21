@@ -172,6 +172,7 @@ test/song-text.test.ts
 test/songs-toolbar.test.ts
 test/spring-load.test.ts
 test/stage-layout-engine.test.ts
+test/stage-layout-scoping.test.ts
 test/stale-action.test.ts
 test/stress-wave6-3.test.ts
 test/suites-complete.test.ts

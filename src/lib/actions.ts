@@ -6,8 +6,9 @@ import { getDb } from "./db/client";
 import { bakeThemeIntoObjectsJson } from "./theme-bake";
 import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide, resetThemeOwnedFields, pruneThemeBackup, reapplyFieldsForConfigs, copyThemeBackupForDuplicate, appendBakedConfig, readBakedConfigs, pickBakedConfig, type BakeableThemeConfigList } from "./theme-rebake";
 import { isHex6Color } from "./hex-color";
-import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, type ServiceItemType } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, stageLayouts, stageScreens, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
+import { sanitizeStageLayout } from "../engine/stage";
 import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
@@ -2512,6 +2513,8 @@ const MSG_DISMISS_VALUES = new Set(["manual", "5s", "10s", "30s", "1min", "5min"
 // operator convenience lists, not bulk data — a runaway/hostile creator must
 // not be able to grow them without bound (defence-in-depth alongside RLS).
 const MAX_TIMER_DEFS = 50;
+const MAX_STAGE_LAYOUTS = 40;
+const MAX_STAGE_SCREENS = 8;
 const MAX_MESSAGE_TEMPLATES = 50;
 
 function sanitizeMessageTemplate(input: MessageTemplateInput): { name: string; text: string; position: string; config: Record<string, unknown> } {
@@ -3681,5 +3684,131 @@ export async function deleteScene(id: string): Promise<Result> {
   const res = await db.delete(scenes)
     .where(and(eq(scenes.id, id), eq(scenes.churchId, user.churchId)));
   if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Scene not found" };
+  return { ok: true };
+}
+
+
+// ── Stage Layouts (ProPresenter "Edit Layouts", 2026-09-21) ────────────────
+// Named confidence-monitor designs. Built-ins live in CODE
+// (src/engine/stage/presets.ts) and are NEVER rows — a church customises by
+// DUPLICATING one, so "restore defaults" always works. Every read/write is
+// church_id-scoped (rule 5).
+
+export async function listStageLayouts(): Promise<Result<Array<{ id: string; name: string; config: unknown; sortOrder: number }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select().from(stageLayouts)
+    .where(eq(stageLayouts.churchId, user.churchId))
+    .orderBy(asc(stageLayouts.sortOrder), asc(stageLayouts.createdAt));
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, config: r.config, sortOrder: r.sortOrder })) };
+}
+
+export async function createStageLayout(input: { name: string; config?: unknown }): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const existing = await db.select({ id: stageLayouts.id }).from(stageLayouts).where(eq(stageLayouts.churchId, user.churchId));
+  if (existing.length >= MAX_STAGE_LAYOUTS) {
+    return { ok: false, error: `Stage layout limit reached (${MAX_STAGE_LAYOUTS}). Delete one to add another.` };
+  }
+  const name = String(input?.name ?? "").trim().slice(0, 120);
+  if (!name) return { ok: false, error: "Give the layout a name" };
+  // Sanitised on WRITE as well as read: a malformed config must never reach a
+  // stage screen, and the bounds (widget count, scale, triggers) are enforced
+  // by the same pure function the renderer uses.
+  const config = sanitizeStageLayout({ ...(input?.config as object ?? {}), name });
+  const [row] = await db.insert(stageLayouts)
+    .values({ churchId: user.churchId, name, config, sortOrder: existing.length })
+    .returning({ id: stageLayouts.id });
+  revalidatePath("/operator");
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function updateStageLayout(id: string, patch: { name?: string; config?: unknown; sortOrder?: number }): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const set: Partial<typeof stageLayouts.$inferInsert> = { updatedAt: new Date() };
+  if (patch.name !== undefined) {
+    const name = String(patch.name).trim().slice(0, 120);
+    if (!name) return { ok: false, error: "Give the layout a name" };
+    set.name = name;
+  }
+  if (patch.config !== undefined) set.config = sanitizeStageLayout(patch.config);
+  if (patch.sortOrder !== undefined && Number.isFinite(patch.sortOrder)) set.sortOrder = Math.max(0, Math.floor(patch.sortOrder));
+  // church_id in the WHERE, so another church's id can never be updated.
+  await db.update(stageLayouts).set(set)
+    .where(and(eq(stageLayouts.id, id), eq(stageLayouts.churchId, user.churchId)));
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+export async function deleteStageLayout(id: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  await db.delete(stageLayouts).where(and(eq(stageLayouts.id, id), eq(stageLayouts.churchId, user.churchId)));
+  // Any screen pointing at the deleted layout falls back to the built-in
+  // default rather than rendering blank — a blank stage screen mid-service is
+  // the worst possible outcome.
+  await db.update(stageScreens).set({ layoutId: null, updatedAt: new Date() })
+    .where(and(eq(stageScreens.layoutId, id), eq(stageScreens.churchId, user.churchId)));
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+// ── Stage Screens (one per physical confidence monitor) ────────────────────
+
+export async function listStageScreens(): Promise<Result<Array<{ id: string; name: string; layoutId: string | null; sortOrder: number }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select().from(stageScreens)
+    .where(eq(stageScreens.churchId, user.churchId))
+    .orderBy(asc(stageScreens.sortOrder), asc(stageScreens.createdAt));
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, layoutId: r.layoutId, sortOrder: r.sortOrder })) };
+}
+
+export async function createStageScreen(input: { name: string; layoutId?: string | null }): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const existing = await db.select({ id: stageScreens.id }).from(stageScreens).where(eq(stageScreens.churchId, user.churchId));
+  if (existing.length >= MAX_STAGE_SCREENS) {
+    return { ok: false, error: `Stage screen limit reached (${MAX_STAGE_SCREENS}).` };
+  }
+  const name = String(input?.name ?? "").trim().slice(0, 120) || `Stage ${existing.length + 1}`;
+  const [row] = await db.insert(stageScreens)
+    .values({ churchId: user.churchId, name, layoutId: input?.layoutId ?? null, sortOrder: existing.length })
+    .returning({ id: stageScreens.id });
+  revalidatePath("/operator");
+  return { ok: true, data: { id: row.id } };
+}
+
+/** Assign a layout to a screen. `layoutId` may be a BUILT-IN id
+ *  ("builtin-timer-only") or a stage_layouts uuid — a built-in never needs
+ *  materialising as a row first. null = fall back to the default layout. */
+export async function setStageScreenLayout(id: string, layoutId: string | null): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const value = layoutId === null ? null : String(layoutId).slice(0, 64);
+  if (value !== null && !/^[a-zA-Z0-9_-]{1,64}$/.test(value)) return { ok: false, error: "Invalid layout" };
+  await db.update(stageScreens).set({ layoutId: value, updatedAt: new Date() })
+    .where(and(eq(stageScreens.id, id), eq(stageScreens.churchId, user.churchId)));
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+export async function renameStageScreen(id: string, name: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const clean = String(name ?? "").trim().slice(0, 120);
+  if (!clean) return { ok: false, error: "Give the screen a name" };
+  await db.update(stageScreens).set({ name: clean, updatedAt: new Date() })
+    .where(and(eq(stageScreens.id, id), eq(stageScreens.churchId, user.churchId)));
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+export async function deleteStageScreen(id: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  await db.delete(stageScreens).where(and(eq(stageScreens.id, id), eq(stageScreens.churchId, user.churchId)));
+  revalidatePath("/operator");
   return { ok: true };
 }
