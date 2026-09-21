@@ -67,10 +67,23 @@ Recorded because "9 rows in the product DB" was wrongly reported as "9 churches"
 - **1 internal test account**: "jpd"
 - **2 signed up, never ran a service** (0 plans, 0 audio sessions): "JOS",
   "RCCG Community Church Clane"
-- **4 with real usage**: "Christ Embassy" (75 sessions), "Evangelical Assemblies
-  of God" (40), "RCCG Kings court" (40), "KINGS COURT DUBLIN" (5)
-- ⚠️ "KINGS COURT DUBLIN" and "RCCG Kings court" may be **the same church
-  duplicated** — unverified, worth checking.
+- **4 with usage.** Sessions are mic connections, NOT services — many are
+  reconnects under a minute, so distinct days is the better proxy:
+
+| Church | Sessions | Hours | Distinct days | <1 min | Last use |
+|---|---|---|---|---|---|
+| Christ Embassy | 75 | 16.2 | 5 | 38 | 2026-09-20 |
+| Evangelical Assemblies of God | 40 | 6.1 | 2 | 15 | 2026-09-20 |
+| KINGS COURT DUBLIN | 5 | 1.9 | 2 | 1 | 2026-09-12 |
+| RCCG Kings court | 40 | 1.7 | 1 | 26 | 2026-09-20 |
+
+- **KINGS COURT DUBLIN and RCCG Kings court are the same church** (owner
+  confirmed) but **two separate accounts with different logins**:
+  `emmanuelakeweje@gmail.com` (created 09-08, 2 plans, no library, but the
+  longer real sessions — 22.5 min avg) and `kingscourtparish21@gmail.com`
+  (created 09-20, 7 songs / 21 media / 1 theme, but mostly sub-3-minute
+  fragments on one day). **Not yet merged** — deleting the older one would
+  remove a working login and the only two genuine service-length sessions.
 
 **So: 3 on trial (CRM), ~4 product rows with genuine usage, and 9 rows total.
 Three different numbers. Always say which one you mean.**

@@ -71,6 +71,13 @@ Demo and E2E-test rows are in there too.
 Then re-verify from the source before building on it. Do not follow a stale doc
 just because it exists. Prompt for a better one.
 
+**Work like a historian: sources decide, artifacts only corroborate.** A config
+file, a doc, an audit, a memory file or something I said earlier is an
+*artifact* — true when written, maybe not now. The system itself is the
+*source*. Date every artifact before you lean on it, and check it against the
+source. Full method, with the mistakes that earned it:
+[`docs/SOURCES-AND-ARTIFACTS.md`](docs/SOURCES-AND-ARTIFACTS.md).
+
 **When you do not know, say "I don't know" and say how you'd find out.** An
 honest gap is useful. A confident guess costs trust and gets built on.
 
