@@ -6,6 +6,8 @@ import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutpu
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
+import { foldClockSync, shouldSweepWireTimers, type ClockSync } from "@/lib/timer-clock";
+import type { TimerWire, TimersWire } from "@/lib/broadcast";
 import { livestreamRenderPlan, DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { parseObsUrl, resolveObsRender, obsThemeColorsOf, applyObsLiveFields, type ObsUrlDefaults } from "@/lib/obs-look";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
@@ -43,6 +45,23 @@ export default function LivestreamPage() {
   // church — that tells this surface to pre-wrap its layers, so the first scene
   // of a service can never remount the stack mid-service.
   const [scenesPossible, setScenesPossible] = useState(false);
+  // NETWORKED timers (2026-09-21): anchors from OutputState, ticked locally by
+  // TimerOverlayLayer. Separate from the same-machine 1Hz path above — the
+  // local one always wins, this only fills a gap on a remote screen.
+  const [wireTimers, setWireTimers] = useState<TimerWire[]>([]);
+  const clockSyncRef = useRef<ClockSync | null>(null);
+  const lastTimersWireAt = useRef(0);
+  const timersWireRevRef = useRef(-1);
+  const foldTimersWire = useCallback((tw: TimersWire | null | undefined) => {
+    if (!tw) return;
+    // Ghost-operator guard: an older tab replaying a snapshot must not
+    // resurrect a stale timer set (same rev discipline as layers).
+    if (tw.rev <= timersWireRevRef.current) return;
+    timersWireRevRef.current = tw.rev;
+    clockSyncRef.current = foldClockSync(clockSyncRef.current, tw.senderNowMs, Date.now());
+    lastTimersWireAt.current = Date.now();
+    setWireTimers(tw.timers);
+  }, []);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [referenceScale, setReferenceScale] = useState(1); // scripture reference-footer size — match the projector
   const [referenceColor, setReferenceColor] = useState<string | undefined>(undefined);
@@ -304,6 +323,14 @@ export default function LivestreamPage() {
       // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
       {
         const now = Date.now();
+        // Remote timers have no 1Hz heartbeat to go stale, so the operator's
+        // liveness re-stamp is what stops arriving when it crashes. Separate
+        // window from the 5s sweep above, which still guards the local path.
+        if (shouldSweepWireTimers(lastTimersWireAt.current, now)) {
+          lastTimersWireAt.current = 0;
+          timersWireRevRef.current = -1;
+          setWireTimers([]);
+        }
         const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
         if (staleIds.length) {
           for (const id of staleIds) delete namedTimerAtRef.current[id];
@@ -358,6 +385,7 @@ export default function LivestreamPage() {
       setVideoInput(state.videoInput ?? null);
       setLowerThird(state.lowerThird);
       setScene(state.scene ?? null); // Scenes: never LAYERS_V2-gated
+      foldTimersWire(state.timersWire);
       // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
       if (state.scene !== undefined) setScenesPossible(true);
       setAnnouncement(state.announcement ?? null);
@@ -583,6 +611,8 @@ export default function LivestreamPage() {
           words over the camera. */}
       {mode === "full" && !sceneHidesLayer(scene, "livestream", "timer") && (
         <TimerOverlayLayer
+          wireTimers={wireTimers}
+          clockSync={clockSyncRef.current}
           density="full"
           timers={[
             ...(timerOverlay ? [timerOverlay as TimerOverlayItem] : []),

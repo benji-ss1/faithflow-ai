@@ -23,8 +23,13 @@
  * render beside the name, which put "PRE-SERVICE COUNTDOWN (paused)" on the
  * congregation's screen. Paused state belongs in the operator panel.
  */
-import { formatTimerClock } from "@/engine/timers";
-import type { OverlayPosition } from "@/lib/broadcast";
+import { useEffect, useState } from "react";
+import {
+  formatTimerClock, computeRemainingSec, isOverrun, resolveTimerColor, triggerValueFor,
+  type TimerDefinition, type TimerRuntime,
+} from "@/engine/timers";
+import type { OverlayPosition, TimerWire } from "@/lib/broadcast";
+import { senderNow, type ClockSync } from "@/lib/timer-clock";
 
 export type TimerOverlayItem = {
   id?: string;
@@ -103,20 +108,71 @@ function TimerValue({ t, density }: { t: TimerOverlayItem; density: TimerDensity
  * instead of overlapping. `fallbackPosition` is what a timer with no explicit
  * position gets — top-right everywhere, matching what /live already did.
  */
+/** Turn a wire timer into a renderable item by TICKING IT LOCALLY. This is the
+ *  whole networked design: the operator sends an anchor, not a number, and each
+ *  screen computes the value itself — which is also why colour triggers keep
+ *  firing on a remote screen, where a frozen value could never cross one.
+ *  `nowMs` must already be in the SENDER's clock domain. */
+function wireToItem(w: TimerWire, nowMs: number): TimerOverlayItem {
+  const def: TimerDefinition = {
+    id: w.id, name: w.name ?? "", type: w.type, durationSec: w.durationSec,
+    targetMs: w.targetMs ?? null, allowsOverrun: w.allowsOverrun,
+    elapsedStartSec: w.elapsedStartSec, elapsedEndSec: w.elapsedEndSec,
+  };
+  const rt: TimerRuntime = { running: w.running, anchorMs: w.anchorMs, baseSec: w.baseSec };
+  const remainingSec = computeRemainingSec(def, rt, nowMs);
+  const tv = triggerValueFor(def, remainingSec);
+  const color = tv === null
+    ? w.color
+    : resolveTimerColor({ color: w.color, overrunColor: w.overrunColor, colorTriggers: w.colorTriggers ?? [] }, tv);
+  return {
+    id: w.id, name: w.name, remainingSec, running: w.running,
+    kind: w.type === "elapsed" ? "elapsed" : "countdown",
+    position: w.position, overrun: isOverrun(def, rt, nowMs),
+    scale: w.scale, color, showHours: w.showHours, leadingZeros: w.leadingZeros,
+  };
+}
+
 export function TimerOverlayLayer({
   timers,
+  wireTimers,
+  clockSync = null,
   density = "full",
   fallbackPosition = "top-right",
   className = "",
 }: {
+  /** Already-computed, from the same-machine 1Hz path. */
   timers: TimerOverlayItem[];
+  /** Anchors from OutputState.timersWire, ticked locally here. */
+  wireTimers?: TimerWire[];
+  clockSync?: ClockSync | null;
   density?: TimerDensity;
   fallbackPosition?: OverlayPosition;
   className?: string;
 }) {
-  if (timers.length === 0) return null;
+  // Tick ONLY when there is something to tick, so a surface with no remote
+  // timers mounts no interval and renders exactly as it did before.
+  const hasWire = (wireTimers?.length ?? 0) > 0;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!hasWire) return;
+    const id = setInterval(() => setTick((t) => t + 1), 250);
+    return () => clearInterval(id);
+  }, [hasWire]);
+
+  // SAME-MACHINE ALWAYS WINS. On the operator's own box a timer arrives twice —
+  // once on the zero-latency local channel, once via OutputState. Rule 8 says
+  // the local path is primary, so the wire copy only ever FILLS A GAP. One id,
+  // one entry: a timer can never render twice, and the two cannot fight.
+  const localIds = new Set(timers.map((t) => t.id ?? "default"));
+  const now = senderNow(clockSync);
+  const merged = hasWire
+    ? [...timers, ...wireTimers!.filter((w) => !localIds.has(w.id)).map((w) => wireToItem(w, now))]
+    : timers;
+
+  if (merged.length === 0) return null;
   const groups = new Map<OverlayPosition, TimerOverlayItem[]>();
-  for (const t of timers) {
+  for (const t of merged) {
     const p = t.position ?? fallbackPosition;
     const list = groups.get(p);
     if (list) list.push(t); else groups.set(p, [t]);

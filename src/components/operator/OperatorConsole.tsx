@@ -16,6 +16,8 @@ import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, readObsEditorStore, obsLookWireFromStore, publishObsPreviewState, heldLowerThirdFor, createTrailingPublisher, type HeldLowerThird } from "@/lib/obs-look";
 import type { ObsLookWire } from "@/lib/broadcast";
+import { isValidTimersWire, type TimersWire } from "@/lib/broadcast";
+import { TIMERS_LIVENESS_MS } from "@/lib/timer-clock";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
 import { themeScriptureOptions, type ThemeScriptureOptions } from "@/lib/theme-scripture";
@@ -894,6 +896,34 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       window.removeEventListener("presentflow:obs-editor-changed", onEditor);
     };
   }, []);
+
+  // ── NETWORKED timers (2026-09-21) ────────────────────────────────────────
+  // ProOperatorShell owns timer state and is a CHILD of this component, while
+  // OutputState is built here — so the frame travels child -> parent by the
+  // same CustomEvent pattern the OBS editor already uses. Validated on arrival:
+  // this value ends up on every paired screen.
+  const [timersWire, setTimersWire] = useState<TimersWire | null>(null);
+  useEffect(() => {
+    const onTimersWire = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      setTimersWire(isValidTimersWire(d) ? d : null);
+    };
+    window.addEventListener("presentflow:timers-wire", onTimersWire as EventListener);
+    return () => window.removeEventListener("presentflow:timers-wire", onTimersWire as EventListener);
+  }, []);
+
+  // Liveness: with no 1Hz heartbeat there is nothing for a remote surface to
+  // miss, so a crashed operator would leave a frozen clock on screen forever.
+  // A low-frequency re-stamp gives the sweep something to detect, and re-arms
+  // the receiver's clock sync for free. Only runs while a timer is SHOWN.
+  useEffect(() => {
+    if (!timersWire || timersWire.timers.length === 0) return;
+    const id = setInterval(() => {
+      setTimersWire((w: TimersWire | null) => (w ? { ...w, senderNowMs: Date.now(), rev: w.rev + 1 } : w));
+    }, TIMERS_LIVENESS_MS);
+    return () => clearInterval(id);
+  }, [timersWire]);
+
   // ── Decoupling Phase 3: operator layer store ──────────────────────────────
   // Gated on the global env kill-switch AND the per-church opt-in. When off,
   // the hook emits nothing and `overrides` is always [] → OutputState.layers is
@@ -1007,6 +1037,9 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // mid-service and remount the layers: a transition replay on a held verse
       // (rule 7's fade-pulse), a shader/video restart and a camera re-acquire.
       ...(scenesUiOn ? { scene: activeScene } : {}),
+      // Omitted entirely when nothing is shown, so a church that never opens
+      // Timers emits a byte-identical snapshot to before (parity test-locked).
+      ...(timersWire && timersWire.timers.length > 0 ? { timersWire } : {}),
     };
     // PROJECTOR-RELIABILITY GUARANTEE (2026-09-06 field incident). Fail-open
     // sanitize the state before it goes on ANY wire (BroadcastChannel / Realtime /
@@ -1052,7 +1085,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn, timersWire]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1206,7 +1239,16 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // Snapshot provider: when a late/reconnecting projector joins the
       // channel it fires snapshot_request; we replay the last OutputState
       // so it catches up immediately instead of staring at black.
-      rtRef.current.onRequestSnapshot(() => lastOutputStateRef.current);
+      // RE-STAMP the timer frame on replay. The cached snapshot carries the
+      // senderNowMs from when it was BUILT — if the operator has been idle for
+      // twenty minutes, a joining device would measure a twenty-minute clock
+      // offset and every timer would read wrong. anchorMs is absolute and
+      // untouched, so re-stamping is safe and is the entire point.
+      rtRef.current.onRequestSnapshot(() => {
+        const st = lastOutputStateRef.current;
+        if (!st?.timersWire) return st;
+        return { ...st, timersWire: { ...st.timersWire, senderNowMs: Date.now() } };
+      });
     }
     return () => {
       if (rtRef.current) { try { rtRef.current.close(); } catch { /* ignore */ } rtRef.current = null; }

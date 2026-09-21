@@ -8,6 +8,8 @@ import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePay
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
+import { foldClockSync, shouldSweepWireTimers, type ClockSync } from "@/lib/timer-clock";
+import type { TimerWire, TimersWire } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 
@@ -48,6 +50,23 @@ export default function StagePage() {
   // church — that tells this surface to pre-wrap its layers, so the first scene
   // of a service can never remount the stack mid-service.
   const [scenesPossible, setScenesPossible] = useState(false);
+  // NETWORKED timers (2026-09-21): anchors from OutputState, ticked locally by
+  // TimerOverlayLayer. Separate from the same-machine 1Hz path above — the
+  // local one always wins, this only fills a gap on a remote screen.
+  const [wireTimers, setWireTimers] = useState<TimerWire[]>([]);
+  const clockSyncRef = useRef<ClockSync | null>(null);
+  const lastTimersWireAt = useRef(0);
+  const timersWireRevRef = useRef(-1);
+  const foldTimersWire = useCallback((tw: TimersWire | null | undefined) => {
+    if (!tw) return;
+    // Ghost-operator guard: an older tab replaying a snapshot must not
+    // resurrect a stale timer set (same rev discipline as layers).
+    if (tw.rev <= timersWireRevRef.current) return;
+    timersWireRevRef.current = tw.rev;
+    clockSyncRef.current = foldClockSync(clockSyncRef.current, tw.senderNowMs, Date.now());
+    lastTimersWireAt.current = Date.now();
+    setWireTimers(tw.timers);
+  }, []);
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [nextItem, setNextItem] = useState<{ title: string; type: string } | null>(null);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
@@ -156,6 +175,7 @@ export default function StagePage() {
             setAnnouncement(msg.state.announcement ?? null);
             setTransition(msg.state.transition ?? null);
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
+            foldTimersWire(msg.state.timersWire);
             // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
             if (msg.state.scene !== undefined) setScenesPossible(true);
           }
@@ -225,6 +245,14 @@ export default function StagePage() {
       // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
       {
         const now = Date.now();
+        // Remote timers have no 1Hz heartbeat to go stale, so the operator's
+        // liveness re-stamp is what stops arriving when it crashes. Separate
+        // window from the 5s sweep above, which still guards the local path.
+        if (shouldSweepWireTimers(lastTimersWireAt.current, now)) {
+          lastTimersWireAt.current = 0;
+          timersWireRevRef.current = -1;
+          setWireTimers([]);
+        }
         const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
         if (staleIds.length) {
           for (const id of staleIds) delete namedTimerAtRef.current[id];
@@ -380,6 +408,8 @@ export default function StagePage() {
                 the projector does. `compact` is the single sanctioned
                 difference: a confidence monitor shares space with the lyrics. */}
             <TimerOverlayLayer
+              wireTimers={wireTimers}
+              clockSync={clockSyncRef.current}
               density="compact"
               timers={[
                 ...(timerOverlay ? [timerOverlay as TimerOverlayItem] : []),

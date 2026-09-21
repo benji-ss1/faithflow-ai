@@ -66,6 +66,7 @@ import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
 import { resolveTimerColor, triggerValueFor } from "@/engine/timers";
+import { buildTimersWire } from "@/engine/timers/wire";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
@@ -2820,6 +2821,25 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const id = setInterval(post, 1000);
     return () => clearInterval(id);
   }, [shownTimerKey]);
+
+  // ── NETWORKED timers (2026-09-21) ────────────────────────────────────────
+  // The same-machine 1Hz TimerOverlay heartbeat above is UNTOUCHED (rule 8).
+  // This is an additive, parallel path for REMOTE surfaces: it hands the
+  // console a frame carrying the ANCHOR, which the console folds into
+  // OutputState. Keyed on the frame's CONTENT — `remaining` is deliberately
+  // absent from TimerWire, so a running timer does not re-emit.
+  const timersWireKey = useMemo(() => {
+    try { return JSON.stringify(buildTimersWire(timers.slots as never, 0, 0).timers); }
+    catch { return ""; }
+  }, [timers.slots]);
+  const timersWireRevRef = useRef(Date.now());
+  useEffect(() => {
+    timersWireRevRef.current += 1;
+    const wire = buildTimersWire(timersSlotsRef.current as never, Date.now(), timersWireRevRef.current);
+    // dispatchInternal is nonce-gated, so a browser extension cannot forge a
+    // timer set onto the projector.
+    dispatchInternal("presentflow:timers-wire", wire);
+  }, [timersWireKey]);
 
   // Wave 7: engine/macro TIMER_COMMAND entry point (ctx.onTimerCommand emits
   // this CustomEvent). "default" routes to the legacy quick timer; any other id

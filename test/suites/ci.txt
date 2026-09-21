@@ -197,6 +197,7 @@ test/tier.test.ts
 test/timer-clock.test.ts
 test/timer-scene-routing.test.ts
 test/timer-screen-parity.test.ts
+test/timer-transport-parity.test.ts
 test/timer-wire.test.ts
 test/timers-destroy.test.ts
 test/timers-hostile.test.ts
