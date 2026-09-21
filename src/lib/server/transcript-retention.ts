@@ -30,6 +30,8 @@ import { getDb } from "../db/client";
 
 export type PruneChurchResult = { churchId: string; days: number; deleted: number; error?: string };
 export type PruneSummary = {
+  /** True when nothing was actually deleted — the counts are what WOULD go. */
+  dryRun: boolean;
   churches: number;
   totalDeleted: number;
   errors: number;
@@ -43,8 +45,23 @@ export type PruneSummary = {
  *  route's 300s budget. */
 export const DEFAULT_MAX_ROWS_PER_CHURCH = 20_000;
 
-export async function pruneTranscripts(opts?: { maxRowsPerChurch?: number }): Promise<PruneSummary> {
+/**
+ * DRY RUN BY DEFAULT.
+ *
+ * Retention has never run in production, so the very first real execution would
+ * act on transcripts accumulated since day one — against a per-church setting
+ * nobody has ever seen enforced. Deleting those is irreversible, so the default
+ * is to COUNT what would go and delete nothing. Read the numbers, confirm each
+ * church's `transcript_retention_days` is what you actually intend, then set
+ * `PRUNE_TRANSCRIPTS_ENABLED=1` to arm it.
+ */
+export function pruneIsArmed(): boolean {
+  return process.env.PRUNE_TRANSCRIPTS_ENABLED === "1";
+}
+
+export async function pruneTranscripts(opts?: { maxRowsPerChurch?: number; dryRun?: boolean }): Promise<PruneSummary> {
   const maxRows = Math.max(1, Math.min(200_000, opts?.maxRowsPerChurch ?? DEFAULT_MAX_ROWS_PER_CHURCH));
+  const dryRun = opts?.dryRun ?? !pruneIsArmed();
   const db = getDb();
   const started = Date.now();
 
@@ -64,18 +81,33 @@ export async function pruneTranscripts(opts?: { maxRowsPerChurch?: number }): Pr
     // filters on this church's id, so a prune can never touch another tenant's
     // transcripts (CLAUDE.md rule 5).
     try {
-      const res = await db.execute(sql`
-        DELETE FROM transcript_segments
-        WHERE id IN (
-          SELECT ts.id
-          FROM transcript_segments ts
-          JOIN service_plans sp ON sp.id = ts.service_plan_id
-          WHERE sp.church_id = ${c.church_id}
-            AND ts.ts < NOW() - (${c.days} || ' days')::interval
-          LIMIT ${maxRows}
-        )
-      `);
-      const deleted = (res as unknown as { rowCount?: number }).rowCount || 0;
+      // Identical predicate in both modes, so the dry-run count is exactly what
+      // the armed run would remove — not an estimate from a different query.
+      const res = dryRun
+        ? await db.execute(sql`
+            SELECT COUNT(*)::int AS count FROM (
+              SELECT ts.id
+              FROM transcript_segments ts
+              JOIN service_plans sp ON sp.id = ts.service_plan_id
+              WHERE sp.church_id = ${c.church_id}
+                AND ts.ts < NOW() - (${c.days} || ' days')::interval
+              LIMIT ${maxRows}
+            ) AS would_delete
+          `)
+        : await db.execute(sql`
+            DELETE FROM transcript_segments
+            WHERE id IN (
+              SELECT ts.id
+              FROM transcript_segments ts
+              JOIN service_plans sp ON sp.id = ts.service_plan_id
+              WHERE sp.church_id = ${c.church_id}
+                AND ts.ts < NOW() - (${c.days} || ' days')::interval
+              LIMIT ${maxRows}
+            )
+          `);
+      const deleted = dryRun
+        ? ((res.rows?.[0] as { count?: number } | undefined)?.count ?? 0)
+        : ((res as unknown as { rowCount?: number }).rowCount || 0);
       if (deleted >= maxRows) capped = true;
       totalDeleted += deleted;
       perChurch.push({ churchId: c.church_id, days: c.days, deleted });
@@ -88,5 +120,5 @@ export async function pruneTranscripts(opts?: { maxRowsPerChurch?: number }): Pr
     }
   }
 
-  return { churches: churches.length, totalDeleted, errors, capped, elapsedMs: Date.now() - started, perChurch };
+  return { dryRun, churches: churches.length, totalDeleted, errors, capped, elapsedMs: Date.now() - started, perChurch };
 }

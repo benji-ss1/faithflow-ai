@@ -14,7 +14,13 @@ config({ path: ".env.local" });
 import { pruneTranscripts } from "../src/lib/server/transcript-retention";
 
 async function main() {
-  const result = await pruneTranscripts();
+  // Dry run unless PRUNE_TRANSCRIPTS_ENABLED=1 or an explicit --delete flag.
+  const forceDelete = process.argv.includes("--delete");
+  const result = await pruneTranscripts(forceDelete ? { dryRun: false } : undefined);
+  if (result.dryRun) {
+    console.log("[prune] DRY RUN — nothing deleted. Counts below are what WOULD go.");
+    console.log("[prune] Re-run with --delete (or set PRUNE_TRANSCRIPTS_ENABLED=1) once the numbers look right.");
+  }
   for (const c of result.perChurch) {
     console.log(JSON.stringify({
       event: c.error ? "prune.church.error" : "prune.church.ok",
@@ -24,7 +30,7 @@ async function main() {
   console.log(JSON.stringify({
     event: "prune.done",
     churches: result.churches, totalDeleted: result.totalDeleted,
-    errors: result.errors, capped: result.capped, elapsedMs: result.elapsedMs,
+    dryRun: result.dryRun, errors: result.errors, capped: result.capped, elapsedMs: result.elapsedMs,
   }));
   if (result.capped) {
     console.log("[prune] per-church cap hit — a backlog remains; run again (or let the nightly cron continue).");

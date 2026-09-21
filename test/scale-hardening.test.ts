@@ -68,6 +68,18 @@ check("one church's failure does not abandon the rest", () => {
   assert.match(src, /errors \+= 1/);
 });
 
+check("prune deletes NOTHING until explicitly armed", () => {
+  const src = read("src/lib/server/transcript-retention.ts");
+  // Retention has never run, so the first real execution would act on every
+  // transcript since day one. Default must be count-only.
+  assert.match(src, /PRUNE_TRANSCRIPTS_ENABLED === "1"/);
+  assert.match(src, /dryRun = opts\?\.dryRun \?\? !pruneIsArmed\(\)/, "armed must be opt-IN, never opt-out");
+  // The dry-run count must use the SAME predicate as the delete, or the
+  // number the operator approves is not the number that goes.
+  const both = src.match(/WHERE sp\.church_id = \$\{c\.church_id\}\s+AND ts\.ts < NOW\(\) - \(\$\{c\.days\} \|\| ' days'\)::interval/g);
+  assert.ok(both && both.length === 2, `expected the same predicate in count and delete, found ${both?.length ?? 0}`);
+});
+
 console.log("the nightly jobs are actually scheduled:");
 check("prune cron is wired in vercel.json and guarded by CRON_SECRET", () => {
   const vercel = JSON.parse(read("vercel.json")) as { crons: { path: string; schedule: string }[] };
