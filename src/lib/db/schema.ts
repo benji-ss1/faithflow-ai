@@ -502,7 +502,12 @@ export const churchPreferences = pgTable("church_preferences", {
   audioInputDeviceLabel: text("audio_input_device_label"),
   detectionConfidenceThreshold: integer("detection_confidence_threshold").notNull().default(60),
   productionMode: boolean("production_mode").notNull().default(false),
-  transcriptRetentionDays: integer("transcript_retention_days").notNull().default(90), // 0 = forever
+  // 2026-09-21 (owner directive): 7 days, not 90. Raw transcripts are a
+  // short-lived working artefact — a church that wants its sermon text has a
+  // week to take it. What churches actually keep long-term (sermon summaries
+  // and the searchable sermon index) is stored separately and is NOT pruned,
+  // so shortening this does not cost them sermon search. 0 = keep forever.
+  transcriptRetentionDays: integer("transcript_retention_days").notNull().default(7),
   commandPrefix: text("command_prefix").notNull().default("faithflow"),
   // Autopilot mode — high-confidence scripture detections auto-stage AND
   // auto-send to Live without operator approval. Off by default to

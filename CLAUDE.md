@@ -1,5 +1,10 @@
 # CLAUDE.md — Working standard for AI-assisted work on this repo
 
+**Three rules, every agent, every time: [AGENTS.md](AGENTS.md)** — never regress,
+don't over-engineer, go straight to the root.
+**What is actually true right now: [docs/MILESTONES.md](docs/MILESTONES.md)** —
+verified infra state + locked behaviour. Update it in the same change that ships.
+
 **START HERE every session:** read [docs/AI_HANDOFF.md](docs/AI_HANDOFF.md) — the fast onboarding for how this repo ships (renderer→Vercel/reload vs Electron→DMG vs parser→Fly), how work is done (the loop + 3-agent review), the current offline-first epic status, and the traps. Then this file for the rules.
 
 Before you make any non-trivial change, read [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).

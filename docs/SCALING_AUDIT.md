@@ -12,12 +12,12 @@
 | 1 | Audio bridge can be killed by ONE church's unhandled rejection | CRITICAL | **FIXED** — process-level guards added | `scripts/audio-server.ts` |
 | 2 | `transcript_segments` had **zero** indexes; cascade FK unindexed | HIGH | **FIXED** — 2 indexes + `CONCURRENTLY` migration | `schema.ts`, `docs/migrations/2026-09-21-scale-indexes-transcripts.sql` |
 | 3 | Retention prune never ran in production (script existed, nothing invoked it) | HIGH | **FIXED** — nightly cron, **dry-run by default** | `src/lib/server/transcript-retention.ts` |
-| 4 | Fly machine 1 shared vCPU / 512MB for ALL churches | CRITICAL | **PARTLY** — now 2 vCPU / 2GB (needs `./scripts/deploy.sh audio`) | `fly.toml` |
+| 4 | Fly machine "1 shared vCPU / 512MB" | CRITICAL | **WAS ALREADY FIXED IN REALITY** — live machines are `shared-cpu-1x:2048MB`. `fly.toml` had drifted BELOW reality and is now pinned to match | `fly.toml` |
 | 5 | Shared 6-connection pg pool | CRITICAL | **PARTLY** — 2→6 + timeouts; still one pool per instance | `src/lib/db/client.ts` |
-| 6 | No uptime monitoring / paging | CRITICAL | **PARTLY** — Sentry + PostHog + `/api/health*` exist; **no external prober, no paging** | — |
-| 7 | **Fly = ONE machine, ONE region (`lhr`), ONE process** | CRITICAL | **STILL TRUE** — total SPOF for every church | `fly.toml` |
+| 6 | No uptime monitoring / paging | CRITICAL | **MOSTLY FIXED** — UptimeRobot (owner-managed) + Sentry + PostHog + `/api/health*`. Paging still unconfirmed | — |
+| 7 | "Fly = ONE machine" | CRITICAL | **WRONG — there are TWO** (`damp-moon-2740`, `shy-meadow-3274`, both started, both `lhr`). Machine SPOF is GONE. **Region SPOF remains** — both in London | `fly machines list -a faithflow-audio` |
 | 8 | No staging; push to `main` auto-deploys mid-service | CRITICAL | **STILL TRUE** — CI only lints/typechecks | `.github/workflows/ci.yml` |
-| 9 | Rate limiters are per-instance memory | HIGH | **STILL TRUE** — `RATE_LIMIT_BACKEND` is set in Vercel but **nothing reads it** | `src/lib/rate-limit.ts` |
+| 9 | Rate limiters are per-instance memory | HIGH | **STILL TRUE** — and **no Redis/Upstash exists**. `RATE_LIMIT_BACKEND` is set in Vercel but nothing in `src/` reads it — a dead env var | `src/lib/rate-limit.ts` |
 | 10 | RLS enabled with no policies; app connects as owner → isolation is app-layer only | MEDIUM | **STILL TRUE** (deliberate, documented) | `docs/migrations/2026-08-18-enable-rls-security-lockdown.sql` |
 | 11 | ~12 adversarial cross-church tests excluded from CI (need a DB) | — | **STILL TRUE** — incl. `cross-church.test.ts` itself | `test/suites/known-failing.txt` |
 | 12 | **`DATABASE_URL` port unknown** — 6543 pooler vs 5432 direct | — | **UNVERIFIABLE from code** (write-only secret). **Check this first.** | Supabase dashboard |
@@ -26,6 +26,9 @@
 
 At 20 churches, expect roughly **60–120 concurrent Postgres connections**
 (demand-driven Fluid instances × `max: 6` per pool).
+
+Supabase is on the **Pro** plan (confirmed by the owner), which raises the ceiling
+but does not remove the distinction:
 
 * On the **transaction pooler (6543)** PgBouncer multiplexes these onto few server
   connections — fine.
@@ -42,8 +45,9 @@ the pooler's proxy IP vs direct client addresses.
 1. **Confirm the DB port (#12).** Free, zero code, decides whether #5 is a fire.
 2. **Apply the index migration (#2).** Additive, zero risk, biggest single query win.
 3. **Read the prune dry-run numbers, then arm it (#3)** with `PRUNE_TRANSCRIPTS_ENABLED=1`.
-4. **Remove the Fly SPOF (#7)** — second machine and/or second region. Changes WS
-   routing and the per-user connection cap, so it needs a real test, not a config flip.
+4. **Region redundancy (#7)** — two machines already exist, but both are in `lhr`.
+   A second REGION is the remaining SPOF. Weigh against latency: churches are
+   UK/Nigeria, and Deepgram round-trips are latency-sensitive (rule 10).
 5. **Shared rate-limit backend (#9)** — the seam (`setRateLimitBackend`) already exists.
 6. **CI Postgres service container (#11)** so cross-church tests actually run.
 7. **External uptime prober + paging (#6)** — the cheapest way to stop finding out
