@@ -1832,9 +1832,10 @@ export async function updatePreferences(data: {
   // Explicit field whitelist BEFORE any .set()/.values() — never spread the raw
   // `data` object into the DB write. This is the ONLY server action that writes
   // church_preferences from client input, so a poisoned/extra property (most
-  // importantly `layersV2`, which is ONLY writable via the dedicated admin action
-  // `setLayersEngineEnabled` — never through this general settings action) can never reach a
-  // column. Only keys present in `data` are copied through.
+  // importantly the rollout flags `layersV2` and `scenesEnabled`, which are ONLY
+  // writable via their dedicated admin actions `setLayersEngineEnabled` /
+  // `setScenesEnabled` — never through this general settings action) can never
+  // reach a column. Only keys present in `data` are copied through.
   const patch: Partial<typeof churchPreferences.$inferInsert> = {};
   if ("defaultTranslationId" in data) patch.defaultTranslationId = data.defaultTranslationId;
   if ("aiListeningDefault" in data) patch.aiListeningDefault = data.aiListeningDefault;
@@ -1877,6 +1878,34 @@ export async function setLayersEngineEnabled(enabled: boolean): Promise<Result> 
     // hit the unique constraint.
     await db.insert(churchPreferences).values({ churchId: user.churchId, layersV2: enabled })
       .onConflictDoUpdate({ target: churchPreferences.churchId, set: { layersV2: enabled, updatedAt: new Date() } });
+  }
+  revalidatePath("/settings");
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+// Scenes opt-in (2026-09-21, user-directed: give the operator a toggle so a
+// church can switch Scenes on itself and try it, ahead of a default-on rollout).
+// Mirrors setLayersEngineEnabled exactly — a DEDICATED admin-only action, since
+// `updatePreferences` deliberately whitelists these rollout flags OUT so a
+// general settings save can never flip one. Church-scoped: writes only the
+// caller's own church_preferences row.
+export async function setScenesEnabled(enabled: boolean): Promise<Result> {
+  // requireUser + explicit role check (NOT requireRole): requireRole redirects,
+  // and a redirect from a server action called inside the desktop operator would
+  // navigate away from the live console mid-service. Return a clean error.
+  const user = await requireUser();
+  if (user.role !== "admin") return { ok: false, error: "Only a church admin can change Scenes" };
+  if (typeof enabled !== "boolean") return { ok: false, error: "Invalid value" };
+  const db = getDb();
+  const [existing] = await db.select({ id: churchPreferences.id }).from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+  if (existing) {
+    await db.update(churchPreferences).set({ scenesEnabled: enabled, updatedAt: new Date() }).where(and(eq(churchPreferences.id, existing.id), eq(churchPreferences.churchId, user.churchId)));
+  } else {
+    // Upsert on the unique church_id so a double-click with no prefs row can't
+    // hit the unique constraint.
+    await db.insert(churchPreferences).values({ churchId: user.churchId, scenesEnabled: enabled })
+      .onConflictDoUpdate({ target: churchPreferences.churchId, set: { scenesEnabled: enabled, updatedAt: new Date() } });
   }
   revalidatePath("/settings");
   revalidatePath("/operator");
@@ -2073,6 +2102,16 @@ export async function getLayersEngineSetting(): Promise<Result<{ enabled: boolea
   const db = getDb();
   const [row] = await db.select({ layersV2: churchPreferences.layersV2 }).from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
   return { ok: true, data: { enabled: row?.layersV2 ?? true, canEdit: user.role === "admin" } };
+}
+
+/** Read the Scenes setting for the desktop Settings window (any signed-in role
+ *  may read; only admins may change it). Default OFF when no row exists —
+ *  matches the schema default, so reading never implies a church has opted in. */
+export async function getScenesSetting(): Promise<Result<{ enabled: boolean; canEdit: boolean }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const [row] = await db.select({ scenesEnabled: churchPreferences.scenesEnabled }).from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+  return { ok: true, data: { enabled: row?.scenesEnabled ?? false, canEdit: user.role === "admin" } };
 }
 
 // Phase 6: sermon deck metadata --------------------------------------------
