@@ -39,10 +39,41 @@ table if it is more than a few weeks old.
 | Supabase DB | `mdjdemrtykflfucggbqt` "PresentflowAPP", **eu-west-1 (Ireland)**, PG 17 | Supabase MCP `list_projects` |
 | Connection pooling | **Supavisor (the pooler) IS in use** — confirmed via `pg_stat_activity`. `max_connections = 60` (57 usable) | `select * from pg_stat_activity` |
 | Indexes | `idx_transcript_segments_plan_ts` + `idx_detected_references_segment` **created & valid 2026-09-21** | `pg_index.indisvalid` |
-| Transcript retention | **7 days**, all 9 churches. Prune still DRY RUN (`PRUNE_TRANSCRIPTS_ENABLED` unset) | `select transcript_retention_days...` |
+| Transcript retention | **7 days** on all **9 `church_preferences` rows** (NOT 9 real churches — see below). Prune still DRY RUN (`PRUNE_TRANSCRIPTS_ENABLED` unset) | `select transcript_retention_days...` |
 | Redis / Upstash | **NOT provisioned.** Code is ready (`src/lib/rate-limit-redis.ts`) and inert until `UPSTASH_REDIS_REST_URL` + `_TOKEN` are set. `RATE_LIMIT_BACKEND` remains a dead env var | `vercel env ls production` |
 | Uptime monitoring | UptimeRobot (owner-managed, external) + Sentry + PostHog + `/api/health*` | — |
 | Warm/cold latency | ~0.1–0.5s warm; **~24s** cold on a freshly deployed instance | `curl -w '%{time_total}'` |
+
+---
+
+## Who is actually on the product — verified 2026-09-21
+
+Recorded because "9 rows in the product DB" was wrongly reported as "9 churches".
+**The product DB is not the commercial truth. The Ops CRM is.**
+
+**Ops CRM** (`PresentflowOPS` → `churches_pipeline`, `deleted_at is null`) —
+29 in pipeline, every one still `lifecycle_stage = lead`:
+
+| Stage | Count |
+|---|---|
+| new | 9 |
+| tech_contact | 7 |
+| interested | 6 |
+| install_booked | 4 |
+| **trial** | **3** |
+
+**Product DB** (`PresentflowAPP` → `churches`) — 9 rows, which break down as:
+- **2 demo/test** (`is_demo = true`): "JPD Demo Church", "E2E Church 1783768793891"
+- **1 internal test account**: "jpd"
+- **2 signed up, never ran a service** (0 plans, 0 audio sessions): "JOS",
+  "RCCG Community Church Clane"
+- **4 with real usage**: "Christ Embassy" (75 sessions), "Evangelical Assemblies
+  of God" (40), "RCCG Kings court" (40), "KINGS COURT DUBLIN" (5)
+- ⚠️ "KINGS COURT DUBLIN" and "RCCG Kings court" may be **the same church
+  duplicated** — unverified, worth checking.
+
+**So: 3 on trial (CRM), ~4 product rows with genuine usage, and 9 rows total.
+Three different numbers. Always say which one you mean.**
 
 ---
 
