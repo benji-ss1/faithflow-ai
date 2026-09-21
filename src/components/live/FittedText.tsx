@@ -23,26 +23,32 @@ import { fitScale, overflows, type TextScaleMode, DEFAULT_TEXT_SCALE } from "@/l
  */
 const MAX_PASSES = 4;
 
-export function FittedText({
-  text, mode = DEFAULT_TEXT_SCALE, style, className,
-}: {
-  text: string;
-  mode?: TextScaleMode;
-  style: React.CSSProperties;
-  className?: string;
-}) {
-  const ref = useRef<HTMLDivElement | null>(null);
+/**
+ * The fit itself, as a hook, so the EDITOR and the PROJECTOR share one
+ * implementation. The editor's text box is `contentEditable` while typing, so
+ * it cannot use the component below (which owns its children) — but it can use
+ * this. Without it the editor would clip where the projector scales, and the
+ * two surfaces would disagree about what the slide looks like.
+ *
+ * Pass the element ref, the text, the mode and the authored font size; get back
+ * a multiplier to apply to that size.
+ */
+export function useFitFontSize(
+  ref: React.RefObject<HTMLElement | null>,
+  text: string,
+  mode: TextScaleMode,
+  base: string | number | undefined,
+  /** Anything else that changes layout (weight, spacing, family, transform). */
+  deps: string = "",
+): number {
   const [scale, setScale] = useState(1);
-  const base = style.fontSize;
-  // Every input that can change the measurement.
-  const key = `${text}|${mode}|${String(base)}|${String(style.lineHeight)}|${String(style.letterSpacing)}|${String(style.fontFamily)}|${String(style.fontWeight)}|${String(style.textTransform)}`;
+  const key = `${text}|${mode}|${String(base)}|${deps}`;
 
   useLayoutEffect(() => {
     if (mode === "none" || base === undefined) { setScale(1); return; }
     const el = ref.current;
     if (!el) return;
     let next = 1;
-    // Always start from the authored size so a re-fit is not compounded.
     el.style.fontSize = String(base);
     for (let pass = 0; pass < MAX_PASSES; pass++) {
       const m = {
@@ -53,15 +59,12 @@ export function FittedText({
       const s = fitScale(m, mode);
       if (s === 1) break;
       next *= s;
-      // Apply inline so the next measurement in this synchronous pass sees it.
       el.style.fontSize = `calc(${String(base)} * ${next})`;
     }
     setScale(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, mode]);
 
-  // The output surface resizes (preview vs projector vs 4K) without the text
-  // changing. Re-measure from the authored size when it does.
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -72,13 +75,33 @@ export function FittedText({
     });
     ro.observe(el);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, []);
+  }, [ref]);
 
+  return scale;
+}
+
+/** Apply a fit multiplier to an authored font size. */
+export function scaledFontSize(base: string | number | undefined, scale: number): string | number | undefined {
+  if (base === undefined || scale === 1) return base;
+  return `calc(${String(base)} * ${scale})`;
+}
+
+export function FittedText({
+  text, mode = DEFAULT_TEXT_SCALE, style, className,
+}: {
+  text: string;
+  mode?: TextScaleMode;
+  style: React.CSSProperties;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const deps = `${String(style.lineHeight)}|${String(style.letterSpacing)}|${String(style.fontFamily)}|${String(style.fontWeight)}|${String(style.textTransform)}`;
+  const scale = useFitFontSize(ref, text, mode, style.fontSize, deps);
   return (
     <div
       ref={ref}
       className={className}
-      style={scale === 1 ? style : { ...style, fontSize: `calc(${String(base)} * ${scale})` }}
+      style={scale === 1 ? style : { ...style, fontSize: scaledFontSize(style.fontSize, scale) }}
     >
       {text}
     </div>

@@ -2,8 +2,12 @@
 //
 // Provider ladder (2026-07-30 user sign-off — fixes the HIGH Groq outage risk):
 //
-//   Tier 1 — Groq primary   : llama-3.3-70b-versatile   (quality)
-//   Tier 2 — Groq fallback  : llama-3.1-8b-instant      (rate-limit relief)
+//   Tier 1 — Groq primary   : openai/gpt-oss-120b       (quality)
+//   Tier 2 — Groq fallback  : openai/gpt-oss-20b        (rate-limit relief)
+// (Groq retired the llama-3.3-70b / llama-3.1-8b pair; both now 404
+//  model_not_found. The runtime defaults in groq-fallback.ts were migrated at
+//  the time — these comments were not, and said "llama" until 2026-09-21.
+//  Verified against the live API, not assumed: both models return 200.)
 //   Tier 3 — xAI emergency  : grok-2-latest              (Groq completely down)
 //
 // Tier 3 only activates when:
@@ -20,7 +24,7 @@
 //   • uses a 6s AbortController timeout,
 //   • requests json_object response format,
 //   • retries once on 5xx,
-//   • on 429 falls back to llama-3.1-8b-instant (see groq-fallback.ts);
+//   • on 429 falls back to the Tier-2 model (see groq-fallback.ts);
 //     if the fallback ALSO 429s it throws GroqRateLimitedError so callers
 //     degrade like the missing-key path.
 //   • on hard failure (5xx / network down) tries xAI if GROQ_XAI_FALLBACK=true.

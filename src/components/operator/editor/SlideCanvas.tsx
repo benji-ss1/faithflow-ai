@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CANVAS_W, CANVAS_H, type EditableSlide, type SlideObject } from "@/lib/slide-objects";
 import { cn } from "@/lib/utils";
 import { flipTransform, constrainAspect, type Rect } from "@/lib/editor-geometry";
+import { useFitFontSize, scaledFontSize } from "@/components/live/FittedText";
+import { DEFAULT_TEXT_SCALE } from "@/lib/text-fit";
 import { DEFAULT_VIEW_PREFS, RULER_SIZE, RULER_PAD, rulerTicks, markerPct, rulersVisible, type EditorViewPrefs } from "@/lib/editor-view-prefs";
 import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, isFullZone, resolveZoneRects, FULL_ZONE } from "@/lib/projection-zone";
@@ -484,6 +486,17 @@ function ObjectView({
 }) {
   const locked = !!obj.locked;
   const hidden = !!obj.hidden;
+  // WYSIWYG: the editor must scale text exactly as the projector does
+  // (src/lib/text-fit.ts). Declared unconditionally — hooks cannot be called
+  // inside the `obj.kind === "text"` branch below.
+  const textFitRef = useRef<HTMLDivElement | null>(null);
+  const fitScaleValue = useFitFontSize(
+    textFitRef,
+    obj.kind === "text" ? obj.text : "",
+    obj.kind === "text" ? (obj.textScale ?? DEFAULT_TEXT_SCALE) : "none",
+    obj.kind === "text" ? `${(((obj.fontSize ?? 96) * textScale) / CANVAS_H) * 100}cqh` : undefined,
+    obj.kind === "text" ? `${obj.lineHeight}|${obj.letterSpacing}|${obj.fontFamily}|${obj.fontWeight}|${obj.uppercase}` : "",
+  );
   const style: React.CSSProperties = {
     position: "absolute",
     left: `${(obj.x / CANVAS_W) * 100}%`,
@@ -503,6 +516,7 @@ function ObjectView({
 
   let inner: React.ReactNode = null;
   if (obj.kind === "text") {
+    const fitRef = textFitRef;
     // Shared font styling so the inline-edit textarea matches the rendered text
     // exactly (true WYSIWYG while typing).
     const textStyle: React.CSSProperties = {
@@ -564,9 +578,11 @@ function ObjectView({
       />
     ) : (
       <div
+        ref={fitRef}
         className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
         style={{
           ...textStyle,
+          fontSize: scaledFontSize(textStyle.fontSize, fitScaleValue),
           justifyContent: justify,
           alignItems: "center",
         }}

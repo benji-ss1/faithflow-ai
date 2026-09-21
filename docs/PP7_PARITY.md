@@ -22,7 +22,7 @@ a row says OPEN, it is still broken.**
 |---|---|---|
 | Y1 | Themes are **baked destructively** into `objects_json`; PP7 resolves at render. Undo depends on snapshot bookkeeping that has broken twice. | OPEN |
 | Y2 | No text **vertical alignment** (hardcoded centre) and no adjustable box inset (hardcoded 2%). | OPEN |
-| Y14 | **Editor canvas still clips** where the projector now scales — `SlideCanvas.tsx:562` keeps a fixed size + `overflow-hidden`. WYSIWYG is broken until it uses the same fit. Left for a focused pass because that surface is `contentEditable` and wrapping it naively would break typing. | OPEN — next |
+| Y14 | **Editor canvas clipped where the projector scaled** — WYSIWYG broken. | ✅ **FIXED 2026-09-21** — the fit was extracted into a `useFitFontSize` hook so the editor and the projector share ONE implementation (test-locked: two fit loops = two behaviours that drift). |
 | Y3 | **Shadow is a boolean** with one fixed look; PP7 exposes colour/angle/length/blur. | OPEN |
 | Y4 | **No per-object name** — the layers list cannot be renamed. | OPEN |
 | Y5 | **Scale + Blur is not a first-class fit mode** — we have `blurFill`/`blur` flags instead of PP7's fourth named mode. | OPEN |
@@ -42,6 +42,12 @@ a row says OPEN, it is still broken.**
 | **Clear All stays fixed**, with named groups alongside. | PP7 lets you edit Clear All and warns you lose the panic button. Victor 2026-09-18: we do not copy that flaw. |
 | **Props = one church logo.** | Victor 2026-09-18: no multi-prop collection. |
 | **Transition precedence** (instant > AI 150ms > Off > theme > global). | Ours, for voice/AI-driven live production. PP7 is Slide > Presentation > Global. Must not be described as parity. |
+
+## Cross-platform (see `WINDOWS_AND_MAC.md`)
+
+| # | Gap | Status |
+|---|---|---|
+| W1 | **HEVC `.mov` may be silently black on a Windows projector** — allowed upload type, no codec check, stock Chromium cannot decode HEVC. | OPEN 🔴 (unverified — needs a Windows box) |
 
 ## Needs verification, not code
 

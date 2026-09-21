@@ -89,5 +89,23 @@ check("the projector render path is bounded", () => {
   assert.doesNotMatch(src, /setTimeout/, "no arbitrary delays in the render path (AGENTS.md rule 3)");
 });
 
+console.log("the editor and the projector agree (WYSIWYG):");
+check("both surfaces use ONE fit implementation, not two", () => {
+  const fs = require("node:fs");
+  const read = (p: string) => fs.readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  const canvas = read("src/components/operator/editor/SlideCanvas.tsx");
+  const layer = read("src/components/live/SlideObjectsLayer.tsx");
+  // If the editor clipped while the projector scaled, the operator would design
+  // against a lie. Both must come from FittedText.
+  assert.match(canvas, /useFitFontSize/, "editor canvas must use the shared fit hook");
+  assert.match(canvas, /scaledFontSize/);
+  assert.match(layer, /FittedText/, "projector must use the shared component");
+  const fitted = read("src/components/live/FittedText.tsx");
+  assert.match(fitted, /export function useFitFontSize/, "the hook is the single implementation");
+  // The component must be a thin wrapper over the hook, not a second copy.
+  assert.equal((fitted.match(/for \(let pass = 0/g) || []).length, 1,
+    "two fit loops means two behaviours that will drift apart");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
