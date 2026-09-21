@@ -122,7 +122,21 @@ check("keep-songs bg leftover: re-apply always resets bg even when neither confi
   // text key-union protection kept: fontWeight not named by any config survives
   assert.equal(re.objects[0].fontWeight, 900);
   assert.equal(re.objects[0].fontFamily, "Inter");
-  assert.deepEqual([...fields.slide].sort(), ["bgColor", "bgColor2", "bgImageUrl", "bgType", "transition"]);
+  // bgExplicit joined the theme-owned set (2026-09-21): a bake sets it alongside
+  // the background, so a re-apply/undo must reset it in lockstep — otherwise a
+  // stale `true` makes a restored default black paint as a deliberate choice.
+  assert.deepEqual([...fields.slide].sort(), ["bgColor", "bgColor2", "bgExplicit", "bgImageUrl", "bgType", "transition"]);
+  assert.equal(re.bgExplicit, undefined, "the original had no chosen background, so none is restored");
+});
+
+check("bgExplicit resets with the background it describes (no stale 'chosen' after undo)", () => {
+  // The slide was baked by a black theme: real black + chosen. The pre-theme
+  // original had an ordinary default black that nobody chose.
+  const orig = { bgColor: "#000000", objects: [] };
+  const baked = { bgColor: "#000000", bgExplicit: true, objects: [] };
+  const fields = reapplyFieldsForConfigs([{ bgType: "solid", bgColor: "#000000" }, undefined]);
+  const re = rebakeThemeFromOriginal({ fontFamily: "Inter" }, baked, orig, fields) as any;
+  assert.equal(re.bgExplicit, undefined, "undoing the theme must not leave the slide pinned to opaque black");
 });
 
 // ── Server-stored baked configs (review fix: never trust client previousConfig) ──

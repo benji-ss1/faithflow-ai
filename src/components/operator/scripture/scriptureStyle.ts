@@ -267,6 +267,9 @@ export function sourceForRelayout(slide: SlidePayload): SlidePayload {
     if (slide.scriptureLayout || slide.scriptureBand) {
       const p: Extract<SlidePayload, { kind: "text" }> = { kind: "text", text: slide.text };
       if (slide.bgColor) p.bgColor = slide.bgColor;
+      // Carry the "chosen" marker with the colour, else toggling layout drops a
+      // designed slide's deliberate black back to the legacy heuristic.
+      if (slide.bgExplicit) p.bgExplicit = true;
       if (slide.bgImageUrl) p.bgImageUrl = slide.bgImageUrl;
       if (slide.objects && slide.objects.length) p.objects = slide.objects;
       return p;
