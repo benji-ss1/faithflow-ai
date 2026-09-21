@@ -173,6 +173,20 @@ export default function NdiOutputPage() {
     // Silent-channel recovery: reopen if we go quiet (a long service must never
     // permanently desync).
     const timer = setInterval(() => {
+      // Stale-timer sweep, mirroring /live, /stage and /livestream. Without it
+      // a crashed operator window leaves a FROZEN clock burned into the NDI
+      // broadcast feed indefinitely — the one surface that had no sweep.
+      const now = Date.now();
+      if (lastTimerMsgAt.current > 0 && now - lastTimerMsgAt.current > 5000) {
+        setTimerOverlay(null);
+        lastTimerMsgAt.current = 0;
+      }
+      for (const [id, at] of Object.entries(namedTimerAtRef.current)) {
+        if (now - at > 5000) {
+          delete namedTimerAtRef.current[id];
+          setNamedTimers((m) => { const n = { ...m }; delete n[id]; return n; });
+        }
+      }
       if (Date.now() - lastMsgAt.current > 5000) {
         try { ch?.close(); } catch { /* ignore */ }
         ch = openLiveChannel();

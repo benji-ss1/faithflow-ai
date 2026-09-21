@@ -66,7 +66,10 @@ export default function LivestreamPage() {
   // Wave 7: named (keyed) timers ride alongside the legacy default slot — mirrors
   // /live and /stage so multiple named timers on the public OBS surface each
   // render independently instead of one clobbering the others via setTimerOverlay.
-  type TimerItem = { id: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; overrun?: boolean; scale?: number; color?: string };
+  // Keep the WHOLE overlay: the shared renderer honours position, and
+  // this local shape used to drop it, silently discarding the operator's
+  // placement on this surface.
+  type TimerItem = TimerOverlayItem & { id: string };
   const [namedTimers, setNamedTimers] = useState<Record<string, TimerItem>>({});
   const namedTimerAtRef = useRef<Record<string, number>>({});
   const [connected, setConnected] = useState(false);
@@ -227,7 +230,7 @@ export default function LivestreamPage() {
               setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
               delete namedTimerAtRef.current[oid];
             } else if ("remainingSec" in ov) {
-              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, kind: ov.kind, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
+              setNamedTimers((m) => ({ ...m, [oid]: { ...(ov as TimerOverlayItem), id: oid } }));
               namedTimerAtRef.current[oid] = Date.now();
             }
           } else if ("clear" in ov && ov.clear) setTimerOverlay(null);

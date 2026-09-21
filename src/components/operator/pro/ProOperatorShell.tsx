@@ -65,7 +65,7 @@ import { usePp7Messages } from "./right/usePp7Layers";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
-import { resolveTimerColor } from "@/engine/timers";
+import { resolveTimerColor, triggerValueFor } from "@/engine/timers";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
@@ -2768,7 +2768,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const shownTimerKey = timers.slots.filter((s) => s.shown)
     .map((s) => {
       const a = s.appearance;
-      return `${s.def.id}:${s.position}:${s.scale}:${a.color ?? ""}:${a.overrunColor ?? ""}:${a.showLabel}:${(a.colorTriggers ?? []).map((t) => `${t.atSec}@${t.color}`).join("|")}`;
+      return `${s.def.id}:${s.position}:${s.scale}:${a.color ?? ""}:${a.overrunColor ?? ""}:${a.showLabel}:${a.showHours ?? ""}:${a.leadingZeros}:${(a.colorTriggers ?? []).map((t) => `${t.atSec}@${t.color}`).join("|")}`;
     })
     .join(",");
   useEffect(() => {
@@ -2795,7 +2795,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             // into the single `color` the wire already carries — so threshold
             // colours reach every output surface with no wire change and no
             // renderer change. resolveTimerColor is pure + unit-tested.
-            color: resolveTimerColor(s.appearance, s.remaining),
+            // Colour triggers judge TIME LEFT. An elapsed timer counts UP, so
+            // triggerValueFor converts (and returns null when there is no end
+            // to count towards) — otherwise every trigger fired backwards.
+            color: (() => {
+              const tv = triggerValueFor(s.def, s.remaining);
+              return tv === null ? s.appearance.color : resolveTimerColor(s.appearance, tv);
+            })(),
+            showHours: s.appearance.showHours,
+            leadingZeros: s.appearance.leadingZeros,
             // The operator can turn the name off; the wire has no flag for it,
             // so an empty name IS "no label" to every renderer.
             ...(s.appearance.showLabel === false ? { name: undefined } : {}),

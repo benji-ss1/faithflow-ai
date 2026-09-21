@@ -63,7 +63,10 @@ export default function StagePage() {
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   // Wave 7: named (keyed) timers — the confidence-monitor use case (worship /
   // sermon countdowns visible to the platform). Ride alongside the legacy slot.
-  type StageTimer = { id: string; name?: string; remainingSec: number; running: boolean; overrun?: boolean; scale?: number; color?: string };
+  // Keep the WHOLE overlay: the shared renderer honours position, and
+  // this local shape used to drop it, silently discarding the operator's
+  // placement on this surface.
+  type StageTimer = TimerOverlayItem & { id: string };
   const [namedTimers, setNamedTimers] = useState<Record<string, StageTimer>>({});
   const namedTimerAtRef = useRef<Record<string, number>>({});
   const [connected, setConnected] = useState(false);
@@ -182,7 +185,7 @@ export default function StagePage() {
               setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
               delete namedTimerAtRef.current[oid];
             } else if ("remainingSec" in ov) {
-              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
+              setNamedTimers((m) => ({ ...m, [oid]: { ...(ov as TimerOverlayItem), id: oid } }));
               namedTimerAtRef.current[oid] = Date.now();
             }
           } else if ("clear" in ov && ov.clear) setTimerOverlay(null);

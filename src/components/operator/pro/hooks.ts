@@ -19,6 +19,9 @@ import {
   resolveTargetMs,
   type TimerCommand,
   type TimerPeriod,
+  timerState,
+  incrementTimer,
+  type TimerState as EngineTimerState,
 } from "@/engine/timers";
 import {
   listTimerDefinitions,
@@ -152,6 +155,10 @@ export type TimerSlot = {
   def: TimerDefinition;
   /** Raw "HH:MM" for countdown_to (persisted); def.targetMs is the resolved value. */
   targetClock: string | null;
+  /** AM / PM / 24-hour for countdown_to. MUST be surfaced: the edit form used
+   *  to default it to "24_hour" because the slot did not carry it, so renaming
+   *  a 7:00 PM timer silently retargeted it to 07:00 tomorrow morning. */
+  period: TimerPeriod | null;
   runtime: TimerRuntime;
   remaining: number; // recomputed each tick for display
   overrun: boolean;
@@ -159,6 +166,12 @@ export type TimerSlot = {
   position: OverlayPosition;
   scale: number; // operator size multiplier (1 = default)
   appearance: TimerAppearance;
+  /** ProPresenter's five-state model: stopped | running | complete |
+   *  overrunning | overran. "complete" (ended cleanly) and "overran" (ended
+   *  past its time) are different facts an operator needs to tell apart.
+   *  Aliased on import: `TimerState` in this file is the LEGACY quick-timer
+   *  shape, which predates the engine's five-state model. */
+  state: EngineTimerState;
   /** 0..1 progress through a countdown, for the ProPresenter-style row bar.
    *  null when there is nothing meaningful to measure against (elapsed with no
    *  end time, or a countdown_to whose target could not be resolved). */
@@ -180,6 +193,12 @@ export type TimersApi = {
   setScale: (id: string, scale: number) => void;
   /** Patch one timer's look (colour, label, format, colour triggers). */
   setAppearance: (id: string, patch: Partial<TimerAppearance>) => void;
+  /** Add or subtract seconds from a timer WITHOUT resetting it — the "give the
+   *  preacher two more minutes" control (ProPresenter's TimerIncrement). */
+  increment: (id: string, deltaSec: number) => void;
+  /** Start / stop / reset EVERY timer at once (ProPresenter's
+   *  /v1/timers/{operation}). The end-of-service "reset everything" button. */
+  commandAll: (cmd: TimerCommand) => void;
 };
 
 type RuntimeMeta = { shown: boolean } & TimerAppearance;
@@ -205,6 +224,7 @@ export function useTimersSession(): TimersApi {
   // taking it as a dependency (which would re-create them on every refresh).
   const defsRef = useRef<TimerDefRow[]>([]);
   useEffect(() => { defsRef.current = defs; }, [defs]);
+  const targetsRef = useRef<Record<string, number | null>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -221,6 +241,7 @@ export function useTimersSession(): TimersApi {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { targetsRef.current = targets; }, [targets]);
 
   // Resolve each countdown_to's target ONCE when it first appears; keep the
   // already-resolved value on subsequent def refreshes (a running countdown_to
@@ -352,6 +373,20 @@ export function useTimersSession(): TimersApi {
     setMetaFor(id, clean);
   }, [setMetaFor]);
 
+  const increment = useCallback((id: string, deltaSec: number) => {
+    setRuntimes((rs) => {
+      const d = defsRef.current.find((x) => x.id === id);
+      const def = defToEngine(d, targetsRef.current[id] ?? null);
+      if (!def) return rs;
+      const cur = rs[id] ?? initialRuntime(def);
+      return { ...rs, [id]: incrementTimer(def, cur, deltaSec, Date.now()) };
+    });
+  }, []);
+
+  const commandAll = useCallback((cmd: TimerCommand) => {
+    for (const d of defsRef.current) command(d.id, cmd);
+  }, [command]);
+
   const addTimer = useCallback(async (input: TimerDefInput) => {
     const res = await createTimerDefinition(input);
     if (res.ok) await refresh();
@@ -391,6 +426,7 @@ export function useTimersSession(): TimersApi {
     return {
       def,
       targetClock: d.targetClock,
+      period: (d.period as TimerPeriod | null) ?? null,
       runtime,
       remaining: computeRemainingSec(def, runtime, nowMs),
       overrun: isOverrun(def, runtime, nowMs),
@@ -405,10 +441,11 @@ export function useTimersSession(): TimersApi {
         colorTriggers: meta[d.id]?.colorTriggers ?? [],
       },
       progress: timerProgress(def, computeRemainingSec(def, runtime, nowMs)),
+      state: timerState(def, runtime, nowMs),
     };
   }), [defs, runtimes, meta, nowMs, targets]);
 
-  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, hide, setPosition, setScale, setAppearance };
+  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, hide, setPosition, setScale, setAppearance, increment, commandAll };
 }
 
 /** Map a stored def row to the engine's TimerDefinition. `resolvedTargetMs` is

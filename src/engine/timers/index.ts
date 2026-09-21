@@ -142,14 +142,23 @@ export function applyCommand(def: TimerDefinition, rt: TimerRuntime, cmd: TimerC
 /** Format a signed seconds value as [-]H:MM:SS (hours dropped when zero → M:SS).
  *  Deterministic, allocation-light; used by every output surface so a timer
  *  reads identically on /live and /stage. */
-export function formatTimerClock(sec: number): string {
+export type TimerFormat = {
+  /** Force hours even under an hour (0:05:00). Default: only past an hour. */
+  showHours?: boolean;
+  /** Zero-pad the leading unit (05:00 rather than 5:00). */
+  leadingZeros?: boolean;
+};
+
+export function formatTimerClock(sec: number, fmt: TimerFormat = {}): string {
   const neg = sec < 0;
   const total = Math.floor(Math.abs(sec));
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
-  const body = h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  const withHours = fmt.showHours === true || h > 0;
+  const lead = (n: number) => (fmt.leadingZeros ? pad(n) : String(n));
+  const body = withHours ? `${lead(h)}:${pad(m)}:${pad(s)}` : `${lead(m)}:${pad(s)}`;
   return neg ? `-${body}` : body;
 }
 
@@ -215,9 +224,81 @@ export function resolveTimerColor(
   look: { color?: string; overrunColor?: string; colorTriggers?: Array<{ atSec: number; color: string }> },
   remainingSec: number,
 ): string | undefined {
+  // NOTE: `remainingSec` must be TIME LEFT, counting DOWN. For an elapsed timer
+  // the displayed value counts UP, so the caller must convert first — see
+  // triggerValueFor(). Passing a count-up value directly fires every trigger
+  // backwards (red at the start, normal at the end).
   if (remainingSec < 0) return look.overrunColor ?? look.color;
   const crossed = (look.colorTriggers ?? [])
     .filter((t) => Number.isFinite(t.atSec) && remainingSec <= t.atSec)
     .sort((a, b) => a.atSec - b.atSec);
   return crossed.length > 0 ? crossed[0].color : look.color;
+}
+
+// ── ProPresenter parity: five-state model + live nudge (2026-09-21) ─────────
+// Corroborated by TWO independent primary sources: the live OpenAPI spec
+// (openapi.propresenter.com/swagger.json, `API_v1_TimerState`) and the
+// reverse-engineered PP7 protobuf schema (greyshirtguy/ProPresenter7-Proto,
+// proApiV1Timer.proto). Both give the SAME five states, so this is not a guess.
+
+/** ProPresenter's timer states. We previously modelled only running/stopped,
+ *  which collapses three meaningfully different end states into one:
+ *    complete    — reached the end exactly; no overrun happened or was allowed
+ *    overrunning — past the end and STILL counting (only when allowsOverrun)
+ *    overran     — past the end and stopped
+ *  An operator needs to tell "finished cleanly" from "ran over", and a stage
+ *  renderer needs it to decide what colour to paint. */
+export type TimerState = "stopped" | "running" | "complete" | "overrunning" | "overran";
+
+/** Derive the state. Pure. */
+export function timerState(def: TimerDefinition, rt: TimerRuntime, nowMs: number): TimerState {
+  const value = computeRemainingSec(def, rt, nowMs);
+  const past = def.type === "elapsed"
+    // An elapsed timer is "past the end" only if it HAS an end.
+    ? (typeof def.elapsedEndSec === "number" && Number.isFinite(def.elapsedEndSec) && value >= def.elapsedEndSec)
+    : value <= 0;
+  const running = def.type === "countdown_to" ? true : rt.running;
+  if (!past) return running ? "running" : "stopped";
+  // Past the end. Without overrun the value is clamped, so it is simply done.
+  if (def.allowsOverrun !== true) return "complete";
+  return running ? "overrunning" : "overran";
+}
+
+/** Add (or with a negative amount, subtract) seconds from a timer WITHOUT
+ *  stopping or resetting it — ProPresenter's `TimerIncrement` / the API's
+ *  `/v1/timer/{id}/increment/{time}`. This is the "give the preacher two more
+ *  minutes" control, and it is why editing the duration is NOT a substitute:
+ *  an edit resets, a nudge does not.
+ *
+ *  Works by shifting the banked value, so it is exact and drift-free whether
+ *  the timer is running or paused. countdown_to has no banked value — its
+ *  value comes from the wall clock — so it returns unchanged; nudge its target
+ *  instead. Pure. */
+export function incrementTimer(
+  def: TimerDefinition,
+  rt: TimerRuntime,
+  deltaSec: number,
+  nowMs: number,
+): TimerRuntime {
+  if (!Number.isFinite(deltaSec) || deltaSec === 0) return rt;
+  if (def.type === "countdown_to") return rt;
+  // Re-bank the CURRENT value plus the delta, and re-anchor to now, so a
+  // running timer keeps running seamlessly from the new value.
+  const current = computeRemainingSec(def, rt, nowMs);
+  const next = current + deltaSec;
+  const floored = def.type === "elapsed" ? Math.max(0, next) : next;
+  return { running: rt.running, anchorMs: rt.running ? nowMs : null, baseSec: floored };
+}
+
+
+/** The value colour triggers should be judged against, in "time left" terms.
+ *  A countdown already counts down. An ELAPSED timer counts up, so its
+ *  remaining time is (end - elapsed) — and with no end there is nothing to
+ *  count towards, so triggers do not apply and it returns null.
+ *  Pure. Fixes triggers firing inverted on elapsed timers. */
+export function triggerValueFor(def: TimerDefinition, displayedSec: number): number | null {
+  if (def.type !== "elapsed") return displayedSec;
+  const end = def.elapsedEndSec;
+  if (typeof end !== "number" || !Number.isFinite(end)) return null;
+  return end - displayedSec;
 }

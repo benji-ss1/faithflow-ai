@@ -161,10 +161,21 @@ export function TimersPanel({ quick, timers }: { quick: TimerApi; timers: Timers
         <div className="flex items-center justify-between mb-2">
           <div className="eyebrow">Timers</div>
           {/* ProPresenter puts "+" at the upper right of the Timers panel. */}
-          <button onClick={() => setAdding((a) => !a)} title="Add a timer"
-            className="flex items-center gap-1 text-[11px] text-[var(--color-brand)] hover:underline">
-            <Plus className="w-3 h-3" /> New timer
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Bulk start/stop/reset — ProPresenter's /v1/timers/{operation}.
+                The end-of-service "reset everything for the next service" that
+                operators otherwise do one timer at a time. */}
+            {timers.slots.length > 1 && (
+              <button onClick={() => timers.commandAll("reset")} title="Reset every timer"
+                className="flex items-center gap-1 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+                <RotateCcw className="w-3 h-3" /> Reset all
+              </button>
+            )}
+            <button onClick={() => setAdding((a) => !a)} title="Add a timer"
+              className="flex items-center gap-1 text-[11px] text-[var(--color-brand)] hover:underline">
+              <Plus className="w-3 h-3" /> New timer
+            </button>
+          </div>
         </div>
 
         {adding && (
@@ -211,7 +222,9 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
     type: slot.def.type as TimerType,
     duration: formatTimerClock(slot.def.durationSec),
     targetClock: slot.targetClock ?? "11:00",
-    period: "24_hour",
+    // Seed from the STORED period. Hardcoding this destroyed AM/PM on every
+    // edit — a rename turned "7:00 PM" into 07:00 the next morning.
+    period: slot.period ?? "24_hour",
     elapsedStart: secToClock(slot.def.elapsedStartSec),
     elapsedEnd: secToClock(slot.def.elapsedEndSec),
     allowsOverrun: slot.def.allowsOverrun === true,
@@ -230,49 +243,83 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
       {/* ── collapsed row: name, live clock, progress, transport ───────── */}
       <div className="p-2 flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <button onClick={() => setOpen((o) => !o)} title={open ? "Collapse" : "Expand"}
-            className="w-5 h-5 flex items-center justify-center text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] shrink-0">
+          <button onClick={() => setOpen((o) => !o)}
+            aria-label={open ? `Collapse ${slot.def.name}` : `Expand ${slot.def.name}`}
+            title={open ? "Collapse" : "Expand"}
+            className="w-7 h-7 flex items-center justify-center text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] shrink-0">
             {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </button>
-          <span className="text-[12px] font-medium truncate flex-1">{slot.def.name}</span>
-          <span className={`text-[15px] font-mono tabular-nums font-semibold ${slot.overrun ? "text-red-400" : ""}`}
+          <span className="text-[12px] font-medium truncate flex-1">
+            {slot.def.name}
+            {/* Five-state model: "Done" and "Over" are different facts. */}
+            {(slot.state === "complete" || slot.state === "overran" || slot.state === "overrunning") && (
+              <span className={`ml-1.5 text-[9px] uppercase tracking-wider ${slot.state === "complete" ? "text-[var(--color-muted-foreground)]" : "text-[var(--color-destructive)]"}`}>
+                {slot.state === "complete" ? "Done" : slot.state === "overrunning" ? "Over" : "Ran over"}
+              </span>
+            )}
+          </span>
+          {/* Live nudge — ProPresenter's TimerIncrement. "Give the preacher two
+              more minutes" WITHOUT resetting, which editing the duration would
+              do. Hidden for countdown_to, whose value comes from the wall
+              clock and has nothing to nudge. */}
+          {slot.def.type !== "countdown_to" && (
+            <div className="flex items-center gap-0.5">
+              <button onClick={() => timers.increment(slot.def.id, -60)}
+                aria-label={`Take a minute off ${slot.def.name}`} title="Take a minute off"
+                className="w-6 h-6 rounded border border-[var(--color-border)] flex items-center justify-center text-[10px] font-mono">
+                −1
+              </button>
+              <button onClick={() => timers.increment(slot.def.id, 60)}
+                aria-label={`Add a minute to ${slot.def.name}`} title="Add a minute"
+                className="w-6 h-6 rounded border border-[var(--color-border)] flex items-center justify-center text-[10px] font-mono">
+                +1
+              </button>
+            </div>
+          )}
+          <span className={`text-[15px] font-mono tabular-nums font-semibold ${slot.overrun ? "text-[var(--color-destructive)]" : ""}`}
             style={!slot.overrun && a.color ? { color: a.color } : undefined}>
             {formatTimerClock(slot.remaining)}
           </span>
         </div>
 
-        {/* ProPresenter shows a progress bar across the timer row. */}
-        {slot.progress !== null && (
-          <div className="h-1 rounded-full bg-[var(--color-border)] overflow-hidden">
-            <div className={`h-full ${slot.overrun ? "bg-red-400" : "bg-[var(--color-brand)]"}`}
+        {/* ProPresenter shows a progress bar across the timer row. When there is
+            no meaningful total (a stopwatch with no end, or a countdown to a
+            clock time) we draw a FLAT track rather than nothing, so its absence
+            reads as "nothing to measure against" instead of looking broken. */}
+        <div className="h-1 rounded-full bg-[var(--color-border)] overflow-hidden"
+          title={slot.progress === null ? "No set length to count against" : undefined}>
+          {slot.progress !== null && (
+            <div className={`h-full ${slot.overrun ? "bg-[var(--color-destructive)]" : "bg-[var(--color-brand)]"}`}
               style={{ width: `${Math.round(slot.progress * 100)}%` }} />
-          </div>
-        )}
+          )}
+        </div>
 
+        {/* Transport only. DELETE DELIBERATELY LIVES IN THE EDITOR, not here:
+            it previously sat in this row at the same size as Reset and
+            Show/Hide — one mis-click away, in a dark room, mid-service. */}
         <div className="flex items-center gap-1">
           <button onClick={() => timers.command(slot.def.id, running ? "stop" : "start")}
             disabled={slot.def.type === "countdown_to"}
+            aria-label={running ? `Stop ${slot.def.name}` : `Start ${slot.def.name}`}
             title={slot.def.type === "countdown_to" ? "Counts to a clock time automatically" : running ? "Stop" : "Start"}
-            className="flex-1 h-7 rounded bg-[var(--color-brand)] text-black font-semibold text-[11px] flex items-center justify-center gap-1 disabled:opacity-40">
+            className="flex-1 h-8 rounded bg-[var(--color-brand)] text-black font-semibold text-[11px] flex items-center justify-center gap-1 disabled:opacity-40">
             {running ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
             {running ? "Stop" : "Start"}
           </button>
-          <button onClick={() => timers.command(slot.def.id, "reset")} title="Reset"
-            className="w-7 h-7 rounded border border-[var(--color-border)] flex items-center justify-center">
+          <button onClick={() => timers.command(slot.def.id, "reset")}
+            aria-label={`Reset ${slot.def.name}`} title="Reset"
+            className="w-8 h-8 rounded border border-[var(--color-border)] flex items-center justify-center">
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
+          {/* "On screen" uses the BRAND colour, not red. Red is reserved for
+              destructive actions and overrun, so it cannot mean "live" too. */}
           <button onClick={() => timers.toggleShown(slot.def.id)}
+            aria-label={slot.shown ? `Hide ${slot.def.name} from the screens` : `Show ${slot.def.name} on the screens`}
             title={slot.shown ? "Hide from the screens" : "Show on the screens"}
-            className={`w-7 h-7 rounded flex items-center justify-center ${slot.shown ? "bg-red-600 text-white" : "border border-[var(--color-border)]"}`}>
+            className={`h-8 px-2 rounded flex items-center justify-center gap-1 text-[10px] font-semibold ${slot.shown ? "bg-[var(--color-brand)] text-black" : "border border-[var(--color-border)]"}`}>
             {slot.shown ? <MonitorOff className="w-3.5 h-3.5" /> : <Monitor className="w-3.5 h-3.5" />}
-          </button>
-          <button onClick={async () => {
-            if (await confirm({ title: `Delete timer "${slot.def.name}"?`, confirmLabel: "Delete", danger: true })) {
-              timers.removeTimer(slot.def.id);
-            }
-          }} title="Delete"
-            className="w-7 h-7 rounded border border-[var(--color-border)] flex items-center justify-center text-red-400">
-            <Trash2 className="w-3.5 h-3.5" />
+            {/* A word, not just a colour — readable at a glance from a step back. */}
+            {slot.shown ? "ON" : "OFF"}
           </button>
         </div>
       </div>
@@ -300,6 +347,19 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
                 <button onClick={save} className="flex-1 h-7 rounded bg-[var(--color-brand)] text-black font-semibold text-[11px]">Save</button>
                 <button onClick={() => setOpen(false)} className="px-2 h-7 rounded border border-[var(--color-border)] text-[11px]">Cancel</button>
               </div>
+              {/* Delete lives HERE, behind the expand chevron and below Save —
+                  deliberately far from the transport row an operator uses
+                  constantly mid-service. It was previously the same size and
+                  right next to Reset. */}
+              <button
+                onClick={async () => {
+                  if (await confirm({ title: `Delete timer "${slot.def.name}"?`, confirmLabel: "Delete", danger: true })) {
+                    timers.removeTimer(slot.def.id);
+                  }
+                }}
+                className="mt-1 h-7 rounded border border-[var(--color-destructive)] text-[var(--color-destructive)] text-[11px] flex items-center justify-center gap-1">
+                <Trash2 className="w-3.5 h-3.5" /> Delete this timer
+              </button>
             </>
           ) : (
             <LookEditor slot={slot} setLook={setLook} />
@@ -310,12 +370,24 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
   );
 }
 
+/** A sensible NEXT threshold: below the current lowest, with a colour that
+ *  escalates orange -> amber -> red, so a second click never produces a row
+ *  identical to one already there. */
+function nextTrigger(existing: Array<{ atSec: number; color: string }>): { atSec: number; color: string } {
+  const PALETTE = ["#fb923c", "#facc15", "#ef4444"];
+  const lowest = existing.length ? Math.min(...existing.map((t) => t.atSec)) : 120;
+  const atSec = Math.max(5, existing.length ? Math.floor(lowest / 2) : 60);
+  return { atSec, color: PALETTE[Math.min(existing.length, PALETTE.length - 1)] };
+}
+
 /** Everything about how the timer LOOKS on the screens. Applies live — there is
  *  no Save button, because an operator adjusting a timer mid-service needs to
  *  see the change on the projector immediately. */
 function LookEditor({ slot, setLook }: { slot: TimerSlot; setLook: (p: Partial<TimerSlot["appearance"]>) => void }) {
   const a = slot.appearance;
   const triggers = a.colorTriggers ?? [];
+  // Display longest-first so the visual order matches the order they fire.
+  const sortedTriggers = [...triggers].sort((x, y) => y.atSec - x.atSec);
 
   return (
     <div className="flex flex-col gap-2">
@@ -372,9 +444,9 @@ function LookEditor({ slot, setLook }: { slot: TimerSlot; setLook: (p: Partial<T
 
       {/* ProPresenter "Color Triggers": the timer changes colour as it runs down. */}
       <div className="flex items-center justify-between pt-1">
-        <span className={label}>Colour changes</span>
+        <span className={label}>Colour changes {triggers.length > 0 && `(${triggers.length}/8)`}</span>
         <button
-          onClick={() => setLook({ colorTriggers: [...triggers, { atSec: 60, color: "#fb923c" }] })}
+          onClick={() => setLook({ colorTriggers: [...triggers, nextTrigger(triggers)] })}
           disabled={triggers.length >= 8}
           className="flex items-center gap-1 text-[11px] text-[var(--color-brand)] hover:underline disabled:opacity-40">
           <Plus className="w-3 h-3" /> Add
@@ -385,29 +457,36 @@ function LookEditor({ slot, setLook }: { slot: TimerSlot; setLook: (p: Partial<T
           <Palette className="w-3 h-3" /> Turn the timer orange, then red, as it runs out.
         </div>
       ) : (
-        triggers.map((t, i) => (
+        <>
+        {/* Listed longest-time-first, which is the order they actually fire. */}
+        <div className="text-[10px] text-[var(--color-muted-foreground)] leading-snug">
+          Each colour takes over as the timer passes that time, so the last one listed is the colour it ends on.
+        </div>
+        {sortedTriggers.map((t, i) => (
           <div key={i} className="flex items-center gap-2">
             <span className="text-[11px] text-[var(--color-muted-foreground)] shrink-0">At</span>
             <input value={formatTimerClock(t.atSec)}
               onChange={(e) => {
-                const next = [...triggers];
+                const next = [...sortedTriggers];
                 next[i] = { ...t, atSec: parseDurationToSec(e.target.value) };
                 setLook({ colorTriggers: next });
               }}
               className={`${field} font-mono w-16`} />
             <input type="color" value={t.color}
               onChange={(e) => {
-                const next = [...triggers];
+                const next = [...sortedTriggers];
                 next[i] = { ...t, color: e.target.value };
                 setLook({ colorTriggers: next });
               }}
               className="h-7 w-10 bg-transparent border border-[var(--color-border)] rounded cursor-pointer shrink-0" />
-            <button onClick={() => setLook({ colorTriggers: triggers.filter((_, j) => j !== i) })}
-              title="Remove" className="w-7 h-7 rounded border border-[var(--color-border)] flex items-center justify-center text-red-400 shrink-0">
+            <button onClick={() => setLook({ colorTriggers: sortedTriggers.filter((_, j) => j !== i) })}
+              aria-label="Remove this colour change" title="Remove"
+              className="w-7 h-7 rounded border border-[var(--color-border)] flex items-center justify-center text-[var(--color-destructive)] shrink-0">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
-        ))
+        ))}
+        </>
       )}
     </div>
   );

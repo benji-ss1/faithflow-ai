@@ -18,6 +18,10 @@
  *
  * Surfaces differ ONLY where that is a deliberate, documented choice (see
  * `density`), never by accident.
+ *
+ * NOTE: operator-only state is NOT printed here. A "(paused)" suffix used to
+ * render beside the name, which put "PRE-SERVICE COUNTDOWN (paused)" on the
+ * congregation's screen. Paused state belongs in the operator panel.
  */
 import { formatTimerClock } from "@/engine/timers";
 import type { OverlayPosition } from "@/lib/broadcast";
@@ -32,6 +36,8 @@ export type TimerOverlayItem = {
   overrun?: boolean;
   scale?: number;
   color?: string;
+  showHours?: boolean;
+  leadingZeros?: boolean;
 };
 
 /**
@@ -79,14 +85,14 @@ function TimerValue({ t, density }: { t: TimerOverlayItem; density: TimerDensity
       {t.name && (
         <div className="uppercase tracking-[0.15em] font-semibold"
           style={{ color, opacity: 0.75, fontSize: `${size.label * scale}vw`, textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>
-          {t.name}{!t.running ? " (paused)" : ""}
+          {t.name}
         </div>
       )}
       <div className="font-mono font-bold tabular-nums"
         style={{ color, fontSize: `${size.clock * scale}vw`, lineHeight: 1, textShadow: "0 4px 18px rgba(0,0,0,0.65)" }}>
         {/* The SAME formatter the operator panel uses — hours appear past an
-            hour instead of a bare "90:00". */}
-        {formatTimerClock(t.remainingSec)}
+            hour instead of a bare "90:00" — honouring the operator's format. */}
+        {formatTimerClock(t.remainingSec, { showHours: t.showHours, leadingZeros: t.leadingZeros })}
       </div>
     </div>
   );
