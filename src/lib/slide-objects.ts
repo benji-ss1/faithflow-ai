@@ -140,6 +140,17 @@ export type VideoObject = {
   loop?: boolean;
   muted?: boolean;
   opacity?: number;
+  // ProPresenter video controls (src/lib/video-playback.ts). All optional and
+  // all defaulting to exactly today's behaviour.
+  /** Trim, in seconds from the start of the FILE (not the trimmed clip). */
+  inSec?: number;
+  outSec?: number;
+  /** What happens at the out-point. Absent = derived from `loop`. */
+  endAction?: import("./video-playback").VideoEndAction;
+  /** Playback speed, 0.25–4. Absent = 1. */
+  rate?: number;
+  /** 0–1. `muted` still wins. Absent = full (but muted by default). */
+  volume?: number;
 };
 
 export type SlideObject = TextObject | ShapeObject | ImageObject | VideoObject;

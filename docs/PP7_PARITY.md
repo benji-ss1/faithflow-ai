@@ -14,7 +14,7 @@ a row says OPEN, it is still broken.**
 | R1 | **Designed text boxes hard-clip on overflow.** PP7 offers four scale-to-fit modes. Ours rendered a fixed `fontSize` inside `overflow: hidden`, so a too-long line silently vanished off the projector. | ✅ **FIXED 2026-09-21** — `src/lib/text-fit.ts` + `FittedText.tsx`, `textScale` on the object + wire + a "Scale to fit" control in the editor. Default `"down"`: text that fits is byte-identical (DOM goldens prove it), text that would clip now shrinks. **Not yet seen on a projector.** |
 | R2 | **Theme apply wipes all manual text formatting.** PP7 preserves "special" (differential) bold/italic/underline/colour — formatting that differs from the rest of its text box. We have one style per object, no per-run model, so every re-apply stomps it. | OPEN |
 | R3 | **No Clear Groups and no Clear to Logo (F12).** IMAG operators had no safe "clear all but camera". | ✅ **FIXED 2026-09-21** — `PP7_CLEAR_GROUPS` + `pp7ClearGroup()`, rail buttons, and **F12** wired. "All But Video Input" (PP7's own worked example) and "Clear to Logo". Clear All stays FIXED per Victor 2026-09-18 — groups are additive, so the panic button can't be configured away. Clear to Logo is **hidden** when no church logo is set rather than being a button that does nothing. |
-| R4 | **No video trim (in/out points) and no end-of-clip action.** PP7 has both; we have only `loop` on/off. | OPEN |
+| R4 | **No video trim, end-of-clip action, rate or volume level.** | ✅ **FIXED 2026-09-22** — `src/lib/video-playback.ts` (pure) + `SlideVideo.tsx`. Trim in/out, end action (loop / hold last frame / take off screen), speed 0.25–4, volume 0–1 with `muted` still winning. Editor controls in the video inspector. Every default reproduces today's behaviour, and a clip with no trim and a plain loop is still handed entirely to the browser (`needsSupervision()`), so the common case costs nothing. |
 
 ### Open question on R3
 
@@ -36,7 +36,7 @@ surprise. Revisit if a real PP7 install says otherwise.
 | Y4 | **No per-object name** — the layers list cannot be renamed. | OPEN |
 | Y5 | **Scale + Blur is not a first-class fit mode** — we have `blurFill`/`blur` flags instead of PP7's fourth named mode. | OPEN |
 | Y6 | **Fit-mode defaults differ**: PP7 uses Stretch for backgrounds, Fit for foregrounds. `emptyImage()` always defaults to Fit. | OPEN |
-| Y7 | **Media load failure is silent** (`visibility: hidden`) — the operator gets no warning that an image never loaded. | OPEN |
+| Y7 | **Media load failure is silent.** | ✅ **FIXED 2026-09-21** — `media-failure.ts`: the operator is toasted, the projector still hides it, and the output pages have no listener (test-locked). |
 | Y8 | **No per-layer transitions** (PP7 splits media vs slide). | OPEN |
 | Y9 | **No true Builds** — our per-object `anim` is an entrance stagger, not build-in/build-out with on-click sequencing. | OPEN |
 | Y10 | **Stage display is a fixed view**, not PP7's composable layout with per-screen assignment. | OPEN |

@@ -32,7 +32,9 @@ export type SlideObjectWire =
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
   | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; posX?: number; posY?: number; zoom?: number; opacity?: number; blurFill?: boolean; blur?: boolean }
-  | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number };
+  | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number;
+      // PP7 video controls — trim, end behaviour, rate, volume.
+      inSec?: number; outSec?: number; endAction?: "loop" | "freeze" | "clear"; rate?: number; volume?: number };
 
 export const SLIDE_CANVAS_W = 1920;
 export const SLIDE_CANVAS_H = 1080;
@@ -1086,6 +1088,16 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
       if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover" && p.fit !== "fill") return false;
       if (p.loop !== undefined && typeof p.loop !== "boolean") return false;
       if (p.muted !== undefined && typeof p.muted !== "boolean") return false;
+      // Trim: finite, non-negative seconds. A bad pair is caught at render
+      // (resolveTrim falls back to the whole clip) but never let NaN/Infinity
+      // onto the wire in the first place.
+      for (const k of ["inSec", "outSec"] as const) {
+        const v = p[k];
+        if (v !== undefined && (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 86_400)) return false;
+      }
+      if (p.endAction !== undefined && !["loop", "freeze", "clear"].includes(p.endAction as string)) return false;
+      if (p.rate !== undefined && (typeof p.rate !== "number" || !Number.isFinite(p.rate) || p.rate <= 0 || p.rate > 4)) return false;
+      if (p.volume !== undefined && (typeof p.volume !== "number" || !Number.isFinite(p.volume) || p.volume < 0 || p.volume > 1)) return false;
       return true;
     default:
       return false;

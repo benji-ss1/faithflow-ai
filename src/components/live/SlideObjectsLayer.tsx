@@ -7,6 +7,7 @@ import { flipTransform } from "@/lib/editor-geometry";
 import { FittedText } from "./FittedText";
 import { DEFAULT_TEXT_SCALE } from "@/lib/text-fit";
 import { reportMediaFailure } from "@/lib/media-failure";
+import { SlideVideo } from "./SlideVideo";
 
 /**
  * Read-only projector render of a slide's positioned objects (Phase 1 of the
@@ -141,22 +142,15 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
         if (obj.kind === "video") {
           return (
             <div key={key} className={animCls} style={boxStyle}>
-              <video
-                src={obj.url}
-                autoPlay={!frozen}
-                preload={frozen ? "metadata" : undefined}
-                loop={obj.loop ?? true}
-                muted={obj.muted ?? true}
-                playsInline
-                style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1 }}
-                onError={(e) => {
-                  // The PROJECTOR must stay clean — never paint an error onto
-                  // the audience screen (AGENTS.md: output carries the slide and
-                  // nothing else). So we still hide it here, but we no longer do
-                  // it SILENTLY: the operator gets told on their own surface.
-                  // The commonest cause by far is an HEVC .mov on Windows.
-                  (e.currentTarget as HTMLVideoElement).style.visibility = "hidden";
-                  reportMediaFailure(obj.url, "video");
+              <SlideVideo
+                url={obj.url}
+                fit={obj.fit}
+                opacity={obj.opacity}
+                frozen={frozen}
+                spec={{
+                  loop: obj.loop, endAction: obj.endAction,
+                  inSec: obj.inSec, outSec: obj.outSec,
+                  rate: obj.rate, volume: obj.volume, muted: obj.muted,
                 }}
               />
             </div>

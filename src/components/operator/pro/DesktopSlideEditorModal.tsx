@@ -1511,6 +1511,48 @@ function VideoProps({ o, upd }: { o: VideoObject; upd: (p: Partial<SlideObject>)
         <Toggle on={o.loop ?? true} label={`Loop ${(o.loop ?? true) ? "on" : "off"}`} onClick={() => upd({ loop: !(o.loop ?? true) })} className="uppercase" />
         <Toggle on={o.muted ?? true} label={(o.muted ?? true) ? "Muted" : "Sound on"} onClick={() => upd({ muted: !(o.muted ?? true) })} className="uppercase" />
       </div>
+      {/* ProPresenter video controls. Blank trim fields = the whole clip. */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <span className={rowCls}>Start at (s)</span>
+          <input type="number" min={0} step={0.1} value={o.inSec ?? ""} placeholder="0"
+            onChange={(e) => upd({ inSec: e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)) })}
+            className={inCls} style={{ borderColor: "var(--color-border)" }} />
+        </div>
+        <div>
+          <span className={rowCls}>End at (s)</span>
+          <input type="number" min={0} step={0.1} value={o.outSec ?? ""} placeholder="end"
+            onChange={(e) => upd({ outSec: e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)) })}
+            className={inCls} style={{ borderColor: "var(--color-border)" }} />
+        </div>
+      </div>
+      <div>
+        <span className={rowCls}>When it reaches the end</span>
+        <select
+          value={o.endAction ?? ((o.loop ?? true) ? "loop" : "freeze")}
+          onChange={(e) => upd({ endAction: e.target.value as "loop" | "freeze" | "clear" })}
+          className={inCls} style={{ borderColor: "var(--color-border)" }}
+        >
+          <option value="loop">Play again (loop)</option>
+          <option value="freeze">Hold the last frame</option>
+          <option value="clear">Take it off the screen</option>
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <span className={rowCls}>Speed</span>
+          <input type="number" min={0.25} max={4} step={0.05} value={o.rate ?? 1}
+            onChange={(e) => upd({ rate: Number(e.target.value) })}
+            className={inCls} style={{ borderColor: "var(--color-border)" }} />
+        </div>
+        <div>
+          <span className={rowCls}>Volume</span>
+          <input type="range" min={0} max={1} step={0.05} value={o.volume ?? 1}
+            disabled={o.muted ?? true}
+            onChange={(e) => upd({ volume: Number(e.target.value) })}
+            className="w-full h-8 accent-[var(--color-brand)] disabled:opacity-40" />
+        </div>
+      </div>
     </>
   );
 }
