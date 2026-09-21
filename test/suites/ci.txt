@@ -12,6 +12,7 @@ test/adversarial/learned-keyterms-cross-church.test.ts
 test/adversarial/media-register-scope.test.ts
 test/adversarial/sermon-backfill-cross-church.test.ts
 test/adversarial/song-chunk-scope.test.ts
+test/adversarial/theme-apply-capability.test.ts
 test/adversarial/theme-gaps-scope.test.ts
 test/adversarial/theme-portable-scope.test.ts
 test/adversarial/theme-reapply-scope.test.ts
@@ -87,11 +88,14 @@ test/login-guard.test.ts
 test/logo-key.test.ts
 test/media-as-background.stress.test.ts
 test/media-as-background.test.ts
+test/media-bin-drop.test.ts
 test/media-click-sends-live.test.ts
 test/media-drop.test.ts
 test/media-frame-bake.test.ts
 test/media-frame-slide.test.ts
 test/media-layout.test.ts
+test/message-clear-immediate.test.ts
+test/mic-boost-policy.test.ts
 test/multi-output.test.ts
 test/multiview.test.ts
 test/native-channel-filter.test.ts
@@ -115,6 +119,7 @@ test/pdf-to-images.test.ts
 test/plan-baked-slide-template.test.ts
 test/plan-theme-undo.test.ts
 test/platform.test.ts
+test/pp7-clear.test.ts
 test/pp7-draw-order-dom.test.tsx
 test/pp7-draw-order.test.ts
 test/pp7-keep-theme-bg-dom.test.tsx
@@ -128,11 +133,13 @@ test/proclaim-order.test.ts
 test/projector-fontsize.test.ts
 test/projector-output.test.ts
 test/quick-edit-apply-text.test.ts
+test/raw-capture.test.ts
 test/release-gate-fixes.test.ts
 test/render-url-allowlist.test.ts
 test/render-url-clean.test.ts
 test/render-url-loopback.test.ts
 test/right-rail-badges.test.ts
+test/rtaudio-dsp.test.ts
 test/s3-key-nesting.test.ts
 test/sarah-answers.test.ts
 test/sarah-scenarios.test.ts
@@ -166,6 +173,7 @@ test/spring-load.test.ts
 test/stage-layout-engine.test.ts
 test/stale-action.test.ts
 test/stress-wave6-3.test.ts
+test/suites-complete.test.ts
 test/text-size-freedom.test.ts
 test/theme-appearance.test.ts
 test/theme-bake.test.ts
