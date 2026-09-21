@@ -194,8 +194,10 @@ test/theme-scripture.test.ts
 test/themes-retirement.test.ts
 test/themes-retry.test.ts
 test/tier.test.ts
+test/timer-clock.test.ts
 test/timer-scene-routing.test.ts
 test/timer-screen-parity.test.ts
+test/timer-wire.test.ts
 test/timers-destroy.test.ts
 test/timers-hostile.test.ts
 test/transition-publish.test.tsx

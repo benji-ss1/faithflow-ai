@@ -503,6 +503,14 @@ export type OutputState = {
   // camera deviceId — a scene toggles the camera's VISIBILITY only), so
   // scrubOutputStateForRemote needs no scene-specific handling (test-locked).
   scene?: SceneWire | null;
+  /**
+   * NETWORKED timers (2026-09-21). Absent ⇒ a pre-timers sender; the receiver
+   * keeps whatever the same-machine TimerOverlay path gave it. Present (even
+   * with an empty array) ⇒ this sender is authoritative for timers on the
+   * REMOTE path. Carries the ANCHOR, never a computed value, so a running
+   * timer produces a byte-identical snapshot and costs nothing to republish.
+   */
+  timersWire?: TimersWire | null;
 };
 
 /**
@@ -562,6 +570,120 @@ export type TimerOverlay =
   // `{clear:true}` (no id) clears the legacy slot; `{clear:true, id}` clears one
   // named timer without disturbing the others.
   | { clear: true; id?: string };
+
+/**
+ * NETWORKED timer wire (2026-09-21). Unlike TimerOverlay — which carries a
+ * COMPUTED remainingSec and therefore needs a 1Hz heartbeat — this carries the
+ * timer's DEFINITION + ANCHOR. Every receiver ticks it locally with the same
+ * pure engine, so the wire cost is linear in STATE CHANGES, not in time.
+ *
+ * A relayed 1Hz heartbeat would cost roughly 5.2M Supabase messages a month for
+ * ONE church with ONE running timer, against a 5M PROJECT-WIDE allowance. This
+ * shape costs about 9k. Nothing here may ever become a ticking value.
+ *
+ * The same-machine BroadcastChannel keeps using TimerOverlay — rule 8, the
+ * primary zero-latency path is untouched.
+ */
+export type TimerWire = {
+  /** Slot id. "default" is the reserved legacy quick-timer slot. */
+  id: string;
+  /** Absent ⇒ no label (mirrors the operator's "show the name" choice off). */
+  name?: string;
+  type: "countdown" | "countdown_to" | "elapsed";
+  running: boolean;
+  /** Wall-clock ms ON THE SENDER at which the timer last (re)started. */
+  anchorMs: number | null;
+  /** Value banked at the anchor. Mirrors TimerRuntime.baseSec. */
+  baseSec: number;
+  durationSec: number;
+  /** countdown_to absolute epoch, in the SENDER's clock. */
+  targetMs?: number | null;
+  allowsOverrun?: boolean;
+  elapsedStartSec?: number | null;
+  elapsedEndSec?: number | null;
+  // ── the look. Colour TRIGGERS ride as DATA, not resolved, because resolving
+  // them needs the ticking value — which is now receiver-local. ─────────────
+  position?: OverlayPosition;
+  scale?: number;
+  color?: string;
+  overrunColor?: string;
+  colorTriggers?: Array<{ atSec: number; color: string }>;
+  showHours?: boolean;
+  leadingZeros?: boolean;
+};
+
+export type TimersWire = {
+  /** Every SHOWN timer. An empty array is meaningful — "nothing shown" — and
+   *  is what replaces the per-id {clear:true} on the remote path. */
+  timers: TimerWire[];
+  /** Date.now() on the SENDER when this frame was built. The receiver derives
+   *  its clock offset from it, so a device with a wrong clock still reads the
+   *  same number as the projector. */
+  senderNowMs: number;
+  /** Monotonic per-tab stamp, same discipline as LayerWire.rev: a receiver
+   *  ignores a frame with rev <= the last it folded, so a ghost operator tab
+   *  answering a snapshot request cannot resurrect a stale timer set. */
+  rev: number;
+};
+
+export const MAX_WIRE_TIMERS = 16;
+export const MAX_COLOR_TRIGGERS = 8;
+const TIMER_WIRE_TYPES = new Set(["countdown", "countdown_to", "elapsed"]);
+
+export function isValidTimerWire(v: unknown): v is TimerWire {
+  if (!v || typeof v !== "object" || hasPollutionKey(v)) return false;
+  const o = v as Record<string, unknown>;
+  const fin = (x: unknown) => typeof x === "number" && Number.isFinite(x);
+  if (typeof o.id !== "string" || !LAYER_ID_RE.test(o.id)) return false;
+  if (typeof o.type !== "string" || !TIMER_WIRE_TYPES.has(o.type)) return false;
+  if (typeof o.running !== "boolean") return false;
+  if (o.anchorMs !== null && (!fin(o.anchorMs) || (o.anchorMs as number) < 0
+      || (o.anchorMs as number) > Date.now() + REV_MAX_SKEW_MS)) return false;
+  if (!fin(o.baseSec) || (o.baseSec as number) < -86400 || (o.baseSec as number) > 86400) return false;
+  if (!fin(o.durationSec) || (o.durationSec as number) < 0 || (o.durationSec as number) > 86400) return false;
+  if (o.targetMs != null && (!fin(o.targetMs) || (o.targetMs as number) <= 0)) return false;
+  if (o.allowsOverrun !== undefined && typeof o.allowsOverrun !== "boolean") return false;
+  for (const k of ["elapsedStartSec", "elapsedEndSec"] as const) {
+    const x = o[k];
+    if (x != null && (!fin(x) || (x as number) < 0 || (x as number) > 86400)) return false;
+  }
+  if (o.name != null && (typeof o.name !== "string" || o.name.length > 120)) return false;
+  if (o.scale !== undefined && (!fin(o.scale) || (o.scale as number) < 0.25 || (o.scale as number) > 8)) return false;
+  if (o.showHours !== undefined && typeof o.showHours !== "boolean") return false;
+  if (o.leadingZeros !== undefined && typeof o.leadingZeros !== "boolean") return false;
+  if (o.color !== undefined && !isValidColor(o.color)) return false;
+  if (o.overrunColor !== undefined && !isValidColor(o.overrunColor)) return false;
+  if (o.colorTriggers !== undefined) {
+    if (!Array.isArray(o.colorTriggers) || o.colorTriggers.length > MAX_COLOR_TRIGGERS) return false;
+    for (const t of o.colorTriggers) {
+      if (!t || typeof t !== "object" || hasPollutionKey(t)) return false;
+      const tt = t as Record<string, unknown>;
+      if (!fin(tt.atSec) || (tt.atSec as number) < -86400 || (tt.atSec as number) > 86400) return false;
+      if (!isValidColor(tt.color)) return false;
+    }
+  }
+  if (!isValidOverlayPosition(o.position)) return false;
+  return true;
+}
+
+export function isValidTimersWire(v: unknown): v is TimersWire {
+  if (!v || typeof v !== "object" || hasPollutionKey(v)) return false;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.timers) || o.timers.length > MAX_WIRE_TIMERS) return false;
+  const ids = new Set<string>();
+  for (const t of o.timers) {
+    if (!isValidTimerWire(t)) return false;
+    const id = (t as TimerWire).id;
+    if (ids.has(id)) return false; // a duplicate id would render twice
+    ids.add(id);
+  }
+  const fin = (x: unknown) => typeof x === "number" && Number.isFinite(x);
+  // senderNowMs is deliberately NOT bounded against the receiver's clock: a
+  // device whose clock is wrong is exactly the case this field exists to fix.
+  if (!fin(o.senderNowMs) || (o.senderNowMs as number) <= 0) return false;
+  if (!fin(o.rev) || (o.rev as number) < 0 || (o.rev as number) > Date.now() + REV_MAX_SKEW_MS) return false;
+  return true;
+}
 
 export type LiveMessage =
   | { type: "set"; slide: SlidePayload; transition?: TransitionSpec | null } // legacy + optional one-shot override
@@ -1443,6 +1565,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
   if (st.layersEpoch !== undefined && (typeof st.layersEpoch !== "number" || !Number.isFinite(st.layersEpoch) || st.layersEpoch < 0 || st.layersEpoch > Date.now() + REV_MAX_SKEW_MS)) return false;
   // Scenes: optional per-screen routing snapshot. null = "no scene" (explicit).
   if (st.scene !== undefined && st.scene !== null && !isValidSceneWire(st.scene)) return false;
+  if (st.timersWire !== undefined && st.timersWire !== null && !isValidTimersWire(st.timersWire)) return false;
   return true;
 }
 
@@ -1613,6 +1736,9 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   // Fail-open matters most here: a bad scene must not blank a projector — the
   // screen simply falls back to the un-routed (pre-Scenes) render.
   if (out.scene !== undefined && out.scene !== null && !isValidSceneWire(out.scene)) delete out.scene;
+  // Fail-open, exactly like scene: a malformed timer set is DROPPED, never
+  // allowed to reject the whole snapshot. A bad timer must not blank a screen.
+  if (out.timersWire !== undefined && out.timersWire !== null && !isValidTimersWire(out.timersWire)) delete out.timersWire;
   return out as unknown as OutputState;
 }
 
