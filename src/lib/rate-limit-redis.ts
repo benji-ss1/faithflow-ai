@@ -17,11 +17,11 @@
  * in-memory limiter rather than failing open (no protection) or failing closed
  * (locking out a church mid-Sunday). Degraded protection beats either extreme.
  *
- * Enable by setting both of:
- *   UPSTASH_REDIS_REST_URL
- *   UPSTASH_REDIS_REST_TOKEN
- * Absent ⇒ this file does nothing and the in-memory limiter stays. That is why
- * it is safe to merge before the Redis instance exists.
+ * Enable by setting a REST url + token. Vercel's Upstash Marketplace
+ * integration provisions these as `KV_REST_API_URL` / `KV_REST_API_TOKEN`
+ * (provisioned 2026-09-21, store `upstash-kv-champagne-diamond`); the
+ * `UPSTASH_REDIS_REST_*` names are accepted too for a hand-rolled instance.
+ * Neither present ⇒ this file does nothing and the in-memory limiter stays.
  */
 import { getRateLimitBackend, setRateLimitBackend, type RateLimiter } from "./rate-limit";
 
@@ -99,8 +99,9 @@ export class UpstashRateLimiter implements RateLimiter {
  * and safe when the env is absent — returns what it did so startup can log it.
  */
 export function installSharedRateLimiter(): "redis" | "memory" {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Vercel's Upstash integration uses the KV_* names; support both.
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return "memory";
   setRateLimitBackend(new UpstashRateLimiter(url, token, getRateLimitBackend()));
   return "redis";

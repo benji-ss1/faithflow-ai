@@ -1443,6 +1443,22 @@ function TextProps({ o, upd, guardEmptySize = false }: { o: TextObject; upd: (p:
         <div><span className={rowCls}>Line height</span><input type="number" min={0.5} max={4} step={0.05} value={o.lineHeight ?? 1.1} onChange={(e) => upd({ lineHeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
         <div><span className={rowCls}>Letter spacing</span><input type="number" min={-20} max={100} step={1} value={o.letterSpacing ?? 0} onChange={(e) => upd({ letterSpacing: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
       </div>
+      {/* ProPresenter "Text Scaling". Default "down" means a box that would
+          CLIP its text shrinks instead of hiding it off the projector. */}
+      <div>
+        <span className={rowCls}>Scale to fit</span>
+        <select
+          value={o.textScale ?? "down"}
+          onChange={(e) => upd({ textScale: e.target.value as "none" | "down" | "up" | "both" })}
+          className={inCls}
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <option value="down">Shrink text to fit</option>
+          <option value="up">Grow text to fit</option>
+          <option value="both">Shrink or grow to fit</option>
+          <option value="none">Don&apos;t scale (may clip)</option>
+        </select>
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <div><span className={rowCls}>Outline</span><input type="color" value={o.stroke ?? "#000000"} onChange={(e) => upd({ stroke: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "var(--color-border)" }} /></div>
         <div><span className={rowCls}>Outline width</span><input type="number" min={0} max={40} step={1} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>

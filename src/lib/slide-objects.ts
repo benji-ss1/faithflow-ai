@@ -60,6 +60,10 @@ export type TextObject = {
   letterSpacing?: number;   // canvas px, ~-10–40 (tracking)
   uppercase?: boolean;      // force UPPERCASE
   shadow?: boolean;         // drop shadow (default true — preserves existing look)
+  // ProPresenter scale-to-fit for this box (see src/lib/text-fit.ts). Absent =
+  // "down": text that fits is untouched, text that would be CLIPPED shrinks to
+  // fit instead of vanishing off the box.
+  textScale?: import("./text-fit").TextScaleMode;
   stroke?: string;          // text outline colour
   strokeWidth?: number;     // outline width, canvas px (0 = none)
   // Theme Editor (PR 1): which content a THEME text box holds — main

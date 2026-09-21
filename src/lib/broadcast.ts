@@ -25,6 +25,9 @@ export type SlideObjectWire =
       fontFamily?: string; fontSize?: number; fontWeight?: number; color?: string;
       align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean; opacity?: number;
       lineHeight?: number; letterSpacing?: number; uppercase?: boolean; shadow?: boolean; stroke?: string; strokeWidth?: number;
+      // ProPresenter scale-to-fit (src/lib/text-fit.ts). Absent = "down", so a
+      // box that would CLIP its text shrinks instead of hiding it.
+      textScale?: "none" | "down" | "up" | "both";
       role?: "main" | "verse" | "reference" }
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
@@ -1056,6 +1059,7 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
       if (p.shadow !== undefined && typeof p.shadow !== "boolean") return false;
       if (p.stroke !== undefined && !isValidColor(p.stroke)) return false;
       if (p.strokeWidth !== undefined && (typeof p.strokeWidth !== "number" || !Number.isFinite(p.strokeWidth) || p.strokeWidth < 0 || p.strokeWidth > 200)) return false;
+      if (p.textScale !== undefined && !["none", "down", "up", "both"].includes(p.textScale as string)) return false;
       if (p.role !== undefined && p.role !== "main" && p.role !== "verse" && p.role !== "reference") return false;
       return true;
     case "shape":

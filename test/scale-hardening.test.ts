@@ -117,6 +117,11 @@ check("Redis backend falls back to the in-memory limiter, never open, never clos
 check("it is inert until BOTH Upstash vars are set", () => {
   const src = read("src/lib/rate-limit-redis.ts");
   assert.match(src, /if \(!url \|\| !token\) return "memory"/);
+  // Vercel's Upstash integration provisions KV_REST_API_*; a hand-rolled
+  // instance uses UPSTASH_REDIS_REST_*. Both must work or the limiter is
+  // silently inert in production.
+  assert.match(src, /KV_REST_API_URL \|\| process\.env\.UPSTASH_REDIS_REST_URL/);
+  assert.match(src, /KV_REST_API_TOKEN \|\| process\.env\.UPSTASH_REDIS_REST_TOKEN/);
   assert.match(read("src/instrumentation.ts"), /installSharedRateLimiter/);
 });
 

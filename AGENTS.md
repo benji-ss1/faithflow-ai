@@ -1,4 +1,4 @@
-# Four rules. Every agent, every task, every time.
+# Five rules. Every agent, every task, every time.
 
 Applies to **every** AI agent working on this repo — Claude, Claude Code, ChatGPT,
 Codex, Cursor, anything. Read this before you touch anything. It is short on
@@ -84,6 +84,35 @@ honest gap is useful. A confident guess costs trust and gets built on.
 **Never claim something is tested when you only read the code.** Anything needing
 a projector, mic, camera or a real church is **unverified** until a human says
 otherwise.
+
+## 5. PROPRESENTER IS THE BASELINE. NOT MATCHING IT IS A FAILURE.
+
+ProPresenter 7 is the floor, not the ceiling. Our AI is where we beat it — the
+slide, layer and compositing engine underneath must simply **be ProPresenter**.
+
+**The test is one plus one.** Does it look like ProPresenter? Does it work like
+ProPresenter? Does an operator get the same end-to-end workflow? If any answer is
+no, it is broken — not "different", not "our approach". Fix it until the answer
+is yes.
+
+**A red or yellow parity flag is a bug.** Do not catalogue it, do not defer it,
+do not write a doc explaining why our way is fine. Turn it green by making it
+behave like ProPresenter. Same for "better than ProPresenter" — a divergence is
+still a divergence; it needs explicit sign-off, not a quiet decision.
+
+**End-to-end means it actually works.** Not a UI. Not a button that exists. The
+thing has to reach the screen, hold, correct itself and behave exactly as
+ProPresenter does, every time. A control that renders but does not drive the
+projector is not done.
+
+**Build layers on top only after the base matches.** New features on a base that
+is not ProPresenter-equivalent are built on sand, and each one makes the gap
+harder to close.
+
+Before claiming parity on anything: verify the PP7 behaviour from public
+documentation (never proprietary source), verify ours from the running code, and
+say plainly which one you checked. Current gap list and status:
+[`docs/PP7_PARITY.md`](docs/PP7_PARITY.md).
 
 ---
 

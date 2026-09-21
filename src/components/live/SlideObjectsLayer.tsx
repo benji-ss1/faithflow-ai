@@ -4,6 +4,8 @@ import type { SlideObjectWire } from "@/lib/broadcast";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
 import { flipTransform } from "@/lib/editor-geometry";
+import { FittedText } from "./FittedText";
+import { DEFAULT_TEXT_SCALE } from "@/lib/text-fit";
 
 /**
  * Read-only projector render of a slide's positioned objects (Phase 1 of the
@@ -84,7 +86,9 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
           const objFs = isRef ? fs * refScale : fs;
           return (
             <div key={key} className={animCls} style={boxStyle}>
-              <div
+              <FittedText
+                text={obj.text}
+                mode={obj.textScale ?? DEFAULT_TEXT_SCALE}
                 className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
                 style={{
                   fontFamily: fontStack(obj.fontFamily) || "Inter, system-ui, sans-serif",
@@ -109,9 +113,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
                   textShadow: (obj.shadow ?? true) ? "0 2px 8px rgba(0,0,0,0.45)" : undefined,
                   opacity: obj.opacity ?? 1,
                 }}
-              >
-                {obj.text}
-              </div>
+              />
             </div>
           );
         }
