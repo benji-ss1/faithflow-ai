@@ -48,45 +48,33 @@ table if it is more than a few weeks old.
 
 ## Who is actually on the product — verified 2026-09-21
 
-Recorded because "9 rows in the product DB" was wrongly reported as "9 churches".
-**The product DB is not the commercial truth. The Ops CRM is.**
+**Never quote `audio_sessions` counts or hours.** `duration_sec` is
+`(endedAt - startedAt)` measured in the BROWSER — how long a mic window was left
+open, not how long anyone spoke. The demo church has a 29-hour "session";
+Christ Embassy's "16.2 hours" was 34 real minutes.
 
-**Ops CRM** (`PresentflowOPS` → `churches_pipeline`, `deleted_at is null`) —
-29 in pipeline, every one still `lifecycle_stage = lead`:
+**Use the `church_usage` view.** `active_minutes` = distinct minutes that
+actually produced a transcript segment. It cannot be inflated by an open window.
 
-| Stage | Count |
-|---|---|
-| new | 9 |
-| tech_contact | 7 |
-| interested | 6 |
-| install_booked | 4 |
-| **trial** | **3** |
+| Church | Active minutes | Active days | Logins | Last active |
+|---|---|---|---|---|
+| Evangelical Assemblies of God | 171 | 2 | 1 | 2026-09-20 |
+| RCCG Kings court | 98 | 3 | **2** | 2026-09-20 |
+| Christ Embassy | 34 | 2 | 1 | 2026-09-20 |
+| jpd *(Victor's test)* | 15 | 2 | 1 | 2026-09-16 |
+| JOS *(Benji's own account)* | 0 | 0 | 1 | never |
+| RCCG Community Church Clane | 0 | 0 | 1 | never (expected to run one) |
 
-**Product DB** (`PresentflowAPP` → `churches`) — 9 rows, which break down as:
-- **2 demo/test** (`is_demo = true`): "JPD Demo Church", "E2E Church 1783768793891"
-- **1 internal test account**: "jpd"
-- **2 signed up, never ran a service** (0 plans, 0 audio sessions): "JOS",
-  "RCCG Community Church Clane"
-- **4 with usage.** Sessions are mic connections, NOT services — many are
-  reconnects under a minute, so distinct days is the better proxy:
+Plus 2 demo/test rows excluded (`is_demo = true`).
 
-| Church | Sessions | Hours | Distinct days | <1 min | Last use |
-|---|---|---|---|---|---|
-| Christ Embassy | 75 | 16.2 | 5 | 38 | 2026-09-20 |
-| Evangelical Assemblies of God | 40 | 6.1 | 2 | 15 | 2026-09-20 |
-| KINGS COURT DUBLIN | 5 | 1.9 | 2 | 1 | 2026-09-12 |
-| RCCG Kings court | 40 | 1.7 | 1 | 26 | 2026-09-20 |
+**Ops CRM** (`PresentflowOPS` → `churches_pipeline`) is the commercial truth —
+29 in pipeline, all `lifecycle_stage = lead`: new 9 · tech_contact 7 ·
+interested 6 · install_booked 4 · **trial 3**.
 
-- **KINGS COURT DUBLIN and RCCG Kings court are the same church** (owner
-  confirmed) but **two separate accounts with different logins**:
-  `emmanuelakeweje@gmail.com` (created 09-08, 2 plans, no library, but the
-  longer real sessions — 22.5 min avg) and `kingscourtparish21@gmail.com`
-  (created 09-20, 7 songs / 21 media / 1 theme, but mostly sub-3-minute
-  fragments on one day). **Not yet merged** — deleting the older one would
-  remove a working login and the only two genuine service-length sessions.
-
-**So: 3 on trial (CRM), ~4 product rows with genuine usage, and 9 rows total.
-Three different numbers. Always say which one you mean.**
+**2026-09-21 merge:** KINGS COURT DUBLIN and RCCG Kings court were the same
+church with two accounts. Merged into RCCG Kings court — **both logins kept**
+(`emmanuelakeweje@gmail.com` + `kingscourtparish21@gmail.com`). Rollback tables:
+`_backup_merge_kingscourt_20260921_*`.
 
 ---
 
