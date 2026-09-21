@@ -101,6 +101,20 @@ value); honest rollback is "leave the unused value, never repurpose it".
 - ONE formatter: extend engine/timers/index.ts with formatTimerClockWithOptions; formatTimerClock and the linked-text
   resolver both call it. Golden-value tests pinned BEFORE the refactor. 🟡
 
+## DECISION RECORD
+
+**2026-09-21 — Stage Layout Editor is a SEPARATE editor (user-directed).**
+A proposal to fold stage layouts into the existing Scene Builder as extra per-screen rows (fewer concepts, one
+grid) was PUT TO THE USER AND DECLINED. The user's direction is to copy ProPresenter's separate Stage Layout
+editor 1:1. Build it as its own editor with its own list of named layout presets, its own canvas, and its own
+live-switch menu — mirroring ProPresenter's Screens > Edit Layouts (Ctrl+4) and the thumbnailed
+"Stage Screen: <name>" flyout with "Edit Selected Layout...".
+
+Scenes and Stage Layouts therefore remain DISTINCT, exactly as in ProPresenter:
+  - Scene (= ProPresenter "Look")  -> which LAYERS reach which screen, + per-screen theme override.
+  - Stage Layout                   -> what the STAGE confidence monitor is built from (widgets + placement).
+Phase 1 (timer in the Scene matrix) is unaffected and stays as shipped.
+
 ## Sign-off flags
 1. One-way enum migration (countdown_to_time).
 2. Video Countdown / Auto Advance Time have no underlying PresentFlow concept — recommend reserved/inert enum values
