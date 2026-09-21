@@ -9,6 +9,7 @@ import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, stageLayouts, stageScreens, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
 import { sanitizeStageLayout } from "../engine/stage";
+import { isBuiltInStageLayout } from "../engine/stage/presets";
 import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
@@ -2560,6 +2561,15 @@ const MSG_DISMISS_VALUES = new Set(["manual", "5s", "10s", "30s", "1min", "5min"
 // not be able to grow them without bound (defence-in-depth alongside RLS).
 const MAX_TIMER_DEFS = 50;
 const MAX_STAGE_LAYOUTS = 40;
+// Explicit ceiling on the layout jsonb. The widget/trigger caps already bound a
+// well-formed layout to a few KB, but without a byte cap a future field added
+// to the widget shape could silently reopen unbounded growth per row. Mirrors
+// the SCRIPTURE_DESIGN_MAX_BYTES pattern.
+const STAGE_CONFIG_MAX_BYTES = 64 * 1024;
+function withinStageConfigLimit(config: unknown): boolean {
+  try { return JSON.stringify(config).length <= STAGE_CONFIG_MAX_BYTES; }
+  catch { return false; } // unserialisable ⇒ reject rather than persist
+}
 const MAX_STAGE_SCREENS = 8;
 const MAX_MESSAGE_TEMPLATES = 50;
 
@@ -3762,6 +3772,7 @@ export async function createStageLayout(input: { name: string; config?: unknown 
   // stage screen, and the bounds (widget count, scale, triggers) are enforced
   // by the same pure function the renderer uses.
   const config = sanitizeStageLayout({ ...(input?.config as object ?? {}), name });
+  if (!withinStageConfigLimit(config)) return { ok: false, error: "That layout is too large" };
   const [row] = await db.insert(stageLayouts)
     .values({ churchId: user.churchId, name, config, sortOrder: existing.length })
     .returning({ id: stageLayouts.id });
@@ -3778,7 +3789,11 @@ export async function updateStageLayout(id: string, patch: { name?: string; conf
     if (!name) return { ok: false, error: "Give the layout a name" };
     set.name = name;
   }
-  if (patch.config !== undefined) set.config = sanitizeStageLayout(patch.config);
+  if (patch.config !== undefined) {
+    const cfg = sanitizeStageLayout(patch.config);
+    if (!withinStageConfigLimit(cfg)) return { ok: false, error: "That layout is too large" };
+    set.config = cfg;
+  }
   if (patch.sortOrder !== undefined && Number.isFinite(patch.sortOrder)) set.sortOrder = Math.max(0, Math.floor(patch.sortOrder));
   // church_id in the WHERE, so another church's id can never be updated.
   await db.update(stageLayouts).set(set)
@@ -3834,6 +3849,15 @@ export async function setStageScreenLayout(id: string, layoutId: string | null):
   const db = getDb();
   const value = layoutId === null ? null : String(layoutId).slice(0, 64);
   if (value !== null && !/^[a-zA-Z0-9_-]{1,64}$/.test(value)) return { ok: false, error: "Invalid layout" };
+  // OWNERSHIP: the shape check above is not enough. A uuid-shaped id must be
+  // verified to belong to THIS church, or a screen could be pointed at another
+  // church's layout and render its config (rule 5). Built-in ids are code, not
+  // rows, and are the same for everyone — they need no ownership check.
+  if (value !== null && !isBuiltInStageLayout(value)) {
+    const [owned] = await db.select({ id: stageLayouts.id }).from(stageLayouts)
+      .where(and(eq(stageLayouts.id, value), eq(stageLayouts.churchId, user.churchId))).limit(1);
+    if (!owned) return { ok: false, error: "Invalid layout" };
+  }
   await db.update(stageScreens).set({ layoutId: value, updatedAt: new Date() })
     .where(and(eq(stageScreens.id, id), eq(stageScreens.churchId, user.churchId)));
   revalidatePath("/operator");

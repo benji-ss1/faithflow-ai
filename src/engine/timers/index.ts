@@ -158,9 +158,29 @@ export function formatTimerClock(sec: number): string {
  *  React layer calls this ONCE per countdown_to (at load / reset / re-show), NOT
  *  on every tick, so once `now` crosses the resolved target the timer runs
  *  NEGATIVE into overrun instead of silently rolling +24h on the next tick. */
-export function resolveTargetMs(targetClock: string | null | undefined, nowMs: number): number | null {
-  if (!targetClock || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(targetClock.trim())) return null;
-  const [h, m] = targetClock.trim().split(":").map((x) => parseInt(x, 10));
+export type TimerPeriod = "am" | "pm" | "24_hour";
+
+/** Fold a 12-hour clock + AM/PM into a 24-hour hour.
+ *  12 AM = 00, 12 PM = 12 — the two cases everyone gets wrong. */
+export function to24Hour(hour: number, period: TimerPeriod | null | undefined): number {
+  if (period !== "am" && period !== "pm") return hour;
+  const h = hour % 12;              // 12 → 0
+  return period === "pm" ? h + 12 : h;
+}
+
+export function resolveTargetMs(
+  targetClock: string | null | undefined,
+  nowMs: number,
+  period?: TimerPeriod | null,
+): number | null {
+  if (!targetClock) return null;
+  const raw = targetClock.trim();
+  const twelveHour = period === "am" || period === "pm";
+  // With AM/PM the hour is 1-12; without it, 0-23.
+  const ok = twelveHour ? /^(1[0-2]|[1-9]):[0-5]\d$/.test(raw) : /^([01]?\d|2[0-3]):[0-5]\d$/.test(raw);
+  if (!ok) return null;
+  const [rawH, m] = raw.split(":").map((x) => parseInt(x, 10));
+  const h = to24Hour(rawH, period);
   const d = new Date(nowMs);
   d.setHours(h, m, 0, 0);
   let t = d.getTime();

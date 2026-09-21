@@ -233,12 +233,28 @@ test("garbage thresholds are ignored, not crashed on", () => {
 test("the timer and stage resolvers agree at every boundary", () => {
   // Same look, same value ⇒ same colour, or the projector and the stage screen
   // would disagree about what colour the sermon timer is.
-  const look = { color: "#4ade80", overrunColor: "#f87171", colorTriggers: TRIGGERS };
-  for (const sec of [500, 61, 60, 59, 31, 30, 29, 11, 10, 9, 1, 0, -1, -600]) {
-    assert.equal(
-      resolveTimerColor(look, sec),
-      resolveWidgetColor(look, sec, look.color),
-      `timer and stage resolvers disagree at ${sec}s`,
-    );
+  //
+  // The FIRST version of this test only covered the case where every colour was
+  // explicitly set, and so missed a real bug: with overrunColor UNSET the stage
+  // resolver hardcoded red past zero while the timer resolver fell back to the
+  // base colour. Every combination is now covered, including unset ones.
+  const LOOKS = [
+    { color: "#4ade80", overrunColor: "#f87171", colorTriggers: TRIGGERS },
+    { color: "#4ade80", colorTriggers: TRIGGERS },          // no overrun colour
+    { color: "#4ade80" },                                    // no triggers
+    { overrunColor: "#f87171", colorTriggers: TRIGGERS },   // no base colour
+    { colorTriggers: TRIGGERS },                             // triggers only
+    {},                                                      // nothing set at all
+  ];
+  const SECONDS = [500, 61, 60, 59, 31, 30, 29, 11, 10, 9, 1, 0, -1, -600, -3600];
+  for (const look of LOOKS) {
+    for (const sec of SECONDS) {
+      const fallback = "#ffffff";
+      assert.equal(
+        resolveTimerColor(look, sec) ?? fallback,
+        resolveWidgetColor(look, sec, fallback),
+        `resolvers disagree at ${sec}s for look ${JSON.stringify(look)}`,
+      );
+    }
   }
 });

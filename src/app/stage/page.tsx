@@ -7,6 +7,7 @@ import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type LayerWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
+import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 
@@ -361,36 +362,28 @@ export default function StagePage() {
             legacy `countdownStr` (OutputState.countdownEndsAt) renders in this
             same chip and IS a countdown, so hiding "Timer" for this screen hides
             it too. Default (no scene) = unchanged. */}
-        {(timerOverlay || countdownStr || Object.keys(namedTimers).length > 0) && !sceneHidesLayer(scene, "stage", "timer") && (
-          <div className="absolute top-3 right-4 z-10 flex flex-col items-end gap-1.5">
-            {(timerOverlay || countdownStr) && (
-              <div className="flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
-                <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">
-                  {timerOverlay ? (timerOverlay.name || "Timer") : "Countdown"}{timerOverlay && !timerOverlay.running ? " (paused)" : ""}
-                </span>
-                <span className={`text-3xl font-mono font-light tabular-nums ${timerOverlay && timerOverlay.remainingSec < 0 ? "text-red-400" : "text-white/85"}`}>
-                  {timerOverlay ? formatStageTimer(timerOverlay.remainingSec) : countdownStr}
-                </span>
+        {!sceneHidesLayer(scene, "stage", "timer") && (
+          <>
+            {/* The legacy service countdown keeps its confidence-monitor chip —
+                it has no per-timer look and is stage-specific by design. */}
+            {!timerOverlay && countdownStr && (
+              <div className="absolute top-3 right-4 z-10 flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
+                <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">Countdown</span>
+                <span className="text-3xl font-mono font-light tabular-nums text-white/85">{countdownStr}</span>
               </div>
             )}
-            {/* Wave 7: named timers — clean big numbers (no box/border), sized by
-                the operator's scale control. */}
-            {Object.values(namedTimers).map((t) => {
-              const scale = t.scale ?? 1;
-              const over = t.remainingSec < 0;
-              const color = t.color ?? (over ? "#f87171" : "rgba(255,255,255,0.9)");
-              return (
-                <div key={t.id} className="flex flex-col items-end leading-none">
-                  <span className="font-mono uppercase tracking-widest" style={{ color, opacity: 0.5, fontSize: `${0.9 * scale}vw` }}>
-                    {t.name || "Timer"}{!t.running ? " (paused)" : ""}
-                  </span>
-                  <span className="font-mono font-light tabular-nums" style={{ color, fontSize: `${4.5 * scale}vw`, lineHeight: 1, textShadow: "0 2px 12px rgba(0,0,0,0.5)" }}>
-                    {formatStageTimer(t.remainingSec)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+            {/* Everything else goes through the ONE shared renderer, so this
+                screen honours the operator's position/colour/format exactly as
+                the projector does. `compact` is the single sanctioned
+                difference: a confidence monitor shares space with the lyrics. */}
+            <TimerOverlayLayer
+              density="compact"
+              timers={[
+                ...(timerOverlay ? [timerOverlay as TimerOverlayItem] : []),
+                ...Object.values(namedTimers),
+              ]}
+            />
+          </>
         )}
         {/* Decoupling Phase 1: shared OutputCompositor. mode="stage" encodes the
             confidence-monitor specifics — never a live camera, default canvas
@@ -476,13 +469,6 @@ export default function StagePage() {
   );
 }
 
-function formatStageTimer(sec: number): string {
-  const negative = sec < 0;
-  const abs = Math.abs(Math.round(sec));
-  const mm = Math.floor(abs / 60);
-  const ss = abs % 60;
-  return `${negative ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-}
 
 function formatCountdown(ms: number): string {
   if (ms < 0) return "00:00";

@@ -5,6 +5,7 @@ import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire, type ObsLookWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
+import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
 import { livestreamRenderPlan, DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { parseObsUrl, resolveObsRender, obsThemeColorsOf, applyObsLiveFields, type ObsUrlDefaults } from "@/lib/obs-look";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
@@ -574,38 +575,17 @@ export default function LivestreamPage() {
           ))}
         </div>
       )}
-      {timerOverlay && mode === "full" && !sceneHidesLayer(scene, "livestream", "timer") && (() => {
-        const over = timerOverlay.remainingSec < 0;
-        const color = over ? "#f87171" : "#ffffff";
-        const n = over; const a = Math.abs(Math.round(timerOverlay.remainingSec)); const m = Math.floor(a / 60); const s = a % 60;
-        return (
-          <div className="absolute top-[6%] right-[6%] pointer-events-none flex flex-col items-end leading-none">
-            {timerOverlay.name && <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: "1.4vw", textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{timerOverlay.name}</div>}
-            <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: "7vw", textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
-              {`${n ? "-" : ""}${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`}
-            </div>
-          </div>
-        );
-      })()}
-      {/* Wave 7: named (keyed) timers — stacked top-right, below the legacy one.
-          Sized by the operator's per-timer scale (public OBS surface). */}
-      {Object.values(namedTimers).length > 0 && mode === "full" && !sceneHidesLayer(scene, "livestream", "timer") && (
-        <div className="absolute top-[20%] right-[6%] pointer-events-none flex flex-col items-end gap-[3vh] leading-none">
-          {Object.values(namedTimers).map((t) => {
-            const scale = t.scale ?? 1;
-            const over = t.remainingSec < 0;
-            const color = t.color ?? (over ? "#f87171" : "#ffffff");
-            const a = Math.abs(Math.round(t.remainingSec)); const mm = Math.floor(a / 60); const ss = a % 60;
-            return (
-              <div key={t.id} className="flex flex-col items-end leading-none">
-                {t.name && <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: `${1.4 * scale}vw`, textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{t.name}</div>}
-                <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: `${7 * scale}vw`, textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
-                  {`${over ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {/* ONE shared renderer across every output surface. `mode === "full"`
+          stays: in lower-third mode the stream deliberately shows only the
+          words over the camera. */}
+      {mode === "full" && !sceneHidesLayer(scene, "livestream", "timer") && (
+        <TimerOverlayLayer
+          density="full"
+          timers={[
+            ...(timerOverlay ? [timerOverlay as TimerOverlayItem] : []),
+            ...Object.values(namedTimers),
+          ]}
+        />
       )}
 
       {/* NB: hidden in transparent (OBS-key) mode — like the pair/disconnect

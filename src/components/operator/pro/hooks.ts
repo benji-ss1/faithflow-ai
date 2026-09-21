@@ -18,6 +18,7 @@ import {
   applyCommand,
   resolveTargetMs,
   type TimerCommand,
+  type TimerPeriod,
 } from "@/engine/timers";
 import {
   listTimerDefinitions,
@@ -200,6 +201,11 @@ export function useTimersSession(): TimersApi {
   // by def id; null = unparseable clock.
   const [targets, setTargets] = useState<Record<string, number | null>>({});
 
+  // Mirror of `defs` for callbacks that must read the CURRENT list without
+  // taking it as a dependency (which would re-create them on every refresh).
+  const defsRef = useRef<TimerDefRow[]>([]);
+  useEffect(() => { defsRef.current = defs; }, [defs]);
+
   const refresh = useCallback(async () => {
     try {
       const res = await listTimerDefinitions();
@@ -229,7 +235,7 @@ export function useTimersSession(): TimersApi {
       for (const d of defs) {
         if (d.type !== "countdown_to") continue;
         if (d.id in prev) next[d.id] = prev[d.id];
-        else { next[d.id] = resolveTargetMs(d.targetClock, now); changed = true; }
+        else { next[d.id] = resolveTargetMs(d.targetClock, now, d.period as TimerPeriod | null); changed = true; }
       }
       if (!changed && Object.keys(prev).length === Object.keys(next).length) return prev;
       return next;
@@ -242,7 +248,7 @@ export function useTimersSession(): TimersApi {
     setTargets((prev) => {
       const d = defs.find((x) => x.id === id);
       if (!d || d.type !== "countdown_to") return prev;
-      return { ...prev, [id]: resolveTargetMs(d.targetClock, Date.now()) };
+      return { ...prev, [id]: resolveTargetMs(d.targetClock, Date.now(), d.period as TimerPeriod | null) };
     });
   }, [defs]);
 
@@ -351,8 +357,25 @@ export function useTimersSession(): TimersApi {
     if (res.ok) await refresh();
   }, [refresh]);
   const editTimer = useCallback(async (id: string, input: TimerDefInput) => {
+    // Only reset when a change actually invalidates the running value. This
+    // used to reset UNCONDITIONALLY, so renaming a running sermon timer — or
+    // ticking Allows Overrun, or changing its colour — silently rewound it to
+    // full duration and stopped it, mid-service. Timing-relevant edits
+    // (duration, type, target clock/period, elapsed bounds) still reset,
+    // because the banked `baseSec` would otherwise keep the OLD duration.
+    const before = defsRef.current.find((x) => x.id === id);
     const res = await updateTimerDefinition(id, input);
-    if (res.ok) { await refresh(); command(id, "reset"); }
+    if (!res.ok) return;
+    await refresh();
+    const timingChanged =
+      !before
+      || (input.type !== undefined && input.type !== before.type)
+      || (input.durationSec !== undefined && input.durationSec !== before.durationSec)
+      || (input.targetClock !== undefined && (input.targetClock ?? null) !== (before.targetClock ?? null))
+      || (input.period !== undefined && (input.period ?? null) !== (before.period ?? null))
+      || (input.elapsedStartSec !== undefined && (input.elapsedStartSec ?? null) !== (before.elapsedStartSec ?? null))
+      || (input.elapsedEndSec !== undefined && (input.elapsedEndSec ?? null) !== (before.elapsedEndSec ?? null));
+    if (timingChanged) command(id, "reset");
   }, [refresh, command]);
   const removeTimer = useCallback(async (id: string) => {
     const res = await deleteTimerDefinition(id);

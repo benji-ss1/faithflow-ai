@@ -171,6 +171,7 @@ test/song-switch-guard.test.ts
 test/song-text.test.ts
 test/songs-toolbar.test.ts
 test/spring-load.test.ts
+test/stage-hostile.test.ts
 test/stage-layout-engine.test.ts
 test/stage-layout-scoping.test.ts
 test/stale-action.test.ts
@@ -194,6 +195,8 @@ test/themes-retirement.test.ts
 test/themes-retry.test.ts
 test/tier.test.ts
 test/timer-scene-routing.test.ts
+test/timer-screen-parity.test.ts
+test/timers-hostile.test.ts
 test/transition-publish.test.tsx
 test/transition-resolve.test.ts
 test/translation-commands.test.ts

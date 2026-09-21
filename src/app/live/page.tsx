@@ -5,6 +5,7 @@ import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
+import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 
@@ -604,46 +605,19 @@ export default function LivePage() {
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
               placement keeps overlays off the slide text unless the operator
               explicitly picks "center". */}
-          {timerOverlay && !sceneHidesLayer(scene, "main", "timer") && (() => {
-            const pos = timerOverlay.position ?? "top-right";
-            const over = timerOverlay.remainingSec < 0;
-            const color = over ? "#f87171" : "#ffffff";
-            return (
-              <div className={`${overlayPosClass(pos)} pointer-events-none z-20 flex flex-col leading-none`} style={{ alignItems: pos.includes("right") ? "flex-end" : pos === "center" ? "center" : "flex-start" }}>
-                {timerOverlay.name && (
-                  <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: "1.4vw", textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{timerOverlay.name}</div>
-                )}
-                <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: "7vw", textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
-                  {formatTimerMMSS(timerOverlay.remainingSec)}
-                </div>
-              </div>
-            );
-          })()}
-          {/* Wave 7: named timers, grouped per position so multiple in one
-              corner stack instead of overlapping. */}
-          {Object.values(namedTimers).length > 0 && !sceneHidesLayer(scene, "main", "timer") && (() => {
-            const groups: Record<string, TimerItem[]> = {};
-            for (const t of Object.values(namedTimers)) { const p = t.position ?? "top-right"; (groups[p] ??= []).push(t); }
-            return Object.entries(groups).map(([pos, items]) => (
-              <div key={pos} className={`${overlayPosClass(pos as OverlayPosition)} pointer-events-none z-20 flex flex-col gap-4`}>
-                {items.map((t) => {
-                  const scale = t.scale ?? 1;
-                  const over = t.remainingSec < 0;
-                  const color = t.color ?? (over ? "#f87171" : "#ffffff");
-                  return (
-                    <div key={t.id} className="flex flex-col leading-none" style={{ alignItems: pos.includes("right") ? "flex-end" : pos === "center" ? "center" : "flex-start" }}>
-                      {t.name && (
-                        <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: `${1.4 * scale}vw`, textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{t.name}</div>
-                      )}
-                      <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: `${7 * scale}vw`, textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
-                        {formatTimerMMSS(t.remainingSec)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ));
-          })()}
+          {/* ONE shared renderer across /live, /stage, /livestream and /ndi —
+              see src/components/live/TimerOverlayLayer.tsx. Previously each
+              surface had its own copy and its own MM:SS formatter, so the same
+              timer could read "90:00" here and "1:30:00" in the operator panel. */}
+          {!sceneHidesLayer(scene, "main", "timer") && (
+            <TimerOverlayLayer
+              density="full"
+              timers={[
+                ...(timerOverlay ? [timerOverlay as TimerOverlayItem] : []),
+                ...Object.values(namedTimers),
+              ]}
+            />
+          )}
           {/* Wave 7: extra simultaneous messages, stacked in the lower-third band. */}
           {extraMessages.length > 0 && (
             <div className="absolute left-[6%] right-[6%] bottom-[6%] pointer-events-none z-30 flex flex-col gap-2">
@@ -734,10 +708,3 @@ export default function LivePage() {
   );
 }
 
-function formatTimerMMSS(sec: number): string {
-  const negative = sec < 0;
-  const abs = Math.abs(Math.round(sec));
-  const mm = Math.floor(abs / 60);
-  const ss = abs % 60;
-  return `${negative ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-}

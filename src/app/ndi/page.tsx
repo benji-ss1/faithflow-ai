@@ -32,7 +32,8 @@ import {
   type LayerWire,
 } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
-import { type SceneWire } from "@/lib/scenes";
+import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
+import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
 
 // Prevent noisy non-Error unhandledrejections from an offscreen renderer.
 if (typeof window !== "undefined" && !(window as unknown as { __ffNdiGuarded?: boolean }).__ffNdiGuarded) {
@@ -56,6 +57,14 @@ export default function NdiOutputPage() {
   // church — that tells this surface to pre-wrap its layers, so the first scene
   // of a service can never remount the stack mid-service.
   const [scenesPossible, setScenesPossible] = useState(false);
+  // Timers (2026-09-21). /ndi previously had NO timer handling at all — the
+  // wire messages arrived on the same same-machine channel as /live and were
+  // silently dropped by the switch below, so the NDI feed was the one output
+  // that never showed a timer.
+  const [timerOverlay, setTimerOverlay] = useState<TimerOverlayItem | null>(null);
+  const [namedTimers, setNamedTimers] = useState<Record<string, TimerOverlayItem & { id: string }>>({});
+  const lastTimerMsgAt = useRef<number>(0);
+  const namedTimerAtRef = useRef<Record<string, number>>({});
   const [background, setBackground] = useState<BackgroundSpec | null>(null);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
@@ -130,6 +139,25 @@ export default function NdiOutputPage() {
           if (LAYERS_V2) {
             setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers, { snapEpoch: msg.state.layersEpoch, epochRef: layerEpochRef }));
           }
+        } else if (msg.type === "timer") {
+          // Mirrors /live exactly: keyed timers into a per-id map, the unkeyed
+          // legacy slot separately, and {clear:true} for either.
+          const ov = msg.overlay as TimerOverlayItem & { clear?: boolean; id?: string };
+          const oid = typeof ov.id === "string" ? ov.id : null;
+          if (oid) {
+            if ("clear" in ov && ov.clear) {
+              setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
+              delete namedTimerAtRef.current[oid];
+            } else {
+              setNamedTimers((m) => ({ ...m, [oid]: { ...ov, id: oid } }));
+              namedTimerAtRef.current[oid] = Date.now();
+            }
+          } else if ("clear" in ov && ov.clear) {
+            setTimerOverlay(null);
+          } else {
+            setTimerOverlay(ov);
+            lastTimerMsgAt.current = Date.now();
+          }
         } else if (msg.type === "layer-patch") {
           // Phase 3: store the override + trigger a re-render (gated by LAYERS_V2).
           // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
@@ -176,6 +204,15 @@ export default function NdiOutputPage() {
         scenesPossible={scenesPossible}
         screen="ndi"
       />
+      {/* The ONE shared renderer, same as every other surface. An NDI frame is
+          whatever this page paints (a hidden BrowserWindow is captured), so
+          rendering here is all that is needed — no native change. */}
+      {!sceneHidesLayer(scene, "ndi", "timer") && (
+        <TimerOverlayLayer
+          density="full"
+          timers={[...(timerOverlay ? [timerOverlay] : []), ...Object.values(namedTimers)]}
+        />
+      )}
     </div>
   );
 }

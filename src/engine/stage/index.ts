@@ -16,7 +16,10 @@
  *                                   from — which widgets, where, how big.
  */
 
+import { resolveTimerColor } from "../timers";
+
 /** Widget kinds, mirroring ProPresenter's stage element palette. */
+
 export type StageWidgetKind =
   | "current_text"      // the live slide's text — the big one
   | "next_text"         // what's coming, so singers/preacher can see ahead
@@ -94,6 +97,14 @@ export const STAGE_MAX_TRIGGERS = 8;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
+/** Colours are written straight into a `style` attribute by the renderer, so an
+ *  unvalidated string is a CSS-injection vector. Accept ONLY #rrggbb — the same
+ *  gate the rest of the codebase uses (isHex6Color) — and drop anything else
+ *  rather than trusting it. Kept local so this module stays dependency-free. */
+const HEX6 = /^#[0-9a-fA-F]{6}$/;
+const safeColor = (v: unknown): string | undefined =>
+  typeof v === "string" && HEX6.test(v) ? v : undefined;
+
 /** Clamp a rect into the canvas, keeping it at least 1% x 1% and never
  *  letting it start off-canvas — a widget must always be reachable/visible. */
 export function clampRect(r: StageRect): StageRect {
@@ -114,12 +125,12 @@ export function resolveWidgetColor(
   remainingSec: number,
   fallback = "#ffffff",
 ): string {
-  const base = w.color ?? fallback;
-  if (remainingSec < 0) return w.overrunColor ?? "#f87171";
-  const triggers = (w.colorTriggers ?? [])
-    .filter((t) => Number.isFinite(t.atSec) && remainingSec <= t.atSec)
-    .sort((a, b) => a.atSec - b.atSec);
-  return triggers.length > 0 ? triggers[0].color : base;
+  // Delegates to the ONE resolver in src/engine/timers so a timer can never be
+  // one colour on the projector and another on the stage screen. This used to
+  // be a second implementation that disagreed on the UNSET-overrun-colour case:
+  // it hardcoded red past zero while the timer resolver fell back to the base
+  // colour, so the same overrun timer painted red here and white there.
+  return resolveTimerColor(w, remainingSec) ?? fallback;
 }
 
 /** Format a signed seconds value for a stage widget. Mirrors PP's linked-text
@@ -205,28 +216,28 @@ export function sanitizeStageLayout(input: unknown, fallbackId = "layout"): Stag
       text: typeof w.text === "string" ? w.text.slice(0, 200) : undefined,
       scale: clamp(Number.isFinite(Number(w.scale)) ? Number(w.scale) : 1, STAGE_SCALE_MIN, STAGE_SCALE_MAX),
       align: (["left", "center", "right"] as const).includes(w.align as StageAlign) ? (w.align as StageAlign) : "center",
-      color: typeof w.color === "string" ? w.color : undefined,
+      color: safeColor(w.color),
       uppercase: w.uppercase === true,
       showLabel: w.showLabel === true,
       showHours: typeof w.showHours === "boolean" ? w.showHours : undefined,
       leadingZeros: w.leadingZeros === true,
-      overrunColor: typeof w.overrunColor === "string" ? w.overrunColor : undefined,
+      overrunColor: safeColor(w.overrunColor),
       colorTriggers: Array.isArray(w.colorTriggers)
         ? (w.colorTriggers as unknown[])
             .filter((t): t is StageColorTrigger =>
               !!t && typeof t === "object"
               && Number.isFinite((t as StageColorTrigger).atSec)
-              && typeof (t as StageColorTrigger).color === "string")
+              && safeColor((t as StageColorTrigger).color) !== undefined)
             .slice(0, STAGE_MAX_TRIGGERS)
-            .map((t) => ({ atSec: Math.max(0, Math.floor(t.atSec)), color: t.color }))
+            .map((t) => ({ atSec: Math.max(0, Math.floor(t.atSec)), color: safeColor(t.color)! }))
         : undefined,
-      zIndex: Number.isFinite(Number(w.zIndex)) ? Number(w.zIndex) : widgets.length,
+      zIndex: clamp(Number.isFinite(Number(w.zIndex)) ? Number(w.zIndex) : widgets.length, -9999, 9999),
     });
   }
   return {
     id: typeof o.id === "string" && o.id ? o.id.slice(0, 64) : fallbackId,
     name: typeof o.name === "string" && o.name.trim() ? o.name.trim().slice(0, 120) : "Layout",
-    background: typeof o.background === "string" ? o.background : "#000000",
+    background: safeColor(o.background) ?? "#000000",
     widgets: widgets.sort((a, b) => a.zIndex - b.zIndex),
   };
 }
