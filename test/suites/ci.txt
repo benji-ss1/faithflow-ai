@@ -190,6 +190,8 @@ test/verse-nav-commands.test.ts
 test/band-slide-card.test.ts
 test/scripture-size-width.test.ts
 test/band-size-persistence.test.ts
+test/transparent-slide.test.tsx
 test/nav-clauses.test.ts
 test/theme-carries-band.test.ts
 test/song-background-affordance.test.ts
+test/slide-bg-explicit.test.tsx

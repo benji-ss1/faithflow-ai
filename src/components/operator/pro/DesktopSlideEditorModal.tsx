@@ -178,9 +178,9 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
         const s = editor.slides[i];
         if (dbIds.includes(s.id)) {
           finalIds.push(s.id);
-          await saveSlideObjects(s.id, { bgColor: s.bgColor, bgImageUrl: s.bgImageUrl, objects: s.objects, lyrics: s.lyrics });
+          await saveSlideObjects(s.id, { bgColor: s.bgColor, bgImageUrl: s.bgImageUrl, bgExplicit: s.bgExplicit, objects: s.objects, lyrics: s.lyrics });
         } else {
-          const res = await createSongSlide(songId, i, { bgColor: s.bgColor, bgImageUrl: s.bgImageUrl, objects: s.objects, lyrics: s.lyrics });
+          const res = await createSongSlide(songId, i, { bgColor: s.bgColor, bgImageUrl: s.bgImageUrl, bgExplicit: s.bgExplicit, objects: s.objects, lyrics: s.lyrics });
           if (!res.ok) throw new Error(res.error);
           finalIds.push(res.data!.id);
         }
@@ -344,7 +344,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
       // is staged to Preview and never sent to the live projector.
       if (!cur) return;
       const t = cur.objects.filter((o): o is TextObject => o.kind === "text").map((o) => o.text).filter(Boolean).join("\n");
-      ctx.onStageSlide(projectableTextSlide(t, cur.bgColor, cur.bgImageUrl, cur.objects));
+      ctx.onStageSlide(projectableTextSlide(t, cur.bgColor, cur.bgImageUrl, cur.objects, cur.bgExplicit));
       toast.success(`Theme slide ${editor.currentIndex + 1} is in Preview (not live)`, { icon: <Eye className="w-4 h-4" /> });
       return;
     }
@@ -358,7 +358,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
       // Declare the origin (song guard, 2026-09-14 gate): the editor knows what it
       // is editing, so never carry a stale live origin onto a DIFFERENT song.
       const origin: LiveOrigin = themeMode ? { kind: "text" } : songId ? { kind: "song", songId } : itemType === "scripture" ? { kind: "scripture" } : { kind: "text" };
-      ctx.onSendSlideToLive(projectableTextSlide(text, cur.bgColor, cur.bgImageUrl, cur.objects), undefined, { origin });
+      ctx.onSendSlideToLive(projectableTextSlide(text, cur.bgColor, cur.bgImageUrl, cur.objects, cur.bgExplicit), undefined, { origin });
       // Confirmation (user directive): the editor is fullscreen, so the operator
       // can't see the projector — tell them the slide went live.
       toast.success(`Slide ${editor.currentIndex + 1} is now on the projector`, { icon: <Play className="w-4 h-4" /> });

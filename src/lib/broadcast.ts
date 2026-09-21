@@ -96,7 +96,9 @@ export type SlidePayload =
   // `reference`, when present, is rendered as a fixed always-visible footer
   // (scripture reference like "John 3:16 (KJV)") that never gets shrunk or
   // paginated off with the verse body — the body sizes independently above it.
-  | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[]; reference?: string; scriptureLayout?: "lowerThird"; scriptureBand?: ScriptureBandWire }
+  // `bgExplicit` marks a background a human/theme deliberately CHOSE, so a pure
+  // black paints instead of being read as the unset DB default (see slide-objects).
+  | { kind: "text"; text: string; bgColor?: string; bgExplicit?: boolean; bgImageUrl?: string; objects?: SlideObjectWire[]; reference?: string; scriptureLayout?: "lowerThird"; scriptureBand?: ScriptureBandWire }
   // `layout:"third"` confines the media to the church's band (upper/mid/lower)
   // instead of full-screen. `bandMode` picks the behaviour: "fit" shrinks the
   // media INTO the band rectangle (theme/camera shows above & below); "caption"
@@ -1094,12 +1096,13 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
  * block), never silently no-ops on the projector. Used server-side when
  * building the projectable plan.
  */
-export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUrl?: unknown, objects?: unknown): SlidePayload {
-  const out: { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[] } = {
+export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUrl?: unknown, objects?: unknown, bgExplicit?: unknown): SlidePayload {
+  const out: { kind: "text"; text: string; bgColor?: string; bgExplicit?: boolean; bgImageUrl?: string; objects?: SlideObjectWire[] } = {
     kind: "text",
     text: typeof text === "string" ? text.slice(0, 5000) : "",
   };
   if (isValidColor(bgColor)) out.bgColor = bgColor as string;
+  if (bgExplicit === true) out.bgExplicit = true;
   if (isValidRenderUrl(bgImageUrl)) out.bgImageUrl = bgImageUrl as string;
   if (Array.isArray(objects)) {
     const valid = objects.filter(isValidSlideObject).slice(0, MAX_SLIDE_OBJECTS);
@@ -1119,7 +1122,7 @@ export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUr
  * design bg) collapse to "|", leaving their identity behaviour unchanged.
  */
 export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): string {
-  let sig = `${s.bgColor ?? ""}|${s.bgImageUrl ?? ""}`;
+  let sig = `${s.bgColor ?? ""}${s.bgExplicit ? "!" : ""}|${s.bgImageUrl ?? ""}`;
   // Lower-third layout + band are visible design: fold them in so a layout/band
   // change updates the output identity (crossfades + defeats the already-live
   // skip). A plain (non-lower-third) slide adds nothing here → identity unchanged.
@@ -1222,6 +1225,8 @@ function isValidSlide(s: unknown): s is SlidePayload {
     case "text":
       if (typeof st.text !== "string" || st.text.length > 5000) return false;
       if (st.bgColor !== undefined && !isValidColor(st.bgColor)) return false;
+      // Strictly `true` (an allow-list of one value), like keepThemeBg.
+      if (st.bgExplicit !== undefined && st.bgExplicit !== true) return false;
       if (st.bgImageUrl !== undefined && !isValidRenderUrl(st.bgImageUrl)) return false;
       if (st.objects !== undefined) {
         if (!Array.isArray(st.objects) || st.objects.length > MAX_SLIDE_OBJECTS) return false;
@@ -1461,6 +1466,7 @@ export function sanitizeSlide(s: unknown): SlidePayload | null {
         text: typeof st.text === "string" ? st.text.slice(0, 5000) : "",
       };
       if (isValidColor(st.bgColor)) out.bgColor = st.bgColor as string;
+      if (st.bgExplicit === true) out.bgExplicit = true;
       if (isValidRenderUrl(st.bgImageUrl)) out.bgImageUrl = st.bgImageUrl as string;
       if (Array.isArray(st.objects)) {
         const valid = st.objects.filter(isValidSlideObject).slice(0, MAX_SLIDE_OBJECTS);

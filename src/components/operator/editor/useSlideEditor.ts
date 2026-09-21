@@ -604,7 +604,20 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   }, [isEditable]);
 
   const setBg = useCallback((patch: { bgColor?: string; bgImageUrl?: string }) => {
-    patchCurrent((s) => ({ ...s, ...patch }));
+    // Picking a colour or an image is the operator CHOOSING a background, so
+    // record that (`bgExplicit`) — it is the only way a deliberate pure black can
+    // survive, since the DB default is also black. Removing the image clears the
+    // flag unless a colour is still set, so the slide returns to transparent.
+    patchCurrent((s) => {
+      const next = { ...s, ...patch };
+      const choseColor = typeof patch.bgColor === "string" && patch.bgColor.length > 0;
+      const choseImage = typeof patch.bgImageUrl === "string" && patch.bgImageUrl.length > 0;
+      const clearedImage = patch.bgImageUrl === "";
+      let bgExplicit = s.bgExplicit;
+      if (choseColor || choseImage) bgExplicit = true;
+      else if (clearedImage && !(typeof next.bgColor === "string" && next.bgColor.length > 0)) bgExplicit = undefined;
+      return { ...next, bgExplicit };
+    });
   }, [patchCurrent]);
 
   const updateSlideDirect = useCallback((patch: Partial<EditableSlide>) => {

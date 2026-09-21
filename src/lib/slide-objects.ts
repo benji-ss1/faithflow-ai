@@ -150,6 +150,14 @@ export type EditableSlide = {
   id: string;
   bgColor?: string;
   bgImageUrl?: string;
+  /** TRUE when a human (or a theme) deliberately CHOSE this slide's background.
+   *  Without it, `bgColor: "#000000"` is ambiguous: the DB default is black, so
+   *  the renderer has to treat default-black as "unset" (isDefaultSlideBg) or it
+   *  would cover every theme/Background Template — which also means an operator
+   *  who genuinely picks black gets nothing. This flag removes the guesswork:
+   *  set ⇒ the colour paints, even pure black. Absent ⇒ the legacy heuristic,
+   *  so every existing row renders exactly as it does today. */
+  bgExplicit?: boolean;
   objects: SlideObject[];
   // Phase 5D-2 — optional per-slide default transition
   transition?: SlideTransition;
@@ -226,6 +234,7 @@ export function normalizeEditableSlide(row: {
       id: row.id,
       bgColor: raw.bgColor,
       bgImageUrl: raw.bgImageUrl,
+      bgExplicit: raw.bgExplicit === true ? true : undefined,
       objects: raw.objects as SlideObject[],
       transition: raw.transition,
       lyrics: row.lyrics,
@@ -246,7 +255,7 @@ export function slidePayloadFromEditable(slide: EditableSlide): SlidePayload {
   const text = textParts.length > 0
     ? textParts.join("\n")
     : (slide.lyrics ?? "");
-  return { kind: "text", text, bgColor: slide.bgColor };
+  return { kind: "text", text, bgColor: slide.bgColor, bgExplicit: slide.bgExplicit === true ? true : undefined };
 }
 
 // Extract visible text (for `lyrics` regeneration + downstream lyric matching)
