@@ -633,10 +633,13 @@ export const timerDefinitions = pgTable("timer_definitions", {
   // ── ProPresenter parity (2026-09-21). All additive + defaulted, so existing
   // rows keep behaving exactly as before. ────────────────────────────────────
   // PP "Allows Overrun": run past the endpoint (countdowns go negative).
-  // Default FALSE matches ProPresenter's own default. NOTE: PresentFlow always
-  // overran before this existed, so the READ path must treat NULL/absent as
-  // "overrun allowed" for pre-existing timers — see sanitizeTimerDef.
-  allowsOverrun: boolean("allows_overrun").notNull().default(true),
+  // Default FALSE — ProPresenter's own default. PresentFlow timers always
+  // overran before this existed, so this DOES change existing behaviour: a
+  // countdown now STOPS at 0:00 unless the operator ticks Allows Overrun.
+  // That change is deliberate and user-directed — ProPresenter is the base
+  // layer and its default wins over ours (CLAUDE.md rule 0a,
+  // docs/PRODUCT_DOCTRINE.md). Announced in the changelog.
+  allowsOverrun: boolean("allows_overrun").notNull().default(false),
   // PP "Countdown to Time" period. NULL = interpret target_clock as 24h, which
   // is exactly how every existing row already behaves.
   period: timerPeriodEnum("period"),

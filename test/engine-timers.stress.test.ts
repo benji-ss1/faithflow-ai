@@ -38,9 +38,12 @@ import {
   coerceLiveMessage,
 } from "../src/lib/broadcast";
 
-const cd = (durationSec: number): TimerDefinition => ({ id: "t1", name: "T", type: "countdown", durationSec });
+// These stress cases deliberately drive timers PAST zero, so they opt into
+// ProPresenter's "Allows Overrun" (off by default since 2026-09-21). The
+// clamped default is covered in test/engine-timers.test.ts.
+const cd = (durationSec: number): TimerDefinition => ({ id: "t1", name: "T", type: "countdown", durationSec, allowsOverrun: true });
 const el = (): TimerDefinition => ({ id: "t2", name: "E", type: "elapsed", durationSec: 0 });
-const cto = (targetMs: number): TimerDefinition => ({ id: "t3", name: "C", type: "countdown_to", durationSec: 0, targetMs });
+const cto = (targetMs: number): TimerDefinition => ({ id: "t3", name: "C", type: "countdown_to", durationSec: 0, targetMs, allowsOverrun: true });
 
 // ---------------------------------------------------------------- (1) anchor+banked
 

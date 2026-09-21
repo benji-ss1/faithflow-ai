@@ -20,6 +20,9 @@ import {
 } from "../src/engine/timers";
 
 const countdown: TimerDefinition = { id: "t1", name: "Countdown", type: "countdown", durationSec: 300 };
+// ProPresenter "Allows Overrun" is OFF by default, so a timer that is MEANT to
+// run past zero must opt in. The clamped default is covered separately below.
+const countdownOverrun: TimerDefinition = { ...countdown, id: "t1o", allowsOverrun: true };
 const elapsed: TimerDefinition = { id: "t2", name: "Elapsed", type: "elapsed", durationSec: 0 };
 const T0 = 1_000_000;
 
@@ -44,11 +47,56 @@ test("countdown: stop banks remaining, resume continues", () => {
   assert.equal(computeRemainingSec(countdown, rt, T0 + 110_000), 230);
 });
 
-test("countdown: overrun goes negative and isOverrun flips", () => {
-  let rt = startTimer(countdown, initialRuntime(countdown), T0);
-  assert.equal(isOverrun(countdown, rt, T0 + 300_000), false); // exactly zero
-  assert.equal(computeRemainingSec(countdown, rt, T0 + 310_000), -10);
-  assert.equal(isOverrun(countdown, rt, T0 + 310_000), true);
+test("countdown: overrun goes negative and isOverrun flips (Allows Overrun ON)", () => {
+  const rt = startTimer(countdownOverrun, initialRuntime(countdownOverrun), T0);
+  assert.equal(isOverrun(countdownOverrun, rt, T0 + 300_000), false); // exactly zero
+  assert.equal(computeRemainingSec(countdownOverrun, rt, T0 + 310_000), -10);
+  assert.equal(isOverrun(countdownOverrun, rt, T0 + 310_000), true);
+});
+
+// ProPresenter "Allows Overrun" defaults to OFF, so by default a countdown
+// STOPS at 0:00 rather than running into negative time. This is a deliberate
+// behaviour change from PresentFlow's original always-overrun timers
+// (user-directed 2026-09-21, CLAUDE.md rule 0a — ProPresenter is the base layer).
+test("countdown: WITHOUT Allows Overrun it clamps at 0:00 and never goes negative", () => {
+  const rt = startTimer(countdown, initialRuntime(countdown), T0);
+  assert.equal(computeRemainingSec(countdown, rt, T0 + 300_000), 0);
+  assert.equal(computeRemainingSec(countdown, rt, T0 + 310_000), 0, "must sit at zero, not -10");
+  assert.equal(computeRemainingSec(countdown, rt, T0 + 99_999_000), 0, "still zero far past the end");
+  assert.equal(isOverrun(countdown, rt, T0 + 310_000), false, "clamped ⇒ never reads as overrun");
+});
+
+test("countdown_to: WITHOUT Allows Overrun it clamps at 0 past its target", () => {
+  const def: TimerDefinition = { id: "cto2", name: "C", type: "countdown_to", durationSec: 0, targetMs: T0 + 60_000 };
+  const rt = initialRuntime(def);
+  assert.equal(computeRemainingSec(def, rt, T0), 60);
+  assert.equal(computeRemainingSec(def, rt, T0 + 120_000), 0, "past target must clamp, not go negative");
+});
+
+// ProPresenter's Elapsed timer takes a start offset and an OPTIONAL end
+// ("omit to specify unlimited end time").
+test("elapsed: starts at its configured start offset, not zero", () => {
+  const def: TimerDefinition = { id: "e1", name: "E", type: "elapsed", durationSec: 0, elapsedStartSec: 90 };
+  const rt = startTimer(def, initialRuntime(def), T0);
+  assert.equal(computeRemainingSec(def, rt, T0), 90);
+  assert.equal(computeRemainingSec(def, rt, T0 + 10_000), 100);
+});
+
+test("elapsed: an end time stops it there unless Allows Overrun is on", () => {
+  const capped: TimerDefinition = { id: "e2", name: "E", type: "elapsed", durationSec: 0, elapsedEndSec: 60 };
+  const rtc = startTimer(capped, initialRuntime(capped), T0);
+  assert.equal(computeRemainingSec(capped, rtc, T0 + 30_000), 30);
+  assert.equal(computeRemainingSec(capped, rtc, T0 + 90_000), 60, "must stop at the end time");
+
+  const past: TimerDefinition = { ...capped, id: "e3", allowsOverrun: true };
+  const rtp = startTimer(past, initialRuntime(past), T0);
+  assert.equal(computeRemainingSec(past, rtp, T0 + 90_000), 90, "with overrun it keeps counting past the end");
+});
+
+test("elapsed: no end time = unlimited (ProPresenter's wording)", () => {
+  const def: TimerDefinition = { id: "e4", name: "E", type: "elapsed", durationSec: 0 };
+  const rt = startTimer(def, initialRuntime(def), T0);
+  assert.equal(computeRemainingSec(def, rt, T0 + 7_200_000), 7200);
 });
 
 test("elapsed: counts up, never overruns", () => {
@@ -60,7 +108,7 @@ test("elapsed: counts up, never overruns", () => {
 });
 
 test("countdown_to: pure wall-clock, goes negative past target", () => {
-  const def: TimerDefinition = { id: "t3", name: "To 10:00", type: "countdown_to", durationSec: 0, targetMs: T0 + 120_000 };
+  const def: TimerDefinition = { id: "t3", name: "To 10:00", type: "countdown_to", durationSec: 0, targetMs: T0 + 120_000, allowsOverrun: true };
   const rt = initialRuntime(def);
   assert.equal(computeRemainingSec(def, rt, T0), 120);
   assert.equal(computeRemainingSec(def, rt, T0 + 130_000), -10);
@@ -117,7 +165,7 @@ test("countdown_to resolved ONCE crosses zero into overrun (no +24h re-roll)", (
   const now = 2_000_000;
   const target = resolveTargetMs("00:00", now); // some concrete future instant
   assert.ok(target != null && target > now);
-  const def: TimerDefinition = { id: "cto", name: "C", type: "countdown_to", durationSec: 0, targetMs: target };
+  const def: TimerDefinition = { id: "cto", name: "C", type: "countdown_to", durationSec: 0, targetMs: target, allowsOverrun: true };
   const rt = initialRuntime(def);
   // Just before the (fixed) target — positive.
   assert.ok(computeRemainingSec(def, rt, target! - 2000) > 0);

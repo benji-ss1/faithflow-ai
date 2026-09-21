@@ -39,11 +39,16 @@ BEGIN
 END $$;
 
 -- 2. ProPresenter timer fields.
---    allows_overrun DEFAULTS TRUE, deliberately: PresentFlow timers have ALWAYS
---    overrun, so defaulting to ProPresenter's own `false` would silently change
---    the behaviour of every existing timer on deploy. Existing rows keep
---    overrunning; new timers can opt out. (CLAUDE.md rule 0.)
-ALTER TABLE timer_definitions ADD COLUMN IF NOT EXISTS allows_overrun boolean NOT NULL DEFAULT true;
+--    allows_overrun DEFAULTS FALSE — ProPresenter's own default.
+--    THIS IS A DELIBERATE BEHAVIOUR CHANGE, user-directed 2026-09-21:
+--    PresentFlow countdowns have always run past zero into negative time. After
+--    this migration they STOP at 0:00 unless the operator ticks Allows Overrun
+--    on that timer. ProPresenter is the base layer and its default wins over
+--    ours (CLAUDE.md rule 0a, docs/PRODUCT_DOCTRINE.md). Announced in the
+--    changelog so operators are not surprised mid-service.
+--    To keep the OLD behaviour for existing timers instead, run:
+--      UPDATE timer_definitions SET allows_overrun = true;
+ALTER TABLE timer_definitions ADD COLUMN IF NOT EXISTS allows_overrun boolean NOT NULL DEFAULT false;
 -- NULL period = read target_clock as 24h, exactly how every existing row behaves.
 ALTER TABLE timer_definitions ADD COLUMN IF NOT EXISTS period timer_period;
 ALTER TABLE timer_definitions ADD COLUMN IF NOT EXISTS elapsed_start_sec integer;

@@ -2436,31 +2436,77 @@ export async function setDefaultTheme(id: string): Promise<Result> {
 }
 
 // ── Wave 7: timer definitions (church-scoped) ────────────────────────────────
+export type TimerPeriod = "am" | "pm" | "24_hour";
 export type TimerDefInput = {
   name?: string;
   type?: "countdown" | "countdown_to" | "elapsed";
   durationSec?: number;
   targetClock?: string | null;
+  // ProPresenter parity (2026-09-21) —————————————————————————————
+  /** PP "Allows Overrun". Default false = the timer stops at its endpoint. */
+  allowsOverrun?: boolean;
+  /** PP "Countdown to Time" period. null/absent ⇒ read targetClock as 24h. */
+  period?: TimerPeriod | null;
+  /** PP "Elapsed Time" start offset, seconds. */
+  elapsedStartSec?: number | null;
+  /** PP "Elapsed Time" end, seconds. null ⇒ unlimited. */
+  elapsedEndSec?: number | null;
+  /** PP stage `oCl` — colour once past zero. */
+  overrunColor?: string | null;
 };
+
+const TIMER_PERIODS: TimerPeriod[] = ["am", "pm", "24_hour"];
+const secOrNull = (v: unknown): number | null =>
+  v === null || v === undefined || v === "" || !Number.isFinite(Number(v))
+    ? null : Math.max(0, Math.min(24 * 60 * 60, Math.round(Number(v))));
 
 function sanitizeTimerDef(input: TimerDefInput): {
   name: string; type: "countdown" | "countdown_to" | "elapsed"; durationSec: number; targetClock: string | null;
+  allowsOverrun: boolean; period: TimerPeriod | null;
+  elapsedStartSec: number | null; elapsedEndSec: number | null; overrunColor: string | null;
 } {
   const type = input.type === "countdown_to" || input.type === "elapsed" ? input.type : "countdown";
   const durationSec = Math.max(0, Math.min(24 * 60 * 60, Math.round(Number(input.durationSec) || 0)));
-  // targetClock: accept "HH:MM" only (0-23:0-59); anything else → null.
-  const tc = typeof input.targetClock === "string" && /^([01]?\d|2[0-3]):[0-5]\d$/.test(input.targetClock.trim())
-    ? input.targetClock.trim() : null;
-  return { name: (input.name ?? "Timer").trim().slice(0, 120) || "Timer", type, durationSec, targetClock: tc };
+  // targetClock: "HH:MM". With a 12-hour period the hour may be 1-12; with 24h
+  // (or no period) it must be 0-23. ProPresenter offers AM / PM / 24-hour.
+  const period = input.period && TIMER_PERIODS.includes(input.period) ? input.period : null;
+  const raw = typeof input.targetClock === "string" ? input.targetClock.trim() : "";
+  const twelveHour = period === "am" || period === "pm";
+  const ok = twelveHour
+    ? /^(1[0-2]|[1-9]):[0-5]\d$/.test(raw)
+    : /^([01]?\d|2[0-3]):[0-5]\d$/.test(raw);
+  const tc = ok ? raw : null;
+  // An elapsed END before its START would count backwards; drop the end rather
+  // than persist an impossible timer.
+  const start = secOrNull(input.elapsedStartSec);
+  let end = secOrNull(input.elapsedEndSec);
+  if (end !== null && start !== null && end <= start) end = null;
+  return {
+    name: (input.name ?? "Timer").trim().slice(0, 120) || "Timer",
+    type, durationSec, targetClock: tc,
+    allowsOverrun: input.allowsOverrun === true,
+    period: type === "countdown_to" ? period : null,
+    elapsedStartSec: type === "elapsed" ? start : null,
+    elapsedEndSec: type === "elapsed" ? end : null,
+    overrunColor: typeof input.overrunColor === "string" && isHex6Color(input.overrunColor) ? input.overrunColor : null,
+  };
 }
 
-export async function listTimerDefinitions(): Promise<Result<Array<{ id: string; name: string; type: string; durationSec: number; targetClock: string | null; sortOrder: number }>>> {
+export async function listTimerDefinitions(): Promise<Result<Array<{
+  id: string; name: string; type: string; durationSec: number; targetClock: string | null; sortOrder: number;
+  allowsOverrun: boolean; period: TimerPeriod | null; elapsedStartSec: number | null;
+  elapsedEndSec: number | null; overrunColor: string | null;
+}>>> {
   const user = await requireUser();
   const db = getDb();
   const rows = await db.select().from(timerDefinitions)
     .where(eq(timerDefinitions.churchId, user.churchId))
     .orderBy(asc(timerDefinitions.sortOrder), asc(timerDefinitions.createdAt));
-  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, type: r.type, durationSec: r.durationSec, targetClock: r.targetClock, sortOrder: r.sortOrder })) };
+  return { ok: true, data: rows.map((r) => ({
+    id: r.id, name: r.name, type: r.type, durationSec: r.durationSec, targetClock: r.targetClock, sortOrder: r.sortOrder,
+    allowsOverrun: r.allowsOverrun, period: r.period, elapsedStartSec: r.elapsedStartSec,
+    elapsedEndSec: r.elapsedEndSec, overrunColor: r.overrunColor,
+  })) };
 }
 
 export async function createTimerDefinition(input: TimerDefInput): Promise<Result<{ id: string }>> {

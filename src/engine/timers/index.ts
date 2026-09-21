@@ -35,6 +35,15 @@ export interface TimerDefinition {
   durationSec: number;
   /** Wall-clock epoch ms to count down to (countdown_to). Null otherwise. */
   targetMs?: number | null;
+  /** ProPresenter "Allows Overrun": may this timer run PAST its endpoint?
+   *  false (ProPresenter's default, and now ours) = clamp at 0 for a countdown,
+   *  and stop at `elapsedEndSec` for an elapsed timer. Absent = false. */
+  allowsOverrun?: boolean;
+  /** ProPresenter "Elapsed Time" start offset, seconds. */
+  elapsedStartSec?: number | null;
+  /** ProPresenter "Elapsed Time" end, seconds. NULL/absent = unlimited
+   *  ("omit to specify unlimited end time" — ProPresenter's own wording). */
+  elapsedEndSec?: number | null;
 }
 
 /** Mutable runtime state for one timer. `anchorMs` is the wall-clock instant
@@ -53,7 +62,11 @@ export function initialRuntime(def: TimerDefinition): TimerRuntime {
   return {
     running: false,
     anchorMs: null,
-    baseSec: def.type === "elapsed" ? 0 : Math.max(0, def.durationSec),
+    // An elapsed timer starts at its configured start offset (ProPresenter
+    // "Elapsed Time" start_time), not necessarily zero.
+    baseSec: def.type === "elapsed"
+      ? Math.max(0, def.elapsedStartSec ?? 0)
+      : Math.max(0, def.durationSec),
   };
 }
 
@@ -62,19 +75,32 @@ export function initialRuntime(def: TimerDefinition): TimerRuntime {
  *  - elapsed      : elapsed since start (always ≥ 0)
  *  - countdown_to : (target - now); goes negative once the target passes */
 export function computeRemainingSec(def: TimerDefinition, rt: TimerRuntime, nowMs: number): number {
+  // ProPresenter "Allows Overrun" (default FALSE): without it a timer STOPS at
+  // its endpoint instead of running into negative/unbounded time.
+  const overrun = def.allowsOverrun === true;
   if (def.type === "countdown_to") {
     const target = def.targetMs ?? nowMs;
-    return (target - nowMs) / 1000;
+    const raw = (target - nowMs) / 1000;
+    return overrun ? raw : Math.max(0, raw);
   }
   const sinceAnchor = rt.running && rt.anchorMs != null ? (nowMs - rt.anchorMs) / 1000 : 0;
-  if (def.type === "elapsed") return rt.baseSec + sinceAnchor;
+  if (def.type === "elapsed") {
+    const raw = rt.baseSec + sinceAnchor;
+    // An elapsed timer with an end time stops there unless overrun is allowed.
+    const end = def.elapsedEndSec;
+    if (!overrun && typeof end === "number" && Number.isFinite(end)) return Math.min(raw, end);
+    return raw;
+  }
   // countdown
-  return rt.baseSec - sinceAnchor;
+  const raw = rt.baseSec - sinceAnchor;
+  return overrun ? raw : Math.max(0, raw);
 }
 
 /** True once a countdown / countdown_to has passed zero into overtime. */
 export function isOverrun(def: TimerDefinition, rt: TimerRuntime, nowMs: number): boolean {
   if (def.type === "elapsed") return false;
+  // With overrun DISALLOWED the value is clamped at 0 and can never read
+  // negative, so this is false by construction — the timer simply sits at 0:00.
   return computeRemainingSec(def, rt, nowMs) < 0;
 }
 
