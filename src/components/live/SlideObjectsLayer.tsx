@@ -6,6 +6,7 @@ import { themedObjectTextColor } from "@/lib/slide-objects";
 import { flipTransform } from "@/lib/editor-geometry";
 import { FittedText } from "./FittedText";
 import { DEFAULT_TEXT_SCALE } from "@/lib/text-fit";
+import { reportMediaFailure } from "@/lib/media-failure";
 
 /**
  * Read-only projector render of a slide's positioned objects (Phase 1 of the
@@ -148,7 +149,15 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
                 muted={obj.muted ?? true}
                 playsInline
                 style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1 }}
-                onError={(e) => { (e.currentTarget as HTMLVideoElement).style.visibility = "hidden"; }}
+                onError={(e) => {
+                  // The PROJECTOR must stay clean — never paint an error onto
+                  // the audience screen (AGENTS.md: output carries the slide and
+                  // nothing else). So we still hide it here, but we no longer do
+                  // it SILENTLY: the operator gets told on their own surface.
+                  // The commonest cause by far is an HEVC .mov on Windows.
+                  (e.currentTarget as HTMLVideoElement).style.visibility = "hidden";
+                  reportMediaFailure(obj.url, "video");
+                }}
               />
             </div>
           );
@@ -174,7 +183,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
                   filter: "blur(34px) brightness(0.62) saturate(1.08)", transform: "scale(1.15)",
                 }}
                 draggable={false}
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; reportMediaFailure(obj.url, "image"); }}
               />
             ) : null}
             {/* eslint-disable-next-line @next/next/no-img-element */}
