@@ -187,3 +187,58 @@ test("resolveTargetMs rolls a passed clock to the next day; a future clock stays
   assert.ok(past != null && past > noon && past - noon > 23 * 3600 * 1000);
   assert.ok(future != null && future > noon && future - noon <= 60_000);
 });
+
+// ── resolveTimerColor — ProPresenter "Color Triggers" ──────────────────────
+// Resolved operator-side into the single `color` the wire already carries, so
+// threshold colours reach every output with no wire or renderer change.
+// MUST agree with resolveWidgetColor in src/engine/stage — a timer cannot be
+// one colour on the projector and another on the stage screen.
+import { resolveTimerColor } from "../src/engine/timers";
+import { resolveWidgetColor } from "../src/engine/stage";
+
+const TRIGGERS = [{ atSec: 60, color: "orange" }, { atSec: 30, color: "yellow" }, { atSec: 10, color: "red" }];
+
+test("colour triggers: lowest crossed threshold wins (PP 60/30/10 example)", () => {
+  const look = { color: "#4ade80", colorTriggers: TRIGGERS };
+  assert.equal(resolveTimerColor(look, 120), "#4ade80", "above every threshold = base colour");
+  assert.equal(resolveTimerColor(look, 60), "orange", "boundary is inclusive");
+  assert.equal(resolveTimerColor(look, 31), "orange");
+  assert.equal(resolveTimerColor(look, 30), "yellow");
+  assert.equal(resolveTimerColor(look, 10), "red");
+  assert.equal(resolveTimerColor(look, 5), "red", "5s must be RED, not orange");
+});
+
+test("overrun colour beats every trigger", () => {
+  assert.equal(resolveTimerColor({ color: "#fff", overrunColor: "#f87171", colorTriggers: TRIGGERS }, -1), "#f87171");
+});
+
+test("unset stays unset, so the renderer keeps its own default", () => {
+  assert.equal(resolveTimerColor({}, 120), undefined);
+  assert.equal(resolveTimerColor({ colorTriggers: [] }, 120), undefined);
+  // Past zero with no overrun colour falls back to the base, not to a literal.
+  assert.equal(resolveTimerColor({ color: "#abcdef" }, -5), "#abcdef");
+});
+
+test("trigger order in the array does not matter", () => {
+  const shuffled = [{ atSec: 10, color: "red" }, { atSec: 60, color: "orange" }, { atSec: 30, color: "yellow" }];
+  assert.equal(resolveTimerColor({ colorTriggers: shuffled }, 5), "red");
+  assert.equal(resolveTimerColor({ colorTriggers: shuffled }, 45), "orange");
+});
+
+test("garbage thresholds are ignored, not crashed on", () => {
+  const look = { color: "#fff", colorTriggers: [{ atSec: NaN, color: "x" }, { atSec: 30, color: "yellow" }] };
+  assert.equal(resolveTimerColor(look, 20), "yellow");
+});
+
+test("the timer and stage resolvers agree at every boundary", () => {
+  // Same look, same value ⇒ same colour, or the projector and the stage screen
+  // would disagree about what colour the sermon timer is.
+  const look = { color: "#4ade80", overrunColor: "#f87171", colorTriggers: TRIGGERS };
+  for (const sec of [500, 61, 60, 59, 31, 30, 29, 11, 10, 9, 1, 0, -1, -600]) {
+    assert.equal(
+      resolveTimerColor(look, sec),
+      resolveWidgetColor(look, sec, look.color),
+      `timer and stage resolvers disagree at ${sec}s`,
+    );
+  }
+});

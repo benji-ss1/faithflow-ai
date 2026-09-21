@@ -65,6 +65,7 @@ import { usePp7Messages } from "./right/usePp7Layers";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
+import { resolveTimerColor } from "@/engine/timers";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
@@ -2762,7 +2763,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // never re-creates the interval. The legacy timer (slot "default") is
   // untouched by this effect — the two coexist on the wire by id.
   const shownTimerIdsRef = useRef<Set<string>>(new Set());
-  const shownTimerKey = timers.slots.filter((s) => s.shown).map((s) => `${s.def.id}:${s.position}:${s.scale}`).join(",");
+  // Includes the LOOK, so changing a colour / trigger / label re-arms the
+  // heartbeat immediately instead of waiting for the next tick.
+  const shownTimerKey = timers.slots.filter((s) => s.shown)
+    .map((s) => {
+      const a = s.appearance;
+      return `${s.def.id}:${s.position}:${s.scale}:${a.color ?? ""}:${a.overrunColor ?? ""}:${a.showLabel}:${(a.colorTriggers ?? []).map((t) => `${t.atSec}@${t.color}`).join("|")}`;
+    })
+    .join(",");
   useEffect(() => {
     const ch = overlayChRef.current;
     if (!ch) return;
@@ -2783,6 +2791,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             position: s.position,
             overrun: s.overrun,
             scale: s.scale,
+            // ProPresenter "Color Triggers" are resolved HERE, operator-side,
+            // into the single `color` the wire already carries — so threshold
+            // colours reach every output surface with no wire change and no
+            // renderer change. resolveTimerColor is pure + unit-tested.
+            color: resolveTimerColor(s.appearance, s.remaining),
+            // The operator can turn the name off; the wire has no flag for it,
+            // so an empty name IS "no label" to every renderer.
+            ...(s.appearance.showLabel === false ? { name: undefined } : {}),
           },
         });
       }

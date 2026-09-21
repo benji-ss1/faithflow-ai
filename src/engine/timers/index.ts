@@ -179,3 +179,25 @@ export function parseDurationToSec(input: string): number {
   else if (parts.length >= 3) sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
   return Math.max(0, sec);
 }
+
+/** Resolve the colour a timer should paint RIGHT NOW, applying ProPresenter's
+ *  "Color Triggers" plus the separate overrun colour.
+ *
+ *  Rules (match resolveWidgetColor in src/engine/stage, deliberately — the two
+ *  must never disagree about what colour a timer is):
+ *    - past zero  → the overrun colour, which beats every trigger
+ *    - otherwise  → the LOWEST crossed threshold wins, so with
+ *                   {60:orange, 30:yellow, 10:red} a timer at 5s is RED
+ *    - no trigger crossed → the operator's base colour, or undefined so the
+ *                   renderer keeps its own default rather than being forced white
+ *  Pure; returns undefined rather than a literal so "unset" stays unset. */
+export function resolveTimerColor(
+  look: { color?: string; overrunColor?: string; colorTriggers?: Array<{ atSec: number; color: string }> },
+  remainingSec: number,
+): string | undefined {
+  if (remainingSec < 0) return look.overrunColor ?? look.color;
+  const crossed = (look.colorTriggers ?? [])
+    .filter((t) => Number.isFinite(t.atSec) && remainingSec <= t.atSec)
+    .sort((a, b) => a.atSec - b.atSec);
+  return crossed.length > 0 ? crossed[0].color : look.color;
+}

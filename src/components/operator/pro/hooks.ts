@@ -126,6 +126,27 @@ const TIMERS_RUNTIME_KEY = "presentflow.pro.timers.runtime.v1";
 // directly unit-testable; re-exported here for existing importers.
 export { resolveTargetMs };
 
+/** Per-timer look, set by the operator. Persisted per machine alongside
+ *  position/scale (the existing pattern) so a church's chosen design survives a
+ *  reload. Timer BEHAVIOUR (allows overrun, period, elapsed bounds, overrun
+ *  colour) lives on the DB def instead, because it is church-wide. */
+export type TimerAppearance = {
+  position: OverlayPosition;
+  scale: number;
+  /** Normal colour. Undefined = the renderer's default white. */
+  color?: string;
+  /** Show the timer's NAME above the clock. */
+  showLabel: boolean;
+  /** Force hours (0:05:00). Undefined = automatic (hours only past an hour). */
+  showHours?: boolean;
+  /** Zero-pad minutes (05:00 rather than 5:00). */
+  leadingZeros: boolean;
+  /** Colour once past zero (ProPresenter's stage `oCl`). Undefined = red. */
+  overrunColor?: string;
+  /** Threshold colour changes, ProPresenter "Color Triggers". */
+  colorTriggers: Array<{ atSec: number; color: string }>;
+};
+
 export type TimerSlot = {
   def: TimerDefinition;
   /** Raw "HH:MM" for countdown_to (persisted); def.targetMs is the resolved value. */
@@ -136,6 +157,11 @@ export type TimerSlot = {
   shown: boolean;
   position: OverlayPosition;
   scale: number; // operator size multiplier (1 = default)
+  appearance: TimerAppearance;
+  /** 0..1 progress through a countdown, for the ProPresenter-style row bar.
+   *  null when there is nothing meaningful to measure against (elapsed with no
+   *  end time, or a countdown_to whose target could not be resolved). */
+  progress: number | null;
 };
 
 export type TimersApi = {
@@ -151,12 +177,18 @@ export type TimersApi = {
   hide: (id: string) => void;
   setPosition: (id: string, p: OverlayPosition) => void;
   setScale: (id: string, scale: number) => void;
+  /** Patch one timer's look (colour, label, format, colour triggers). */
+  setAppearance: (id: string, patch: Partial<TimerAppearance>) => void;
 };
 
-type RuntimeMeta = { shown: boolean; position: OverlayPosition; scale: number };
+type RuntimeMeta = { shown: boolean } & TimerAppearance;
+
+export const TIMER_APPEARANCE_DEFAULTS: TimerAppearance = {
+  position: "top-right", scale: 1, showLabel: true, leadingZeros: false, colorTriggers: [],
+};
 
 export function useTimersSession(): TimersApi {
-  const [defs, setDefs] = useState<Array<{ id: string; name: string; type: string; durationSec: number; targetClock: string | null }>>([]);
+  const [defs, setDefs] = useState<TimerDefRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [runtimes, setRuntimes] = useState<Record<string, TimerRuntime>>({});
   const [meta, setMeta] = useState<Record<string, RuntimeMeta>>({});
@@ -172,7 +204,11 @@ export function useTimersSession(): TimersApi {
     try {
       const res = await listTimerDefinitions();
       if (res.ok && res.data) {
-        setDefs(res.data.map((d) => ({ id: d.id, name: d.name, type: d.type, durationSec: d.durationSec, targetClock: d.targetClock })));
+        setDefs(res.data.map((d) => ({
+          id: d.id, name: d.name, type: d.type, durationSec: d.durationSec, targetClock: d.targetClock,
+          allowsOverrun: d.allowsOverrun, period: d.period, elapsedStartSec: d.elapsedStartSec,
+          elapsedEndSec: d.elapsedEndSec, overrunColor: d.overrunColor,
+        })));
       }
     } catch { /* offline / no session — leave list empty */ }
     finally { setLoading(false); }
@@ -215,11 +251,31 @@ export function useTimersSession(): TimersApi {
     try {
       const raw = window.localStorage.getItem(TIMERS_RUNTIME_KEY);
       if (raw) {
-        const p = JSON.parse(raw) as Record<string, { position?: unknown }>;
+        const p = JSON.parse(raw) as Record<string, Record<string, unknown>>;
         const restored: Record<string, RuntimeMeta> = {};
         for (const k of Object.keys(p)) {
-          const sc = Number((p[k] as { scale?: unknown })?.scale);
-          restored[k] = { shown: false, position: sanitizePosition(p[k]?.position, "top-right"), scale: Number.isFinite(sc) && sc >= 0.25 && sc <= 8 ? sc : 1 };
+          const e = p[k] ?? {};
+          const sc = Number(e.scale);
+          const hex = (v: unknown) => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : undefined;
+          restored[k] = {
+            // `shown` is deliberately NEVER restored — a fresh Sunday must not
+            // resurrect last week's countdown onto the projector.
+            shown: false,
+            position: sanitizePosition(e.position, TIMER_APPEARANCE_DEFAULTS.position),
+            scale: Number.isFinite(sc) && sc >= 0.25 && sc <= 8 ? sc : TIMER_APPEARANCE_DEFAULTS.scale,
+            color: hex(e.color),
+            overrunColor: hex(e.overrunColor),
+            showLabel: e.showLabel !== false,
+            showHours: typeof e.showHours === "boolean" ? e.showHours : undefined,
+            leadingZeros: e.leadingZeros === true,
+            colorTriggers: Array.isArray(e.colorTriggers)
+              ? (e.colorTriggers as Array<Record<string, unknown>>)
+                  .filter((t) => Number.isFinite(Number(t?.atSec)) && hex(t?.color))
+                  .slice(0, 8)
+                  .map((t) => ({ atSec: Math.max(0, Math.round(Number(t.atSec))), color: String(t.color) }))
+                  .sort((a, b) => b.atSec - a.atSec)
+              : [],
+          };
         }
         setMeta(restored);
       }
@@ -242,11 +298,15 @@ export function useTimersSession(): TimersApi {
 
   const setMetaFor = useCallback((id: string, patch: Partial<RuntimeMeta>) => {
     setMeta((m) => {
-      const prev = m[id] ?? { shown: false, position: "top-right" as OverlayPosition, scale: 1 };
+      const prev: RuntimeMeta = m[id] ?? { shown: false, ...TIMER_APPEARANCE_DEFAULTS };
       const next = { ...m, [id]: { ...prev, ...patch } };
       try {
-        const persist: Record<string, { position: OverlayPosition; scale: number }> = {};
-        for (const k of Object.keys(next)) persist[k] = { position: next[k].position, scale: next[k].scale };
+        // Persist the LOOK only — never `shown` (see the restore path above).
+        const persist: Record<string, Omit<RuntimeMeta, "shown">> = {};
+        for (const k of Object.keys(next)) {
+          const { shown: _shown, ...look } = next[k];
+          persist[k] = look;
+        }
         window.localStorage.setItem(TIMERS_RUNTIME_KEY, JSON.stringify(persist));
       } catch { /* noop */ }
       return next;
@@ -273,6 +333,18 @@ export function useTimersSession(): TimersApi {
   const hide = useCallback((id: string) => setMetaFor(id, { shown: false }), [setMetaFor]);
   const setPosition = useCallback((id: string, p: OverlayPosition) => setMetaFor(id, { position: p }), [setMetaFor]);
   const setScale = useCallback((id: string, scale: number) => setMetaFor(id, { scale: Math.max(0.25, Math.min(8, scale)) }), [setMetaFor]);
+  const setAppearance = useCallback((id: string, patch: Partial<TimerAppearance>) => {
+    const clean: Partial<TimerAppearance> = { ...patch };
+    if (clean.scale !== undefined) clean.scale = Math.max(0.25, Math.min(8, clean.scale));
+    if (clean.colorTriggers) {
+      // Bounded and ordered high→low so the renderer can take the first match.
+      clean.colorTriggers = clean.colorTriggers
+        .filter((t) => Number.isFinite(t.atSec) && t.atSec >= 0 && typeof t.color === "string")
+        .slice(0, 8)
+        .sort((a, b) => b.atSec - a.atSec);
+    }
+    setMetaFor(id, clean);
+  }, [setMetaFor]);
 
   const addTimer = useCallback(async (input: TimerDefInput) => {
     const res = await createTimerDefinition(input);
@@ -300,24 +372,61 @@ export function useTimersSession(): TimersApi {
       remaining: computeRemainingSec(def, runtime, nowMs),
       overrun: isOverrun(def, runtime, nowMs),
       shown: meta[d.id]?.shown ?? false,
-      position: meta[d.id]?.position ?? "top-right",
-      scale: meta[d.id]?.scale ?? 1,
+      position: meta[d.id]?.position ?? TIMER_APPEARANCE_DEFAULTS.position,
+      scale: meta[d.id]?.scale ?? TIMER_APPEARANCE_DEFAULTS.scale,
+      appearance: {
+        ...TIMER_APPEARANCE_DEFAULTS,
+        ...(meta[d.id] ?? {}),
+        position: meta[d.id]?.position ?? TIMER_APPEARANCE_DEFAULTS.position,
+        scale: meta[d.id]?.scale ?? TIMER_APPEARANCE_DEFAULTS.scale,
+        colorTriggers: meta[d.id]?.colorTriggers ?? [],
+      },
+      progress: timerProgress(def, computeRemainingSec(def, runtime, nowMs)),
     };
   }), [defs, runtimes, meta, nowMs, targets]);
 
-  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, hide, setPosition, setScale };
+  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, hide, setPosition, setScale, setAppearance };
 }
 
 /** Map a stored def row to the engine's TimerDefinition. `resolvedTargetMs` is
  *  the ALREADY-resolved countdown_to target (resolved once by the hook), not a
  *  clock to resolve per call — passing `nowMs` here would re-roll on overrun. */
-function defToEngine(
-  d: { id: string; name: string; type: string; durationSec: number; targetClock: string | null } | undefined,
-  resolvedTargetMs: number | null,
-): TimerDefinition | null {
+/** 0..1 through a countdown, for the ProPresenter-style row progress bar.
+ *  null when there is no meaningful total to measure against (an elapsed timer
+ *  with no end, or a countdown_to whose clock could not be resolved). */
+function timerProgress(def: TimerDefinition, remaining: number): number | null {
+  const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+  if (def.type === "countdown") {
+    if (!def.durationSec) return null;
+    return clamp01(1 - remaining / def.durationSec);
+  }
+  if (def.type === "elapsed") {
+    const end = def.elapsedEndSec;
+    if (typeof end !== "number" || !Number.isFinite(end) || end <= 0) return null;
+    const start = def.elapsedStartSec ?? 0;
+    if (end <= start) return null;
+    return clamp01((remaining - start) / (end - start));
+  }
+  return null; // countdown_to has no fixed total — it depends when you looked
+}
+
+type TimerDefRow = {
+  id: string; name: string; type: string; durationSec: number; targetClock: string | null;
+  allowsOverrun?: boolean; period?: string | null;
+  elapsedStartSec?: number | null; elapsedEndSec?: number | null; overrunColor?: string | null;
+};
+
+function defToEngine(d: TimerDefRow | undefined, resolvedTargetMs: number | null): TimerDefinition | null {
   if (!d) return null;
   const type = (d.type === "countdown_to" || d.type === "elapsed" ? d.type : "countdown") as TimerDefinition["type"];
-  return { id: d.id, name: d.name, type, durationSec: d.durationSec, targetMs: type === "countdown_to" ? resolvedTargetMs : null };
+  return {
+    id: d.id, name: d.name, type, durationSec: d.durationSec,
+    targetMs: type === "countdown_to" ? resolvedTargetMs : null,
+    // ProPresenter "Allows Overrun" — the engine clamps at the endpoint without it.
+    allowsOverrun: d.allowsOverrun === true,
+    elapsedStartSec: d.elapsedStartSec ?? null,
+    elapsedEndSec: d.elapsedEndSec ?? null,
+  };
 }
 
 // ------------------------------------------------------------- Messages (R4)
