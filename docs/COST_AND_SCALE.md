@@ -76,6 +76,13 @@ outage". **Verified against the live API: the code was already migrated** to
 *documentation* — `CLAUDE.md` rule 6 and the comments in `ai-helpers.ts`, now
 fixed. A textbook rule-4 case: an artifact raised an alarm the source disproved.
 
+**Re-verified with the app's exact request shape** (`response_format:
+json_object`, `max_tokens: 800`): both `openai/gpt-oss-120b` and
+`openai/gpt-oss-20b` return valid JSON. An earlier spot-check using
+`max_tokens: 10` came back with EMPTY content and looked broken — these are
+reasoning models and the budget was consumed before any content was emitted.
+**Test a model the way the app actually calls it, or the result means nothing.**
+
 ## Measurements we do not have
 
 Actual Vercel invocation/memory profile · actual Fly billed machine-hours ·
