@@ -10,6 +10,9 @@ export type CustomTemplate = {
   name: string;
   bgColor?: string;
   bgImageUrl?: string;
+  /** The saved background was deliberately chosen, so applying the template
+   *  reproduces a black background instead of it reading as the unset default. */
+  bgExplicit?: boolean;
   objects: SlideObject[];
 };
 

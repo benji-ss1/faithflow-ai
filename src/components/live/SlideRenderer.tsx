@@ -5,6 +5,7 @@ import { BAND_FALLBACK_BG, CANVAS_H, CANVAS_W, bandCaptionPx, bandEdgeShadow, re
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H, type SlidePayload, type ThemeAppearance, type ScriptureBandWire, type ThemeFrameWire, type SlideObjectWire } from "@/lib/broadcast";
 import { themedObjectTextColor, coversCanvas } from "@/lib/slide-objects";
 import { themeBoxesAllowed as themeBoxesAllowedFor, themeDecorFor, themeDecorPlan } from "@/lib/theme-decor-plan";
+import { useTransparentSlide } from "@/lib/transparent-slide";
 import { AutoFitText } from "./AutoFitText";
 import { AnimatedThemeBg } from "./ThemeLayers";
 import { SlideObjectsLayer } from "./SlideObjectsLayer";
@@ -52,6 +53,8 @@ function usesAnimatedBg(appearance: ThemeAppearance | null | undefined, overVide
 // rendered black, and a projector shows black as an unlit white/grey screen).
 // Treat the default black as "no per-slide background set" so the theme/template
 // shows through; a NON-default colour the operator actually chose still wins.
+// 2026-09-21: this heuristic is now only the LEGACY fallback — a slide saved with
+// `bgExplicit: true` says outright that its colour was chosen, and skips it.
 function isDefaultSlideBg(c: string | null | undefined): boolean {
   if (!c) return true;
   const v = c.trim().toLowerCase();
@@ -65,8 +68,17 @@ function isDefaultSlideBg(c: string | null | undefined): boolean {
 // active. The values are validated on the wire (isValidThemeAppearance), and a
 // hostile string can't break out of the single `background`/`color` CSS property
 // (CSSOM parses each property in isolation).
-export function themeBackgroundStyle(appearance: ThemeAppearance | null | undefined, fallback: string): React.CSSProperties {
-  if (!appearance) return { background: fallback };
+export function themeBackgroundStyle(
+  appearance: ThemeAppearance | null | undefined,
+  fallback: string,
+  /** 2026-09-20 owner directive: when nothing was actually CHOSEN as a background, the
+   *  slide is a transparent text layer and whatever sits underneath (media, camera,
+   *  background template) shows through. The opaque black lives on the surface, not on
+   *  the slide. Off ⇒ the previous opaque `fallback`, byte-identical. */
+  transparentDefault?: boolean,
+): React.CSSProperties {
+  const none = transparentDefault ? { background: "transparent" } : { background: fallback };
+  if (!appearance) return none;
   const dim = typeof appearance.dim === "number" && appearance.dim > 0 ? Math.min(1, appearance.dim) : 0;
   const dimLayer = dim > 0 ? `linear-gradient(rgba(0,0,0,${dim}),rgba(0,0,0,${dim}))` : null;
   let base: string | undefined;
@@ -77,7 +89,7 @@ export function themeBackgroundStyle(appearance: ThemeAppearance | null | undefi
   } else if (appearance.bgColor) {
     base = appearance.bgColor;
   }
-  if (!base) return { background: fallback };
+  if (!base) return none;
   return {
     background: dimLayer ? `${dimLayer}, ${base}` : base,
     backgroundSize: "cover",
@@ -274,6 +286,8 @@ type SlideRendererProps = {
 export function SlideRenderer(props: SlideRendererProps) {
   const { slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput, obsOverlay, fitBandFraction, ignoreThemeLayout, themeChromeHosted } = props;
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
+  // Transparent slide layer (kill-switchable). Read once per render.
+  const transparentDefault = useTransparentSlide();
   // Theme boxes apply only on a normal full-frame surface: never on stage
   // (ignoreThemeLayout), OBS/NDI transparent keying, a camera band, or lyrics
   // the operator moved over a camera. (The lower-third scripture band and
@@ -283,7 +297,7 @@ export function SlideRenderer(props: SlideRendererProps) {
   const themeLayout = themeBoxesAllowed ? appearance?.layout : undefined;
   // Hosted: the compositor paints theme bg + decor persistently behind us.
   const hosted = !!themeChromeHosted && themeDecorPlan(slide, appearance, decorFlags) !== null;
-  const themeBg = (fallback: string): React.CSSProperties => (hosted ? { background: "transparent" } : themeBackgroundStyle(appearance, fallback));
+  const themeBg = (fallback: string): React.CSSProperties => (hosted ? { background: "transparent" } : themeBackgroundStyle(appearance, fallback, transparentDefault));
   // Theme decor (images/shapes/video/extra text from the theme slide), drawn
   // behind the slide text. Scripture uses the scripture slide's decor, falling
   // back to the lyrics slide's. Undefined ⇒ nothing extra rendered.
@@ -301,12 +315,16 @@ export function SlideRenderer(props: SlideRendererProps) {
   // A band can only ever make the fit smaller: take whichever reserve is larger.
   const bandReserve = typeof fitBandFraction === "number" && fitBandFraction > 0 && fitBandFraction < 1 ? 1 - fitBandFraction : 0;
   const withBand = (r: number) => Math.max(r, bandReserve);
-  // Effective per-slide background: the DEFAULT black ("#000000") counts as
-  // "unset" so the theme/template can show through (see isDefaultSlideBg). A
-  // colour the operator actually customised still wins. Used by the song/
-  // scripture (text) paths below — NOT the deliberate "blank" kind.
+  // Effective per-slide background. `bgExplicit` means a human or a theme
+  // deliberately CHOSE this colour, so it paints even when it is pure black —
+  // that is how an operator can finally pick black and have it stick. Without
+  // the flag (every pre-2026-09-21 row) we fall back to the old heuristic: the
+  // DEFAULT black ("#000000") counts as "unset" so the theme/template shows
+  // through (see isDefaultSlideBg), and a customised colour still wins. Used by
+  // the song/scripture (text) paths below — NOT the deliberate "blank" kind.
   const rawSlideBg = "bgColor" in slide ? slide.bgColor : undefined;
-  const slideBg = rawSlideBg && !isDefaultSlideBg(rawSlideBg) ? rawSlideBg : undefined;
+  const bgWasChosen = "bgExplicit" in slide && slide.bgExplicit === true;
+  const slideBg = rawSlideBg && (bgWasChosen || !isDefaultSlideBg(rawSlideBg)) ? rawSlideBg : undefined;
 
   // A cleared slide is transparent in overlay mode (camera shows through in OBS)
   // AND when a Background Template / theme video sits behind it (overVideo) — so a
@@ -342,7 +360,7 @@ export function SlideRenderer(props: SlideRendererProps) {
     // Over video OR in OBS transparent mode, a blank slide is fully transparent
     // (shows the live feed / camera). transparentBg ignores any per-slide bgColor
     // so "clear" always keys through.
-    const bg = (overVideo || transparentBg) ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000");
+    const bg = (overVideo || transparentBg) ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000", transparentDefault);
     const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slide.bgColor);
     return (
       <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={bg}>
@@ -428,7 +446,7 @@ export function SlideRenderer(props: SlideRendererProps) {
         ? { background: "transparent" }
         : slide.bgImageUrl
           ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
-          : themeBackgroundStyle(appearance, "#0b0b0b");
+          : themeBackgroundStyle(appearance, "#0b0b0b", transparentDefault);
       return (
         <div className={`${base} relative ${className || ""}`} style={ltBg}>
           {hasPaint && (

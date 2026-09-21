@@ -20,10 +20,10 @@ import { cleanRenderUrl } from "../render-url";
 // designed slide always projects — one bad value can never no-op the slide on
 // the projector (the whole-OutputState wire validator would otherwise reject it).
 function projectableSongSlide(text: string, objectsJson: unknown): SlidePayload {
-  const raw = objectsJson as { bgColor?: unknown; bgImageUrl?: unknown; objects?: unknown } | null | undefined;
+  const raw = objectsJson as { bgColor?: unknown; bgExplicit?: unknown; bgImageUrl?: unknown; objects?: unknown } | null | undefined;
   // Re-validate the stored per-slide background on READ with the same check the
   // write path uses (setSongSlideBackgroundImage / createSongImageSlide).
-  return projectableTextSlide(text, raw?.bgColor, cleanRenderUrl(raw?.bgImageUrl) ?? undefined, raw?.objects);
+  return projectableTextSlide(text, raw?.bgColor, cleanRenderUrl(raw?.bgImageUrl) ?? undefined, raw?.objects, raw?.bgExplicit);
 }
 
 // A legacy / hand-edited plan row can carry a non-UUID id; passing it to a uuid

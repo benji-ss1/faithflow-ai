@@ -11,7 +11,10 @@
 import { bakeThemeIntoObjectsJson, type BakeableThemeConfig } from "./theme-bake";
 export type { BakeableThemeConfig };
 
-export const THEME_OWNED_SLIDE_FIELDS = ["bgType", "bgColor", "bgColor2", "bgImageUrl", "transition"] as const;
+// `bgExplicit` is theme-owned too: a bake sets it alongside bgColor/bgImageUrl,
+// so an undo that restores the pre-theme background must restore the marker with
+// it — otherwise a stale `true` makes a restored default black paint as a choice.
+export const THEME_OWNED_SLIDE_FIELDS = ["bgType", "bgColor", "bgColor2", "bgImageUrl", "bgExplicit", "transition"] as const;
 export const THEME_OWNED_TEXT_FIELDS = ["fontFamily", "fontSize", "fontWeight", "color", "align"] as const;
 
 type Obj = Record<string, unknown>;

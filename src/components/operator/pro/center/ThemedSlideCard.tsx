@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
+import { useTransparentSlide } from "@/lib/transparent-slide";
 import { isBandSlide } from "@/lib/band-media";
 import type { BackgroundSpec } from "@/lib/broadcast";
 import { SharedBackgroundRenderer, type SharedShaderSpec } from "@/backgrounds/shared/SharedBackgroundRenderer";
@@ -30,6 +31,7 @@ export function ThemedSlideCard({
   background,
   ...rest
 }: React.ComponentProps<typeof SlideRenderer> & { background?: BackgroundSpec | null }) {
+  const transparentSlide = useTransparentSlide();
   const hasBg = !!(background && background.type !== "none");
   const kind = slide.kind;
   const themeable = kind === "text" || kind === "blank";
@@ -44,6 +46,12 @@ export function ThemedSlideCard({
   const renderer = <SlideRenderer slide={slide} appearance={appearance} overVideo={showBg} {...rest} />;
   return (
     <>
+      {/* Screen colour (PP7's bottom layer). With the transparent slide layer on, a slide
+          that was never given a background paints nothing, so the card needs the same
+          opaque base a real projector surface has (/live is bg-black, /stage and
+          /livestream paint #000) — otherwise the operator UI would show through the
+          card. Sits BELOW the background template, exactly like the projector. */}
+      {transparentSlide && <div aria-hidden className="absolute inset-0" style={{ background: "#000" }} />}
       {showBg && <CardBackground background={background!} />}
       {/* Lower-third BAND slides (verse / song / band media) size their reference +
           caption in fixed-canvas px, so like /live, the operator preview and the

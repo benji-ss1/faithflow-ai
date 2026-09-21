@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.492",
+    "version": "0.1.494",
     "date": "2026-09-21",
     "headline": "Turn Scenes on yourself in Settings",
     "highlights": [
@@ -15,7 +15,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.491",
+    "version": "0.1.493",
     "date": "2026-09-21",
     "headline": "Choose which screens each timer shows on",
     "highlights": [
@@ -23,6 +23,31 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Useful when the countdown belongs on the stage display for the preacher but not in front of the congregation, or when you want it off the livestream only.",
       "Nothing changes unless you set it up. If you've never built a Scene, your timers show exactly where they always have.",
       "Turning \"Timer\" off for a screen also hides the older service countdown on that screen, since both appear in the same corner."
+    ]
+  },
+  {
+    "version": "0.1.492",
+    "date": "2026-09-21",
+    "headline": "Pick black as a slide background and it now stays black",
+    "highlights": [
+      "Choosing black as a slide or theme background now works. Until now black was the same value the app uses for \"no background has been set\", so picking it did nothing and the theme or background template kept showing through.",
+      "A slide records that you actually chose its background, so your choice is kept when the slide is saved, reopened, restyled by a theme, copied to a new slide or sent to the projector.",
+      "Removing a slide's background image now returns it to see-through, instead of leaving an invisible leftover behind.",
+      "The background panel now tells you, in words, whether a slide has its own background colour or is see-through, and gives you a \"Clear colour\" button to go back to see-through. A black swatch on its own could never show you which one you had.",
+      "In the slide editor, a see-through slide is now drawn as a faint checkerboard so you can tell it apart from one you deliberately made black. The checkerboard is only ever in the editor - it never reaches the projector, stage screen, livestream or recording.",
+      "Your choice is also kept when you use \"Apply background to all slides\", save or apply a slide template, switch a scripture slide between full screen and the lower band, or undo a theme.",
+      "Every existing slide looks exactly as it did before. Nothing needs to be re-saved or re-themed."
+    ]
+  },
+  {
+    "version": "0.1.491",
+    "date": "2026-09-21",
+    "headline": "Slides are now a transparent text layer, so a photo, video or colour behind them actually shows through",
+    "highlights": [
+      "A slide you have not given a background to is now see-through. The words sit on their own layer and whatever is behind them - a photo, a video, a background template or the camera - shows through instead of being covered by a black fill.",
+      "Choosing a background colour in Themes still paints it. If you pick black, the lyrics appear on that black and anything placed behind it is hidden, exactly as you would expect.",
+      "Clearing the background in Themes puts the slide back to see-through, and the image behind it becomes visible again straight away.",
+      "Nothing looks different on a screen that has nothing behind the words - the projector, stage screen and livestream each paint their own black, so a plain slide still looks plain black."
     ]
   },
   {

@@ -154,6 +154,7 @@ test/scripture-size-width.test.ts
 test/service-mode.test.ts
 test/settings-tidy.test.ts
 test/slide-actions-remap.test.ts
+test/slide-bg-explicit.test.tsx
 test/slide-identity-fonts.test.ts
 test/slide-paste.test.ts
 test/slide-renderer-empty.test.ts
@@ -195,6 +196,7 @@ test/timer-scene-routing.test.ts
 test/transition-publish.test.tsx
 test/transition-resolve.test.ts
 test/translation-commands.test.ts
+test/transparent-slide.test.tsx
 test/update-banner-arch.test.ts
 test/verse-nav-commands.test.ts
 test/verse-v2-mishears.test.ts

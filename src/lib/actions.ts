@@ -944,6 +944,9 @@ async function assertSongOwned(db: ReturnType<typeof getDb>, songId: string, chu
 type EditableSlideInput = {
   bgColor?: string;
   bgImageUrl?: string;
+  /** The background was deliberately chosen (see slide-objects.ts) — so a pure
+   *  black paints instead of reading as the unset DB default. */
+  bgExplicit?: boolean;
   objects: unknown[];
   lyrics?: string;
 };
@@ -965,6 +968,7 @@ export async function saveSlideObjects(slideId: string, editable: EditableSlideI
     objectsJson: {
       bgColor: editable.bgColor,
       bgImageUrl: editable.bgImageUrl,
+      ...(editable.bgExplicit === true ? { bgExplicit: true } : {}),
       objects: editable.objects,
     },
     lyrics: derivedLyrics,
@@ -1020,6 +1024,7 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
   let objects = initial?.objects ?? [];
   let bgColor = initial?.bgColor;
   let bgImageUrl = initial?.bgImageUrl;
+  let bgExplicit = initial?.bgExplicit;
 
   // STYLE INHERITANCE (2026-09-06): when adding a BLANK slide (no objects
   // supplied — both "Add slide" buttons do this), copy the styling of a sibling
@@ -1033,7 +1038,7 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
     if (templateId) {
       const [tpl] = await db.select({ objectsJson: songSlides.objectsJson })
         .from(songSlides).where(eq(songSlides.id, templateId)).limit(1);
-      const tplJson = tpl?.objectsJson as { bgColor?: string; bgImageUrl?: string; objects?: Array<Record<string, unknown>> } | null;
+      const tplJson = tpl?.objectsJson as { bgColor?: string; bgImageUrl?: string; bgExplicit?: boolean; objects?: Array<Record<string, unknown>> } | null;
       if (tplJson?.objects?.length) {
         const newText = (initial?.lyrics ?? "").trim();
         let usedTextSlot = false;
@@ -1050,6 +1055,9 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
         });
         bgColor = bgColor ?? tplJson.bgColor;
         bgImageUrl = bgImageUrl ?? tplJson.bgImageUrl;
+        // Style inheritance copies the sibling's background, so it must copy
+        // "that background was chosen" too — else a black sibling's look is lost.
+        bgExplicit = bgExplicit ?? tplJson.bgExplicit;
       }
     }
   }
@@ -1067,6 +1075,7 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
     objectsJson: objects.length > 0 ? {
       bgColor,
       bgImageUrl,
+      ...(bgExplicit === true ? { bgExplicit: true } : {}),
       objects,
     } : null,
   }).returning({ id: songSlides.id });
@@ -1147,10 +1156,12 @@ export async function setSongSlideBackgroundImage(slideId: string, url: string):
     return { ok: false, error: "That media has no usable image URL" };
   }
   const [row] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
-  const oj = (row?.objectsJson ?? null) as { bgColor?: string; bgImageUrl?: string; objects?: Array<Record<string, unknown>> } | null;
+  const oj = (row?.objectsJson ?? null) as { bgColor?: string; bgImageUrl?: string; bgExplicit?: boolean; objects?: Array<Record<string, unknown>> } | null;
   const nextJson = {
     bgColor: oj?.bgColor,
     bgImageUrl: clean,
+    // The operator picked this image, so the background is chosen.
+    bgExplicit: true,
     objects: Array.isArray(oj?.objects) ? oj!.objects : [],
   };
   await db.update(songSlides).set({ objectsJson: nextJson }).where(eq(songSlides.id, slideId));
@@ -1194,7 +1205,7 @@ export async function setAllSongSlidesBackgroundImage(songId: string, url: strin
   let count = 0;
   for (const r of rows) {
     const oj = (r.objectsJson ?? null) as Record<string, unknown> | null;
-    const nextJson = oj ? { ...oj, bgImageUrl: clean } : { bgColor: undefined, bgImageUrl: clean, objects: [] };
+    const nextJson = oj ? { ...oj, bgImageUrl: clean, bgExplicit: true } : { bgColor: undefined, bgImageUrl: clean, bgExplicit: true, objects: [] };
     await db.update(songSlides).set({ objectsJson: nextJson }).where(eq(songSlides.id, r.id));
     count++;
   }
@@ -1215,8 +1226,13 @@ export async function clearAllSongSlideBackgrounds(songId: string): Promise<Resu
   for (const r of rows) {
     const oj = (r.objectsJson ?? null) as Record<string, unknown> | null;
     if (!oj || !oj.bgImageUrl) continue;
-    // Spread + drop only the image (preserve gradient/transition/etc).
-    await db.update(songSlides).set({ objectsJson: { ...oj, bgImageUrl: undefined } }).where(eq(songSlides.id, r.id));
+    // Spread + drop only the image (preserve gradient/transition/etc). With no
+    // image and no colour left there is nothing chosen, so clear the flag too —
+    // otherwise the slide would keep painting instead of going transparent.
+    const stillHasColour = typeof oj.bgColor === "string" && oj.bgColor.length > 0;
+    await db.update(songSlides).set({
+      objectsJson: { ...oj, bgImageUrl: undefined, bgExplicit: stillHasColour ? oj.bgExplicit : undefined },
+    }).where(eq(songSlides.id, r.id));
     count++;
   }
   if (count > 0) revalidatePath(`/library/songs/${songId}`);

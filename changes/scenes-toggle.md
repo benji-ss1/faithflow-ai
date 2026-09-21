@@ -1,7 +1,7 @@
 ---
 headline: Turn Scenes on yourself in Settings
 audience: operator
-version: 0.1.492
+version: 0.1.494
 date: 2026-09-21
 highlights:
   - Scenes now has an on/off switch in Settings, under Screens, next to Layers. Only a church admin can change it.

@@ -1,7 +1,7 @@
 ---
 headline: Choose which screens each timer shows on
 audience: operator
-version: 0.1.491
+version: 0.1.493
 date: 2026-09-21
 highlights:
   - Timers can now be shown or hidden per screen. In Scenes you'll find a new "Timer" row next to Projector, Stage, Livestream and NDI feed — tick any combination.

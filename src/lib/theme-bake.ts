@@ -43,9 +43,13 @@ export function bakeThemeIntoObjectsJson(cfg: BakeableThemeConfig, rawObjectsJso
     const textLight = readableTextColor(text6) === "#111111";
     return bgLight === textLight ? readableTextColor(bg6) : themeText;
   };
-  // A pure-black baked bg is read as "unset" by the projector — nudge to near-black.
-  const isBlackBg = typeof cfg.bgColor === "string" && ["#000000", "#000", "black", "rgb(0,0,0)"].includes(cfg.bgColor.trim().toLowerCase());
-  const bakeBgColor = isBlackBg ? "#010101" : cfg.bgColor;
+  // A theme that sets a background CHOSE it, so we bake the real colour and mark
+  // it `bgExplicit`. Before 2026-09-21 there was no way to say "chosen", so a pure
+  // black had to be nudged to the near-black sentinel "#010101" or the projector
+  // read it as unset and let the theme/template show through. Rows baked by older
+  // builds still carry #010101 and still render correctly (the renderer and
+  // pp7-keep-theme-bg both still recognise it) — we simply stop MINTING it.
+  const bakeBgColor = cfg.bgColor;
   // Gradient themes can't bake to a single solid bgColor — the slide's own bg is
   // CLEARED (not kept) so the live gradient appearance path shows through.
   const bakeGradient = cfg.bgType === "gradient";
@@ -62,6 +66,11 @@ export function bakeThemeIntoObjectsJson(cfg: BakeableThemeConfig, rawObjectsJso
     bgColor: bakeGradient ? raw.bgColor : (bakeBgColor ?? raw.bgColor),
     bgColor2: bakeGradient ? raw.bgColor2 : (cfg.bgColor2 ?? raw.bgColor2),
     bgImageUrl: cfg.bgImageUrl ?? raw.bgImageUrl,
+    // The theme chose whatever it set, so a baked black paints instead of being
+    // read as the unset DB default. Gradients bake nothing, so they keep `raw`.
+    bgExplicit: bakeGradient
+      ? raw.bgExplicit
+      : ((cfg.bgColor ?? cfg.bgImageUrl) !== undefined ? true : raw.bgExplicit),
     transition: cfg.transition ?? raw.transition,
     objects: objects.map((o) => {
       if (o?.kind !== "text") return o;
@@ -81,7 +90,8 @@ export function bakeThemeIntoObjectsJson(cfg: BakeableThemeConfig, rawObjectsJso
     out.bgColor = bakeGradient ? undefined : bakeBgColor;
     out.bgColor2 = bakeGradient ? undefined : cfg.bgColor2;
     out.bgImageUrl = cfg.bgImageUrl;
-    for (const k of ["bgType", "bgColor", "bgColor2", "bgImageUrl"]) if (out[k] === undefined) delete out[k];
+    out.bgExplicit = (out.bgColor ?? out.bgImageUrl) !== undefined ? true : undefined;
+    for (const k of ["bgType", "bgColor", "bgColor2", "bgImageUrl", "bgExplicit"]) if (out[k] === undefined) delete out[k];
   }
   return out;
 }
