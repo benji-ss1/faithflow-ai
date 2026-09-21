@@ -194,3 +194,4 @@ test/transparent-slide.test.tsx
 test/nav-clauses.test.ts
 test/theme-carries-band.test.ts
 test/song-background-affordance.test.ts
+test/slide-bg-explicit.test.tsx

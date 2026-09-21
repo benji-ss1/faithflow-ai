@@ -53,6 +53,8 @@ function usesAnimatedBg(appearance: ThemeAppearance | null | undefined, overVide
 // rendered black, and a projector shows black as an unlit white/grey screen).
 // Treat the default black as "no per-slide background set" so the theme/template
 // shows through; a NON-default colour the operator actually chose still wins.
+// 2026-09-21: this heuristic is now only the LEGACY fallback — a slide saved with
+// `bgExplicit: true` says outright that its colour was chosen, and skips it.
 function isDefaultSlideBg(c: string | null | undefined): boolean {
   if (!c) return true;
   const v = c.trim().toLowerCase();
@@ -313,12 +315,16 @@ export function SlideRenderer(props: SlideRendererProps) {
   // A band can only ever make the fit smaller: take whichever reserve is larger.
   const bandReserve = typeof fitBandFraction === "number" && fitBandFraction > 0 && fitBandFraction < 1 ? 1 - fitBandFraction : 0;
   const withBand = (r: number) => Math.max(r, bandReserve);
-  // Effective per-slide background: the DEFAULT black ("#000000") counts as
-  // "unset" so the theme/template can show through (see isDefaultSlideBg). A
-  // colour the operator actually customised still wins. Used by the song/
-  // scripture (text) paths below — NOT the deliberate "blank" kind.
+  // Effective per-slide background. `bgExplicit` means a human or a theme
+  // deliberately CHOSE this colour, so it paints even when it is pure black —
+  // that is how an operator can finally pick black and have it stick. Without
+  // the flag (every pre-2026-09-21 row) we fall back to the old heuristic: the
+  // DEFAULT black ("#000000") counts as "unset" so the theme/template shows
+  // through (see isDefaultSlideBg), and a customised colour still wins. Used by
+  // the song/scripture (text) paths below — NOT the deliberate "blank" kind.
   const rawSlideBg = "bgColor" in slide ? slide.bgColor : undefined;
-  const slideBg = rawSlideBg && !isDefaultSlideBg(rawSlideBg) ? rawSlideBg : undefined;
+  const bgWasChosen = "bgExplicit" in slide && slide.bgExplicit === true;
+  const slideBg = rawSlideBg && (bgWasChosen || !isDefaultSlideBg(rawSlideBg)) ? rawSlideBg : undefined;
 
   // A cleared slide is transparent in overlay mode (camera shows through in OBS)
   // AND when a Background Template / theme video sits behind it (overVideo) — so a

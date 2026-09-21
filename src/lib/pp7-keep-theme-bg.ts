@@ -102,8 +102,14 @@ const normColor = (c: string | undefined) => (c ?? "").trim().toLowerCase();
  *  near-black "#010101" nudge), and that is the theme's media, not the slide's:
  *  a baked slide whose image/colour IS the live theme's still counts. */
 function themeBgWasShowing(s: SlidePayload, appearance: ThemeAppearance | null | undefined): boolean {
+  // `bgExplicit` (2026-09-21) says the colour was deliberately CHOSEN. A theme
+  // bake sets it too, so "chosen" alone proves nothing — but it does mean we can
+  // stop treating a bare black as automatically the theme's: if it was chosen and
+  // does NOT match the live theme, it is the slide's own and clears with it.
+  const chosen = s.kind === "text" && s.bgExplicit === true;
+  const matchesTheme = (c: string | undefined) => !!appearance?.bgColor && normColor(c) === normColor(appearance.bgColor);
   const isThemeColor = (c: string | undefined) =>
-    defaultBlack(c) || normColor(c) === "#010101" || (!!appearance?.bgColor && normColor(c) === normColor(appearance.bgColor));
+    chosen ? matchesTheme(c) : (defaultBlack(c) || normColor(c) === "#010101" || matchesTheme(c));
   if (s.kind === "blank") return defaultBlack(s.bgColor);
   if (s.kind !== "text") return false; // image / video / logo / empty
   if (s.bgImageUrl) {

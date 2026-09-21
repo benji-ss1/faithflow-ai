@@ -30,9 +30,25 @@ check("non-text objects are untouched", () => {
   assert.deepEqual((out.objects as any[])[0], img);
 });
 
-check("pure-black bg baked as near-black sentinel #010101", () => {
+// 2026-09-21: the #010101 sentinel is retired. It only ever existed because a
+// baked pure black was indistinguishable from the unset DB default, so it had to
+// be nudged one bit off black to survive. `bgExplicit` says "chosen" outright, so
+// the real colour is baked. Old rows still carry #010101 and still render — see
+// "a legacy #010101 row still paints" below.
+check("pure-black bg bakes the REAL black and marks it chosen", () => {
   const out = bakeThemeIntoObjectsJson({ bgType: "solid", bgColor: "#000000" }, { objects: [] });
-  assert.equal(out.bgColor, "#010101");
+  assert.equal(out.bgColor, "#000000");
+  assert.equal(out.bgExplicit, true);
+  assert.notEqual(out.bgColor, "#010101");
+});
+
+check("any theme background is marked chosen; a theme with none leaves the flag off", () => {
+  const colour = bakeThemeIntoObjectsJson({ bgType: "solid", bgColor: "#123456" }, { objects: [] });
+  assert.equal(colour.bgExplicit, true);
+  const image = bakeThemeIntoObjectsJson({ bgType: "image", bgImageUrl: "https://x/bg.png" }, { objects: [] });
+  assert.equal(image.bgExplicit, true);
+  const noBg = bakeThemeIntoObjectsJson({ fontFamily: "Inter" }, { objects: [] });
+  assert.equal(noBg.bgExplicit, undefined);
 });
 
 check("gradient theme does NOT bake a solid bgColor and CLEARS the slide's own (it would cover the gradient)", () => {
