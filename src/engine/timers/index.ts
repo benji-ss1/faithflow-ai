@@ -64,9 +64,15 @@ export function initialRuntime(def: TimerDefinition): TimerRuntime {
     anchorMs: null,
     // An elapsed timer starts at its configured start offset (ProPresenter
     // "Elapsed Time" start_time), not necessarily zero.
-    baseSec: def.type === "elapsed"
-      ? Math.max(0, def.elapsedStartSec ?? 0)
-      : Math.max(0, def.durationSec),
+    // countdown_to banks NOTHING at rest — its value comes from the wall
+    // clock, and baseSec is used only to freeze it when stopped. Seeding it
+    // from durationSec made a never-started countdown_to look "frozen" at its
+    // duration (caught by the hostile suite).
+    baseSec: def.type === "countdown_to"
+      ? 0
+      : def.type === "elapsed"
+        ? Math.max(0, def.elapsedStartSec ?? 0)
+        : Math.max(0, def.durationSec),
   };
 }
 
@@ -79,8 +85,17 @@ export function computeRemainingSec(def: TimerDefinition, rt: TimerRuntime, nowM
   // its endpoint instead of running into negative/unbounded time.
   const overrun = def.allowsOverrun === true;
   if (def.type === "countdown_to") {
+    // A STOPPED countdown_to is frozen at the value banked when it was
+    // stopped. It used to ignore rt entirely, so Stop changed a flag and
+    // nothing else — the number kept ticking and the state still read
+    // "running". ProPresenter exposes stop for every timer id, so it must
+    // genuinely freeze. A fresh (never-started) runtime has no banked value,
+    // so it shows the live wall-clock figure.
+    // Frozen == stopped AFTER having been started. initialRuntime banks 0 for
+    // this type, so a fresh runtime is never mistaken for a frozen one.
+    const frozen = !rt.running && rt.anchorMs === null && rt.baseSec !== 0;
     const target = def.targetMs ?? nowMs;
-    const raw = (target - nowMs) / 1000;
+    const raw = frozen ? rt.baseSec : (target - nowMs) / 1000;
     return overrun ? raw : Math.max(0, raw);
   }
   const sinceAnchor = rt.running && rt.anchorMs != null ? (nowMs - rt.anchorMs) / 1000 : 0;
@@ -110,7 +125,8 @@ export function isOverrun(def: TimerDefinition, rt: TimerRuntime, nowMs: number)
  *  mark it running so the UI/overlay treats it as active. Idempotent. */
 export function startTimer(def: TimerDefinition, rt: TimerRuntime, nowMs: number): TimerRuntime {
   if (rt.running) return rt;
-  if (def.type === "countdown_to") return { ...rt, running: true, anchorMs: nowMs };
+  // Resuming a countdown_to drops its frozen value and returns to the clock.
+  if (def.type === "countdown_to") return { running: true, anchorMs: nowMs, baseSec: 0 };
   const current = computeRemainingSec(def, rt, nowMs);
   return { running: true, anchorMs: nowMs, baseSec: current };
 }
@@ -118,7 +134,10 @@ export function startTimer(def: TimerDefinition, rt: TimerRuntime, nowMs: number
 /** Stop (pause) a timer, banking the current computed value. Idempotent. */
 export function stopTimer(def: TimerDefinition, rt: TimerRuntime, nowMs: number): TimerRuntime {
   if (!rt.running) return rt;
-  if (def.type === "countdown_to") return { ...rt, running: false, anchorMs: null };
+  // Bank the value so the display genuinely freezes (see computeRemainingSec).
+  if (def.type === "countdown_to") {
+    return { running: false, anchorMs: null, baseSec: computeRemainingSec(def, rt, nowMs) };
+  }
   const current = computeRemainingSec(def, rt, nowMs);
   return { running: false, anchorMs: null, baseSec: current };
 }
@@ -159,7 +178,9 @@ export function formatTimerClock(sec: number, fmt: TimerFormat = {}): string {
   const withHours = fmt.showHours === true || h > 0;
   const lead = (n: number) => (fmt.leadingZeros ? pad(n) : String(n));
   const body = withHours ? `${lead(h)}:${pad(m)}:${pad(s)}` : `${lead(m)}:${pad(s)}`;
-  return neg ? `-${body}` : body;
+  // Suppress the sign when the value floors to zero: a sub-second overrun used
+  // to render "-0:00" for a full second at the crossover, which reads as broken.
+  return neg && total > 0 ? `-${body}` : body;
 }
 
 /** Resolve a "HH:MM" wall-clock string to the NEXT such instant in epoch ms
@@ -257,7 +278,9 @@ export function timerState(def: TimerDefinition, rt: TimerRuntime, nowMs: number
     // An elapsed timer is "past the end" only if it HAS an end.
     ? (typeof def.elapsedEndSec === "number" && Number.isFinite(def.elapsedEndSec) && value >= def.elapsedEndSec)
     : value <= 0;
-  const running = def.type === "countdown_to" ? true : rt.running;
+  // `running` is the OPERATOR's state, never "the wall clock is in range" —
+  // conflating them made a stopped countdown_to still report "running".
+  const running = rt.running;
   if (!past) return running ? "running" : "stopped";
   // Past the end. Without overrun the value is clamped, so it is simply done.
   if (def.allowsOverrun !== true) return "complete";

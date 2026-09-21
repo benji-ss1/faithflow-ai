@@ -352,3 +352,38 @@ test("increment is a no-op for countdown_to and for zero", () => {
   const cd: TimerDefinition = { id: "i4", name: "I", type: "countdown", durationSec: 60 };
   assert.deepEqual(incrementTimer(cd, rt, 0, T0), rt);
 });
+
+// ── REGRESSIONS from the destructive pass (2026-09-21) ────────────────────
+
+test("REGRESSION: a sub-second overrun does not render as \"-0:00\"", () => {
+  // A minus sign on a value that reads as zero looks broken to an operator,
+  // and it showed for a full second at every crossover.
+  assert.equal(formatTimerClock(-0.4), "0:00");
+  assert.equal(formatTimerClock(-0.9), "0:00");
+  assert.equal(formatTimerClock(-1), "-0:01", "a real second of overrun still signs");
+  assert.equal(formatTimerClock(0), "0:00");
+});
+
+test("REGRESSION: Stop genuinely freezes a countdown_to", () => {
+  // It used to ignore the runtime entirely: Stop flipped a flag, the number
+  // kept ticking, and timerState still said "running".
+  const def: TimerDefinition = { id: "f1", name: "F", type: "countdown_to", durationSec: 0, targetMs: T0 + 300_000 };
+  let rt = startTimer(def, initialRuntime(def), T0);
+  assert.equal(computeRemainingSec(def, rt, T0 + 60_000), 240);
+
+  rt = stopTimer(def, rt, T0 + 60_000);
+  assert.equal(computeRemainingSec(def, rt, T0 + 60_000), 240, "frozen at the value when stopped");
+  assert.equal(computeRemainingSec(def, rt, T0 + 120_000), 240, "and STAYS frozen as the clock moves on");
+  assert.equal(timerState(def, rt, T0 + 120_000), "stopped", "state must follow the operator, not the wall clock");
+
+  rt = startTimer(def, rt, T0 + 120_000);
+  assert.equal(computeRemainingSec(def, rt, T0 + 120_000), 180, "resuming returns to the real clock");
+  assert.equal(timerState(def, rt, T0 + 120_000), "running");
+});
+
+test("a never-started countdown_to shows the live clock and reads stopped", () => {
+  const def: TimerDefinition = { id: "f2", name: "F", type: "countdown_to", durationSec: 0, targetMs: T0 + 90_000 };
+  const rt = initialRuntime(def);
+  assert.equal(computeRemainingSec(def, rt, T0), 90, "still previews the real figure");
+  assert.equal(timerState(def, rt, T0), "stopped", "it has not been started");
+});

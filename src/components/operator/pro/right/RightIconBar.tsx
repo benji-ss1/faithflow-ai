@@ -33,7 +33,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import * as Popover from "@radix-ui/react-popover";
-import { BookOpen, Music, Link2, Layers as LayersIcon, Timer as TimerIcon, MessageSquare } from "lucide-react";
+import { BookOpen, Music, Link2, Layers as LayersIcon, Timer as TimerIcon, MessageSquare, MonitorPlay as MonitorIcon } from "lucide-react";
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { LayersPanel } from "./LayersPanel";
 import { Pp7LayersPanel } from "./Pp7LayersPanel";
@@ -46,6 +46,8 @@ import { AIDetectionsPanel } from "./AIDetectionsPanel";
 import { useRightRailDetections } from "./useRightRailDetections";
 import { countCrossRefCandidates } from "@/lib/right-rail-visible";
 import { TimersPanel } from "./TimersPanel";
+import { StageLayoutPanel } from "./StageLayoutPanel";
+import { useStageLayouts } from "./useStageLayouts";
 import { MessagesPanel } from "./MessagesPanel";
 import { ThemesModal } from "../ThemesModal";
 import { readLegacyThemesFlag, OPEN_THEME_POPOVER_EVENT } from "@/lib/legacy-themes-flag";
@@ -56,7 +58,7 @@ import { OPEN_SETTINGS_EVENT } from "../../settings/SettingsWindow";
 // HardwarePanel still imports ScreensPanel directly; the component is
 // unchanged. Only the right-side entry point is removed.
 
-type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "themes" | "layers" | "timers" | "messages";
+type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "themes" | "layers" | "timers" | "messages" | "stage";
 
 // First-run discoverability for the Layers panel: set once the operator opens
 // Layers for the first time. Until then (and only when Layers is enabled for the
@@ -78,6 +80,7 @@ export function RightIconBar({
   const pp7Layers = usePp7Layers();
   const pp7Messages = usePp7Messages({ messages, messagesBoard, timer, timers });
   const [openKey, setOpenKeyInner] = useState<PopoverKey | null>(null);
+  const stageLayouts = useStageLayouts();
   // JPD Fix 5 (2026-07-27): restore the last-open sidebar popover on
   // relaunch and persist changes. Restore runs post-mount (no SSR/hydration
   // mismatch) and only accepts currently-valid keys — "logs" is UI-hidden,
@@ -216,6 +219,12 @@ export function RightIconBar({
           k="timers" openKey={openKey} setOpen={setOpenKey}
           Icon={TimerIcon} label="Timers" badge={timers.slots.filter((s) => s.shown).length}
         />
+        {/* Stage layouts — ProPresenter's Screens > Edit Layouts. The whole
+            subsystem existed with no way in until 2026-09-21. */}
+        <IconTrigger
+          k="stage" openKey={openKey} setOpen={setOpenKey}
+          Icon={MonitorIcon} label="Stage layouts"
+        />
         <IconTrigger
           k="messages" openKey={openKey} setOpen={setOpenKey}
           Icon={MessageSquare} label="Messages"
@@ -257,6 +266,11 @@ export function RightIconBar({
       {openKey === "timers" && (
         <PopoverShell title="Timers" onClose={() => setOpenKey(null)}>
           <TimersPanel quick={timer} timers={timers} />
+        </PopoverShell>
+      )}
+      {openKey === "stage" && (
+        <PopoverShell title="Stage layouts" onClose={() => setOpenKey(null)}>
+          <StageLayoutPanel api={stageLayouts} timers={timers} />
         </PopoverShell>
       )}
       {openKey === "messages" && (

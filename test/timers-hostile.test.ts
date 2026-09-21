@@ -70,21 +70,18 @@ test("🟡 editing durationSec on a NEVER-STARTED timer is also silently ignored
 });
 
 // ── 🟡 countdown_to ignores rt entirely: stop/reset never freeze or reset the displayed value ──
-test("🟡 stopping a countdown_to timer does NOT freeze its displayed value — it keeps ticking with the wall clock", () => {
-  const def: TimerDefinition = { id: "c1", name: "C", type: "countdown_to", durationSec: 0, targetMs: 100_000 };
-  let rt = initialRuntime(def);
-  rt = startTimer(def, rt, 0);
-  rt = stopTimer(def, rt, 50_000); // "stopped" at t=50s
-  assert.equal(rt.running, false);
-  // Per the type's semantics the VALUE is pure wall-clock, so despite being
-  // "stopped" the remaining time still reflects the current now, not the
-  // stop instant — an operator expecting Stop to pause the countdown won't
-  // see it pause.
-  const atStop = computeRemainingSec(def, rt, 50_000);
-  const wayLater = computeRemainingSec(def, rt, 90_000);
-  assert.equal(atStop, 50);
-  assert.equal(wayLater, 10, "value kept counting down after 'stop'");
-  assert.notEqual(atStop, wayLater);
+// FIXED 2026-09-21. This test originally PINNED the bug: stopping a
+// countdown_to changed a flag and nothing else — the number kept ticking with
+// the wall clock and the state still read "running". ProPresenter's API exposes
+// stop for every timer id, so Stop must genuinely freeze. Now asserts the fix.
+test("stopping a countdown_to freezes its displayed value", () => {
+  const T0 = Date.UTC(2026, 8, 21, 10, 0, 0);
+  const def: TimerDefinition = { id: "cto-stop", name: "C", type: "countdown_to", durationSec: 0, targetMs: T0 + 600_000 };
+  let rt = startTimer(def, initialRuntime(def), T0);
+  const atStop = computeRemainingSec(def, rt, T0 + 60_000);
+  rt = stopTimer(def, rt, T0 + 60_000);
+  assert.equal(computeRemainingSec(def, rt, T0 + 60_000), atStop);
+  assert.equal(computeRemainingSec(def, rt, T0 + 300_000), atStop, "must NOT keep counting once stopped");
 });
 
 test("🟡 resetTimer is a no-op for the displayed value of a countdown_to timer", () => {

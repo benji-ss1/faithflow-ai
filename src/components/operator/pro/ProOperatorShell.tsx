@@ -2786,7 +2786,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             id: s.def.id,
             name: s.def.name,
             remainingSec: Math.max(-3600, Math.min(24 * 60 * 60, Math.round(s.remaining))),
-            running: s.def.type === "countdown_to" ? true : s.runtime.running,
+            running: s.runtime.running,
             kind: s.def.type === "elapsed" ? "elapsed" : "countdown",
             position: s.position,
             overrun: s.overrun,

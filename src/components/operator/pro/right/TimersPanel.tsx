@@ -230,8 +230,9 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
     allowsOverrun: slot.def.allowsOverrun === true,
   });
 
-  // countdown_to is pure wall-clock — it has no paused state to toggle.
-  const running = slot.def.type === "countdown_to" ? true : slot.runtime.running;
+  // countdown_to is stoppable too: Stop freezes it at its current value, which
+  // is what ProPresenter does (its API exposes stop for every timer id).
+  const running = slot.runtime.running;
   const a = slot.appearance;
   const setLook = (p: Partial<typeof a>) => timers.setAppearance(slot.def.id, p);
   const save = async () => { await timers.editTimer(slot.def.id, draftToInput(d)); setOpen(false); };
@@ -299,9 +300,8 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
             Show/Hide — one mis-click away, in a dark room, mid-service. */}
         <div className="flex items-center gap-1">
           <button onClick={() => timers.command(slot.def.id, running ? "stop" : "start")}
-            disabled={slot.def.type === "countdown_to"}
             aria-label={running ? `Stop ${slot.def.name}` : `Start ${slot.def.name}`}
-            title={slot.def.type === "countdown_to" ? "Counts to a clock time automatically" : running ? "Stop" : "Start"}
+            title={running ? "Stop" : "Start"}
             className="flex-1 h-8 rounded bg-[var(--color-brand)] text-black font-semibold text-[11px] flex items-center justify-center gap-1 disabled:opacity-40">
             {running ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
             {running ? "Stop" : "Start"}

@@ -196,6 +196,7 @@ test/themes-retry.test.ts
 test/tier.test.ts
 test/timer-scene-routing.test.ts
 test/timer-screen-parity.test.ts
+test/timers-destroy.test.ts
 test/timers-hostile.test.ts
 test/transition-publish.test.tsx
 test/transition-resolve.test.ts
