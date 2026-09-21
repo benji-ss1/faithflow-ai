@@ -514,7 +514,10 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
             oi === targetIdx ? ({ ...o, ...stylePatch } as SlideObject) : o);
         }
       }
-      return { ...s, bgColor: cur.bgColor, bgImageUrl: cur.bgImageUrl, objects };
+      // bgExplicit rides with the background it describes — without it the other
+      // slides fall back to the legacy heuristic and a chosen black shows the
+      // theme through, leaving one black slide and the rest not.
+      return { ...s, bgColor: cur.bgColor, bgImageUrl: cur.bgImageUrl, bgExplicit: cur.bgExplicit, objects };
     });
     setSlides(next);
     setDirty(true);
@@ -612,10 +615,16 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
       const next = { ...s, ...patch };
       const choseColor = typeof patch.bgColor === "string" && patch.bgColor.length > 0;
       const choseImage = typeof patch.bgImageUrl === "string" && patch.bgImageUrl.length > 0;
+      // "" is the clear signal for both fields — normalise it away so nothing
+      // downstream has to treat an empty string as a colour or a URL.
+      const clearedColor = patch.bgColor === "";
       const clearedImage = patch.bgImageUrl === "";
+      if (clearedColor) next.bgColor = undefined;
+      if (clearedImage) next.bgImageUrl = undefined;
+      const hasBg = !!next.bgColor || !!next.bgImageUrl;
       let bgExplicit = s.bgExplicit;
       if (choseColor || choseImage) bgExplicit = true;
-      else if (clearedImage && !(typeof next.bgColor === "string" && next.bgColor.length > 0)) bgExplicit = undefined;
+      else if ((clearedColor || clearedImage) && !hasBg) bgExplicit = undefined;
       return { ...next, bgExplicit };
     });
   }, [patchCurrent]);

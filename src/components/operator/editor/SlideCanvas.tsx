@@ -343,7 +343,20 @@ export function SlideCanvas({
                   ? { background: "transparent" }
                   : themeBgStyle
                     ? themeBgStyle
-                    : { background: "#0b0b0b" }),
+                    // EDITOR ONLY: nothing is set and no theme paints, so this
+                    // slide is see-through on the projector. A flat dark fill
+                    // would look exactly like a deliberately-black slide, so
+                    // show the standard transparency checkerboard instead. This
+                    // never reaches /live, /stage, /livestream or NDI — it is
+                    // drawn by the editor canvas alone.
+                    : {
+                      backgroundColor: "#0b0b0b",
+                      backgroundImage:
+                        "linear-gradient(45deg, #171d1d 25%, transparent 25%, transparent 75%, #171d1d 75%)," +
+                        "linear-gradient(45deg, #171d1d 25%, transparent 25%, transparent 75%, #171d1d 75%)",
+                      backgroundSize: "24px 24px",
+                      backgroundPosition: "0 0, 12px 12px",
+                    }),
             borderColor: "#2a3232",
             // Establish a query container so text objects' `cqh` font sizing
             // resolves against the CANVAS (not the viewport) — matching the

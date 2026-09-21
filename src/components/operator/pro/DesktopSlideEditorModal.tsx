@@ -1180,9 +1180,9 @@ function TemplatesPanel({ editor, churchId }: { editor: Editor; churchId: string
     else setPendingReplace(() => apply);
   };
   const applyTemplate = (tid: string) => { const tpl = SLIDE_TEMPLATES.find((x) => x.id === tid); if (!tpl) return; guardReplace(() => editor.updateSlideDirect(tpl.build())); };
-  const applyCustom = (ct: CustomTemplate) => { guardReplace(() => { const objects = ct.objects.map((o) => ({ ...o, id: newObjectId() })); editor.updateSlideDirect({ objects, bgColor: ct.bgColor, bgImageUrl: ct.bgImageUrl }); }); };
+  const applyCustom = (ct: CustomTemplate) => { guardReplace(() => { const objects = ct.objects.map((o) => ({ ...o, id: newObjectId() })); editor.updateSlideDirect({ objects, bgColor: ct.bgColor, bgImageUrl: ct.bgImageUrl, bgExplicit: ct.bgExplicit }); }); };
   const beginSave = () => { if (!slide || slide.objects.length === 0) { toast.error("Add something to the slide first"); return; } setNameDraft(""); setNaming(true); };
-  const commitSave = () => { const name = nameDraft.trim() || "Untitled template"; if (!slide) return; setCustomTpls(saveCustomTemplate(churchId, { name, bgColor: slide.bgColor, bgImageUrl: slide.bgImageUrl, objects: slide.objects })); setNaming(false); toast.success(`Saved template "${name}"`); };
+  const commitSave = () => { const name = nameDraft.trim() || "Untitled template"; if (!slide) return; setCustomTpls(saveCustomTemplate(churchId, { name, bgColor: slide.bgColor, bgImageUrl: slide.bgImageUrl, bgExplicit: slide.bgExplicit, objects: slide.objects })); setNaming(false); toast.success(`Saved template "${name}"`); };
   const removeCustom = (id: string) => setCustomTpls(deleteCustomTemplate(churchId, id));
 
   return (
@@ -1246,6 +1246,17 @@ function BackgroundPanel({ editor }: { editor: Editor }) {
         <span className={rowCls}>Background colour</span>
         <input type="color" value={slide?.bgColor ?? "#0b0b0b"} onChange={(e) => editor.setBg({ bgColor: e.target.value })}
           className="h-9 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "var(--color-border)" }} />
+        {/* A chosen black and no background at all paint the same pixels on a
+            projector with nothing behind, so the swatch can never show which one
+            this is. Say it in words, and give a way back to see-through. */}
+        {slide?.bgExplicit && slide?.bgColor ? (
+          <div className="mt-1.5 flex items-center justify-between gap-2">
+            <span className="text-[10px] text-[var(--color-muted-foreground)]">This slide has its own background colour.</span>
+            <button onClick={() => editor.setBg({ bgColor: "" })} className="text-[10px] font-semibold text-[var(--color-destructive)] hover:opacity-80 shrink-0">Clear colour</button>
+          </div>
+        ) : (
+          <p className="mt-1.5 text-[10px] text-[var(--color-muted-foreground)]">No background colour — the theme or whatever is behind shows through.</p>
+        )}
       </div>
       <div>
         <span className={rowCls}>Background image</span>

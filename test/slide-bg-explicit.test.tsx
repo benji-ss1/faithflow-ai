@@ -125,6 +125,52 @@ const isBlack = (bg: string) => /rgb\(0,\s*0,\s*0\)|#000000/.test(bg);
     assert.equal(out.bgExplicit, true);
   });
 
+  // Six review agents found five places that copied a background but dropped the
+  // marker that said it was chosen — which silently reproduces the exact bug this
+  // change fixes. Lock each one.
+  console.log("the marker travels with the background everywhere it is copied:");
+  await check("scripture Full<->Third relayout keeps it", async () => {
+    const { sourceForRelayout } = await import("../src/components/operator/scripture/scriptureStyle");
+    const out = sourceForRelayout({ kind: "text", text: "v", scriptureLayout: "lowerThird", bgColor: "#000000", bgExplicit: true } as never) as Record<string, unknown>;
+    assert.equal(out.bgExplicit, true, "toggling layout must not drop a designed slide's chosen background");
+  });
+  await check("theme undo/re-apply resets it in lockstep with the colour it describes", async () => {
+    const { THEME_OWNED_SLIDE_FIELDS } = await import("../src/lib/theme-rebake");
+    assert.ok((THEME_OWNED_SLIDE_FIELDS as readonly string[]).includes("bgExplicit"),
+      "a theme bake sets bgExplicit, so undo must restore it or a stale true survives");
+  });
+  await check("'Apply background to all slides' copies it to every slide", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../src/components/operator/editor/useSlideEditor.ts", import.meta.url), "utf8");
+    assert.match(src, /bgColor: cur\.bgColor, bgImageUrl: cur\.bgImageUrl, bgExplicit: cur\.bgExplicit/,
+      "applyToAll must carry bgExplicit or one slide is black and the rest are not");
+  });
+  await check("custom slide templates save AND apply it", async () => {
+    const { readFileSync } = await import("node:fs");
+    const type = readFileSync(new URL("../src/lib/custom-templates.ts", import.meta.url), "utf8");
+    assert.match(type, /bgExplicit\?: boolean/, "the stored template must have somewhere to keep it");
+    const modal = readFileSync(new URL("../src/components/operator/pro/DesktopSlideEditorModal.tsx", import.meta.url), "utf8");
+    assert.match(modal, /bgExplicit: ct\.bgExplicit/, "applying a template must restore it");
+    assert.match(modal, /bgExplicit: slide\.bgExplicit, objects: slide\.objects/, "saving a template must record it");
+  });
+
+  console.log("the operator can tell the two apart, and get back to see-through:");
+  await check("the editor offers a way to clear a chosen colour", async () => {
+    const { readFileSync } = await import("node:fs");
+    const modal = readFileSync(new URL("../src/components/operator/pro/DesktopSlideEditorModal.tsx", import.meta.url), "utf8");
+    assert.match(modal, /Clear colour/, "a chosen black is indistinguishable from none without a way out");
+    assert.match(modal, /setBg\(\{ bgColor: "" \}\)/);
+  });
+  await check("the editor canvas shows transparency as a checkerboard, and only the editor does", async () => {
+    const { readFileSync } = await import("node:fs");
+    const canvas = readFileSync(new URL("../src/components/operator/editor/SlideCanvas.tsx", import.meta.url), "utf8");
+    assert.match(canvas, /EDITOR ONLY/);
+    assert.match(canvas, /backgroundPosition: "0 0, 12px 12px"/);
+    // The checkerboard must never reach an output surface.
+    const renderer = readFileSync(new URL("../src/components/live/SlideRenderer.tsx", import.meta.url), "utf8");
+    assert.doesNotMatch(renderer, /12px 12px/, "a transparency checkerboard must never be projected");
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
