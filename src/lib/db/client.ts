@@ -71,7 +71,12 @@ export function getDb() {
     connectionString: process.env.DATABASE_URL,
     max: poolMax(),
     ...(LONG_LIVED ? { min: 1, keepAlive: true } : {}),
-    idleTimeoutMillis: 45_000,
+    // 45s keeps a pool opened for one lookup alive long enough to serve the
+    // next without a full reconnect. It is also why a TEST process appears to
+    // hang for 45 seconds after its assertions finish: node will not exit while
+    // an idle pooled socket is open. CI sets this to ~1s so the database suite
+    // takes seconds instead of ~8 minutes of pure waiting.
+    idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS) || 45_000,
     connectionTimeoutMillis: 8_000,
   });
   _db = drizzle(_pool, { schema });

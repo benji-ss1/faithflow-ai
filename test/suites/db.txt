@@ -1,0 +1,30 @@
+# Tests that need a real Postgres (DATABASE_URL + the Drizzle schema pushed).
+# CI runs these in the "Tests (database)" job against a pgvector service
+# container; locally: create a scratch DB, `drizzle-kit push`, then
+#   DATABASE_URL=... AUTH_SECRET=... npm run test:db
+#
+# These are the adversarial cross-church suites — the ones that prove one
+# church cannot see another's data. They are exactly the tests we most want
+# running and, until 2026-09-22, the ones that never ran at all.
+test/adversarial/cross-church.test.ts
+test/adversarial/sermon-pptx-cross-church.test.ts
+test/adversarial/scenes-scoping.test.ts
+test/adversarial/phase4-slide-actions-macros.test.ts
+test/adversarial/audio-setup-context.test.ts
+test/adversarial/device-link-token.test.ts
+test/adversarial/pair-code.test.ts
+test/adversarial/desktop-api-gate.test.ts
+test/adversarial/desktop-signin.test.ts
+test/library-playlist.test.ts
+
+# NOT INCLUDED, and why:
+#   song-lyric-search  — passes alone, fails inside the suite. It reads songs
+#     that other suites create and delete, so it is order-dependent. Wiring a
+#     flaky test into CI teaches people to ignore red, which is worse than not
+#     running it. Fix the pollution, then add it.
+#   rechunk-cross-church — its cleanup deletes a church before its
+#     service_plans, and service_plans.church_id has NO onDelete cascade (22 of
+#     33 church FKs cascade, 11 do not). The no-cascade is arguably the SAFER
+#     default, so this is the test's assumption to fix, not the schema's.
+#   bible-completeness — needs the Bible corpus seeded, which is a large
+#     fixture, not a schema push.
