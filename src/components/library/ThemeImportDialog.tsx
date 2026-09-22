@@ -36,7 +36,7 @@ type ReviewItem = Background & {
   themeName: string;
 };
 
-const ACCEPTED_EXTS = [".proBundle", ".pro", ".pro6", ".pro5", ".pro7", ".pro7x", ".zip"];
+const ACCEPTED_EXTS = [".proBundle", ".proPlaylist", ".protheme", ".proThemeBundle", ".prolib", ".pro", ".pro6", ".pro5", ".pro7", ".pro7x", ".zip"];
 const MAX_TOTAL_MB = 250;
 
 async function fileToBase64(file: File): Promise<string> {

@@ -40,7 +40,19 @@ check("dialog hands VideoPsalm / .txt / .ews files to the other importer, ProPre
   assert.match(dialog, /if \(arr\.length === 0\) \{ onClose\(\); return; \}/);
 });
 check("file picker accepts every format only in the merged mode", () => {
-  assert.match(dialog, /accept=\{allFormats \? "[^"]*\.vpagd,\.txt,\.ews" : "\.proBundle,\.pro,\.pro6,\.pro5,\.pro7,\.pro7x,\.zip"\}/);
+  // Intent: the non-ProPresenter formats (.vpagd/.txt/.ews) appear ONLY in the
+  // merged branch. Deliberately NOT pinning the exact ProPresenter extension
+  // list — that list grows (.proPlaylist, .prolib, .proLibrary were added
+  // 2026-09-22) and pinning it made this test fail for a change it does not
+  // actually guard.
+  const accept = /accept=\{allFormats[\s\S]*?\}/.exec(dialog)?.[0] ?? "";
+  assert.ok(accept, "accept={allFormats ...} not found");
+  const [, merged = "", proOnly = ""] = /\?\s*"([^"]*)"\s*:\s*"([^"]*)"/.exec(accept) ?? [];
+  for (const ext of [".vpagd", ".txt", ".ews"]) {
+    assert.ok(merged.includes(ext), `merged mode should accept ${ext}`);
+    assert.ok(!proOnly.includes(ext), `ProPresenter-only mode must NOT accept ${ext}`);
+  }
+  assert.ok(proOnly.includes(".proBundle") && proOnly.includes(".pro6"), "ProPresenter formats missing");
 });
 check("other callers of the dialog (ProPresenter-only) are unchanged", () => {
   assert.match(dialog, /onOtherFiles\?: \(files: File\[\]\) => void/);
