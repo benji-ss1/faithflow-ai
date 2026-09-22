@@ -1,5 +1,6 @@
 # Add new pure tests here. Regenerate: node scripts/run-tests.mjs --all
 # Offline test files that pass on main (no DB / API keys). CI runs these and blocks on failure.
+test/action-call.test.ts
 test/actions.test.ts
 test/adversarial/accuracy-pass2.test.ts
 test/adversarial/accuracy-pass2b-fable.test.ts

@@ -4,13 +4,24 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.512",
+    "version": "0.1.513",
     "date": "2026-09-22",
     "headline": "What's New now takes you to the feature, and Vic covers smart folders",
     "highlights": [
       "What's New now has a Show me where button on the changes that need one. Press it and PresentFlow opens the right screen and puts an orange ring around the actual button, so you are not left hunting for a control you have never seen.",
       "Vic's walkthrough has a new step for smart folders, so you can learn them hands-on with the real rule builder instead of reading about them. Restart Vic any time from Settings → Help.",
       "The ring is the same one Vic uses, and it disappears as soon as you click, scroll or press Escape — it never blocks what you were doing."
+    ]
+  },
+  {
+    "version": "0.1.512",
+    "date": "2026-09-22",
+    "headline": "Timers now tell you when something went wrong, instead of a scary error",
+    "highlights": [
+      "If adding, saving or deleting a timer fails, you now get a plain message saying what failed and that nothing was changed — instead of \"Background task failed: An error occurred in the Server Components render\".",
+      "Before this, a failed edit closed the dialog as though it had worked, so you could believe a timer was saved when it was not.",
+      "If your timer list cannot load, the panel now says so and offers Try again. It used to show \"No timers yet\", which read as though your timers had been deleted.",
+      "The same fix covers the Stage Layouts panel — duplicating, renaming, assigning and deleting layouts and screens."
     ]
   },
   {

@@ -8,6 +8,8 @@
  * DUPLICATING one, so "restore defaults" always works.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { callAction } from "@/lib/action-call";
+import { toast } from "sonner";
 import {
   listStageLayouts, createStageLayout, updateStageLayout, deleteStageLayout,
   listStageScreens, createStageScreen, setStageScreenLayout, renameStageScreen, deleteStageScreen,
@@ -70,43 +72,43 @@ export function useStageLayouts(): StageLayoutsApi {
     if (!src) return null;
     // A built-in is never edited in place; it is copied into an editable row.
     const copy = duplicateStageLayout(src, "pending", isBuiltInStageLayout(id) ? src.name : `${src.name} copy`);
-    const res = await createStageLayout({ name: copy.name, config: copy });
+    const res = await callAction("duplicate the layout", () => createStageLayout({ name: copy.name, config: copy }), toast.error);
     if (res.ok && res.data) { await refresh(); return res.data.id; }
     return null;
   }, [layouts, refresh]);
 
   const save = useCallback(async (id: string, layout: StageLayout) => {
     if (isBuiltInStageLayout(id)) return; // built-ins are code, not editable
-    const res = await updateStageLayout(id, { name: layout.name, config: layout });
+    const res = await callAction("save the layout", () => updateStageLayout(id, { name: layout.name, config: layout }), toast.error);
     if (res.ok) await refresh();
   }, [refresh]);
 
   const rename = useCallback(async (id: string, name: string) => {
     if (isBuiltInStageLayout(id)) return;
-    const res = await updateStageLayout(id, { name });
+    const res = await callAction("rename the layout", () => updateStageLayout(id, { name }), toast.error);
     if (res.ok) await refresh();
   }, [refresh]);
 
   const remove = useCallback(async (id: string) => {
     if (isBuiltInStageLayout(id)) return;
-    const res = await deleteStageLayout(id);
+    const res = await callAction("delete the layout", () => deleteStageLayout(id), toast.error);
     if (res.ok) await refresh();
   }, [refresh]);
 
   const addScreen = useCallback(async (name: string) => {
-    const res = await createStageScreen({ name });
+    const res = await callAction("add the stage screen", () => createStageScreen({ name }), toast.error);
     if (res.ok) await refresh();
   }, [refresh]);
   const assign = useCallback(async (screenId: string, layoutId: string | null) => {
-    const res = await setStageScreenLayout(screenId, layoutId);
+    const res = await callAction("assign the layout", () => setStageScreenLayout(screenId, layoutId), toast.error);
     if (res.ok) await refresh();
   }, [refresh]);
   const renameScreen = useCallback(async (screenId: string, name: string) => {
-    const res = await renameStageScreen(screenId, name);
+    const res = await callAction("rename the stage screen", () => renameStageScreen(screenId, name), toast.error);
     if (res.ok) await refresh();
   }, [refresh]);
   const removeScreen = useCallback(async (screenId: string) => {
-    const res = await deleteStageScreen(screenId);
+    const res = await callAction("remove the stage screen", () => deleteStageScreen(screenId), toast.error);
     if (res.ok) await refresh();
   }, [refresh]);
 
