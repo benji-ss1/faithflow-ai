@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CANVAS_W, CANVAS_H, type EditableSlide, type SlideObject } from "@/lib/slide-objects";
+import { cqh as toCqh, objectFontScale } from "@/lib/canvas-coords";
 import { cn } from "@/lib/utils";
 import { flipTransform, constrainAspect, type Rect } from "@/lib/editor-geometry";
 import { useFitFontSize, scaledFontSize } from "@/components/live/FittedText";
@@ -529,7 +530,7 @@ function ObjectView({
     textFitRef,
     obj.kind === "text" ? obj.text : "",
     obj.kind === "text" ? (obj.textScale ?? DEFAULT_TEXT_SCALE) : "none",
-    obj.kind === "text" ? `${(((obj.fontSize ?? 96) * textScale) / CANVAS_H) * 100}cqh` : undefined,
+    obj.kind === "text" ? `${toCqh(obj.fontSize ?? 96, objectFontScale(textScale))}cqh` : undefined,
     obj.kind === "text" ? `${obj.lineHeight}|${obj.letterSpacing}|${obj.fontFamily}|${obj.fontWeight}|${obj.uppercase}` : "",
   );
   const style: React.CSSProperties = {
@@ -558,8 +559,11 @@ function ObjectView({
       fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
       // fontSize is expressed in canvas px (1920×1080 virtual space) so we
       // scale via a container-derived em unit. Approximation with cqw.
-      // textScale previews the Projection-Zone Font multiplier live.
-      fontSize: `${((obj.fontSize ?? 96) * textScale / CANVAS_H) * 100}cqh`,
+      // textScale previews the Projection-Zone Font multiplier live. It is
+      // CLAMPED by objectFontScale() because the projector clamps it
+      // (SlideObjectsLayer: `Math.min(fontScale, 1.6)`) — without the clamp the
+      // editor previewed designed text LARGER than it actually projects.
+      fontSize: `${toCqh(obj.fontSize ?? 96, objectFontScale(textScale))}cqh`,
       fontWeight: obj.fontWeight ?? 600,
       color: obj.color ?? "#ffffff",
       fontStyle: obj.italic ? "italic" : undefined,
@@ -568,7 +572,10 @@ function ObjectView({
       padding: "2%",
       containerType: "size",
       lineHeight: obj.lineHeight ?? undefined,
-      letterSpacing: obj.letterSpacing ? `${(obj.letterSpacing / CANVAS_H) * 100}cqh` : undefined,
+      // Scaled by the SAME factor as fontSize — the projector has always done
+      // this (`obj.letterSpacing * fs`) and the editor had not, so spacing drifted
+      // apart from the projector whenever the font multiplier was not 1.
+      letterSpacing: obj.letterSpacing ? `${toCqh(obj.letterSpacing, objectFontScale(textScale))}cqh` : undefined,
       textTransform: obj.uppercase ? "uppercase" : undefined,
       WebkitTextStroke: obj.strokeWidth ? `${(obj.strokeWidth / CANVAS_W) * 100}cqw ${obj.stroke ?? "#000000"}` : undefined,
       // Match the projector's text shadow so the editor is true WYSIWYG.
