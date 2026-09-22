@@ -14,7 +14,7 @@
  */
 import { useShortcutLabel } from "@/lib/usePlatformLabel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getLayersEngineSetting, setLayersEngineEnabled, getDesktopPreferences, getTeamData } from "@/lib/actions";
+import { getLayersEngineSetting, setLayersEngineEnabled, getScenesSetting, setScenesEnabled, getDesktopPreferences, getTeamData } from "@/lib/actions";
 import { TeamManager } from "@/components/settings/TeamManager";
 import { SettingsForm } from "@/components/settings/SettingsForm";
 import { SignOutAllDevices } from "@/components/settings/SignOutAllDevices";
@@ -111,6 +111,7 @@ const ROW_INDEX: { section: SectionId; label: string }[] = [
   { section: "screens", label: "Configure output screens" },
   { section: "screens", label: "Paired devices" },
   { section: "screens", label: "Layers (hide words, background, camera, logo)" },
+  { section: "screens", label: "Scenes (what each screen shows, incl. timers)" },
   { section: "stage", label: "Stage display (clock, notes, next slide)" },
   { section: "stage", label: "Slide transitions" },
   { section: "audio", label: "Run Sarah's audio setup" },
@@ -227,6 +228,45 @@ function LayersRow() {
       <Row label="Layers" help={help}>
         {state
           ? <span className={state.canEdit && !busy ? "" : "opacity-50 pointer-events-none"}><Toggle on={state.enabled} onChange={change} label="Layers" /></span>
+          : <span className="text-[12px] text-[var(--color-muted-foreground)]">Loading…</span>}
+      </Row>
+      {msg && <Row label="" help={msg} />}
+    </>
+  );
+}
+
+/** Scenes on/off for the church (default OFF, 2026-09-21 — user-directed so a
+ *  church can switch it on and try it ahead of a default-on rollout). Anyone
+ *  sees it; only a church admin can change it (enforced server-side). */
+function ScenesRow() {
+  const [state, setState] = useState<{ enabled: boolean; canEdit: boolean } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    getScenesSetting()
+      .then((r) => { if (!live) return; if (r.ok && r.data) setState(r.data); else setMsg("Couldn't load this setting."); })
+      .catch(() => { if (live) setMsg("Couldn't load this setting."); });
+    return () => { live = false; };
+  }, []);
+  const change = async (next: boolean) => {
+    if (!state?.canEdit || busy) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await setScenesEnabled(next);
+      if (!r.ok) { setMsg(r.error); return; }
+      setState({ ...state, enabled: next });
+      setMsg("Saved. Reload the app (Advanced → Reload and clear cache) to apply it on this computer.");
+    } catch { setMsg("Couldn't save. Check your connection and try again."); }
+    finally { setBusy(false); }
+  };
+  const help = "Save what each screen shows — words, background, camera, logo, timer — so you can switch the whole look in one tap. Turning this off hides the Scenes controls; any scene you already published keeps working."
+    + (state && !state.canEdit ? " Only a church admin can change this." : "");
+  return (
+    <>
+      <Row label="Scenes" help={help}>
+        {state
+          ? <span className={state.canEdit && !busy ? "" : "opacity-50 pointer-events-none"}><Toggle on={state.enabled} onChange={change} label="Scenes" /></span>
           : <span className="text-[12px] text-[var(--color-muted-foreground)]">Loading…</span>}
       </Row>
       {msg && <Row label="" help={msg} />}
@@ -351,6 +391,7 @@ function ScreensSection({ close }: { close: () => void }) {
         <LinkRow label="Configure output screens" help="Assign each connected display to Projector, Stage or Livestream." href="/settings/screens" cta="Configure" onOpen={() => openScreensPanel(close)} />
         <LinkRow label="Paired devices" help="Phones, tablets and other computers showing your outputs." href="/settings/devices" />
         <LayersRow />
+        <ScenesRow />
         <Row label="Aspect ratio & safe-area guides" help="These are set live from the operator toolbar and the output inspector, so they always match what's on the projector." />
       </Card>
     </>

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { OutputEnvironmentMark } from "@/components/EnvironmentBanner";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
@@ -7,6 +8,10 @@ import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type LayerWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
+import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
+import { foldClockSync, shouldSweepWireTimers, type ClockSync } from "@/lib/timer-clock";
+import type { TimerWire, TimersWire, StageLayoutWire } from "@/lib/broadcast";
+import { StageLayoutRenderer } from "@/components/live/StageLayoutRenderer";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 
@@ -33,6 +38,18 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffStageGuarded?:
  * Behind the platform: cyan accent = current, muted grey = next. Big
  * clock so the pastor can see time-of-day at a glance.
  */
+/** Best-effort plain text from a slide payload, for a stage layout's
+ *  current/next text widgets. Shapes vary by slide kind, so this reads the
+ *  common fields and returns "" rather than guessing. */
+function slideText(s: SlidePayload | null | undefined): string {
+  if (!s || typeof s !== "object") return "";
+  const o = s as Record<string, unknown>;
+  if (typeof o.text === "string") return o.text;
+  if (Array.isArray(o.lines)) return (o.lines as unknown[]).filter((l) => typeof l === "string").join("\n");
+  if (typeof o.body === "string") return o.body;
+  return "";
+}
+
 export default function StagePage() {
   const [current, setCurrent] = useState<SlidePayload>({ kind: "empty" });
   const [next, setNext] = useState<SlidePayload | null>(null);
@@ -47,6 +64,31 @@ export default function StagePage() {
   // church — that tells this surface to pre-wrap its layers, so the first scene
   // of a service can never remount the stack mid-service.
   const [scenesPossible, setScenesPossible] = useState(false);
+  // NETWORKED timers (2026-09-21): anchors from OutputState, ticked locally by
+  // TimerOverlayLayer. Separate from the same-machine 1Hz path above — the
+  // local one always wins, this only fills a gap on a remote screen.
+  const [wireTimers, setWireTimers] = useState<TimerWire[]>([]);
+  const [stageLayout, setStageLayout] = useState<StageLayoutWire | null>(null);
+  const [stageLayoutList, setStageLayoutList] = useState<Array<{ screen: string; layout: StageLayoutWire }>>([]);
+  // Which confidence monitor THIS window is. `?screen=<id>` lets a church run a
+  // drummer monitor and a preacher monitor showing different layouts; with no
+  // param we are the first screen, which is the single-monitor default.
+  const screenId = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("screen")
+    : null;
+  const clockSyncRef = useRef<ClockSync | null>(null);
+  const lastTimersWireAt = useRef(0);
+  const timersWireRevRef = useRef(-1);
+  const foldTimersWire = useCallback((tw: TimersWire | null | undefined) => {
+    if (!tw) return;
+    // Ghost-operator guard: an older tab replaying a snapshot must not
+    // resurrect a stale timer set (same rev discipline as layers).
+    if (tw.rev <= timersWireRevRef.current) return;
+    timersWireRevRef.current = tw.rev;
+    clockSyncRef.current = foldClockSync(clockSyncRef.current, tw.senderNowMs, Date.now());
+    lastTimersWireAt.current = Date.now();
+    setWireTimers(tw.timers);
+  }, []);
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [nextItem, setNextItem] = useState<{ title: string; type: string } | null>(null);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
@@ -62,7 +104,10 @@ export default function StagePage() {
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   // Wave 7: named (keyed) timers — the confidence-monitor use case (worship /
   // sermon countdowns visible to the platform). Ride alongside the legacy slot.
-  type StageTimer = { id: string; name?: string; remainingSec: number; running: boolean; overrun?: boolean; scale?: number; color?: string };
+  // Keep the WHOLE overlay: the shared renderer honours position, and
+  // this local shape used to drop it, silently discarding the operator's
+  // placement on this surface.
+  type StageTimer = TimerOverlayItem & { id: string };
   const [namedTimers, setNamedTimers] = useState<Record<string, StageTimer>>({});
   const namedTimerAtRef = useRef<Record<string, number>>({});
   const [connected, setConnected] = useState(false);
@@ -152,6 +197,9 @@ export default function StagePage() {
             setAnnouncement(msg.state.announcement ?? null);
             setTransition(msg.state.transition ?? null);
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
+            foldTimersWire(msg.state.timersWire);
+            setStageLayout(msg.state.stageLayout ?? null);
+            setStageLayoutList(msg.state.stageLayouts ?? []);
             // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
             if (msg.state.scene !== undefined) setScenesPossible(true);
           }
@@ -181,7 +229,7 @@ export default function StagePage() {
               setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
               delete namedTimerAtRef.current[oid];
             } else if ("remainingSec" in ov) {
-              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
+              setNamedTimers((m) => ({ ...m, [oid]: { ...(ov as TimerOverlayItem), id: oid } }));
               namedTimerAtRef.current[oid] = Date.now();
             }
           } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
@@ -221,6 +269,14 @@ export default function StagePage() {
       // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
       {
         const now = Date.now();
+        // Remote timers have no 1Hz heartbeat to go stale, so the operator's
+        // liveness re-stamp is what stops arriving when it crashes. Separate
+        // window from the 5s sweep above, which still guards the local path.
+        if (shouldSweepWireTimers(lastTimersWireAt.current, now)) {
+          lastTimersWireAt.current = 0;
+          timersWireRevRef.current = -1;
+          setWireTimers([]);
+        }
         const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
         if (staleIds.length) {
           for (const id of staleIds) delete namedTimerAtRef.current[id];
@@ -341,6 +397,29 @@ export default function StagePage() {
     : countdownEndsAt;
   const countdownStr = effectiveCountdownEndsAt && now ? formatCountdown(effectiveCountdownEndsAt - now.getTime()) : null;
 
+  // An operator-designed layout REPLACES this screen entirely. With none
+  // assigned we fall through to the existing hardcoded screen below, byte for
+  // byte — the rule-0 anchor for every church that never opens the editor.
+  // Resolve MY layout: the one assigned to this screen id, else the first.
+  const myLayout = (screenId
+    ? stageLayoutList.find((e) => e.screen === screenId)?.layout
+    : stageLayoutList[0]?.layout) ?? stageLayout;
+
+  if (myLayout) {
+    return (
+      <div className="fixed inset-0 overflow-hidden cursor-none" onDoubleClick={goFullscreen}>
+        <StageLayoutRenderer
+          layout={myLayout}
+          wireTimers={wireTimers}
+          clockSync={clockSyncRef.current}
+          currentText={slideText(current)}
+          nextText={slideText(next)}
+          message={operatorMessage ?? null}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 overflow-hidden cursor-none flex flex-col"
@@ -356,36 +435,35 @@ export default function StagePage() {
       {/* CURRENT — dominant, full width so text is as large as possible */}
       <div className="relative flex-1 min-h-0">
         <div className="absolute top-3 left-4 text-[11px] font-mono uppercase tracking-widest text-white/45 z-10">Current</div>
-        {(timerOverlay || countdownStr || Object.keys(namedTimers).length > 0) && (
-          <div className="absolute top-3 right-4 z-10 flex flex-col items-end gap-1.5">
-            {(timerOverlay || countdownStr) && (
-              <div className="flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
-                <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">
-                  {timerOverlay ? (timerOverlay.name || "Timer") : "Countdown"}{timerOverlay && !timerOverlay.running ? " (paused)" : ""}
-                </span>
-                <span className={`text-3xl font-mono font-light tabular-nums ${timerOverlay && timerOverlay.remainingSec < 0 ? "text-red-400" : "text-white/85"}`}>
-                  {timerOverlay ? formatStageTimer(timerOverlay.remainingSec) : countdownStr}
-                </span>
+        {/* Scene routing (2026-09-21): "timer" is a ROUTE-DRAWN layer, so this
+            surface applies the mask itself — same as `announcement` below. The
+            legacy `countdownStr` (OutputState.countdownEndsAt) renders in this
+            same chip and IS a countdown, so hiding "Timer" for this screen hides
+            it too. Default (no scene) = unchanged. */}
+        {!sceneHidesLayer(scene, "stage", "timer") && (
+          <>
+            {/* The legacy service countdown keeps its confidence-monitor chip —
+                it has no per-timer look and is stage-specific by design. */}
+            {!timerOverlay && countdownStr && (
+              <div className="absolute top-3 right-4 z-10 flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
+                <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">Countdown</span>
+                <span className="text-3xl font-mono font-light tabular-nums text-white/85">{countdownStr}</span>
               </div>
             )}
-            {/* Wave 7: named timers — clean big numbers (no box/border), sized by
-                the operator's scale control. */}
-            {Object.values(namedTimers).map((t) => {
-              const scale = t.scale ?? 1;
-              const over = t.remainingSec < 0;
-              const color = t.color ?? (over ? "#f87171" : "rgba(255,255,255,0.9)");
-              return (
-                <div key={t.id} className="flex flex-col items-end leading-none">
-                  <span className="font-mono uppercase tracking-widest" style={{ color, opacity: 0.5, fontSize: `${0.9 * scale}vw` }}>
-                    {t.name || "Timer"}{!t.running ? " (paused)" : ""}
-                  </span>
-                  <span className="font-mono font-light tabular-nums" style={{ color, fontSize: `${4.5 * scale}vw`, lineHeight: 1, textShadow: "0 2px 12px rgba(0,0,0,0.5)" }}>
-                    {formatStageTimer(t.remainingSec)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+            {/* Everything else goes through the ONE shared renderer, so this
+                screen honours the operator's position/colour/format exactly as
+                the projector does. `compact` is the single sanctioned
+                difference: a confidence monitor shares space with the lyrics. */}
+            <TimerOverlayLayer
+              wireTimers={wireTimers}
+              clockSync={clockSyncRef.current}
+              density="compact"
+              timers={[
+                ...(timerOverlay ? [timerOverlay as TimerOverlayItem] : []),
+                ...Object.values(namedTimers),
+              ]}
+            />
+          </>
         )}
         {/* Decoupling Phase 1: shared OutputCompositor. mode="stage" encodes the
             confidence-monitor specifics — never a live camera, default canvas
@@ -467,17 +545,13 @@ export default function StagePage() {
           <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" /> Operator disconnected
         </div>
       )}
+      {/* If a test build's projector output looked identical to
+          production, someone would eventually run a real service off it. */}
+      <OutputEnvironmentMark vercelEnv={process.env.NEXT_PUBLIC_VERCEL_ENV} />
     </div>
   );
 }
 
-function formatStageTimer(sec: number): string {
-  const negative = sec < 0;
-  const abs = Math.abs(Math.round(sec));
-  const mm = Math.floor(abs / 60);
-  const ss = abs % 60;
-  return `${negative ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-}
 
 function formatCountdown(ms: number): string {
   if (ms < 0) return "00:00";

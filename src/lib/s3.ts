@@ -102,7 +102,45 @@ export async function refreshPresignedUrl(url: string): Promise<string> {
   return fresh || url;
 }
 
+/**
+ * Delete an object — PRODUCTION ONLY.
+ *
+ * Storage is SHARED between production and preview deployments (S3_ENDPOINT,
+ * AWS_* and S3_BUCKET are all scoped "Production, Preview" in Vercel), and this
+ * is a hard delete. So before this guard, a tester poking at a preview could
+ * permanently destroy a real church's uploaded media — sermon graphics and
+ * background videos are the one asset class with no upstream copy, and the
+ * real Sunday plan referencing them would then render a hole.
+ *
+ * The storage provider is Supabase (a custom S3-compatible endpoint), which has
+ * no bucket versioning, so there is NO undo. That makes this an application
+ * guard rather than a permissions one — there is no per-action IAM policy to
+ * lean on here.
+ *
+ * A refused delete is SAFE: every caller already tolerates failure and treats
+ * the leftover file as an orphan ("orphan — recoverable" in actions.ts). So the
+ * worst outcome outside production is an unused file, never a lost one.
+ *
+ * VERCEL_ENV is set by Vercel itself and cannot be forged by a request. Local
+ * development has no VERCEL_ENV, and is allowed through so `npm run dev`
+ * against a local/dev bucket still behaves normally.
+ */
+export function deletesAllowed(): boolean {
+  const env = process.env.VERCEL_ENV;
+  if (!env) return true;             // local dev — not a hosted deployment
+  return env === "production";
+}
+
 export async function deleteObject(key: string) {
+  if (!deletesAllowed()) {
+    // Throw rather than silently no-op: callers catch this and log an orphan,
+    // and a silent success would tell the operator the file was removed when it
+    // was not.
+    throw new Error(
+      `Refusing to delete storage object on a non-production deployment (VERCEL_ENV=${process.env.VERCEL_ENV}). `
+      + `Storage is shared with production and has no versioning, so this would destroy a real file.`,
+    );
+  }
   await s3().send(new DeleteObjectCommand({ Bucket: BUCKET(), Key: key }));
 }
 

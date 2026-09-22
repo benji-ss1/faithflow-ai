@@ -35,6 +35,15 @@ export interface TimerDefinition {
   durationSec: number;
   /** Wall-clock epoch ms to count down to (countdown_to). Null otherwise. */
   targetMs?: number | null;
+  /** ProPresenter "Allows Overrun": may this timer run PAST its endpoint?
+   *  false (ProPresenter's default, and now ours) = clamp at 0 for a countdown,
+   *  and stop at `elapsedEndSec` for an elapsed timer. Absent = false. */
+  allowsOverrun?: boolean;
+  /** ProPresenter "Elapsed Time" start offset, seconds. */
+  elapsedStartSec?: number | null;
+  /** ProPresenter "Elapsed Time" end, seconds. NULL/absent = unlimited
+   *  ("omit to specify unlimited end time" — ProPresenter's own wording). */
+  elapsedEndSec?: number | null;
 }
 
 /** Mutable runtime state for one timer. `anchorMs` is the wall-clock instant
@@ -53,7 +62,17 @@ export function initialRuntime(def: TimerDefinition): TimerRuntime {
   return {
     running: false,
     anchorMs: null,
-    baseSec: def.type === "elapsed" ? 0 : Math.max(0, def.durationSec),
+    // An elapsed timer starts at its configured start offset (ProPresenter
+    // "Elapsed Time" start_time), not necessarily zero.
+    // countdown_to banks NOTHING at rest — its value comes from the wall
+    // clock, and baseSec is used only to freeze it when stopped. Seeding it
+    // from durationSec made a never-started countdown_to look "frozen" at its
+    // duration (caught by the hostile suite).
+    baseSec: def.type === "countdown_to"
+      ? 0
+      : def.type === "elapsed"
+        ? Math.max(0, def.elapsedStartSec ?? 0)
+        : Math.max(0, def.durationSec),
   };
 }
 
@@ -62,19 +81,41 @@ export function initialRuntime(def: TimerDefinition): TimerRuntime {
  *  - elapsed      : elapsed since start (always ≥ 0)
  *  - countdown_to : (target - now); goes negative once the target passes */
 export function computeRemainingSec(def: TimerDefinition, rt: TimerRuntime, nowMs: number): number {
+  // ProPresenter "Allows Overrun" (default FALSE): without it a timer STOPS at
+  // its endpoint instead of running into negative/unbounded time.
+  const overrun = def.allowsOverrun === true;
   if (def.type === "countdown_to") {
+    // A STOPPED countdown_to is frozen at the value banked when it was
+    // stopped. It used to ignore rt entirely, so Stop changed a flag and
+    // nothing else — the number kept ticking and the state still read
+    // "running". ProPresenter exposes stop for every timer id, so it must
+    // genuinely freeze. A fresh (never-started) runtime has no banked value,
+    // so it shows the live wall-clock figure.
+    // Frozen == stopped AFTER having been started. initialRuntime banks 0 for
+    // this type, so a fresh runtime is never mistaken for a frozen one.
+    const frozen = !rt.running && rt.anchorMs === null && rt.baseSec !== 0;
     const target = def.targetMs ?? nowMs;
-    return (target - nowMs) / 1000;
+    const raw = frozen ? rt.baseSec : (target - nowMs) / 1000;
+    return overrun ? raw : Math.max(0, raw);
   }
   const sinceAnchor = rt.running && rt.anchorMs != null ? (nowMs - rt.anchorMs) / 1000 : 0;
-  if (def.type === "elapsed") return rt.baseSec + sinceAnchor;
+  if (def.type === "elapsed") {
+    const raw = rt.baseSec + sinceAnchor;
+    // An elapsed timer with an end time stops there unless overrun is allowed.
+    const end = def.elapsedEndSec;
+    if (!overrun && typeof end === "number" && Number.isFinite(end)) return Math.min(raw, end);
+    return raw;
+  }
   // countdown
-  return rt.baseSec - sinceAnchor;
+  const raw = rt.baseSec - sinceAnchor;
+  return overrun ? raw : Math.max(0, raw);
 }
 
 /** True once a countdown / countdown_to has passed zero into overtime. */
 export function isOverrun(def: TimerDefinition, rt: TimerRuntime, nowMs: number): boolean {
   if (def.type === "elapsed") return false;
+  // With overrun DISALLOWED the value is clamped at 0 and can never read
+  // negative, so this is false by construction — the timer simply sits at 0:00.
   return computeRemainingSec(def, rt, nowMs) < 0;
 }
 
@@ -84,7 +125,8 @@ export function isOverrun(def: TimerDefinition, rt: TimerRuntime, nowMs: number)
  *  mark it running so the UI/overlay treats it as active. Idempotent. */
 export function startTimer(def: TimerDefinition, rt: TimerRuntime, nowMs: number): TimerRuntime {
   if (rt.running) return rt;
-  if (def.type === "countdown_to") return { ...rt, running: true, anchorMs: nowMs };
+  // Resuming a countdown_to drops its frozen value and returns to the clock.
+  if (def.type === "countdown_to") return { running: true, anchorMs: nowMs, baseSec: 0 };
   const current = computeRemainingSec(def, rt, nowMs);
   return { running: true, anchorMs: nowMs, baseSec: current };
 }
@@ -92,7 +134,10 @@ export function startTimer(def: TimerDefinition, rt: TimerRuntime, nowMs: number
 /** Stop (pause) a timer, banking the current computed value. Idempotent. */
 export function stopTimer(def: TimerDefinition, rt: TimerRuntime, nowMs: number): TimerRuntime {
   if (!rt.running) return rt;
-  if (def.type === "countdown_to") return { ...rt, running: false, anchorMs: null };
+  // Bank the value so the display genuinely freezes (see computeRemainingSec).
+  if (def.type === "countdown_to") {
+    return { running: false, anchorMs: null, baseSec: computeRemainingSec(def, rt, nowMs) };
+  }
   const current = computeRemainingSec(def, rt, nowMs);
   return { running: false, anchorMs: null, baseSec: current };
 }
@@ -116,15 +161,26 @@ export function applyCommand(def: TimerDefinition, rt: TimerRuntime, cmd: TimerC
 /** Format a signed seconds value as [-]H:MM:SS (hours dropped when zero → M:SS).
  *  Deterministic, allocation-light; used by every output surface so a timer
  *  reads identically on /live and /stage. */
-export function formatTimerClock(sec: number): string {
+export type TimerFormat = {
+  /** Force hours even under an hour (0:05:00). Default: only past an hour. */
+  showHours?: boolean;
+  /** Zero-pad the leading unit (05:00 rather than 5:00). */
+  leadingZeros?: boolean;
+};
+
+export function formatTimerClock(sec: number, fmt: TimerFormat = {}): string {
   const neg = sec < 0;
   const total = Math.floor(Math.abs(sec));
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
-  const body = h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
-  return neg ? `-${body}` : body;
+  const withHours = fmt.showHours === true || h > 0;
+  const lead = (n: number) => (fmt.leadingZeros ? pad(n) : String(n));
+  const body = withHours ? `${lead(h)}:${pad(m)}:${pad(s)}` : `${lead(m)}:${pad(s)}`;
+  // Suppress the sign when the value floors to zero: a sub-second overrun used
+  // to render "-0:00" for a full second at the crossover, which reads as broken.
+  return neg && total > 0 ? `-${body}` : body;
 }
 
 /** Resolve a "HH:MM" wall-clock string to the NEXT such instant in epoch ms
@@ -132,9 +188,29 @@ export function formatTimerClock(sec: number): string {
  *  React layer calls this ONCE per countdown_to (at load / reset / re-show), NOT
  *  on every tick, so once `now` crosses the resolved target the timer runs
  *  NEGATIVE into overrun instead of silently rolling +24h on the next tick. */
-export function resolveTargetMs(targetClock: string | null | undefined, nowMs: number): number | null {
-  if (!targetClock || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(targetClock.trim())) return null;
-  const [h, m] = targetClock.trim().split(":").map((x) => parseInt(x, 10));
+export type TimerPeriod = "am" | "pm" | "24_hour";
+
+/** Fold a 12-hour clock + AM/PM into a 24-hour hour.
+ *  12 AM = 00, 12 PM = 12 — the two cases everyone gets wrong. */
+export function to24Hour(hour: number, period: TimerPeriod | null | undefined): number {
+  if (period !== "am" && period !== "pm") return hour;
+  const h = hour % 12;              // 12 → 0
+  return period === "pm" ? h + 12 : h;
+}
+
+export function resolveTargetMs(
+  targetClock: string | null | undefined,
+  nowMs: number,
+  period?: TimerPeriod | null,
+): number | null {
+  if (!targetClock) return null;
+  const raw = targetClock.trim();
+  const twelveHour = period === "am" || period === "pm";
+  // With AM/PM the hour is 1-12; without it, 0-23.
+  const ok = twelveHour ? /^(1[0-2]|[1-9]):[0-5]\d$/.test(raw) : /^([01]?\d|2[0-3]):[0-5]\d$/.test(raw);
+  if (!ok) return null;
+  const [rawH, m] = raw.split(":").map((x) => parseInt(x, 10));
+  const h = to24Hour(rawH, period);
   const d = new Date(nowMs);
   d.setHours(h, m, 0, 0);
   let t = d.getTime();
@@ -152,4 +228,100 @@ export function parseDurationToSec(input: string): number {
   else if (parts.length === 2) sec = parts[0] * 60 + parts[1];
   else if (parts.length >= 3) sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
   return Math.max(0, sec);
+}
+
+/** Resolve the colour a timer should paint RIGHT NOW, applying ProPresenter's
+ *  "Color Triggers" plus the separate overrun colour.
+ *
+ *  Rules (match resolveWidgetColor in src/engine/stage, deliberately — the two
+ *  must never disagree about what colour a timer is):
+ *    - past zero  → the overrun colour, which beats every trigger
+ *    - otherwise  → the LOWEST crossed threshold wins, so with
+ *                   {60:orange, 30:yellow, 10:red} a timer at 5s is RED
+ *    - no trigger crossed → the operator's base colour, or undefined so the
+ *                   renderer keeps its own default rather than being forced white
+ *  Pure; returns undefined rather than a literal so "unset" stays unset. */
+export function resolveTimerColor(
+  look: { color?: string; overrunColor?: string; colorTriggers?: Array<{ atSec: number; color: string }> },
+  remainingSec: number,
+): string | undefined {
+  // NOTE: `remainingSec` must be TIME LEFT, counting DOWN. For an elapsed timer
+  // the displayed value counts UP, so the caller must convert first — see
+  // triggerValueFor(). Passing a count-up value directly fires every trigger
+  // backwards (red at the start, normal at the end).
+  if (remainingSec < 0) return look.overrunColor ?? look.color;
+  const crossed = (look.colorTriggers ?? [])
+    .filter((t) => Number.isFinite(t.atSec) && remainingSec <= t.atSec)
+    .sort((a, b) => a.atSec - b.atSec);
+  return crossed.length > 0 ? crossed[0].color : look.color;
+}
+
+// ── ProPresenter parity: five-state model + live nudge (2026-09-21) ─────────
+// Corroborated by TWO independent primary sources: the live OpenAPI spec
+// (openapi.propresenter.com/swagger.json, `API_v1_TimerState`) and the
+// reverse-engineered PP7 protobuf schema (greyshirtguy/ProPresenter7-Proto,
+// proApiV1Timer.proto). Both give the SAME five states, so this is not a guess.
+
+/** ProPresenter's timer states. We previously modelled only running/stopped,
+ *  which collapses three meaningfully different end states into one:
+ *    complete    — reached the end exactly; no overrun happened or was allowed
+ *    overrunning — past the end and STILL counting (only when allowsOverrun)
+ *    overran     — past the end and stopped
+ *  An operator needs to tell "finished cleanly" from "ran over", and a stage
+ *  renderer needs it to decide what colour to paint. */
+export type TimerState = "stopped" | "running" | "complete" | "overrunning" | "overran";
+
+/** Derive the state. Pure. */
+export function timerState(def: TimerDefinition, rt: TimerRuntime, nowMs: number): TimerState {
+  const value = computeRemainingSec(def, rt, nowMs);
+  const past = def.type === "elapsed"
+    // An elapsed timer is "past the end" only if it HAS an end.
+    ? (typeof def.elapsedEndSec === "number" && Number.isFinite(def.elapsedEndSec) && value >= def.elapsedEndSec)
+    : value <= 0;
+  // `running` is the OPERATOR's state, never "the wall clock is in range" —
+  // conflating them made a stopped countdown_to still report "running".
+  const running = rt.running;
+  if (!past) return running ? "running" : "stopped";
+  // Past the end. Without overrun the value is clamped, so it is simply done.
+  if (def.allowsOverrun !== true) return "complete";
+  return running ? "overrunning" : "overran";
+}
+
+/** Add (or with a negative amount, subtract) seconds from a timer WITHOUT
+ *  stopping or resetting it — ProPresenter's `TimerIncrement` / the API's
+ *  `/v1/timer/{id}/increment/{time}`. This is the "give the preacher two more
+ *  minutes" control, and it is why editing the duration is NOT a substitute:
+ *  an edit resets, a nudge does not.
+ *
+ *  Works by shifting the banked value, so it is exact and drift-free whether
+ *  the timer is running or paused. countdown_to has no banked value — its
+ *  value comes from the wall clock — so it returns unchanged; nudge its target
+ *  instead. Pure. */
+export function incrementTimer(
+  def: TimerDefinition,
+  rt: TimerRuntime,
+  deltaSec: number,
+  nowMs: number,
+): TimerRuntime {
+  if (!Number.isFinite(deltaSec) || deltaSec === 0) return rt;
+  if (def.type === "countdown_to") return rt;
+  // Re-bank the CURRENT value plus the delta, and re-anchor to now, so a
+  // running timer keeps running seamlessly from the new value.
+  const current = computeRemainingSec(def, rt, nowMs);
+  const next = current + deltaSec;
+  const floored = def.type === "elapsed" ? Math.max(0, next) : next;
+  return { running: rt.running, anchorMs: rt.running ? nowMs : null, baseSec: floored };
+}
+
+
+/** The value colour triggers should be judged against, in "time left" terms.
+ *  A countdown already counts down. An ELAPSED timer counts up, so its
+ *  remaining time is (end - elapsed) — and with no end there is nothing to
+ *  count towards, so triggers do not apply and it returns null.
+ *  Pure. Fixes triggers firing inverted on elapsed timers. */
+export function triggerValueFor(def: TimerDefinition, displayedSec: number): number | null {
+  if (def.type !== "elapsed") return displayedSec;
+  const end = def.elapsedEndSec;
+  if (typeof end !== "number" || !Number.isFinite(end)) return null;
+  return end - displayedSec;
 }

@@ -6,8 +6,10 @@ import { getDb } from "./db/client";
 import { bakeThemeIntoObjectsJson } from "./theme-bake";
 import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide, resetThemeOwnedFields, pruneThemeBackup, reapplyFieldsForConfigs, copyThemeBackupForDuplicate, appendBakedConfig, readBakedConfigs, pickBakedConfig, type BakeableThemeConfigList } from "./theme-rebake";
 import { isHex6Color } from "./hex-color";
-import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, type ServiceItemType } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, stageLayouts, stageScreens, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
+import { sanitizeStageLayout } from "../engine/stage";
+import { isBuiltInStageLayout } from "../engine/stage/presets";
 import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
@@ -1848,9 +1850,10 @@ export async function updatePreferences(data: {
   // Explicit field whitelist BEFORE any .set()/.values() — never spread the raw
   // `data` object into the DB write. This is the ONLY server action that writes
   // church_preferences from client input, so a poisoned/extra property (most
-  // importantly `layersV2`, which is ONLY writable via the dedicated admin action
-  // `setLayersEngineEnabled` — never through this general settings action) can never reach a
-  // column. Only keys present in `data` are copied through.
+  // importantly the rollout flags `layersV2` and `scenesEnabled`, which are ONLY
+  // writable via their dedicated admin actions `setLayersEngineEnabled` /
+  // `setScenesEnabled` — never through this general settings action) can never
+  // reach a column. Only keys present in `data` are copied through.
   const patch: Partial<typeof churchPreferences.$inferInsert> = {};
   if ("defaultTranslationId" in data) patch.defaultTranslationId = data.defaultTranslationId;
   if ("aiListeningDefault" in data) patch.aiListeningDefault = data.aiListeningDefault;
@@ -1893,6 +1896,34 @@ export async function setLayersEngineEnabled(enabled: boolean): Promise<Result> 
     // hit the unique constraint.
     await db.insert(churchPreferences).values({ churchId: user.churchId, layersV2: enabled })
       .onConflictDoUpdate({ target: churchPreferences.churchId, set: { layersV2: enabled, updatedAt: new Date() } });
+  }
+  revalidatePath("/settings");
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+// Scenes opt-in (2026-09-21, user-directed: give the operator a toggle so a
+// church can switch Scenes on itself and try it, ahead of a default-on rollout).
+// Mirrors setLayersEngineEnabled exactly — a DEDICATED admin-only action, since
+// `updatePreferences` deliberately whitelists these rollout flags OUT so a
+// general settings save can never flip one. Church-scoped: writes only the
+// caller's own church_preferences row.
+export async function setScenesEnabled(enabled: boolean): Promise<Result> {
+  // requireUser + explicit role check (NOT requireRole): requireRole redirects,
+  // and a redirect from a server action called inside the desktop operator would
+  // navigate away from the live console mid-service. Return a clean error.
+  const user = await requireUser();
+  if (user.role !== "admin") return { ok: false, error: "Only a church admin can change Scenes" };
+  if (typeof enabled !== "boolean") return { ok: false, error: "Invalid value" };
+  const db = getDb();
+  const [existing] = await db.select({ id: churchPreferences.id }).from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+  if (existing) {
+    await db.update(churchPreferences).set({ scenesEnabled: enabled, updatedAt: new Date() }).where(and(eq(churchPreferences.id, existing.id), eq(churchPreferences.churchId, user.churchId)));
+  } else {
+    // Upsert on the unique church_id so a double-click with no prefs row can't
+    // hit the unique constraint.
+    await db.insert(churchPreferences).values({ churchId: user.churchId, scenesEnabled: enabled })
+      .onConflictDoUpdate({ target: churchPreferences.churchId, set: { scenesEnabled: enabled, updatedAt: new Date() } });
   }
   revalidatePath("/settings");
   revalidatePath("/operator");
@@ -2089,6 +2120,16 @@ export async function getLayersEngineSetting(): Promise<Result<{ enabled: boolea
   const db = getDb();
   const [row] = await db.select({ layersV2: churchPreferences.layersV2 }).from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
   return { ok: true, data: { enabled: row?.layersV2 ?? true, canEdit: user.role === "admin" } };
+}
+
+/** Read the Scenes setting for the desktop Settings window (any signed-in role
+ *  may read; only admins may change it). Default OFF when no row exists —
+ *  matches the schema default, so reading never implies a church has opted in. */
+export async function getScenesSetting(): Promise<Result<{ enabled: boolean; canEdit: boolean }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const [row] = await db.select({ scenesEnabled: churchPreferences.scenesEnabled }).from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+  return { ok: true, data: { enabled: row?.scenesEnabled ?? false, canEdit: user.role === "admin" } };
 }
 
 // Phase 6: sermon deck metadata --------------------------------------------
@@ -2396,31 +2437,77 @@ export async function setDefaultTheme(id: string): Promise<Result> {
 }
 
 // ── Wave 7: timer definitions (church-scoped) ────────────────────────────────
+export type TimerPeriod = "am" | "pm" | "24_hour";
 export type TimerDefInput = {
   name?: string;
   type?: "countdown" | "countdown_to" | "elapsed";
   durationSec?: number;
   targetClock?: string | null;
+  // ProPresenter parity (2026-09-21) —————————————————————————————
+  /** PP "Allows Overrun". Default false = the timer stops at its endpoint. */
+  allowsOverrun?: boolean;
+  /** PP "Countdown to Time" period. null/absent ⇒ read targetClock as 24h. */
+  period?: TimerPeriod | null;
+  /** PP "Elapsed Time" start offset, seconds. */
+  elapsedStartSec?: number | null;
+  /** PP "Elapsed Time" end, seconds. null ⇒ unlimited. */
+  elapsedEndSec?: number | null;
+  /** PP stage `oCl` — colour once past zero. */
+  overrunColor?: string | null;
 };
+
+const TIMER_PERIODS: TimerPeriod[] = ["am", "pm", "24_hour"];
+const secOrNull = (v: unknown): number | null =>
+  v === null || v === undefined || v === "" || !Number.isFinite(Number(v))
+    ? null : Math.max(0, Math.min(24 * 60 * 60, Math.round(Number(v))));
 
 function sanitizeTimerDef(input: TimerDefInput): {
   name: string; type: "countdown" | "countdown_to" | "elapsed"; durationSec: number; targetClock: string | null;
+  allowsOverrun: boolean; period: TimerPeriod | null;
+  elapsedStartSec: number | null; elapsedEndSec: number | null; overrunColor: string | null;
 } {
   const type = input.type === "countdown_to" || input.type === "elapsed" ? input.type : "countdown";
   const durationSec = Math.max(0, Math.min(24 * 60 * 60, Math.round(Number(input.durationSec) || 0)));
-  // targetClock: accept "HH:MM" only (0-23:0-59); anything else → null.
-  const tc = typeof input.targetClock === "string" && /^([01]?\d|2[0-3]):[0-5]\d$/.test(input.targetClock.trim())
-    ? input.targetClock.trim() : null;
-  return { name: (input.name ?? "Timer").trim().slice(0, 120) || "Timer", type, durationSec, targetClock: tc };
+  // targetClock: "HH:MM". With a 12-hour period the hour may be 1-12; with 24h
+  // (or no period) it must be 0-23. ProPresenter offers AM / PM / 24-hour.
+  const period = input.period && TIMER_PERIODS.includes(input.period) ? input.period : null;
+  const raw = typeof input.targetClock === "string" ? input.targetClock.trim() : "";
+  const twelveHour = period === "am" || period === "pm";
+  const ok = twelveHour
+    ? /^(1[0-2]|[1-9]):[0-5]\d$/.test(raw)
+    : /^([01]?\d|2[0-3]):[0-5]\d$/.test(raw);
+  const tc = ok ? raw : null;
+  // An elapsed END before its START would count backwards; drop the end rather
+  // than persist an impossible timer.
+  const start = secOrNull(input.elapsedStartSec);
+  let end = secOrNull(input.elapsedEndSec);
+  if (end !== null && start !== null && end <= start) end = null;
+  return {
+    name: (input.name ?? "Timer").trim().slice(0, 120) || "Timer",
+    type, durationSec, targetClock: tc,
+    allowsOverrun: input.allowsOverrun === true,
+    period: type === "countdown_to" ? period : null,
+    elapsedStartSec: type === "elapsed" ? start : null,
+    elapsedEndSec: type === "elapsed" ? end : null,
+    overrunColor: typeof input.overrunColor === "string" && isHex6Color(input.overrunColor) ? input.overrunColor : null,
+  };
 }
 
-export async function listTimerDefinitions(): Promise<Result<Array<{ id: string; name: string; type: string; durationSec: number; targetClock: string | null; sortOrder: number }>>> {
+export async function listTimerDefinitions(): Promise<Result<Array<{
+  id: string; name: string; type: string; durationSec: number; targetClock: string | null; sortOrder: number;
+  allowsOverrun: boolean; period: TimerPeriod | null; elapsedStartSec: number | null;
+  elapsedEndSec: number | null; overrunColor: string | null;
+}>>> {
   const user = await requireUser();
   const db = getDb();
   const rows = await db.select().from(timerDefinitions)
     .where(eq(timerDefinitions.churchId, user.churchId))
     .orderBy(asc(timerDefinitions.sortOrder), asc(timerDefinitions.createdAt));
-  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, type: r.type, durationSec: r.durationSec, targetClock: r.targetClock, sortOrder: r.sortOrder })) };
+  return { ok: true, data: rows.map((r) => ({
+    id: r.id, name: r.name, type: r.type, durationSec: r.durationSec, targetClock: r.targetClock, sortOrder: r.sortOrder,
+    allowsOverrun: r.allowsOverrun, period: r.period, elapsedStartSec: r.elapsedStartSec,
+    elapsedEndSec: r.elapsedEndSec, overrunColor: r.overrunColor,
+  })) };
 }
 
 export async function createTimerDefinition(input: TimerDefInput): Promise<Result<{ id: string }>> {
@@ -2473,6 +2560,17 @@ const MSG_DISMISS_VALUES = new Set(["manual", "5s", "10s", "30s", "1min", "5min"
 // operator convenience lists, not bulk data — a runaway/hostile creator must
 // not be able to grow them without bound (defence-in-depth alongside RLS).
 const MAX_TIMER_DEFS = 50;
+const MAX_STAGE_LAYOUTS = 40;
+// Explicit ceiling on the layout jsonb. The widget/trigger caps already bound a
+// well-formed layout to a few KB, but without a byte cap a future field added
+// to the widget shape could silently reopen unbounded growth per row. Mirrors
+// the SCRIPTURE_DESIGN_MAX_BYTES pattern.
+const STAGE_CONFIG_MAX_BYTES = 64 * 1024;
+function withinStageConfigLimit(config: unknown): boolean {
+  try { return JSON.stringify(config).length <= STAGE_CONFIG_MAX_BYTES; }
+  catch { return false; } // unserialisable ⇒ reject rather than persist
+}
+const MAX_STAGE_SCREENS = 8;
 const MAX_MESSAGE_TEMPLATES = 50;
 
 function sanitizeMessageTemplate(input: MessageTemplateInput): { name: string; text: string; position: string; config: Record<string, unknown> } {
@@ -3642,5 +3740,145 @@ export async function deleteScene(id: string): Promise<Result> {
   const res = await db.delete(scenes)
     .where(and(eq(scenes.id, id), eq(scenes.churchId, user.churchId)));
   if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Scene not found" };
+  return { ok: true };
+}
+
+
+// ── Stage Layouts (ProPresenter "Edit Layouts", 2026-09-21) ────────────────
+// Named confidence-monitor designs. Built-ins live in CODE
+// (src/engine/stage/presets.ts) and are NEVER rows — a church customises by
+// DUPLICATING one, so "restore defaults" always works. Every read/write is
+// church_id-scoped (rule 5).
+
+export async function listStageLayouts(): Promise<Result<Array<{ id: string; name: string; config: unknown; sortOrder: number }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select().from(stageLayouts)
+    .where(eq(stageLayouts.churchId, user.churchId))
+    .orderBy(asc(stageLayouts.sortOrder), asc(stageLayouts.createdAt));
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, config: r.config, sortOrder: r.sortOrder })) };
+}
+
+export async function createStageLayout(input: { name: string; config?: unknown }): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const existing = await db.select({ id: stageLayouts.id }).from(stageLayouts).where(eq(stageLayouts.churchId, user.churchId));
+  if (existing.length >= MAX_STAGE_LAYOUTS) {
+    return { ok: false, error: `Stage layout limit reached (${MAX_STAGE_LAYOUTS}). Delete one to add another.` };
+  }
+  const name = String(input?.name ?? "").trim().slice(0, 120);
+  if (!name) return { ok: false, error: "Give the layout a name" };
+  // Sanitised on WRITE as well as read: a malformed config must never reach a
+  // stage screen, and the bounds (widget count, scale, triggers) are enforced
+  // by the same pure function the renderer uses.
+  const config = sanitizeStageLayout({ ...(input?.config as object ?? {}), name });
+  if (!withinStageConfigLimit(config)) return { ok: false, error: "That layout is too large" };
+  const [row] = await db.insert(stageLayouts)
+    .values({ churchId: user.churchId, name, config, sortOrder: existing.length })
+    .returning({ id: stageLayouts.id });
+  revalidatePath("/operator");
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function updateStageLayout(id: string, patch: { name?: string; config?: unknown; sortOrder?: number }): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const set: Partial<typeof stageLayouts.$inferInsert> = { updatedAt: new Date() };
+  if (patch.name !== undefined) {
+    const name = String(patch.name).trim().slice(0, 120);
+    if (!name) return { ok: false, error: "Give the layout a name" };
+    set.name = name;
+  }
+  if (patch.config !== undefined) {
+    const cfg = sanitizeStageLayout(patch.config);
+    if (!withinStageConfigLimit(cfg)) return { ok: false, error: "That layout is too large" };
+    set.config = cfg;
+  }
+  if (patch.sortOrder !== undefined && Number.isFinite(patch.sortOrder)) set.sortOrder = Math.max(0, Math.floor(patch.sortOrder));
+  // church_id in the WHERE, so another church's id can never be updated.
+  await db.update(stageLayouts).set(set)
+    .where(and(eq(stageLayouts.id, id), eq(stageLayouts.churchId, user.churchId)));
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+export async function deleteStageLayout(id: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  await db.delete(stageLayouts).where(and(eq(stageLayouts.id, id), eq(stageLayouts.churchId, user.churchId)));
+  // Any screen pointing at the deleted layout falls back to the built-in
+  // default rather than rendering blank — a blank stage screen mid-service is
+  // the worst possible outcome.
+  await db.update(stageScreens).set({ layoutId: null, updatedAt: new Date() })
+    .where(and(eq(stageScreens.layoutId, id), eq(stageScreens.churchId, user.churchId)));
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+// ── Stage Screens (one per physical confidence monitor) ────────────────────
+
+export async function listStageScreens(): Promise<Result<Array<{ id: string; name: string; layoutId: string | null; sortOrder: number }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select().from(stageScreens)
+    .where(eq(stageScreens.churchId, user.churchId))
+    .orderBy(asc(stageScreens.sortOrder), asc(stageScreens.createdAt));
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, layoutId: r.layoutId, sortOrder: r.sortOrder })) };
+}
+
+export async function createStageScreen(input: { name: string; layoutId?: string | null }): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const existing = await db.select({ id: stageScreens.id }).from(stageScreens).where(eq(stageScreens.churchId, user.churchId));
+  if (existing.length >= MAX_STAGE_SCREENS) {
+    return { ok: false, error: `Stage screen limit reached (${MAX_STAGE_SCREENS}).` };
+  }
+  const name = String(input?.name ?? "").trim().slice(0, 120) || `Stage ${existing.length + 1}`;
+  const [row] = await db.insert(stageScreens)
+    .values({ churchId: user.churchId, name, layoutId: input?.layoutId ?? null, sortOrder: existing.length })
+    .returning({ id: stageScreens.id });
+  revalidatePath("/operator");
+  return { ok: true, data: { id: row.id } };
+}
+
+/** Assign a layout to a screen. `layoutId` may be a BUILT-IN id
+ *  ("builtin-timer-only") or a stage_layouts uuid — a built-in never needs
+ *  materialising as a row first. null = fall back to the default layout. */
+export async function setStageScreenLayout(id: string, layoutId: string | null): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const value = layoutId === null ? null : String(layoutId).slice(0, 64);
+  if (value !== null && !/^[a-zA-Z0-9_-]{1,64}$/.test(value)) return { ok: false, error: "Invalid layout" };
+  // OWNERSHIP: the shape check above is not enough. A uuid-shaped id must be
+  // verified to belong to THIS church, or a screen could be pointed at another
+  // church's layout and render its config (rule 5). Built-in ids are code, not
+  // rows, and are the same for everyone — they need no ownership check.
+  if (value !== null && !isBuiltInStageLayout(value)) {
+    const [owned] = await db.select({ id: stageLayouts.id }).from(stageLayouts)
+      .where(and(eq(stageLayouts.id, value), eq(stageLayouts.churchId, user.churchId))).limit(1);
+    if (!owned) return { ok: false, error: "Invalid layout" };
+  }
+  await db.update(stageScreens).set({ layoutId: value, updatedAt: new Date() })
+    .where(and(eq(stageScreens.id, id), eq(stageScreens.churchId, user.churchId)));
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+export async function renameStageScreen(id: string, name: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const clean = String(name ?? "").trim().slice(0, 120);
+  if (!clean) return { ok: false, error: "Give the screen a name" };
+  await db.update(stageScreens).set({ name: clean, updatedAt: new Date() })
+    .where(and(eq(stageScreens.id, id), eq(stageScreens.churchId, user.churchId)));
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+export async function deleteStageScreen(id: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  await db.delete(stageScreens).where(and(eq(stageScreens.id, id), eq(stageScreens.churchId, user.churchId)));
+  revalidatePath("/operator");
   return { ok: true };
 }

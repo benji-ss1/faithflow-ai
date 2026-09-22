@@ -32,18 +32,27 @@ export const SCENE_SCREEN_LABELS: Record<SceneScreen, string> = {
 };
 
 /**
- * Routable layer ids — these are exactly the ids `outputStateToLayers()` emits
+ * Routable layer ids — these are the ids `outputStateToLayers()` emits
  * (src/lib/output-layers.ts), which is what makes a mask composable with the
  * operator's override map keyed on the same ids.
+ *
+ * EXCEPTION — ROUTE-DRAWN layers ("announcement", "timer"): the compositor never
+ * sees these; each output route draws them itself and therefore applies the scene
+ * mask itself (see /live, /stage, /livestream; "announcement" additionally in
+ * multiview.ts, which draws no timer at all). They are NOT emitted
+ * by `outputStateToLayers()`, so a mask on them is composable only with the route's
+ * own render, never with the operator's override map. "timer" (2026-09-21) follows
+ * the "announcement" precedent exactly — see docs/PP7_TIMERS_PLAN.md Phase 1.
  */
-export type SceneLayerId = "background" | "camera" | "slide" | "logo" | "announcement";
-export const SCENE_LAYER_IDS: SceneLayerId[] = ["background", "camera", "slide", "logo", "announcement"];
+export type SceneLayerId = "background" | "camera" | "slide" | "logo" | "announcement" | "timer";
+export const SCENE_LAYER_IDS: SceneLayerId[] = ["background", "camera", "slide", "logo", "announcement", "timer"];
 export const SCENE_LAYER_LABELS: Record<SceneLayerId, string> = {
   background: "Background",
   camera: "Camera",
   slide: "Words",
   logo: "Logo",
   announcement: "Announcement",
+  timer: "Timer",
 };
 
 /** Per-screen routing. A layer absent from `layers` is left exactly as-is. */
