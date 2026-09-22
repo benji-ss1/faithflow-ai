@@ -218,6 +218,15 @@ export function TimersPanel({ quick, timers }: { quick: TimerApi; timers: Timers
 
         {timers.loading ? (
           <div className="text-[11px] text-[var(--color-muted-foreground)] py-2">Loading timers…</div>
+        ) : timers.loadError && timers.slots.length === 0 ? (
+          // A FAILED load must never read as "you have no timers" — on
+          // 2026-09-22 it did, and the operator believed theirs were gone.
+          <div className="text-[11px] text-[var(--color-destructive)] leading-relaxed">
+            Couldn&apos;t load your timers. They have not been deleted — this is a
+            connection or server problem.
+            <button onClick={() => { void timers.refresh(); }}
+              className="ml-1 underline font-medium">Try again</button>
+          </div>
         ) : timers.slots.length === 0 ? (
           <div className="text-[11px] text-[var(--color-muted-foreground)] py-2">
             No timers yet. Add one for your sermon, worship set, or a countdown to the start of the service.
@@ -382,7 +391,10 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
               <button
                 onClick={async () => {
                   if (await confirm({ title: `Delete timer "${slot.def.name}"?`, confirmLabel: "Delete", danger: true })) {
-                    timers.removeTimer(slot.def.id);
+                    // AWAITED + void-marked: an unawaited rejection here fell
+                    // through to the shell's global net as the redacted
+                    // "Background task failed" toast.
+                    await timers.removeTimer(slot.def.id);
                   }
                 }}
                 className="mt-1 h-7 rounded border border-[var(--color-destructive)] text-[var(--color-destructive)] text-[11px] flex items-center justify-center gap-1">

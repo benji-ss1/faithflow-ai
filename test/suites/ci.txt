@@ -232,3 +232,4 @@ test/whats-new.test.ts
 test/windows-media.test.ts
 test/windows-responsive.test.ts
 test/schema-preflight.test.ts
+test/action-call.test.ts
