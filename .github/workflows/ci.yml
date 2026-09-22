@@ -11,6 +11,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  staleness:
+    name: Branch freshness
+    # A branch that drifts far behind main is how shipped work gets reverted
+    # (CLAUDE.md rule 0). One PR reached 585 commits behind, which meant its
+    # changes had to be re-applied onto main by hand, with 5 files conflicting.
+    # Fail loudly at ~150 commits so a rebase happens while it is still cheap.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: How far behind main?
+        run: |
+          git fetch origin main --quiet
+          BEHIND=$(git rev-list --count HEAD..origin/main)
+          AHEAD=$(git rev-list --count origin/main..HEAD)
+          echo "This branch is $BEHIND commit(s) behind main and $AHEAD ahead."
+          echo "### Branch freshness" >> "$GITHUB_STEP_SUMMARY"
+          echo "- behind main: **$BEHIND**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ahead of main: **$AHEAD**" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$BEHIND" -gt 150 ]; then
+            echo "::error::This branch is $BEHIND commits behind main. Merge main in (git fetch origin && git merge origin/main) before shipping, or you risk reverting work that landed meanwhile."
+            exit 1
+          fi
+          if [ "$BEHIND" -gt 40 ]; then
+            echo "::warning::This branch is $BEHIND commits behind main — merge main in soon."
+          fi
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
