@@ -53,6 +53,7 @@ test/bible-verse-enum-phonetic.test.ts
 test/bible-verse-range.test.ts
 test/builtin-themes.test.ts
 test/changelog-generator.test.ts
+test/changelog-try-it.test.ts
 test/church-styles-store.test.ts
 test/colorway.test.ts
 test/context-parser-nav.test.ts
@@ -152,6 +153,7 @@ test/sarah-watchers.test.ts
 test/scale-hardening.test.ts
 test/scenes-toggle.test.ts
 test/scenes.test.ts
+test/schema-preflight.test.ts
 test/scripture-chunk.test.ts
 test/scripture-design-sanitize.test.ts
 test/scripture-live-parity.test.ts
@@ -231,4 +233,3 @@ test/voice-commands.test.ts
 test/whats-new.test.ts
 test/windows-media.test.ts
 test/windows-responsive.test.ts
-test/schema-preflight.test.ts

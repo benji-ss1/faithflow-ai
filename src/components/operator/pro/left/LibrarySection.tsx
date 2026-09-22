@@ -233,6 +233,7 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
           type="button"
           onClick={() => { setSmartDialog({ mode: "create" }); setOpen(true); }}
           className="ml-1 w-[22px] h-[22px] grid place-items-center rounded-md border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] text-[var(--color-muted-foreground)] transition-[transform,box-shadow,color,border-color] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:text-[var(--color-brand)] hover:border-[color-mix(in_oklab,var(--color-brand)_50%,var(--color-border))] active:translate-y-0 active:scale-95"
+          data-vic="smart-folder"
           title="New smart folder (fills automatically from rules)"
         >
           <Sparkles className="w-3.5 h-3.5" strokeWidth={2.4} />
