@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { OutputEnvironmentMark } from "@/components/EnvironmentBanner";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
@@ -544,6 +545,9 @@ export default function StagePage() {
           <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" /> Operator disconnected
         </div>
       )}
+      {/* If a test build's projector output looked identical to
+          production, someone would eventually run a real service off it. */}
+      <OutputEnvironmentMark vercelEnv={process.env.NEXT_PUBLIC_VERCEL_ENV} />
     </div>
   );
 }

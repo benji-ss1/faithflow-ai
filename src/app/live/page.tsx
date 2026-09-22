@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { OutputEnvironmentMark } from "@/components/EnvironmentBanner";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
@@ -734,6 +735,9 @@ export default function LivePage() {
           <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" /> Operator disconnected
         </div>
       )}
+      {/* If a test build's projector output looked identical to
+          production, someone would eventually run a real service off it. */}
+      <OutputEnvironmentMark vercelEnv={process.env.NEXT_PUBLIC_VERCEL_ENV} />
     </div>
   );
 }

@@ -24,6 +24,7 @@
  * through in OBS); the surface is never torn down, it just goes transparent.
  */
 import { useEffect, useRef, useState } from "react";
+import { OutputEnvironmentMark } from "@/components/EnvironmentBanner";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import {
@@ -269,6 +270,9 @@ function NdiTestPattern({ transparent }: { transparent: boolean }) {
           </div>
         </div>
       </PresentationCanvas>
+      {/* If a test build's projector output looked identical to
+          production, someone would eventually run a real service off it. */}
+      <OutputEnvironmentMark vercelEnv={process.env.NEXT_PUBLIC_VERCEL_ENV} />
     </div>
   );
 }
