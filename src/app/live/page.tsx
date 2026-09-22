@@ -314,7 +314,13 @@ export default function LivePage() {
               setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
               delete namedTimerAtRef.current[oid];
             } else if ("remainingSec" in ov) {
-              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, kind: ov.kind, position: ov.position, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
+              // SPREAD, never a hand-copied field list. This line used to
+              // enumerate nine fields and therefore silently dropped
+              // showHours/leadingZeros (so the operator's number format never
+              // reached the projector on the same-machine path) — and would
+              // have dropped `screens` next. The other three surfaces already
+              // spread; this was the last copy left to drift.
+              setNamedTimers((m) => ({ ...m, [oid]: { ...ov, id: oid } }));
               namedTimerAtRef.current[oid] = Date.now();
             }
           } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
@@ -640,6 +646,7 @@ export default function LivePage() {
               timer could read "90:00" here and "1:30:00" in the operator panel. */}
           {!sceneHidesLayer(scene, "main", "timer") && (
             <TimerOverlayLayer
+              screen="main"
               wireTimers={wireTimers}
               clockSync={clockSyncRef.current}
               density="full"

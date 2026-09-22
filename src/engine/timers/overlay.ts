@@ -16,6 +16,7 @@ import {
   resolveTimerColor,
   triggerValueFor,
 } from "./index";
+import { sanitizeTimerScreens, type TimerScreenId } from "./screens";
 
 /** What the mapping needs. Declared structurally so the engine stays free of
  *  any React import. */
@@ -31,6 +32,8 @@ export type OverlayableSlot = {
     showHours?: boolean;
     leadingZeros: boolean;
     colorTriggers: Array<{ atSec: number; color: string }>;
+    /** Undefined ⇒ every screen. */
+    screens?: readonly TimerScreenId[];
   };
 };
 
@@ -56,6 +59,9 @@ export function timerToOverlay(s: OverlayableSlot, nowMs: number): Extract<Timer
     ...(color ? { color } : {}),
     ...(a.showHours !== undefined ? { showHours: a.showHours } : {}),
     leadingZeros: a.leadingZeros,
+    // Same-machine path carries routing too — otherwise the operator's own
+    // projector would ignore a choice their stage screen honoured.
+    ...(sanitizeTimerScreens(a.screens) ? { screens: sanitizeTimerScreens(a.screens) } : {}),
   };
 }
 

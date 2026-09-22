@@ -16,6 +16,9 @@ import { isRenderableUrl } from "./render-url";
 // compile time and keeps this module server-safe.
 import type { SceneWire, SceneScreen, SceneLayerId, ScreenMask } from "./scenes";
 import { SCENE_SCREENS, SCENE_LAYER_IDS } from "./scenes";
+// Per-timer output routing. screens.ts is a leaf (imports nothing), so this is
+// a plain value import with no cycle risk — unlike scenes.ts above.
+import { isValidTimerScreens, type TimerScreenId } from "../engine/timers/screens";
 
 // Rich slide objects for the projector (Phase 5D-2 → live). Coordinates are in
 // the 1920×1080 virtual canvas the editor uses; renderers scale by percentage.
@@ -589,7 +592,7 @@ export type TimerOverlay =
   // `showHours`/`leadingZeros` (2026-09-21) are the operator's number-format
   // choice. They MUST ride the wire: the controls existed in the panel but
   // nothing carried them, so they were dead — ticked, persisted, and ignored.
-  | { id?: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean; scale?: number; color?: string; showHours?: boolean; leadingZeros?: boolean; clear?: false }
+  | { id?: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean; scale?: number; color?: string; showHours?: boolean; leadingZeros?: boolean; screens?: readonly TimerScreenId[]; clear?: false }
   // `{clear:true}` (no id) clears the legacy slot; `{clear:true, id}` clears one
   // named timer without disturbing the others.
   | { clear: true; id?: string };
@@ -633,6 +636,11 @@ export type TimerWire = {
   colorTriggers?: Array<{ atSec: number; color: string }>;
   showHours?: boolean;
   leadingZeros?: boolean;
+  /** WHICH SCREENS this timer draws on. ABSENT ⇒ all four (what every timer
+   *  did before per-timer routing existed, so old frames are unchanged). An
+   *  empty array is a deliberate "nowhere". Composed with the scene matrix by
+   *  AND — see src/engine/timers/screens.ts. */
+  screens?: readonly TimerScreenId[];
 };
 
 export type TimersWire = {
@@ -771,6 +779,7 @@ export function isValidTimerWire(v: unknown): v is TimerWire {
       if (!isValidColor(tt.color)) return false;
     }
   }
+  if (o.screens !== undefined && !isValidTimerScreens(o.screens)) return false;
   if (!isValidOverlayPosition(o.position)) return false;
   return true;
 }
@@ -904,6 +913,7 @@ export function isValidTimerOverlay(overlay: unknown): overlay is TimerOverlay {
   if (o.showHours !== undefined && typeof o.showHours !== "boolean") return false;
   if (o.leadingZeros !== undefined && typeof o.leadingZeros !== "boolean") return false;
   if (o.color !== undefined && !isValidColor(o.color)) return false;
+  if (o.screens !== undefined && !isValidTimerScreens(o.screens)) return false;
   if (!isValidOverlayPosition(o.position)) return false;
   return true;
 }
