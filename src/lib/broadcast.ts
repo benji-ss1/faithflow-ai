@@ -9,6 +9,7 @@
 //
 // projection-zone is a pure module (types + math, no browser APIs / no
 // "use client"), so importing it here keeps this file server-safe.
+import { SLIDE_W, SLIDE_H } from "./canvas-coords";
 import { isValidZone, type ProjectionZone } from "./projection-zone";
 import { isRenderableUrl } from "./render-url";
 // Scenes (2026-09-16): TYPE-ONLY import. scenes.ts imports ThemeAppearance from
@@ -38,8 +39,10 @@ export type SlideObjectWire =
       // PP7 video controls — trim, end behaviour, rate, volume.
       inSec?: number; outSec?: number; endAction?: "loop" | "freeze" | "clear"; rate?: number; volume?: number };
 
-export const SLIDE_CANVAS_W = 1920;
-export const SLIDE_CANVAS_H = 1080;
+// Derived from the single canvas contract so the wire can never disagree with
+// the editor about how big a slide is.
+export const SLIDE_CANVAS_W = SLIDE_W;
+export const SLIDE_CANVAS_H = SLIDE_H;
 export const MAX_SLIDE_OBJECTS = 60;
 
 // Scripture "band" mode (upper / mid / lower third). Present on a text payload

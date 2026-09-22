@@ -170,15 +170,29 @@ export function SlideCanvas({
   }, []);
 
   const beginDrag = useCallback((
-    e: React.MouseEvent, obj: SlideObject, mode: "move" | HandleKey,
+    e: React.PointerEvent, obj: SlideObject, mode: "move" | HandleKey,
   ) => {
     if (readOnly) return;
+    // Only the primary button/contact drags (a right-click or a second finger
+    // must never start one).
+    if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     const rect = getCanvasRect();
-    if (!rect) return;
+    // A ZERO-sized rect (collapsed flex parent, hidden tab, a canvas measured
+    // before layout) would make scaleX/scaleY Infinity and write NaN geometry
+    // into the slide — which then renders broken locally and is SILENTLY
+    // rejected by isValidSlideObject on publish. Refuse to start the drag.
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
     const scaleX = CANVAS_W / rect.width;
     const scaleY = CANVAS_H / rect.height;
+    // Pointer capture: without it a pointerup delivered OUTSIDE the window
+    // (dragged off-screen, over a native menu, into an <iframe>/<video> or an
+    // Electron webview) never arrives and the drag stays latched. Capture
+    // guarantees this element receives move/up/cancel until release.
+    const captureEl = e.currentTarget as Element;
+    const pointerId = e.pointerId;
+    try { captureEl.setPointerCapture(pointerId); } catch { /* unsupported — window listeners still apply */ }
     const startX = e.clientX;
     const startY = e.clientY;
     const start = { x: obj.x, y: obj.y, w: obj.w, h: obj.h };
@@ -194,7 +208,8 @@ export function SlideCanvas({
           .map((o) => ({ id: o.id, x: o.x, y: o.y }))
       : null;
 
-    function onMove(ev: MouseEvent) {
+    function onMove(ev: PointerEvent) {
+      if (ev.pointerId !== pointerId) return; // ignore a second, unrelated pointer
       const dx = (ev.clientX - startX) * scaleX;
       const dy = (ev.clientY - startY) * scaleY;
       if (groupStart) {
@@ -237,28 +252,41 @@ export function SlideCanvas({
       }
       onUpdateObject(obj.id, { x: nx, y: ny, w: nw, h: nh } as Partial<SlideObject>);
     }
-    function onUp() {
+    function onUp(ev: PointerEvent) {
+      if (ev.pointerId !== pointerId) return;
       setGuides({ x: null, y: null });
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      // pointercancel fires when the OS/browser takes the pointer away (touch
+      // scroll takeover, window blur, a system gesture). Treat it as an end,
+      // never leave the drag latched.
+      window.removeEventListener("pointercancel", onUp);
+      try { captureEl.releasePointerCapture(pointerId); } catch { /* already released */ }
     }
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }, [getCanvasRect, onUpdateObject, onUpdateObjects, readOnly]);
 
   // Rubber-band marquee: begins on empty-canvas mousedown. On release, selects
   // every object that intersects the box. A tiny box (a plain click) clears.
-  const beginMarquee = useCallback((e: React.MouseEvent) => {
+  const beginMarquee = useCallback((e: React.PointerEvent) => {
     if (readOnly) return;
+    if (e.button !== 0) return;
     const rect = getCanvasRect();
-    if (!rect) return;
+    // Same zero-rect guard as beginDrag: Infinity scale => NaN marquee box.
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
     const scaleX = CANVAS_W / rect.width;
     const scaleY = CANVAS_H / rect.height;
+    const captureEl = e.currentTarget as Element;
+    const pointerId = e.pointerId;
+    try { captureEl.setPointerCapture(pointerId); } catch { /* unsupported */ }
     const ox = (e.clientX - rect.left) * scaleX;
     const oy = (e.clientY - rect.top) * scaleY;
     let moved = false;
 
-    function onMove(ev: MouseEvent) {
+    function onMove(ev: PointerEvent) {
+      if (ev.pointerId !== pointerId) return;
       const cx = (ev.clientX - rect!.left) * scaleX;
       const cy = (ev.clientY - rect!.top) * scaleY;
       const x = Math.min(ox, cx), y = Math.min(oy, cy);
@@ -266,10 +294,15 @@ export function SlideCanvas({
       if (w > 6 || h > 6) moved = true;
       setMarquee({ x, y, w, h });
     }
-    function onUp(ev: MouseEvent) {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+    function onUp(ev: PointerEvent) {
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      try { captureEl.releasePointerCapture(pointerId); } catch { /* already released */ }
       setMarquee(null);
+      // A cancelled marquee selects nothing rather than committing a stale box.
+      if (ev.type === "pointercancel") return;
       if (!moved) { onSelectObject(null); return; } // plain click → clear
       const cx = (ev.clientX - rect!.left) * scaleX;
       const cy = (ev.clientY - rect!.top) * scaleY;
@@ -280,8 +313,9 @@ export function SlideCanvas({
         .map((o) => o.id);
       onSetSelection(hits);
     }
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }, [getCanvasRect, onSelectObject, onSetSelection, readOnly]);
 
   if (!slide) {
@@ -366,7 +400,7 @@ export function SlideCanvas({
             // projector's SlideObjectsLayer exactly, so the editor is true WYSIWYG.
             containerType: "size",
           }}
-          onMouseDown={(e) => {
+          onPointerDown={(e) => {
             if (readOnly) return;
             if (e.target === e.currentTarget) beginMarquee(e);
           }}
@@ -475,7 +509,7 @@ function ObjectView({
   soleSelected: boolean;
   selectedNow: boolean;
   onSelect: (additive: boolean) => void;
-  beginDrag: (e: React.MouseEvent, obj: SlideObject, mode: "move" | HandleKey) => void;
+  beginDrag: (e: React.PointerEvent, obj: SlideObject, mode: "move" | HandleKey) => void;
   readOnly: boolean;
   editing: boolean;
   onStartEdit: () => void;
@@ -572,6 +606,10 @@ function ObjectView({
           const off = selectionOffsetsWithin(e.currentTarget as HTMLElement);
           if (off) setTextSelection({ objectId: obj.id, ...off });
         }}
+        // Both: the parent object now begins its drag on POINTERdown, so a
+        // mousedown-only guard would no longer stop a click-to-place-caret from
+        // starting a drag. (The parent also early-returns while `editing`.)
+        onPointerDown={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
         onBlur={onEndEdit}
@@ -666,7 +704,7 @@ function ObjectView({
   return (
     <div
       style={style}
-      onMouseDown={(e) => {
+      onPointerDown={(e) => {
         if (readOnly || editing) return;
         const additive = e.shiftKey || e.metaKey || e.ctrlKey;
         if (additive) { e.stopPropagation(); onSelect(true); return; }
@@ -705,7 +743,7 @@ function ObjectView({
   );
 }
 
-function Handle({ k, onBegin, edges }: { k: HandleKey; onBegin: (e: React.MouseEvent) => void; edges?: { l: boolean; t: boolean; r: boolean; b: boolean } }) {
+function Handle({ k, onBegin, edges }: { k: HandleKey; onBegin: (e: React.PointerEvent) => void; edges?: { l: boolean; t: boolean; r: boolean; b: boolean } }) {
   // zIndex 2: an image object's <img> is `position:relative; zIndex:1` (blur-fill
   // layering), which otherwise painted OVER the handles and swallowed every
   // resize drag (turning it into a move).
@@ -734,7 +772,7 @@ function Handle({ k, onBegin, edges }: { k: HandleKey; onBegin: (e: React.MouseE
     <div
       data-handle={k}
       style={{ ...pos, ...m }}
-      onMouseDown={(e) => { e.stopPropagation(); onBegin(e); }}
+      onPointerDown={(e) => { e.stopPropagation(); onBegin(e); }}
     />
   );
 }
