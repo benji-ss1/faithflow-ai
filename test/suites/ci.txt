@@ -236,3 +236,4 @@ test/theme-config-patch.test.ts
 test/wire-contract-drift.test.ts
 test/card-appearance-fallback.test.ts
 test/theme-clears-template.test.ts
+test/autofit-quiver.test.ts
