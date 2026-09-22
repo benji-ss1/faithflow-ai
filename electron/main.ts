@@ -463,11 +463,53 @@ async function createMainWindow() {
     }
   };
 
+  /**
+   * Is a real PresentFlow document still the live page?
+   *
+   * `did-fail-load` fires for a failed MAIN-FRAME navigation, but whether the
+   * CURRENT document survives that failure depends on whether the new one had
+   * already committed — a Chromium detail we must not guess at, because
+   * guessing wrong in either direction is bad: recover when we did not need to
+   * and we destroy a working mid-service console; fail to recover when we did
+   * and the operator is left on a dead error page.
+   *
+   * So ask. Only our own HTML sets `__pfAppAlive` (layout.tsx), and a Chromium
+   * error page cannot answer. Anything else — a throw, a timeout, a renderer
+   * that is gone — is treated as NOT alive, so every uncertain case falls
+   * through to the existing recovery behaviour. This can only ever SKIP a
+   * teardown we could prove was unnecessary.
+   */
+  const appStillAlive = async (): Promise<boolean> => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    try {
+      const probe = mainWindow.webContents.executeJavaScript("window.__pfAppAlive === 1", true);
+      const timeout = new Promise<false>((r) => setTimeout(() => r(false), 1500));
+      return (await Promise.race([probe, timeout])) === true;
+    } catch {
+      return false;
+    }
+  };
+
   // Mid-session recovery: a network drop or a renderer crash after the app has
   // loaded must re-show the splash and reload, never a dead Chromium page.
+  //
+  // 2026-09-22 — but NOT when the console is still up. This handler used to
+  // tear down a fully hydrated operator console on any failed main-frame
+  // navigation: a flapping venue AP at 10:40am replaced a working service with
+  // the splash and an infinite retry loop, losing the in-memory Bible cache and
+  // every loaded slide. That is a strictly worse failure than the cold start
+  // this recovery exists for, because the service is in progress. The renderer
+  // keeps driving /live, /stage and /livestream over BroadcastChannel with no
+  // network at all, so if it is alive, the right move is to do NOTHING.
   mainWindow.webContents.on("did-fail-load", (_e, errorCode, _desc, _url, isMainFrame) => {
     if (!isMainFrame || errorCode === -3) return; // sub-resource / ERR_ABORTED — not a real failure
-    void loadWithRecovery(recoveryUrl, recoveryUrl);
+    void (async () => {
+      if (await appStillAlive()) {
+        console.warn(`[main] did-fail-load ${errorCode} but the app is still live — leaving the session alone`);
+        return;
+      }
+      void loadWithRecovery(recoveryUrl, recoveryUrl);
+    })();
   });
   mainWindow.webContents.on("render-process-gone", (_e, details) => {
     if (details.reason === "clean-exit") return; // orderly teardown, not a crash
