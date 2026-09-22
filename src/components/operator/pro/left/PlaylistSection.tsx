@@ -27,7 +27,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import {
+import { Sparkles,
   ChevronDown,
   ChevronRight,
   Check,
@@ -249,9 +249,12 @@ function SortablePlaylistItem({
   onItemClick: () => void;
   onSendLive: () => void;
   onProjectSlide?: (slideIdx: number) => void;
-  onRemove: () => void;
-  onMove: (dir: -1 | 1) => void;
-  onDuplicate: () => void;
+  // Optional: a SMART playlist's items are derived and carry `smart:` sentinel
+  // ids, so these mutations have no row to act on. Passing undefined hides the
+  // corresponding menu entries instead of offering an action that would fail.
+  onRemove?: () => void;
+  onMove?: (dir: -1 | 1) => void;
+  onDuplicate?: () => void;
   onAddSlide?: () => void;
   onPasteSlide?: () => void;
   canPasteSlide?: boolean;
@@ -441,6 +444,7 @@ function SortablePlaylistItem({
             >
               Remove
             </ContextMenu.Item>
+            {onMove && (
             <ContextMenu.Item
               onSelect={() => onMove(-1)}
               disabled={idx === 0}
@@ -448,6 +452,8 @@ function SortablePlaylistItem({
             >
               Move Up
             </ContextMenu.Item>
+            )}
+            {onMove && (
             <ContextMenu.Item
               onSelect={() => onMove(1)}
               disabled={idx === totalItems - 1}
@@ -455,6 +461,7 @@ function SortablePlaylistItem({
             >
               Move Down
             </ContextMenu.Item>
+            )}
             <ContextMenu.Item
               onSelect={onDuplicate}
               className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
@@ -674,6 +681,10 @@ export function PlaylistSection({
   const { confirm, dialog: confirmDialog } = useConfirm();
   const router = useRouter();
   const items = ctx.plan.items;
+  // A SMART playlist is rule-derived and read-only: it owns no service_items
+  // rows, so every mutation affordance must be withheld (the server refuses
+  // them too — see addServiceItem/reorderServiceItems).
+  const isSmart = ctx.plan.kind === "smart";
   const clipboardSlide = useSlideClipboard(); // reactive: enables "Paste slide"
 
   // 8px activation distance prevents accidental drags on regular clicks.
@@ -998,6 +1009,7 @@ export function PlaylistSection({
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
+    if (isSmart) return; // derived list — there are no rows to reorder
     const ids = items.map((it, i) => it.id ?? `item-${i}`);
     const oldIdx = ids.indexOf(String(active.id));
     const newIdx = ids.indexOf(String(over.id));
@@ -1107,6 +1119,7 @@ export function PlaylistSection({
   const handleExternalDrop = async (e: React.DragEvent<HTMLElement>) => {
     e.preventDefault();
     setDropOver(false);
+    if (isSmart) { toast.info("Smart playlists fill automatically — edit their rules instead"); return; }
     await addDroppedLibraryItem(e.dataTransfer);
   };
 
@@ -1116,6 +1129,7 @@ export function PlaylistSection({
   // header). In-app HTML5 drag only, identical on every OS.
   const headerSpring = useSpringLoad();
   const handleSectionDragOver = (headerId: string, e: React.DragEvent<HTMLElement>) => {
+    if (isSmart) return;
     if (classifyDrop(e.dataTransfer.types) !== "library-item") return;
     e.preventDefault();
     e.stopPropagation(); // don't also trigger the section-level append overlay
@@ -1123,6 +1137,7 @@ export function PlaylistSection({
     headerSpring.enter(headerId);
   };
   const handleSectionDrop = async (headerIdx: number, headerId: string, e: React.DragEvent<HTMLElement>) => {
+    if (isSmart) return;
     if (classifyDrop(e.dataTransfer.types) !== "library-item") return;
     e.preventDefault();
     e.stopPropagation();
@@ -1143,7 +1158,12 @@ export function PlaylistSection({
   return (
     <section
       className="border-b border-[var(--color-border)] flex-1 min-h-0 flex flex-col relative"
-      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDropOver(true); }}
+      onDragOver={(e) => {
+      e.preventDefault(); // ALWAYS — without it the browser navigates the console away to a dropped file
+      if (isSmart) { e.dataTransfer.dropEffect = "none"; return; }
+      e.dataTransfer.dropEffect = "copy";
+      setDropOver(true);
+    }}
       onDragLeave={(e) => {
         // Only clear when leaving the section entirely (not just moving over a child)
         if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropOver(false);
@@ -1158,12 +1178,22 @@ export function PlaylistSection({
           onClick={() => setOpen((v) => !v)}
         >
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <span className="eyebrow">Playlist</span>
+          <span className="eyebrow">{isSmart ? "Smart Playlist" : "Playlist"}</span>
+          {isSmart && <Sparkles className="w-3 h-3 shrink-0 text-[var(--color-brand)]" aria-label="Smart playlist — fills automatically" />}
           <span className="ml-1.5 min-w-[16px] h-[15px] px-1 grid place-items-center rounded-full bg-[var(--color-brand)]/16 text-[var(--color-brand)] text-[9px] font-mono font-bold tabular-nums">{items.length}</span>
         </button>
         <span className="h-px flex-1 mx-2" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
+        {isSmart && ctx.plan.rulesSummary ? (
+          <span
+            className="truncate max-w-[45%] text-[10px] text-[var(--color-muted-foreground)]"
+            title={`Fills automatically — ${ctx.plan.rulesSummary}`}
+          >
+            {ctx.plan.rulesSummary}
+          </span>
+        ) : null}
 
-        {/* Add popover */}
+        {/* Add popover — a smart playlist is derived, so there is nothing to add. */}
+        {!isSmart && (
         <Popover.Root>
           <Popover.Trigger asChild>
             <button
@@ -1189,6 +1219,7 @@ export function PlaylistSection({
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
+        )}
         {/* Plan menu */}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
@@ -1233,6 +1264,7 @@ export function PlaylistSection({
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
+
       </header>
 
       {/* Drop overlay — shown when dragging a song/media card over the sidebar */}
@@ -1255,7 +1287,9 @@ export function PlaylistSection({
             <ol className="flex-1 min-h-0 overflow-y-auto pb-1">
               {items.length === 0 && (
                 <li className="px-3 py-2 text-[11px] text-[var(--color-muted-foreground)]">
-                  No items yet — drag a song or media here, or press +.
+                  {isSmart
+                    ? "No songs match these rules yet."
+                    : "No items yet — drag a song or media here, or press +."}
                 </li>
               )}
               {items.map((it, idx) => (
@@ -1284,14 +1318,14 @@ export function PlaylistSection({
                   onItemClick={() => handleItemClick(it, idx)}
                   onSendLive={() => handleSendItemLive(it, idx)}
                   onProjectSlide={(sIdx) => handleProjectSlideAt(it, idx, sIdx)}
-                  onRemove={() => void remove(it)}
-                  onMove={(dir) => void move(idx, dir)}
-                  onDuplicate={() => void duplicate(idx)}
-                  onAddSlide={it.type === "song" && it.songId ? () => void addSlideToItem(it) : undefined}
+                  onRemove={isSmart ? undefined : () => void remove(it)}
+                  onMove={isSmart ? undefined : (dir) => void move(idx, dir)}
+                  onDuplicate={isSmart ? undefined : () => void duplicate(idx)}
+                  onAddSlide={!isSmart && it.type === "song" && it.songId ? () => void addSlideToItem(it) : undefined}
                   onPasteSlide={it.type === "song" && it.songId ? () => void pasteSlideToItem(it) : undefined}
                   canPasteSlide={!!clipboardSlide && it.type === "song" && !!it.songId}
                   onDeleteSong={it.type === "song" && it.songId ? () => void deleteFromLibrary(it) : undefined}
-                  onRename={(it.type === "song" && it.songId) || it.id ? (newTitle) => void renameItem(it, newTitle) : undefined}
+                  onRename={!isSmart && ((it.type === "song" && it.songId) || it.id) ? (newTitle) => void renameItem(it, newTitle) : undefined}
                   onDropSlide={it.type === "song" && it.songId ? (json) => void appendDroppedSlide(it, json) : undefined}
                   onReorderGroup={it.type === "media" ? (newOrder) => ctx.onReorderSlidesInItem?.(idx, newOrder) : undefined}
                   onRenameMedia={it.type === "media" ? (assetId, name) => void renameGroupImage(assetId, name) : undefined}
