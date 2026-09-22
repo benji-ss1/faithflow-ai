@@ -14,6 +14,7 @@ import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
 import { sanitizeThemeConfig, stripBuiltinId, type ThemeConfig, mergeThemeConfigPatch, THEME_ALLOWED_KEYS } from "./theme-config";
+import { isBuiltinThemeId } from "./builtin-themes";
 import { getBuiltinTheme, builtinThemeConfig } from "./builtin-themes";
 import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
@@ -2396,14 +2397,7 @@ export async function patchThemeConfig(
     const merged = mergeThemeConfigPatch(prev, patch);
     // Same sanitizer every other writer uses — a patch can never smuggle a key
     // past THEME_ALLOWED_KEYS or an out-of-range number onto the wire.
-    // `allowBuiltinId` so a patch does not strip the marker that identifies a
-    // materialized built-in theme. Without it, the FIRST control change to such
-    // a theme deletes `builtinId`, and a later materializeBuiltinTheme() no
-    // longer finds the row by `config->>'builtinId'` and creates a DUPLICATE
-    // theme. `updateTheme` has the same hole, but this action fires on every
-    // control change, so the exposure is far higher. The value is not
-    // user-supplied here — it comes from the row we just read.
-    const clean = sanitizeThemeConfig(merged, { allowBuiltinId: true });
+    const clean = sanitizeThemeConfig(merged);
     // A REJECTED key must never DELETE the good value already stored. `merged`
     // carries prev's value for any key the patch didn't touch, so a malformed
     // patch would otherwise make the sanitizer reject the MERGED key and the
@@ -2416,6 +2410,18 @@ export async function patchThemeConfig(
       if ((THEME_ALLOWED_KEYS as string[]).includes(k) && Object.hasOwn(prev, k)) {
         (clean.config as Record<string, unknown>)[k] = prev[k];
       }
+    }
+    // Carry the STORED builtinId across. sanitizeThemeConfig strips it by
+    // design — only materializeBuiltinTheme may PERSIST one, so a user theme
+    // can never impersonate a built-in's find-or-create slot (test-locked in
+    // builtin-themes.test.ts). But dropping it on a patch would delete the
+    // marker on the FIRST control change to a materialized built-in, and a
+    // later materializeBuiltinTheme() would then fail to find the row by
+    // `config->>'builtinId'` and create a DUPLICATE theme. Restoring it from
+    // `prev` (the row we just read, never from `patch`) keeps both properties.
+    const prevBuiltinId = prev.builtinId;
+    if (typeof prevBuiltinId === "string" && isBuiltinThemeId(prevBuiltinId)) {
+      (clean.config as { builtinId?: string }).builtinId = prevBuiltinId;
     }
     await tx.update(themes).set({ config: clean.config, updatedAt: new Date() })
       .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));

@@ -125,11 +125,22 @@ check("the erasure scenario: a malformed band must not wipe the stored one", () 
   // ingredients it relies on are present.
   assert.ok(Object.hasOwn({ scriptureBand: good }, "scriptureBand"));
 });
-check("patchThemeConfig keeps builtinId so built-ins don't re-materialize as duplicates", () => {
+check("builtinId: carried over from the DB row, but a PATCH can never set one", () => {
   const src = read("../src/lib/actions.ts");
   const fn = src.slice(src.indexOf("export async function patchThemeConfig"), src.indexOf("export async function duplicateTheme"));
-  assert.match(fn, /sanitizeThemeConfig\(merged, \{ allowBuiltinId: true \}\)/,
-    "builtinId is stripped on every control change -> materializeBuiltinTheme creates a duplicate theme row");
+  // Must NOT use allowBuiltinId — only materializeBuiltinTheme may PERSIST one,
+  // so a user theme can never impersonate a built-in (builtin-themes.test.ts).
+  assert.ok(!/allowBuiltinId:\s*true/.test(fn),
+    "patchThemeConfig lets a caller persist builtinId — a user theme could hijack a built-in's find-or-create slot");
+  // ...but the STORED marker must survive, or the first control change to a
+  // materialized built-in orphans the row and it re-materializes as a duplicate.
+  assert.match(fn, /const prevBuiltinId = prev\.builtinId;/, "stored builtinId is not carried over");
+  assert.match(fn, /isBuiltinThemeId\(prevBuiltinId\)/, "the carried-over value is not validated");
+});
+check("a patch carrying builtinId is still stripped by the sanitizer", () => {
+  const merged = mergeThemeConfigPatch({ fontFamily: "Inter" }, { builtinId: "builtin:midnight" });
+  assert.equal(sanitizeThemeConfig(merged).config.builtinId, undefined,
+    "a user patch persisted builtinId — built-in impersonation is possible");
 });
 
 console.log("\nwiring (the racing writers actually use it):");
@@ -138,7 +149,7 @@ check("patchThemeConfig runs in a transaction and locks the row", () => {
   const fn = src.slice(src.indexOf("export async function patchThemeConfig"));
   assert.match(fn.slice(0, 2500), /db\.transaction\(/, "not transactional");
   assert.match(fn.slice(0, 2500), /\.for\("update"\)/, "row is not locked — two patches can still interleave");
-  assert.match(fn.slice(0, 2500), /sanitizeThemeConfig\(merged,/, "patch bypasses the sanitizer");
+  assert.match(fn.slice(0, 2500), /sanitizeThemeConfig\(merged\)/, "patch bypasses the sanitizer");
   assert.match(fn.slice(0, 2500), /eq\(themes\.churchId, user\.churchId\)/, "church scoping missing on a DB write");
 });
 check("RightInspector.patchConfig no longer sends the whole config", () => {
