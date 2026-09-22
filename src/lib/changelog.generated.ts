@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.509",
+    "version": "0.1.510",
     "date": "2026-09-22",
     "headline": "Big ProPresenter libraries now import instead of failing",
     "highlights": [
@@ -16,7 +16,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.508",
+    "version": "0.1.509",
     "date": "2026-09-22",
     "headline": "Smart folders and smart playlists — a folder that fills itself",
     "highlights": [
@@ -30,7 +30,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.507",
+    "version": "0.1.508",
     "date": "2026-09-22",
     "headline": "Import a whole ProPresenter service in one drop — and it keeps your running order",
     "highlights": [
@@ -40,6 +40,15 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Song lyrics now keep their line breaks. Imported slides used to arrive as one long run-on line; each line now sits on its own line, the way it looked in ProPresenter.",
       "Library exports (.prolib) and theme bundles (.protheme) are accepted the same way.",
       "One thing to know - a .proPlaylist holds your songs but NOT your background images or videos. To bring artwork across, export a Presentation Bundle (.proBundle) from ProPresenter as well."
+    ]
+  },
+  {
+    "version": "0.1.507",
+    "date": "2026-09-22",
+    "headline": "Groundwork for launching without internet",
+    "highlights": [
+      "The health endpoint now reports which build is live, and carries a remote switch for the offline cache that is coming next.",
+      "No user-visible change. This exists so the offline cache can be turned off for every church without shipping a new desktop app — the property that made the 2026-08-11 service-worker incident survivable."
     ]
   },
   {

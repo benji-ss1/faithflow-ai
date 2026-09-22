@@ -1,7 +1,7 @@
 ---
 headline: Big ProPresenter libraries now import instead of failing
 audience: operator
-version: 0.1.509
+version: 0.1.510
 date: 2026-09-22
 highlights:
   - "Where: Library → Imports, and the Import button in the Songs library."

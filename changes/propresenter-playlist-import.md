@@ -1,7 +1,7 @@
 ---
 headline: Import a whole ProPresenter service in one drop — and it keeps your running order
 audience: operator
-version: 0.1.507
+version: 0.1.508
 date: 2026-09-22
 highlights:
   - "Where: Songs library → Import (top right), or the Import button in the operator's Songs panel."
