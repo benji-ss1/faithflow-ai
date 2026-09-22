@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.517",
+    "version": "0.1.519",
     "date": "2026-09-22",
     "headline": "Fixed — scripture and lyrics in the preview could shake and look doubled up",
     "highlights": [
@@ -14,7 +14,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.516",
+    "version": "0.1.518",
     "date": "2026-09-22",
     "headline": "Fixed — slide cards showed a plain black background while the screen showed the theme",
     "highlights": [
@@ -26,7 +26,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.515",
+    "version": "0.1.517",
     "date": "2026-09-22",
     "headline": "Fixed — quick theme changes in the Theme panel no longer undo each other",
     "highlights": [
@@ -36,7 +36,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.514",
+    "version": "0.1.516",
     "date": "2026-09-22",
     "headline": "Fixed — the slide editor no longer previews designed text bigger than it projects",
     "highlights": [
@@ -47,7 +47,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.513",
+    "version": "0.1.515",
     "date": "2026-09-22",
     "headline": "Fixed — a slide element could get stuck to the mouse in the slide editor",
     "highlights": [
@@ -57,7 +57,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.512",
+    "version": "0.1.514",
     "date": "2026-09-22",
     "headline": "Fixed — a theme's \"Third band\" scripture choice is now actually saved",
     "highlights": [
@@ -67,13 +67,34 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.511",
+    "version": "0.1.513",
     "date": "2026-09-22",
     "headline": "Fixed — large text could snap back to normal size on the projector",
     "highlights": [
       "Fixed a bug that could hit you if you turned the verse text size right up AND also turned up the separate Font slider in the projection zone settings. With both near their maximum, the projector quietly jumped back to normal size in the middle of a service — while your own preview carried on showing the big text, so there was no sign anything was wrong. It affected all slide text, not only verses.",
       "Your text size now stays large on the screen instead of resetting.",
       "Your preview and the projector now always agree on the text size."
+    ]
+  },
+  {
+    "version": "0.1.512",
+    "date": "2026-09-22",
+    "headline": "Timers now tell you when something went wrong, instead of a scary error",
+    "highlights": [
+      "If adding, saving or deleting a timer fails, you now get a plain message saying what failed and that nothing was changed — instead of \"Background task failed: An error occurred in the Server Components render\".",
+      "Before this, a failed edit closed the dialog as though it had worked, so you could believe a timer was saved when it was not.",
+      "If your timer list cannot load, the panel now says so and offers Try again. It used to show \"No timers yet\", which read as though your timers had been deleted.",
+      "The same fix covers the Stage Layouts panel — duplicating, renaming, assigning and deleting layouts and screens."
+    ]
+  },
+  {
+    "version": "0.1.511",
+    "date": "2026-09-22",
+    "headline": "A deploy can no longer ship code the database is not ready for",
+    "highlights": [
+      "Today the Timers and Stage Layouts panels showed \"Background task failed\" because a database change was written but never applied, and the code that needed it shipped anyway.",
+      "Every build now checks the live database against the code before it deploys. If the database is behind, the build stops and names exactly which tables and columns are missing — and the version already running stays up.",
+      "The check reads the real schema, so a new table or column is covered the moment it is written. There is no list anyone has to remember to update."
     ]
   },
   {

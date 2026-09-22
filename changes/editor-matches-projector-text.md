@@ -1,7 +1,7 @@
 ---
 headline: Fixed — the slide editor no longer previews designed text bigger than it projects
 audience: operator
-version: 0.1.514
+version: 0.1.516
 date: 2026-09-22
 highlights:
   - Above 1.60x on the projection-zone Font slider, the editor used to keep growing text boxes you had placed on a slide while the projector capped them - so a slide could look right while you designed it and come out smaller on the screen. The editor now stops where the projector stops.

@@ -1,7 +1,7 @@
 ---
 headline: Fixed — a slide element could get stuck to the mouse in the slide editor
 audience: operator
-version: 0.1.513
+version: 0.1.515
 date: 2026-09-22
 highlights:
   - Dragging or resizing an element in the slide editor no longer gets stuck if you release the mouse outside the app window - over a menu, off the edge of the screen, or on a video. The element used to keep following the pointer until you clicked again.
