@@ -7,7 +7,7 @@ import { decidePlanPropChange, shouldPinPlanUrl } from "@/lib/operator-plan-sele
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { decideSlideClear, isKeepThemeBgSlide, pickOutputAppearance, readPp7KeepThemeBgFlag, usePp7KeepThemeBg } from "@/lib/pp7-keep-theme-bg";
-import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, publishedFontScale, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { SCENES_V1, type SceneWire } from "@/lib/scenes";
 import { nextPreviewPosition } from "@/lib/operator-nav";
@@ -489,7 +489,13 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // folded into the fontScale field so a single number reaches AutoFitText.
   const zoneStore = useProjectionZoneStore();
   const activeZone: ProjectionZone = zoneStore.activeProfile ? normalizeZone(zoneStore.activeProfile) : DEFAULT_ZONE;
-  const effectiveFontScale = fontScale * activeZone.fontScale;
+  // ONE shared expression for the scale that reaches every output AND this
+  // console's own preview (shellCtx below) — they must never disagree. It clamps
+  // to the wire bound, because the raw product (slider max 2.5 x zone font max
+  // 2.0 = 5.0) used to exceed it and `sanitizeOutputState` RESET the excess to 1,
+  // silently snapping the projector to 100% mid-service while preview stayed
+  // large. See publishedFontScale / OUTPUT_FONT_SCALE_MAX in broadcast.ts.
+  const effectiveFontScale = publishedFontScale(fontScale, activeZone.fontScale);
   const [zoneEditorOpen, setZoneEditorOpen] = useState(false);
   // The floating Projection-Zone button was removed; keep the editor reachable
   // via a custom event (fired from menus / hotkeys / future entry points).
