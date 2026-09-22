@@ -30,6 +30,7 @@ import {
 } from "@/engine/timers";
 import type { OverlayPosition, TimerWire } from "@/lib/broadcast";
 import { senderNow, type ClockSync } from "@/lib/timer-clock";
+import { timerShowsOn, type TimerScreenId } from "@/engine/timers/screens";
 
 export type TimerOverlayItem = {
   id?: string;
@@ -43,6 +44,8 @@ export type TimerOverlayItem = {
   color?: string;
   showHours?: boolean;
   leadingZeros?: boolean;
+  /** Which outputs this timer draws on. Undefined ⇒ all of them. */
+  screens?: readonly TimerScreenId[];
 };
 
 /**
@@ -130,6 +133,7 @@ function wireToItem(w: TimerWire, nowMs: number): TimerOverlayItem {
     kind: w.type === "elapsed" ? "elapsed" : "countdown",
     position: w.position, overrun: isOverrun(def, rt, nowMs),
     scale: w.scale, color, showHours: w.showHours, leadingZeros: w.leadingZeros,
+    screens: w.screens,
   };
 }
 
@@ -137,6 +141,7 @@ export function TimerOverlayLayer({
   timers,
   wireTimers,
   clockSync = null,
+  screen,
   density = "full",
   fallbackPosition = "top-right",
   className = "",
@@ -146,6 +151,13 @@ export function TimerOverlayLayer({
   /** Anchors from OutputState.timersWire, ticked locally here. */
   wireTimers?: TimerWire[];
   clockSync?: ClockSync | null;
+  /** WHICH SURFACE this is. Required: it is how per-timer output routing is
+   *  enforced, and a surface that forgets to pass it would silently show every
+   *  timer regardless of what the operator chose — the exact class of bug
+   *  ("saved but never read") this whole feature keeps producing. Filtering
+   *  here rather than in each route means all four surfaces get it from one
+   *  place and cannot drift. */
+  screen: TimerScreenId;
   density?: TimerDensity;
   fallbackPosition?: OverlayPosition;
   className?: string;
@@ -170,9 +182,10 @@ export function TimerOverlayLayer({
     ? [...timers, ...wireTimers!.filter((w) => !localIds.has(w.id)).map((w) => wireToItem(w, now))]
     : timers;
 
-  if (merged.length === 0) return null;
+  const routed = merged.filter((t) => timerShowsOn(t.screens, screen));
+  if (routed.length === 0) return null;
   const groups = new Map<OverlayPosition, TimerOverlayItem[]>();
-  for (const t of merged) {
+  for (const t of routed) {
     const p = t.position ?? fallbackPosition;
     const list = groups.get(p);
     if (list) list.push(t); else groups.set(p, [t]);

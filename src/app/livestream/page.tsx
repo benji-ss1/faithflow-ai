@@ -612,6 +612,7 @@ export default function LivestreamPage() {
           words over the camera. */}
       {mode === "full" && !sceneHidesLayer(scene, "livestream", "timer") && (
         <TimerOverlayLayer
+              screen="livestream"
           wireTimers={wireTimers}
           clockSync={clockSyncRef.current}
           density="full"

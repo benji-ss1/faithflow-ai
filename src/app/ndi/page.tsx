@@ -224,6 +224,7 @@ export default function NdiOutputPage() {
           rendering here is all that is needed — no native change. */}
       {!sceneHidesLayer(scene, "ndi", "timer") && (
         <TimerOverlayLayer
+          screen="ndi"
           density="full"
           timers={[...(timerOverlay ? [timerOverlay] : []), ...Object.values(namedTimers)]}
         />
