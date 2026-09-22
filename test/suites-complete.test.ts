@@ -13,9 +13,12 @@
 // test/adversarial/theme-apply-capability.test.ts, a permission test. All seven
 // passed when finally run; they had simply never been registered.
 //
-// So: every test/**/*.test.ts(x) must appear in EITHER ci.txt (it runs) or
-// known-failing.txt (deliberately excluded, with a reason). A file in neither
-// fails THIS test, by name, with instructions.
+// So: every test/**/*.test.ts(x) must appear in EXACTLY ONE of
+//   ci.txt            — runs on every PR, no database
+//   db.txt            — runs on every PR in the "Tests (database)" job
+//                       (added 2026-09-22, when CI finally got a Postgres)
+//   known-failing.txt — deliberately excluded, with a reason
+// A file in none of them fails THIS test, by name, with instructions.
 import assert from "node:assert/strict";
 import { readdirSync, statSync, readFileSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -46,21 +49,25 @@ function readSuite(name: string): string[] {
 }
 
 const ci = readSuite("ci.txt");
+const db = readSuite("db.txt");
 const knownFailing = readSuite("known-failing.txt");
 const ciSet = new Set(ci);
+const dbSet = new Set(db);
 const knownSet = new Set(knownFailing);
 
 assert.ok(allTests.length > 0, "found no test files at all — the walk is broken");
 
 /* ── 1. every test file is accounted for ─────────────────────────────────── */
 
-const unaccounted = allTests.filter((f) => !ciSet.has(f) && !knownSet.has(f));
+const unaccounted = allTests.filter((f) => !ciSet.has(f) && !dbSet.has(f) && !knownSet.has(f));
 assert.deepEqual(
   unaccounted, [],
-  `These test files would NEVER RUN — they are in neither test/suites/ci.txt nor known-failing.txt:\n`
+  `These test files would NEVER RUN — they are in none of test/suites/ci.txt,`
+  + ` db.txt or known-failing.txt:\n`
   + unaccounted.map((f) => `  ${f}`).join("\n")
-  + `\n\nAdd each to test/suites/ci.txt (it passes) or to known-failing.txt with a`
-  + ` reason comment (needs-db / broken). Do not delete this guard instead.`,
+  + `\n\nAdd each to ci.txt (passes, no database), db.txt (passes, NEEDS a`
+  + ` database) or known-failing.txt with a reason comment. Do not delete this`
+  + ` guard instead.`,
 );
 
 /* ── 2. no ghost entries ─────────────────────────────────────────────────── */
@@ -68,17 +75,25 @@ assert.deepEqual(
 // missing path, or quietly inflate the count.
 
 const allSet = new Set(allTests);
-const ghosts = [...ciSet, ...knownSet].filter((f) => !allSet.has(f));
+const ghosts = [...ciSet, ...dbSet, ...knownSet].filter((f) => !allSet.has(f));
 assert.deepEqual(ghosts, [], `Listed in a suite but the file does not exist:\n${ghosts.map((f) => `  ${f}`).join("\n")}`);
 
 /* ── 3. a file cannot be in both lists ───────────────────────────────────── */
 
-const both = ci.filter((f) => knownSet.has(f));
-assert.deepEqual(both, [], `Listed in BOTH ci.txt and known-failing.txt (ambiguous):\n${both.map((f) => `  ${f}`).join("\n")}`);
+// Every pair, not just ci-vs-known: a file in two suites runs twice, or runs
+// while also being documented as excluded, and either way the lists lie.
+for (const [aName, aList, bName, bSet] of [
+  ["ci.txt", ci, "known-failing.txt", knownSet],
+  ["db.txt", db, "known-failing.txt", knownSet],
+  ["ci.txt", ci, "db.txt", dbSet],
+] as const) {
+  const both = aList.filter((f) => bSet.has(f));
+  assert.deepEqual(both, [], `Listed in BOTH ${aName} and ${bName} (ambiguous):\n${both.map((f) => `  ${f}`).join("\n")}`);
+}
 
 /* ── 4. no duplicates within a list ──────────────────────────────────────── */
 
-for (const [name, list] of [["ci.txt", ci], ["known-failing.txt", knownFailing]] as const) {
+for (const [name, list] of [["ci.txt", ci], ["db.txt", db], ["known-failing.txt", knownFailing]] as const) {
   const dupes = [...new Set(list.filter((f, i) => list.indexOf(f) !== i))];
   assert.deepEqual(dupes, [], `Duplicate entries in test/suites/${name}:\n${dupes.map((f) => `  ${f}`).join("\n")}`);
 }
@@ -96,4 +111,4 @@ assert.deepEqual(noReason, [], `Every known-failing entry needs a reason comment
 
 assert.ok(ciSet.has("test/suites-complete.test.ts"), "this guard must itself be listed in ci.txt, or it never runs");
 
-console.log(`suites-complete: ${allTests.length} test files — ${ciSet.size} in CI, ${knownSet.size} excluded, 0 unaccounted`);
+console.log(`suites-complete: ${allTests.length} test files — ${ciSet.size} in CI, ${dbSet.size} in the database job, ${knownSet.size} excluded, 0 unaccounted`);

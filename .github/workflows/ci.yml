@@ -48,6 +48,76 @@ jobs:
       - name: Test
         run: npm run test:ci
 
+  db-tests:
+    name: Tests (database)
+    runs-on: ubuntu-latest
+    # The adversarial cross-church suites prove one church cannot see another's
+    # data. Until 2026-09-22 they were in known-failing.txt purely because CI
+    # had no Postgres — i.e. the tests we most wanted green were the ones that
+    # never ran. This job exists to close that.
+    services:
+      postgres:
+        # pgvector, not plain postgres: the schema has vector(384) columns for
+        # sermon/semantic search and `drizzle-kit push` fails without it.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: faithflow_test
+          # No password AT ALL, rather than a throwaway one. This database
+          # exists for ~3 minutes inside the runner and is not reachable from
+          # outside it, so a password buys nothing — but a password in a
+          # committed connection string is indistinguishable from a real leak to
+          # a scanner (GitGuardian flagged exactly that here), and normalising
+          # those is how a real leak eventually gets waved through.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres@localhost:5432/faithflow_test
+      # These suites seed and delete ephemeral churches, so running them in
+      # parallel makes them fight over the same rows.
+      TEST_CONCURRENCY: "1"
+      # The pool's 45s idle timeout keeps node alive long after a test's
+      # assertions finish — it made every file take ~45s of pure waiting, and
+      # the whole suite ~8 minutes. 500ms brings it to ~1s per file.
+      PG_IDLE_TIMEOUT_MS: "500"
+      # desktop-signin runs 1000 race iterations against a real database and
+      # genuinely needs ~150s. That is real work, not a hang, and it is the test
+      # that proves a password reset kills every in-flight device exchange.
+      TEST_TIMEOUT_MS: "300000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # Generated per run, never committed. An earlier version hardcoded a
+      # dummy literal here and GitGuardian flagged it — correctly: a
+      # secret-shaped string in a workflow file is indistinguishable from a real
+      # leak to a scanner, and normalising them is how real ones get ignored.
+      - name: Generate a throwaway AUTH_SECRET
+        run: echo "AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Enable pgvector
+        run: psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+
+      - name: Create the schema
+        # push, not migrate: this is a throwaway DB that only needs to match
+        # schema.ts, and push keeps the job independent of migration history.
+        run: npx drizzle-kit push --force
+
+      - name: Test (database)
+        run: npm run test:db
+
   changes:
     name: What's New entry (changes/*.md)
     runs-on: ubuntu-latest
