@@ -13,6 +13,7 @@
  */
 import type { TimerWire, TimersWire, OverlayPosition } from "@/lib/broadcast";
 import { MAX_WIRE_TIMERS, MAX_COLOR_TRIGGERS } from "@/lib/broadcast";
+import { sanitizeTimerScreens, type TimerScreenId } from "./screens";
 
 /** The shape this needs from a TimerSlot — declared structurally so the engine
  *  stays free of any React/hook import. */
@@ -31,6 +32,8 @@ export type WireableSlot = {
     color?: string; overrunColor?: string;
     showLabel: boolean; showHours?: boolean; leadingZeros: boolean;
     colorTriggers: Array<{ atSec: number; color: string }>;
+    /** Undefined ⇒ every screen. */
+    screens?: readonly TimerScreenId[];
   };
 };
 
@@ -58,6 +61,10 @@ export function timerSlotToWire(s: WireableSlot): TimerWire {
     leadingZeros: a.leadingZeros,
     // Triggers ride as DATA. Resolving them here would need the ticking value.
     colorTriggers: (a.colorTriggers ?? []).slice(0, MAX_COLOR_TRIGGERS),
+    // Omitted entirely when the timer goes everywhere, so a default timer's
+    // frame is byte-identical to the pre-routing one and the determinism lock
+    // in test/timer-wire.test.ts still holds.
+    ...(sanitizeTimerScreens(a.screens) ? { screens: sanitizeTimerScreens(a.screens) } : {}),
   };
 }
 

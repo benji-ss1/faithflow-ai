@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OVERLAY_POSITIONS, type OverlayPosition } from "@/lib/broadcast";
+import { sanitizeTimerScreens, type TimerScreenId } from "@/engine/timers/screens";
 import {
   type TimerDefinition,
   type TimerRuntime,
@@ -163,6 +164,10 @@ export type TimerAppearance = {
   overrunColor?: string;
   /** Threshold colour changes, ProPresenter "Color Triggers". */
   colorTriggers: Array<{ atSec: number; color: string }>;
+  /** WHICH OUTPUTS this timer draws on. UNDEFINED ⇒ all four — which is what
+   *  every timer did before per-timer routing existed, so nothing that is live
+   *  today changes behaviour. Composed with the scene matrix by AND. */
+  screens?: readonly TimerScreenId[];
 };
 
 export type TimerSlot = {
@@ -393,6 +398,13 @@ export function useTimersSession(): TimersApi {
         .filter((t) => Number.isFinite(t.atSec) && t.atSec >= 0 && typeof t.color === "string")
         .slice(0, 8)
         .sort((a, b) => b.atSec - a.atSec);
+    }
+    if ("screens" in clean) {
+      // Canonicalise: "all four" collapses back to undefined so the stored
+      // meta (and therefore the wire) is identical to a timer that was never
+      // routed. An EMPTY array survives — that is a deliberate "nowhere".
+      const next = sanitizeTimerScreens(clean.screens as unknown);
+      clean.screens = Array.isArray(clean.screens) && next ? next : undefined;
     }
     setMetaFor(id, clean);
   }, [setMetaFor]);

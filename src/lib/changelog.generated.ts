@@ -4,6 +4,18 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.505",
+    "date": "2026-09-22",
+    "headline": "Each timer now chooses its own screens, and the row tells you where it is going",
+    "highlights": [
+      "Every timer has its own \"Shows on\" row — Projector, Stage, Livestream, NDI. One timer can be a stage-only confidence clock for the preacher while another counts the congregation in on the projector.",
+      "The timer row now tells you where it is going. Turning a timer ON used to say only that it was live, never which screens it reached; it now reads \"Shows on Projector · Stage\" right under the button.",
+      "Switch every screen off and the panel says so in red, instead of leaving you wondering why nothing appeared.",
+      "This is per timer and needs no setup. The Scenes \"Timer\" row still works the way it did and still wins — if a Scene hides timers on a screen, they stay hidden there.",
+      "Fix: on the projector, the number format you chose (forced hours, leading zeros) was being dropped on the way to the screen. It now arrives."
+    ]
+  },
+  {
     "version": "0.1.504",
     "date": "2026-09-21",
     "headline": "Choose which screens each timer shows on",
