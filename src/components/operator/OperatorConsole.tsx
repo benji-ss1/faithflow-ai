@@ -1349,7 +1349,15 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // Safety-net poll (gentle): catches an in-app import that didn't fire the
     // event. The signature guard above means an unchanged library never churns
     // the detection index.
-    const iv = window.setInterval(load, 90_000);
+    // 2026-09-22: skipped while offline. The poll is a SAFETY NET for an
+    // import that didn't fire the event, so it stays — but offline it can only
+    // ever fail, and a failing fetch every 90s during a service is noise in the
+    // log and a pointless wake-up. `visibilitychange` and `songs-changed` still
+    // fire, and the next tick after reconnection catches up.
+    const iv = window.setInterval(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+      load();
+    }, 90_000);
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisible);
@@ -2270,12 +2278,15 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
           const parsed = await import("@/lib/bible-parser").then((m) => m.parseReferences(q));
           if (parsed.length === 0) { toast.info(`Couldn't parse "${q}"`); break; }
           const ref = parsed[0];
-          const res = await fetch("/api/bible/lookup", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ book: ref.book, chapter: ref.chapter, verseStart: ref.verseStart, verseEnd: ref.verseEnd, translationCode: defaultTranslationCode }),
-          }).then((r) => r.json());
-          if (res.error) throw new Error(res.error);
-          const text = (res.verses || []).map((v: { text: string }) => v.text).join(" ");
+          // Through the chapter cache — "show verse" used to POST the lookup
+          // route directly, so the voice command died offline even for a fully
+          // hydrated public-domain translation.
+          const { lookupWithWindowCached } = await import("@/lib/bible-chapter-cache");
+          const res = await lookupWithWindowCached(
+            ref.book, ref.chapter, ref.verseStart, ref.verseEnd, defaultTranslationCode, 0,
+          );
+          const text = res.primary.map((v) => v.text).join(" ");
+          if (!text) throw new Error(`No text for ${ref.book} ${ref.chapter}:${ref.verseStart}`);
           const label = `${ref.book} ${ref.chapter}:${ref.verseStart}${ref.verseStart !== ref.verseEnd ? `-${ref.verseEnd}` : ""} (${res.translation})`;
           setStagedAISlide({ kind: "text", text, reference: label });
           toast.success(`${label} staged to Preview`);

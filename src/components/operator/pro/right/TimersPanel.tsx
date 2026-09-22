@@ -25,6 +25,7 @@ import { TimersTab } from "./tabs/TimersTab";
 import type { TimerApi, TimersApi, TimerSlot } from "../hooks";
 import { formatTimerClock, parseDurationToSec } from "@/engine/timers";
 import { OVERLAY_POSITIONS, type OverlayPosition } from "@/lib/broadcast";
+import { TIMER_SCREEN_IDS, TIMER_SCREEN_LABELS, toggleTimerScreen, type TimerScreenId } from "@/engine/timers/screens";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 const POSITION_LABELS: Record<OverlayPosition, string> = {
@@ -342,6 +343,13 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
             {slot.shown ? "ON" : "OFF"}
           </button>
         </div>
+
+        {/* WHERE IT GOES, visible without expanding anything (2026-09-22).
+            Until now "ON" told the operator the timer was live but never which
+            screens it reached, and the answer was "all four" with no way to
+            see or change it. In a dark room mid-service, an operator must be
+            able to read the destination off the row. */}
+        {slot.shown && <ScreenSummary screens={a.screens} />}
       </div>
 
       {/* ── expanded: full editor ───────────────────────────────────────── */}
@@ -403,14 +411,63 @@ function nextTrigger(existing: Array<{ atSec: number; color: string }>): { atSec
 /** Everything about how the timer LOOKS on the screens. Applies live — there is
  *  no Save button, because an operator adjusting a timer mid-service needs to
  *  see the change on the projector immediately. */
+/** One line of plain English naming the outputs a timer reaches. Rendered both
+ *  on the collapsed row and under the picker, because "where is this going?" is
+ *  asked in both places. */
+function ScreenSummary({ screens }: { screens?: readonly string[] }) {
+  if (screens != null && screens.length === 0) {
+    return (
+      <div className="mt-1 text-[10px] font-medium text-[var(--color-destructive)]">
+        Not on any screen — it will not appear anywhere
+      </div>
+    );
+  }
+  const names = screens == null
+    ? "every screen"
+    : TIMER_SCREEN_IDS.filter((id) => screens.includes(id)).map((id) => TIMER_SCREEN_LABELS[id]).join(" · ");
+  return (
+    <div className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">
+      Shows on {names}
+      {/* Scenes can still hide it on top of this. Say so rather than letting an
+          operator conclude the routing is broken. */}
+    </div>
+  );
+}
+
 function LookEditor({ slot, setLook }: { slot: TimerSlot; setLook: (p: Partial<TimerSlot["appearance"]>) => void }) {
   const a = slot.appearance;
   const triggers = a.colorTriggers ?? [];
   // Display longest-first so the visual order matches the order they fire.
   const sortedTriggers = [...triggers].sort((x, y) => y.atSec - x.atSec);
 
+  const screens = a.screens;
+  const on = (id: TimerScreenId) => screens == null || screens.includes(id);
+
   return (
     <div className="flex flex-col gap-2">
+      {/* FIRST control in the Look tab, deliberately: "which screens" is the
+          question an operator asks before "which corner". ProPresenter answers
+          it per stage layout / per look; we answer it per timer, so one timer
+          can be a stage-only confidence clock while another counts the
+          congregation in on the projector — without an admin turning Scenes on. */}
+      <div>
+        <div className={label}>Shows on</div>
+        <div className="flex flex-wrap gap-1">
+          {TIMER_SCREEN_IDS.map((id) => (
+            <button key={id} type="button"
+              onClick={() => setLook({ screens: toggleTimerScreen(screens as TimerScreenId[] | undefined, id) })}
+              aria-pressed={on(id)}
+              title={on(id) ? `Stop showing on ${TIMER_SCREEN_LABELS[id]}` : `Also show on ${TIMER_SCREEN_LABELS[id]}`}
+              className={`h-7 px-2 rounded text-[11px] font-medium ${on(id)
+                ? "bg-[var(--color-brand)] text-black"
+                : "border border-[var(--color-border)] text-[var(--color-muted-foreground)]"}`}>
+              {TIMER_SCREEN_LABELS[id]}
+            </button>
+          ))}
+        </div>
+        <ScreenSummary screens={screens} />
+      </div>
+
       <div>
         <div className={label}>Position on screen</div>
         <select value={a.position} onChange={(e) => setLook({ position: e.target.value as OverlayPosition })} className={field}>

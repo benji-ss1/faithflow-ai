@@ -42,3 +42,27 @@ export function rightPanelWidthFor(viewportW: number, win: boolean): number {
   if (!win) return 360;
   return viewportW < 960 ? 280 : viewportW < 1240 ? 300 : 360;
 }
+
+/**
+ * A liveness marker the Electron main process can ask for (2026-09-22).
+ *
+ * WHY: `did-fail-load` fires for a failed MAIN-FRAME navigation, and the
+ * handler in electron/main.ts responds by dropping the window back to the
+ * splash and retrying forever. That is right when nothing is loaded — and
+ * catastrophic at 10:40am mid-service, because it throws away a fully
+ * hydrated operator console (its in-memory Bible cache, its loaded slides,
+ * its BroadcastChannel wiring) to recover from a blip the SPA did not even
+ * notice.
+ *
+ * Whether the running document SURVIVES a failed navigation is a Chromium
+ * behaviour that depends on whether the failure happened before or after the
+ * new document committed — so main must not GUESS. It ASKS: if this marker
+ * answers, our app is still the live document and there is nothing to
+ * recover. A Chromium error page cannot answer, because this script only ever
+ * runs inside our own HTML.
+ *
+ * Deliberately set from the APP document, not the preload: the preload runs on
+ * error pages too, so a preload-set flag would claim liveness exactly when the
+ * app is gone — the one case this must catch.
+ */
+export const APP_ALIVE_SCRIPT = `window.__pfAppAlive=1;`;

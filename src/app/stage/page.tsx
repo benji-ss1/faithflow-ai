@@ -455,6 +455,7 @@ export default function StagePage() {
                 the projector does. `compact` is the single sanctioned
                 difference: a confidence monitor shares space with the lyrics. */}
             <TimerOverlayLayer
+              screen="stage"
               wireTimers={wireTimers}
               clockSync={clockSyncRef.current}
               density="compact"

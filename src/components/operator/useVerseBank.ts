@@ -38,15 +38,14 @@ export function useVerseBank(defaultTranslationCode: string) {
   /** Add a fresh reference to the bank + preload its ±5 window. */
   const addReference = useCallback(async (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }): Promise<BankedVerse | null> => {
     try {
-      const res = await fetch("/api/bible/lookup", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          book: ref.book, chapter: ref.chapter,
-          verseStart: ref.verseStart, verseEnd: ref.verseEnd,
-          translationCode: defaultTranslationCode, withWindow: true,
-        }),
-      }).then((r) => r.json());
-      if (res.error || !res.primary?.length) return null;
+      // Through the CHAPTER CACHE, not a raw POST. This path used to fetch
+      // directly and therefore failed offline even when the operator's whole
+      // KJV was already hydrated in IndexedDB — see lookupWithWindowCached.
+      const { lookupWithWindowCached } = await import("@/lib/bible-chapter-cache");
+      const res = await lookupWithWindowCached(
+        ref.book, ref.chapter, ref.verseStart, ref.verseEnd, defaultTranslationCode,
+      );
+      if (!res.primary?.length) return null;
 
       const primaryText = (res.primary as { text: string }[]).map((v) => v.text).join(" ");
       const label = `${ref.book} ${ref.chapter}:${ref.verseStart}${ref.verseStart !== ref.verseEnd ? `-${ref.verseEnd}` : ""} (${res.translation})`;
@@ -121,18 +120,18 @@ export function useVerseBank(defaultTranslationCode: string) {
         };
         // If window is getting thin, top it up in background
         if (banked.after.length < 3) {
-          fetch("/api/bible/lookup", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              book: banked.book, chapter: banked.chapter,
-              verseStart: banked.verseStart, verseEnd: banked.verseEnd,
-              translationCode: cur.translation, withWindow: true,
-            }),
-          }).then((r) => r.json()).then((res) => {
-            if (res.after) {
-              setBank((b) => b.map((x) => x.id === banked.id ? { ...x, after: res.after, before: res.before } : x));
-            }
-          }).catch(() => { /* ignore */ });
+          // Same cache path as addReference. Topping the window up is
+          // best-effort, so a miss stays silent — but offline it now SUCCEEDS
+          // from the hydrated chapter instead of always failing.
+          void import("@/lib/bible-chapter-cache").then(({ lookupWithWindowCached }) =>
+            lookupWithWindowCached(
+              banked.book, banked.chapter, banked.verseStart, banked.verseEnd, cur.translation,
+            ).then((res) => {
+              if (res.after) {
+                setBank((b) => b.map((x) => x.id === banked.id ? { ...x, after: res.after, before: res.before } : x));
+              }
+            })
+          ).catch(() => { /* ignore */ });
         }
         setBank((b) => [...b, banked]);
         setCurrentIdx((b) => (b ?? 0) + 1);

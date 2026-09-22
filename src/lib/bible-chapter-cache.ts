@@ -137,3 +137,41 @@ export function prefetchChapter(book: string, chapter: number, translationCode: 
 
 /** Test helper. */
 export function _clearBibleChapterCache(): void { cache.clear(); inFlight.clear(); }
+
+/**
+ * A `/api/bible/lookup` shaped result, resolved from the CHAPTER CACHE.
+ *
+ * WHY THIS EXISTS (2026-09-22): three call sites — the verse bank's
+ * `addReference`, its window top-up, and the "show verse" voice command —
+ * POSTed `/api/bible/lookup` DIRECTLY, bypassing everything above. So an
+ * operator whose whole KJV is already sitting hydrated in IndexedDB still got
+ * nothing from those paths the moment the network went, which is exactly the
+ * moment they matter. The cache was built and then walked around.
+ *
+ * Resolving a reference from a chapter we already hold is also strictly
+ * cheaper than a round trip even when online, so there is no "online path" to
+ * preserve separately — the network is already step 2 inside fetchChapterCached.
+ *
+ * `windowSize` verses either side are returned as `before` / `after`, matching
+ * what the route's `withWindow: true` produced.
+ */
+export async function lookupWithWindowCached(
+  book: string, chapter: number, verseStart: number, verseEnd: number,
+  translationCode: string, windowSize = 5,
+): Promise<{
+  primary: BibleVerse[];
+  before: BibleVerse[];
+  after: BibleVerse[];
+  translation: string;
+}> {
+  const entry = await fetchChapterCached(book, chapter, translationCode);
+  const inRange = (v: BibleVerse) => v.verse >= verseStart && v.verse <= verseEnd;
+  return {
+    primary: entry.verses.filter(inRange),
+    // `before` is the verses immediately preceding, in reading order — the
+    // slice(-n) keeps the CLOSEST ones, not the first of the chapter.
+    before: entry.verses.filter((v) => v.verse < verseStart).slice(-windowSize),
+    after: entry.verses.filter((v) => v.verse > verseEnd).slice(0, windowSize),
+    translation: entry.translation,
+  };
+}
