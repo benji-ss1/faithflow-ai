@@ -228,4 +228,5 @@ test/whats-new.test.ts
 test/windows-media.test.ts
 test/windows-responsive.test.ts
 test/timer-screen-routing.test.ts
+test/offline-resilience.test.ts
 test/schema-preflight.test.ts

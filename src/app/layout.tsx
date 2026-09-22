@@ -14,7 +14,7 @@ import "./globals.css";
 import "./slide-fonts.css";
 import "@/styles/openflow.css";
 import { openFlowFontVars } from "@/lib/openflow/fonts";
-import { PLATFORM_ATTR_SCRIPT } from "@/lib/platform";
+import { PLATFORM_ATTR_SCRIPT, APP_ALIVE_SCRIPT } from "@/lib/platform";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://presentflow.org"),
@@ -79,6 +79,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body suppressHydrationWarning className={openFlowFontVars}>
         {/* Windows-only CSS scoping hook (html[data-platform=win]) — no-op on macOS. */}
         <script dangerouslySetInnerHTML={{ __html: PLATFORM_ATTR_SCRIPT }} />
+        {/* Liveness marker for the Electron shell — see APP_ALIVE_SCRIPT. It
+            must stay in the DOCUMENT (not the preload, not a client
+            component), so that only a real PresentFlow page can answer. */}
+        <script dangerouslySetInnerHTML={{ __html: APP_ALIVE_SCRIPT }} />
         {children}
         <PostHogProvider />
         <ServiceWorkerRegister />
