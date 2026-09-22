@@ -233,3 +233,4 @@ test/windows-media.test.ts
 test/windows-responsive.test.ts
 test/schema-preflight.test.ts
 test/action-call.test.ts
+test/stage-editor.test.ts
