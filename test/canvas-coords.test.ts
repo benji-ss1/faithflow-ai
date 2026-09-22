@@ -100,11 +100,21 @@ check("clamped to OBJECT_FONT_SCALE_MAX", () => {
 check("a missing / invalid scale falls back to 1, never 0 or NaN", () => {
   for (const bad of [undefined, NaN, Infinity, 0, -1]) assert.equal(objectFontScale(bad as never), 1, `bad: ${bad}`);
 });
-check("it matches the projector's own clamp, read from source", () => {
+check("the PROJECTOR uses the shared clamp, not a hand-rolled literal", () => {
+  // Previously `Math.min(fontScale, 1.6)` — a literal free to drift from the
+  // constant the editor uses. Both sides now call the same helper, so they
+  // cannot disagree by construction.
   const src = read("../src/components/live/SlideObjectsLayer.tsx");
-  const m = src.match(/Math\.min\(fontScale,\s*([0-9.]+)\)/);
-  assert.ok(m, "SlideObjectsLayer no longer clamps fontScale the way this test assumes");
-  assert.equal(Number(m![1]), OBJECT_FONT_SCALE_MAX, "projector clamp drifted from OBJECT_FONT_SCALE_MAX");
+  assert.match(src, /const fs = objectFontScale\(fontScale\);/,
+    "SlideObjectsLayer stopped using objectFontScale — editor and projector can drift again");
+  assert.ok(!/Math\.min\(fontScale,\s*[0-9.]+\)/.test(src), "a hand-rolled numeric clamp came back");
+});
+check("the EDITOR derives its drag scale from canvasScaleFor", () => {
+  // A hand-rolled `rect.width <= 0` guard misses NaN (NaN <= 0 is false), which
+  // is the exact failure canvasScaleFor exists to catch.
+  const ed = read("../src/components/operator/editor/SlideCanvas.tsx");
+  assert.match(ed, /const scale = canvasScaleFor\(rect\);/, "editor hand-rolls the scale again");
+  assert.ok(!/const scaleX = CANVAS_W \/ rect\.width;/.test(ed), "an inline scale computation came back");
 });
 
 console.log("\nthe drift that was actually found:");

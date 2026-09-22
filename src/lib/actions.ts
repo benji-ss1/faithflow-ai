@@ -13,7 +13,7 @@ import { isBuiltInStageLayout } from "../engine/stage/presets";
 import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
-import { sanitizeThemeConfig, stripBuiltinId, type ThemeConfig, mergeThemeConfigPatch } from "./theme-config";
+import { sanitizeThemeConfig, stripBuiltinId, type ThemeConfig, mergeThemeConfigPatch, THEME_ALLOWED_KEYS } from "./theme-config";
 import { getBuiltinTheme, builtinThemeConfig } from "./builtin-themes";
 import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
@@ -2396,10 +2396,26 @@ export async function patchThemeConfig(
     const merged = mergeThemeConfigPatch(prev, patch);
     // Same sanitizer every other writer uses — a patch can never smuggle a key
     // past THEME_ALLOWED_KEYS or an out-of-range number onto the wire.
-    const clean = sanitizeThemeConfig(merged);
-    // A layout that fails validation must never DELETE the stored one.
-    if (clean.rejected.includes("layout") && (prev as { layout?: unknown }).layout) {
-      (clean.config as { layout?: unknown }).layout = (prev as { layout?: unknown }).layout;
+    // `allowBuiltinId` so a patch does not strip the marker that identifies a
+    // materialized built-in theme. Without it, the FIRST control change to such
+    // a theme deletes `builtinId`, and a later materializeBuiltinTheme() no
+    // longer finds the row by `config->>'builtinId'` and creates a DUPLICATE
+    // theme. `updateTheme` has the same hole, but this action fires on every
+    // control change, so the exposure is far higher. The value is not
+    // user-supplied here — it comes from the row we just read.
+    const clean = sanitizeThemeConfig(merged, { allowBuiltinId: true });
+    // A REJECTED key must never DELETE the good value already stored. `merged`
+    // carries prev's value for any key the patch didn't touch, so a malformed
+    // patch would otherwise make the sanitizer reject the MERGED key and the
+    // stored value would be lost — e.g. a bad scriptureBand write erasing the
+    // band the operator had already set. Restore every rejected key that prev
+    // held (generalises the original layout-only guard).
+    // Restricted to ALLOW-LISTED keys: an unknown/legacy stored key stays
+    // dropped exactly as before, so this cannot resurrect junk.
+    for (const k of clean.rejected) {
+      if ((THEME_ALLOWED_KEYS as string[]).includes(k) && Object.hasOwn(prev, k)) {
+        (clean.config as Record<string, unknown>)[k] = prev[k];
+      }
     }
     await tx.update(themes).set({ config: clean.config, updatedAt: new Date() })
       .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));

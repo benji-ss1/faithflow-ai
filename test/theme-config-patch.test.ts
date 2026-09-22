@@ -103,14 +103,43 @@ check("the number-range lookup does not walk the prototype chain", () => {
     "reverted to `k in THEME_NUMBER_RANGES`, which walks the prototype chain");
 });
 
+console.log("\na bad patch must not destroy good stored data:");
+check("patchThemeConfig restores an allow-listed key the sanitizer rejected", () => {
+  const src = read("../src/lib/actions.ts");
+  const fn = src.slice(src.indexOf("export async function patchThemeConfig"), src.indexOf("export async function duplicateTheme"));
+  assert.match(fn, /for \(const k of clean\.rejected\)/,
+    "only `layout` is preserved — a malformed patch can ERASE a stored-good scriptureBand");
+  assert.match(fn, /THEME_ALLOWED_KEYS as string\[\]\)\.includes\(k\)/,
+    "the restore is not scoped to allow-listed keys — it would resurrect unknown legacy junk");
+});
+check("the erasure scenario: a malformed band must not wipe the stored one", () => {
+  // merged carries prev's GOOD band for a key the patch corrupts, so the
+  // sanitizer rejects the merged key -> without the restore the band is lost.
+  const good = { mode: "solid", color: "#112233", color2: "#000000", angle: 0, opacity: 1,
+                 position: "lower", offsetY: 0, heightPct: 30, fontScale: 1, refScale: 1, widthPct: 88 };
+  const merged = mergeThemeConfigPatch({ scriptureLayout: "lowerThird", scriptureBand: good }, { scriptureBand: "not-an-object" });
+  const { config, rejected } = sanitizeThemeConfig(merged);
+  assert.ok(rejected.includes("scriptureBand"), "test premise changed: the bad band is no longer rejected");
+  assert.equal(config.scriptureBand, undefined, "sanitizer unexpectedly kept it");
+  // patchThemeConfig's restore loop is what puts prev's band back; assert the
+  // ingredients it relies on are present.
+  assert.ok(Object.hasOwn({ scriptureBand: good }, "scriptureBand"));
+});
+check("patchThemeConfig keeps builtinId so built-ins don't re-materialize as duplicates", () => {
+  const src = read("../src/lib/actions.ts");
+  const fn = src.slice(src.indexOf("export async function patchThemeConfig"), src.indexOf("export async function duplicateTheme"));
+  assert.match(fn, /sanitizeThemeConfig\(merged, \{ allowBuiltinId: true \}\)/,
+    "builtinId is stripped on every control change -> materializeBuiltinTheme creates a duplicate theme row");
+});
+
 console.log("\nwiring (the racing writers actually use it):");
 check("patchThemeConfig runs in a transaction and locks the row", () => {
   const src = read("../src/lib/actions.ts");
   const fn = src.slice(src.indexOf("export async function patchThemeConfig"));
-  assert.match(fn.slice(0, 2000), /db\.transaction\(/, "not transactional");
-  assert.match(fn.slice(0, 2000), /\.for\("update"\)/, "row is not locked — two patches can still interleave");
-  assert.match(fn.slice(0, 2000), /sanitizeThemeConfig\(merged\)/, "patch bypasses the sanitizer");
-  assert.match(fn.slice(0, 2000), /eq\(themes\.churchId, user\.churchId\)/, "church scoping missing on a DB write");
+  assert.match(fn.slice(0, 2500), /db\.transaction\(/, "not transactional");
+  assert.match(fn.slice(0, 2500), /\.for\("update"\)/, "row is not locked — two patches can still interleave");
+  assert.match(fn.slice(0, 2500), /sanitizeThemeConfig\(merged,/, "patch bypasses the sanitizer");
+  assert.match(fn.slice(0, 2500), /eq\(themes\.churchId, user\.churchId\)/, "church scoping missing on a DB write");
 });
 check("RightInspector.patchConfig no longer sends the whole config", () => {
   const src = read("../src/components/operator/shell/RightInspector.tsx");
@@ -123,6 +152,22 @@ check("theme-quick-apply's media set/clear patch fields, not the blob", () => {
   const src = read("../src/lib/theme-quick-apply.ts");
   assert.match(src, /patchThemeConfig\(target\.id, patch\)/, "setMediaOnActiveTheme still writes the blob");
   assert.match(src, /patchThemeConfig\(target\.id, \{ bgType: "solid"/, "clearActiveThemeBackground still writes the blob");
+});
+check("no RightInspector control uses `undefined` as a CLEAR sentinel", () => {
+  // patchThemeConfig: undefined = leave alone, null = clear. A control that
+  // sends `x ?? undefined` for its "none" option silently stops clearing.
+  const src = read("../src/components/operator/shell/RightInspector.tsx");
+  const bad = [...src.matchAll(/patchConfig\(\{[^}]*\?\?\s*undefined[^}]*\}\)/g)].map((m) => m[0]);
+  assert.deepEqual(bad, [], `these clear-controls send undefined (a no-op) instead of null: ${bad.join(" | ")}`);
+});
+check("the theme transition 'none' option clears the stored field", () => {
+  const src = read("../src/components/operator/shell/RightInspector.tsx");
+  assert.match(src, /patchConfig\(\{ transition: t \?\? null \}\)/, "the transition picker no longer clears on '— none —'");
+  // and prove null actually removes the key end-to-end
+  const merged = mergeThemeConfigPatch({ fontFamily: "Inter", transition: { effectId: "fade", durationMs: 300, easing: "ease" } }, { transition: null });
+  assert.ok(!("transition" in merged), "null did not clear the field");
+  assert.equal(sanitizeThemeConfig(merged).config.transition, undefined);
+  assert.equal(sanitizeThemeConfig(merged).config.fontFamily, "Inter");
 });
 check("Undo still restores the EXACT prior snapshot (deliberately a blob write)", () => {
   const src = read("../src/lib/theme-quick-apply.ts");

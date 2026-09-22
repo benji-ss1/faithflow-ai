@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CANVAS_W, CANVAS_H, type EditableSlide, type SlideObject } from "@/lib/slide-objects";
-import { cqh as toCqh, objectFontScale } from "@/lib/canvas-coords";
+import { cqh as toCqh, objectFontScale, canvasScaleFor } from "@/lib/canvas-coords";
 import { cn } from "@/lib/utils";
 import { flipTransform, constrainAspect, type Rect } from "@/lib/editor-geometry";
 import { useFitFontSize, scaledFontSize } from "@/components/live/FittedText";
@@ -177,16 +177,22 @@ export function SlideCanvas({
     // Only the primary button/contact drags (a right-click or a second finger
     // must never start one).
     if (e.button !== 0) return;
-    e.preventDefault();
+    // preventDefault on a TOUCH pointerdown also suppresses the synthesized
+    // mouse chain, which would kill double-tap-to-edit-text on a touchscreen
+    // (Windows touch laptops are in the church-machine mix). Scrolling is
+    // already blocked by `touchAction: "none"` on the draggable elements, so
+    // touch doesn't need preventDefault here.
+    if (e.pointerType !== "touch") e.preventDefault();
     e.stopPropagation();
     const rect = getCanvasRect();
-    // A ZERO-sized rect (collapsed flex parent, hidden tab, a canvas measured
-    // before layout) would make scaleX/scaleY Infinity and write NaN geometry
-    // into the slide — which then renders broken locally and is SILENTLY
-    // rejected by isValidSlideObject on publish. Refuse to start the drag.
-    if (!rect || rect.width <= 0 || rect.height <= 0) return;
-    const scaleX = CANVAS_W / rect.width;
-    const scaleY = CANVAS_H / rect.height;
+    // A ZERO- or NaN-sized rect (collapsed flex parent, hidden tab, a canvas
+    // measured before layout) would make the scale Infinity/NaN and write bad
+    // geometry into the slide — which renders broken locally and is then
+    // SILENTLY rejected by isValidSlideObject on publish. canvasScaleFor is the
+    // single guard (a hand-rolled `<= 0` check misses NaN, since NaN <= 0 is false).
+    const scale = canvasScaleFor(rect);
+    if (!scale) return;
+    const { scaleX, scaleY } = scale;
     // Pointer capture: without it a pointerup delivered OUTSIDE the window
     // (dragged off-screen, over a native menu, into an <iframe>/<video> or an
     // Electron webview) never arrives and the drag stays latched. Capture
@@ -275,10 +281,11 @@ export function SlideCanvas({
     if (readOnly) return;
     if (e.button !== 0) return;
     const rect = getCanvasRect();
-    // Same zero-rect guard as beginDrag: Infinity scale => NaN marquee box.
-    if (!rect || rect.width <= 0 || rect.height <= 0) return;
-    const scaleX = CANVAS_W / rect.width;
-    const scaleY = CANVAS_H / rect.height;
+    // Same guard as beginDrag: a degenerate rect => NaN marquee box.
+    if (!rect) return; // also narrows `rect` for the closures below
+    const scale = canvasScaleFor(rect);
+    if (!scale) return;
+    const { scaleX, scaleY } = scale;
     const captureEl = e.currentTarget as Element;
     const pointerId = e.pointerId;
     try { captureEl.setPointerCapture(pointerId); } catch { /* unsupported */ }
@@ -544,6 +551,9 @@ function ObjectView({
     // shows the flip exactly as it will project.
     scale: flipTransform(obj),
     cursor: readOnly || locked ? "default" : editing ? "text" : "grab",
+    // Without this the browser claims the gesture on first movement and fires
+    // pointercancel, so a touch drag simply never starts.
+    touchAction: "none",
     // Hidden objects are dimmed and click-through in the editor (manage them via
     // the Layers panel) — they never render on the projector at all.
     opacity: hidden ? 0.3 : undefined,
@@ -754,7 +764,7 @@ function Handle({ k, onBegin, edges }: { k: HandleKey; onBegin: (e: React.Pointe
   // zIndex 2: an image object's <img> is `position:relative; zIndex:1` (blur-fill
   // layering), which otherwise painted OVER the handles and swallowed every
   // resize drag (turning it into a move).
-  const pos: React.CSSProperties = { position: "absolute", zIndex: 2, width: 10, height: 10, background: "#e8501a", border: "1px solid #fff", borderRadius: 2 };
+  const pos: React.CSSProperties = { position: "absolute", zIndex: 2, width: 10, height: 10, background: "#e8501a", border: "1px solid #fff", borderRadius: 2, touchAction: "none" };
   const map: Record<HandleKey, React.CSSProperties> = {
     nw: { left: -5, top: -5, cursor: "nwse-resize" },
     n:  { left: "50%", top: -5, transform: "translateX(-50%)", cursor: "ns-resize" },

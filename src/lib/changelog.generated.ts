@@ -6,22 +6,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
     "version": "0.1.509",
     "date": "2026-09-22",
-    "headline": "Fixed — quick theme changes no longer undo each other",
+    "headline": "Fixed — quick theme changes in the Theme panel no longer undo each other",
     "highlights": [
-      "Changing two theme settings quickly one after another now keeps both. Each control used to save the whole theme as it looked when the panel last drew, so a second change made a moment later could quietly put the first one back.",
-      "Setting or clearing a theme background from the media bin now changes only the background, so it can no longer wipe out edits someone has open in the theme editor at the same time.",
-      "Each theme setting is now saved on its own, and the save is done in one go on the server so two people editing the same theme cannot overwrite each other's work.",
+      "Changing two settings quickly one after another in the Theme panel now keeps both. Each control used to save the whole theme as it looked when the panel last drew, so a second change made a moment later could quietly put the first one back.",
+      "Setting or clearing a theme background from the media bin now changes only the background, so it no longer wipes other theme settings at the same time.",
       "Undo on a background change still puts the theme back exactly as it was."
     ]
   },
   {
     "version": "0.1.508",
     "date": "2026-09-22",
-    "headline": "Fixed — designed text in the slide editor now previews at the size it actually projects",
+    "headline": "Fixed — the slide editor no longer previews designed text bigger than it projects",
     "highlights": [
-      "Text boxes you have positioned on a slide now preview at the size they will really be on the projector. With the projection-zone Font slider turned up past a certain point the editor kept growing the text while the projector capped it, so a slide could look right while you designed it and come out smaller on the screen.",
+      "Above 1.60x on the projection-zone Font slider, the editor used to keep growing text boxes you had placed on a slide while the projector capped them - so a slide could look right while you designed it and come out smaller on the screen. The editor now stops where the projector stops.",
       "Letter spacing on those text boxes now previews correctly too. It used to stay at its unscaled size in the editor while the projector scaled it with the text.",
-      "Nothing on the projector, stage screen, livestream or recording changes - only the editor preview, which now tells the truth."
+      "The editor preview still only reflects the projection-zone Font setting, not the separate live text-size control, so the two can still differ. Closing that gap is separate work.",
+      "Nothing about how the slide projects changes - only the editor preview."
     ]
   },
   {
@@ -31,8 +31,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "highlights": [
       "Dragging or resizing an element in the slide editor no longer gets stuck if you release the mouse outside the app window - over a menu, off the edge of the screen, or on a video. The element used to keep following the pointer until you clicked again.",
       "Right-clicking an element no longer starts a drag by accident.",
-      "Trackpad and touch drags are now handled properly, and a drag that the system interrupts is ended cleanly instead of being left half-finished.",
-      "The editor now refuses to start a drag while the canvas has not been measured yet, instead of moving the element to an invalid position that was then silently thrown away when the slide was saved."
+      "The editor no longer lets you move an element before the slide has finished loading, which used to leave it in a position that was quietly thrown away when the slide was saved."
     ]
   },
   {
@@ -41,7 +40,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "headline": "Fixed — a theme's \"Third band\" scripture choice is now actually saved",
     "highlights": [
       "Setting a theme's Scripture layout to Third band now sticks. The choice was offered in the theme editor and looked right while you were setting it, but it was thrown away the moment the theme was saved - so reopening the theme, or going live, always fell back to Full screen.",
-      "Any band styling you set on the theme (colour, gradient, height, position, text size) is now saved with it too.",
+      "Fine-tuning the band itself (colour, height, position, text size) still lives in Edit scripture slide, and that still applies to your whole church.",
       "A saved church Scripture Style still overrides the theme, exactly as before, and a theme that says nothing about scripture is unchanged."
     ]
   },

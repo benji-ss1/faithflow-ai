@@ -1512,7 +1512,11 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
 
           <Section label="Default transition">
             <SlideTransitionPicker value={cfg.transition ?? null}
-              onChange={(t) => patchConfig({ transition: t ?? undefined })} />
+              // `null`, NOT `undefined`: patchThemeConfig treats undefined as
+              // "leave this field alone" and null as "clear it". Sending
+              // undefined here made "— none —" a no-op server-side while the
+              // optimistic local state showed it cleared.
+              onChange={(t) => patchConfig({ transition: t ?? null })} />
           </Section>
 
           <Section label="Apply">
