@@ -20,7 +20,7 @@ import { EFFECTS, ensureEffectKeyframes, getEffect, type EffectId, type Effect }
 import type { AnnouncementPayload, AnnouncementPosition, AnnouncementStyle, AnnouncementLogoPosition, TransitionSpec } from "@/lib/broadcast";
 import {
   createAnnouncement, saveAnnouncementPreset, deleteAnnouncementPreset,
-  createTheme, updateTheme, duplicateTheme, deleteTheme, exportTheme, importTheme, applyThemeToSong,
+  createTheme, updateTheme, patchThemeConfig, duplicateTheme, deleteTheme, exportTheme, importTheme, applyThemeToSong,
 } from "@/lib/actions";
 import { toast } from "sonner";
 import { MAX_THEME_FILE_BYTES, missingMediaMessage } from "@/lib/theme-portable";
@@ -1348,9 +1348,14 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
 
   const patchConfig = async (p: Record<string, unknown>) => {
     if (!current) return;
-    const cfg = { ...current.config, ...p };
-    setThemes((prev) => (prev ?? []).map((t) => t.id === current.id ? { ...t, config: cfg } : t));
-    await updateTheme(current.id, { config: cfg });
+    // Optimistic locally so the control feels instant...
+    setThemes((prev) => (prev ?? []).map((t) => t.id === current.id ? { ...t, config: { ...t.config, ...p } } : t));
+    // ...but persist ONLY the changed fields, merged server-side in a
+    // transaction. This is fired on every control change (including each
+    // keystroke in a colour/URL field), so sending the whole config from a
+    // client snapshot meant two quick changes both built from the SAME render
+    // and the second silently undid the first.
+    await patchThemeConfig(current.id, p);
   };
   const patchName = async (name: string) => {
     if (!current) return;

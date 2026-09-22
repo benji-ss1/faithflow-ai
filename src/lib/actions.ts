@@ -13,7 +13,7 @@ import { isBuiltInStageLayout } from "../engine/stage/presets";
 import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
-import { sanitizeThemeConfig, stripBuiltinId, type ThemeConfig } from "./theme-config";
+import { sanitizeThemeConfig, stripBuiltinId, type ThemeConfig, mergeThemeConfigPatch } from "./theme-config";
 import { getBuiltinTheme, builtinThemeConfig } from "./builtin-themes";
 import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
@@ -2363,6 +2363,48 @@ export async function updateTheme(id: string, patch: { name?: string; config?: T
   await db.update(themes).set(updates)
     .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
   return { ok: true, data: { rejected } };
+}
+
+/**
+ * Patch INDIVIDUAL theme-config fields, merging SERVER-side inside a transaction.
+ *
+ * `updateTheme` replaces the whole `config` jsonb from a snapshot the CLIENT
+ * held. Three writers do read-modify-write from their own snapshot
+ * (RightInspector.patchConfig — fire-and-forget on every control change,
+ * DesktopSlideEditorModal's save, theme-quick-apply's media set/clear), so two
+ * changes made moments apart both built from the SAME render's config and the
+ * second silently undid the first's field. There was no optimistic-concurrency
+ * check anywhere: no version, no etag, no updatedAt compare.
+ *
+ * Merging server-side makes a patch last-write-wins PER FIELD instead of per
+ * BLOB, which is what the operator actually expects, and needs no schema change.
+ * `undefined` values are ignored; pass `null` to CLEAR a field.
+ */
+export async function patchThemeConfig(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<Result<{ rejected: string[] }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  return db.transaction(async (tx): Promise<Result<{ rejected: string[] }>> => {
+    const [row] = await tx.select({ config: themes.config }).from(themes)
+      .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)))
+      .limit(1)
+      .for("update");
+    if (!row) return { ok: false, error: "Theme not found" };
+    const prev = (row.config ?? {}) as Record<string, unknown>;
+    const merged = mergeThemeConfigPatch(prev, patch);
+    // Same sanitizer every other writer uses — a patch can never smuggle a key
+    // past THEME_ALLOWED_KEYS or an out-of-range number onto the wire.
+    const clean = sanitizeThemeConfig(merged);
+    // A layout that fails validation must never DELETE the stored one.
+    if (clean.rejected.includes("layout") && (prev as { layout?: unknown }).layout) {
+      (clean.config as { layout?: unknown }).layout = (prev as { layout?: unknown }).layout;
+    }
+    await tx.update(themes).set({ config: clean.config, updatedAt: new Date() })
+      .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
+    return { ok: true, data: { rejected: clean.rejected } };
+  });
 }
 
 export async function duplicateTheme(id: string): Promise<Result<{ id: string }>> {

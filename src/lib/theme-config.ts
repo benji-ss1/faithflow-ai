@@ -99,6 +99,30 @@ export function stripBuiltinId(config: Record<string, unknown>): Record<string, 
   return rest;
 }
 
+/**
+ * Merge a FIELD-LEVEL patch onto a stored theme config.
+ *
+ * Pure half of `patchThemeConfig` (actions.ts), which applies it inside a
+ * transaction so two concurrent control changes are last-write-wins PER FIELD
+ * rather than per whole blob.
+ *
+ * `undefined` means "leave this field alone"; `null` means "clear it". Callers
+ * MUST still run the result through sanitizeThemeConfig — this helper does no
+ * validation, it only decides which keys survive.
+ */
+export function mergeThemeConfigPatch(
+  prev: Record<string, unknown> | null | undefined,
+  patch: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(prev ?? {}) };
+  for (const [k, v] of Object.entries(patch ?? {})) {
+    if (v === undefined) continue;
+    if (v === null) delete out[k];
+    else out[k] = v;
+  }
+  return out;
+}
+
 export function sanitizeThemeConfig(input: unknown, opts: { allowBuiltinId?: boolean } = {}): { config: ThemeConfig; rejected: string[] } {
   const rejected: string[] = [];
   const out: ThemeConfig = {};
