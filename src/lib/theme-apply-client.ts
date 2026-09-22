@@ -29,6 +29,39 @@ export function pushThemeRecent(id: string): void {
   } catch { /* storage unavailable */ }
 }
 
+/**
+ * A theme that carries its OWN background and a Background Template are mutually
+ * exclusive on the projector (user-approved 2026-08-28). `applyThemeLive` gets
+ * this right because it dispatches `presentflow:theme-changed`, whose handler in
+ * OperatorConsole clears the template and stamps the theme as the newest pick.
+ *
+ * The PER-SONG apply paths (the slide-grid Theme menu, the apply-theme-to-song
+ * listener) did NOT, so an already-active template kept out-ranking the theme and
+ * the operator saw "Theme applied" while the background never changed — field
+ * report 2026-09-22.
+ *
+ * Returns the prior background state when it cleared one, so the caller's Undo
+ * can put the operator's template back exactly as it was; null when there was
+ * nothing to do (a text-only theme leaves any template alone, so the two can
+ * still be layered).
+ */
+export async function syncBackgroundForAppliedTheme(
+  config: unknown,
+): Promise<import("@/backgrounds/store/backgroundStore").BackgroundStateSnapshot | null> {
+  try {
+    const { themeConfigToAppearance, appearanceHasBackground } = await import("@/lib/theme-appearance");
+    if (!appearanceHasBackground(themeConfigToAppearance(config as never))) return null;
+    const { snapshotBackgroundState, markThemeBackgroundPicked, setActiveBackgroundId } =
+      await import("@/backgrounds/store/backgroundStore");
+    const snapshot = snapshotBackgroundState();
+    markThemeBackgroundPicked();   // this apply IS the newest explicit pick
+    setActiveBackgroundId("none"); // ...so the template stops out-ranking it
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
 /** Returns true when the theme was applied. */
 export async function applyThemeLive(t: ClientTheme): Promise<boolean> {
   try {

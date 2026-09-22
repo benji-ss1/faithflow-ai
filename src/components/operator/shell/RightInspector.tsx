@@ -23,6 +23,7 @@ import {
   createTheme, updateTheme, patchThemeConfig, duplicateTheme, deleteTheme, exportTheme, importTheme, applyThemeToSong,
 } from "@/lib/actions";
 import { toast } from "sonner";
+import { syncBackgroundForAppliedTheme } from "@/lib/theme-apply-client";
 import { MAX_THEME_FILE_BYTES, missingMediaMessage } from "@/lib/theme-portable";
 
 const TABS: { key: InspectorTab; label: string; icon: typeof Monitor }[] = [
@@ -1378,6 +1379,11 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
     setBusy(true);
     try {
       const r = await applyThemeToSong(current.id, currentSongId);
+      // A theme with its OWN background must switch off an active Background
+      // Template, or the template keeps out-ranking it and nothing visibly
+      // changes (field report 2026-09-22). The Themes-tab path gets this via
+      // `presentflow:theme-changed`; this per-song apply did not.
+      if (r.ok) await syncBackgroundForAppliedTheme(current.config);
       if (r.ok) toast.success(`Applied to ${r.data?.slidesUpdated ?? 0} slide(s). Reload to see changes.`);
       else toast.error(r.error);
     } finally { setBusy(false); }
