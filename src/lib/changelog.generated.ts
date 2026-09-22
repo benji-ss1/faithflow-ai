@@ -4,6 +4,16 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.508",
+    "date": "2026-09-22",
+    "headline": "A deploy can no longer ship code the database is not ready for",
+    "highlights": [
+      "Today the Timers and Stage Layouts panels showed \"Background task failed\" because a database change was written but never applied, and the code that needed it shipped anyway.",
+      "Every build now checks the live database against the code before it deploys. If the database is behind, the build stops and names exactly which tables and columns are missing — and the version already running stays up.",
+      "The check reads the real schema, so a new table or column is covered the moment it is written. There is no list anyone has to remember to update."
+    ]
+  },
+  {
     "version": "0.1.505",
     "date": "2026-09-22",
     "headline": "Each timer now chooses its own screens, and the row tells you where it is going",
