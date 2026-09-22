@@ -4,6 +4,16 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.513",
+    "date": "2026-09-22",
+    "headline": "What's New now takes you to the feature, and Vic covers smart folders",
+    "highlights": [
+      "What's New now has a Show me where button on the changes that need one. Press it and PresentFlow opens the right screen and puts an orange ring around the actual button, so you are not left hunting for a control you have never seen.",
+      "Vic's walkthrough has a new step for smart folders, so you can learn them hands-on with the real rule builder instead of reading about them. Restart Vic any time from Settings → Help.",
+      "The ring is the same one Vic uses, and it disappears as soon as you click, scroll or press Escape — it never blocks what you were doing."
+    ]
+  },
+  {
     "version": "0.1.512",
     "date": "2026-09-22",
     "headline": "Timers now tell you when something went wrong, instead of a scary error",
@@ -29,7 +39,11 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-09-22",
     "headline": "Big ProPresenter libraries now import instead of failing",
     "highlights": [
-      "Where: Library → Imports, and the Import button in the Songs library.",
+      {
+        "text": "Find it in your Songs library, on the Import button.",
+        "tryItHref": "/library/songs",
+        "tryItLabel": "Open Songs"
+      },
       "A large ProPresenter library used to stop with a bare error part-way through. The import is now sent up in small pieces automatically, so a library of several thousand songs goes through in one go.",
       "Importing a big library is also a lot faster.",
       "If something still will not fit, the message now tells you what to do — export the library from ProPresenter in smaller parts — instead of just failing.",
@@ -41,8 +55,17 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-09-22",
     "headline": "Smart folders and smart playlists — a folder that fills itself",
     "highlights": [
-      "Where to make a smart FOLDER: the operator's left-hand Library list — click the ✨ star button next to the + button.",
-      "Where to make a smart PLAYLIST: Services → New smart playlist, next to the Create button.",
+      {
+        "text": "Make one in the Library list on the left of your operator screen — the star button next to +.",
+        "tryItHref": "/operator",
+        "highlightParam": "smart-folder",
+        "tryItLabel": "Show me where"
+      },
+      {
+        "text": "Smart PLAYLISTS work the same way and live on the Services page, next to the Create button.",
+        "tryItHref": "/services",
+        "tryItLabel": "Open Services"
+      },
       "Give it rules — for example Title contains \"Christmas\", or Date added in the last 30 days — and every song that matches shows up in it automatically. You never drag anything in.",
       "Nothing is moved or copied. A song in a smart folder still lives exactly where it was, so your existing folders and playlists are completely untouched.",
       "It keeps itself up to date. Add a new Christmas song next July and it appears in the Christmas folder on its own.",
@@ -55,7 +78,11 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "date": "2026-09-22",
     "headline": "Import a whole ProPresenter service in one drop — and it keeps your running order",
     "highlights": [
-      "Where: Songs library → Import (top right), or the Import button in the operator's Songs panel.",
+      {
+        "text": "Find it in your Songs library, on the Import button at the top right.",
+        "tryItHref": "/library/songs",
+        "tryItLabel": "Open Songs"
+      },
       "Drop a ProPresenter PLAYLIST export (the .proPlaylist file) and every song in that service comes in at once. Until now that file was quietly rejected and nothing imported, so you had to export songs one at a time.",
       "The songs arrive in the order your worship team actually planned the service, not in alphabetical order. PresentFlow reads the running order out of the ProPresenter file itself.",
       "Song lyrics now keep their line breaks. Imported slides used to arrive as one long run-on line; each line now sits on its own line, the way it looked in ProPresenter.",

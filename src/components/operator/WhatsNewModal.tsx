@@ -107,9 +107,14 @@ export function WhatsNewModal() {
     dismiss();
     try {
       const [path, query] = href.split("?");
-      const panel = query ? new URLSearchParams(query).get("panel") : null;
+      const qs = query ? new URLSearchParams(query) : null;
+      const panel = qs?.get("panel") ?? null;
+      const highlight = qs?.get("highlight") ?? null;
       if (path === pathname) {
         if (panel) window.dispatchEvent(new CustomEvent("presentflow:open-panel", { detail: { panel } }));
+        // Already on the right screen: ring the control in place rather than
+        // navigating to the page we are standing on (which did nothing).
+        if (highlight) window.dispatchEvent(new CustomEvent("presentflow:spotlight", { detail: { target: highlight } }));
         return;
       }
       router.push(href);
