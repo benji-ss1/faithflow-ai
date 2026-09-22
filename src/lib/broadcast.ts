@@ -28,6 +28,8 @@ export type SlideObjectWire =
       // ProPresenter scale-to-fit (src/lib/text-fit.ts). Absent = "down", so a
       // box that would CLIP its text shrinks instead of hiding it.
       textScale?: "none" | "down" | "up" | "both";
+      // Special formatting runs (PP7 "Maintaining Text Attributes").
+      runs?: Array<{ start: number; end: number; bold?: boolean; italic?: boolean; underline?: boolean; color?: string }>;
       role?: "main" | "verse" | "reference" }
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
@@ -1062,6 +1064,23 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
       if (p.stroke !== undefined && !isValidColor(p.stroke)) return false;
       if (p.strokeWidth !== undefined && (typeof p.strokeWidth !== "number" || !Number.isFinite(p.strokeWidth) || p.strokeWidth < 0 || p.strokeWidth > 200)) return false;
       if (p.textScale !== undefined && !["none", "down", "up", "both"].includes(p.textScale as string)) return false;
+      // Formatting runs. Offsets are validated as finite non-negative numbers
+      // here; overlap/ordering/bounds are normalised at render (normalizeRuns),
+      // so a hostile array can never produce a bad slice.
+      if (p.runs !== undefined) {
+        if (!Array.isArray(p.runs) || p.runs.length > 200) return false;
+        for (const r of p.runs) {
+          if (!r || typeof r !== "object" || hasPollutionKey(r)) return false;
+          const rr = r as Record<string, unknown>;
+          for (const k of ["start", "end"] as const) {
+            if (typeof rr[k] !== "number" || !Number.isFinite(rr[k] as number) || (rr[k] as number) < 0 || (rr[k] as number) > 5000) return false;
+          }
+          for (const k of ["bold", "italic", "underline"] as const) {
+            if (rr[k] !== undefined && typeof rr[k] !== "boolean") return false;
+          }
+          if (rr.color !== undefined && !isValidColor(rr.color)) return false;
+        }
+      }
       if (p.role !== undefined && p.role !== "main" && p.role !== "verse" && p.role !== "reference") return false;
       return true;
     case "shape":

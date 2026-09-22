@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { flipTransform, constrainAspect, type Rect } from "@/lib/editor-geometry";
 import { useFitFontSize, scaledFontSize } from "@/components/live/FittedText";
 import { DEFAULT_TEXT_SCALE } from "@/lib/text-fit";
+import { setTextSelection, selectionOffsetsWithin } from "@/lib/text-selection-store";
 import { DEFAULT_VIEW_PREFS, RULER_SIZE, RULER_PAD, rulerTicks, markerPct, rulersVisible, type EditorViewPrefs } from "@/lib/editor-view-prefs";
 import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, isFullZone, resolveZoneRects, FULL_ZONE } from "@/lib/projection-zone";
@@ -565,6 +566,12 @@ function ObjectView({
         contentEditable
         suppressContentEditableWarning
         onInput={(e) => onText(e.currentTarget.textContent ?? "")}
+        onSelect={(e) => {
+          // Captured while the selection is still live — clicking a formatting
+          // button in the properties panel blurs this box and destroys it.
+          const off = selectionOffsetsWithin(e.currentTarget as HTMLElement);
+          if (off) setTextSelection({ objectId: obj.id, ...off });
+        }}
         onMouseDown={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
         onBlur={onEndEdit}

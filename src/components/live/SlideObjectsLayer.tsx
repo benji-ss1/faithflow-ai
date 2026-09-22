@@ -90,6 +90,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
             <div key={key} className={animCls} style={boxStyle}>
               <FittedText
                 text={obj.text}
+                runs={obj.runs}
                 mode={obj.textScale ?? DEFAULT_TEXT_SCALE}
                 className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
                 style={{

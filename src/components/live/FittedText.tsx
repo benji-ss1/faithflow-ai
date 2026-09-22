@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fitScale, overflows, type TextScaleMode, DEFAULT_TEXT_SCALE } from "@/lib/text-fit";
+import { splitIntoSegments, type TextRun } from "@/lib/text-runs";
 
 /**
  * A designed text box that scales its text to fit — ProPresenter parity.
@@ -87,23 +88,42 @@ export function scaledFontSize(base: string | number | undefined, scale: number)
 }
 
 export function FittedText({
-  text, mode = DEFAULT_TEXT_SCALE, style, className,
+  text, mode = DEFAULT_TEXT_SCALE, style, className, runs,
 }: {
   text: string;
   mode?: TextScaleMode;
   style: React.CSSProperties;
   className?: string;
+  /** "Special" formatting that survives a theme (src/lib/text-runs.ts). */
+  runs?: readonly TextRun[];
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const deps = `${String(style.lineHeight)}|${String(style.letterSpacing)}|${String(style.fontFamily)}|${String(style.fontWeight)}|${String(style.textTransform)}`;
-  const scale = useFitFontSize(ref, text, mode, style.fontSize, deps);
+  const scale = useFitFontSize(ref, text, mode, style.fontSize, deps + `|${runs?.length ?? 0}`);
+  const segments = useMemo(() => splitIntoSegments(text, runs), [text, runs]);
   return (
     <div
       ref={ref}
       className={className}
       style={scale === 1 ? style : { ...style, fontSize: scaledFontSize(style.fontSize, scale) }}
     >
-      {text}
+      {/* No runs ⇒ the plain string, so the DOM is byte-identical to before for
+          every existing slide (the goldens check this). */}
+      {segments.length === 1 && segments[0].text === text
+        ? text
+        : segments.map((seg, i) => (
+            <span
+              key={i}
+              style={{
+                fontWeight: seg.bold ? 700 : undefined,
+                fontStyle: seg.italic ? "italic" : undefined,
+                textDecoration: seg.underline ? "underline" : undefined,
+                color: seg.color,
+              }}
+            >
+              {seg.text}
+            </span>
+          ))}
     </div>
   );
 }

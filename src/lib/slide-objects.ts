@@ -64,6 +64,10 @@ export type TextObject = {
   // "down": text that fits is untouched, text that would be CLIPPED shrinks to
   // fit instead of vanishing off the box.
   textScale?: import("./text-fit").TextScaleMode;
+  // "Special" formatting that survives a theme apply (src/lib/text-runs.ts).
+  // PP7 keeps bold/italic/underline/colour ONLY where it contrasts with the
+  // rest of the box. Absent = no special formatting = today's behaviour.
+  runs?: import("./text-runs").TextRun[];
   stroke?: string;          // text outline colour
   strokeWidth?: number;     // outline width, canvas px (0 = none)
   // Theme Editor (PR 1): which content a THEME text box holds — main

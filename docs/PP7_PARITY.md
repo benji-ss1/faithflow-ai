@@ -12,7 +12,7 @@ a row says OPEN, it is still broken.**
 | # | Gap | Status |
 |---|---|---|
 | R1 | **Designed text boxes hard-clip on overflow.** PP7 offers four scale-to-fit modes. Ours rendered a fixed `fontSize` inside `overflow: hidden`, so a too-long line silently vanished off the projector. | ✅ **FIXED 2026-09-21** — `src/lib/text-fit.ts` + `FittedText.tsx`, `textScale` on the object + wire + a "Scale to fit" control in the editor. Default `"down"`: text that fits is byte-identical (DOM goldens prove it), text that would clip now shrinks. **Not yet seen on a projector.** |
-| R2 | **Theme apply wipes all manual text formatting.** PP7 preserves "special" (differential) bold/italic/underline/colour — formatting that differs from the rest of its text box. We have one style per object, no per-run model, so every re-apply stomps it. | OPEN |
+| R2 | **Theme apply wiped all manual text formatting.** | ✅ **FIXED 2026-09-22** — `src/lib/text-runs.ts` implements PP7's CONTRAST rule: a run survives only where it differs from the rest of its own box. Uniform formatting is still wiped (RV: an all-bold box loses its bold), and position/size/family still always follow the theme. Four attributes only — bold/italic/underline/colour, RV's exhaustive list. `runs` is optional and additive, so every existing slide is untouched and no migration is needed. Editor: select words → B / I / U / colour. |
 | R3 | **No Clear Groups and no Clear to Logo (F12).** IMAG operators had no safe "clear all but camera". | ✅ **FIXED 2026-09-21** — `PP7_CLEAR_GROUPS` + `pp7ClearGroup()`, rail buttons, and **F12** wired. "All But Video Input" (PP7's own worked example) and "Clear to Logo". Clear All stays FIXED per Victor 2026-09-18 — groups are additive, so the panic button can't be configured away. Clear to Logo is **hidden** when no church logo is set rather than being a button that does nothing. |
 | R4 | **No video trim, end-of-clip action, rate or volume level.** | ✅ **FIXED 2026-09-22** — `src/lib/video-playback.ts` (pure) + `SlideVideo.tsx`. Trim in/out, end action (loop / hold last frame / take off screen), speed 0.25–4, volume 0–1 with `muted` still winning. Editor controls in the video inspector. Every default reproduces today's behaviour, and a clip with no trim and a plain loop is still handed entirely to the browser (`needsSupervision()`), so the common case costs nothing. |
 
@@ -24,6 +24,18 @@ documented** (their guide pages are down — flagged `[?]` in `PP7_LAYERS_SPEC`)
 We clear the content layers and **leave the camera**, because "clear to logo" is
 an end-of-service action and killing a live IMAG feed with it would be a nasty
 surprise. Revisit if a real PP7 install says otherwise.
+
+### Why a run model and not a simpler flag (R2)
+
+A box-level "the operator customised this" flag was the cheaper option, and it
+was rejected: once you bolded one word it would protect the **whole box**
+forever, so the box could never follow a theme again. That is visibly wrong in
+exactly the case the feature exists for. PP7's rule is a *contrast* rule, and
+contrast cannot be computed without knowing which characters differ.
+
+It is deliberately **not** full rich text: no font family or size inside a run
+(PP7 always overwrites those), flat non-overlapping ranges, four attributes.
+Anything more would be more powerful than ProPresenter itself.
 
 ## 🟡 Yellow — a power user notices
 
