@@ -104,6 +104,7 @@ test/nav-clauses.test.ts
 test/no-dead-capability.test.ts
 test/obs-editor.test.ts
 test/obs-lowerthird.test.ts
+test/offline-resilience.test.ts
 test/openflow-parse.test.ts
 test/openflow-resolve-helpers.test.ts
 test/operator-nav.test.ts
