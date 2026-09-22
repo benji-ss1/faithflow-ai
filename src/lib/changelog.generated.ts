@@ -4,6 +4,17 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.512",
+    "date": "2026-09-22",
+    "headline": "Timers now tell you when something went wrong, instead of a scary error",
+    "highlights": [
+      "If adding, saving or deleting a timer fails, you now get a plain message saying what failed and that nothing was changed — instead of \"Background task failed: An error occurred in the Server Components render\".",
+      "Before this, a failed edit closed the dialog as though it had worked, so you could believe a timer was saved when it was not.",
+      "If your timer list cannot load, the panel now says so and offers Try again. It used to show \"No timers yet\", which read as though your timers had been deleted.",
+      "The same fix covers the Stage Layouts panel — duplicating, renaming, assigning and deleting layouts and screens."
+    ]
+  },
+  {
     "version": "0.1.511",
     "date": "2026-09-22",
     "headline": "A deploy can no longer ship code the database is not ready for",

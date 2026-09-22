@@ -10,6 +10,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OVERLAY_POSITIONS, type OverlayPosition } from "@/lib/broadcast";
 import { sanitizeTimerScreens, type TimerScreenId } from "@/engine/timers/screens";
+import { callAction, actionDigest } from "@/lib/action-call";
+import { toast } from "sonner";
 import {
   type TimerDefinition,
   type TimerRuntime,
@@ -203,6 +205,8 @@ export type TimerSlot = {
 export type TimersApi = {
   slots: TimerSlot[];
   loading: boolean;
+  /** The last load FAILED (≠ "no timers exist"). */
+  loadError: boolean;
   refresh: () => Promise<void>;
   addTimer: (input: TimerDefInput) => Promise<void>;
   editTimer: (id: string, input: TimerDefInput) => Promise<void>;
@@ -239,6 +243,9 @@ export const TIMER_APPEARANCE_DEFAULTS: TimerAppearance = {
 export function useTimersSession(): TimersApi {
   const [defs, setDefs] = useState<TimerDefRow[]>([]);
   const [loading, setLoading] = useState(true);
+  /** True when the last load FAILED, as distinct from "this church has no
+   *  timers". The panel must be able to tell those apart. */
+  const [loadError, setLoadError] = useState(false);
   const [runtimes, setRuntimes] = useState<Record<string, TimerRuntime>>({});
   const [meta, setMeta] = useState<Record<string, RuntimeMeta>>({});
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -259,13 +266,23 @@ export function useTimersSession(): TimersApi {
     try {
       const res = await listTimerDefinitions();
       if (res.ok && res.data) {
+        setLoadError(false);
         setDefs(res.data.map((d) => ({
           id: d.id, name: d.name, type: d.type, durationSec: d.durationSec, targetClock: d.targetClock,
           allowsOverrun: d.allowsOverrun, period: d.period, elapsedStartSec: d.elapsedStartSec,
           elapsedEndSec: d.elapsedEndSec, overrunColor: d.overrunColor,
         })));
       }
-    } catch { /* offline / no session — leave list empty */ }
+    } catch (err) {
+      // An empty list and a FAILED list look identical to an operator, and on
+      // 2026-09-22 that is exactly what happened: listTimerDefinitions threw
+      // (the stage-layouts migration had not been applied, and Drizzle's bare
+      // db.select() lists every column), this catch swallowed it, and the
+      // panel calmly showed no timers — so the operator believed their timers
+      // had been deleted. Still never throws, but it is no longer silent.
+      console.error("[action] load the timers failed", actionDigest(err) ?? "", err);
+      setLoadError(true);
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -423,8 +440,13 @@ export function useTimersSession(): TimersApi {
     for (const d of defsRef.current) command(d.id, cmd);
   }, [command]);
 
+  // Every mutating call goes through callAction: a THROWN server action used
+  // to reject unhandled and surface as the shell's redacted "Background task
+  // failed" toast, while the panel closed its dialog as if the edit had
+  // worked. Now the operator is told, in their own words, that nothing
+  // changed — and the digest lands in the console for tracing.
   const addTimer = useCallback(async (input: TimerDefInput) => {
-    const res = await createTimerDefinition(input);
+    const res = await callAction("add the timer", () => createTimerDefinition(input), toast.error);
     if (res.ok) await refresh();
   }, [refresh]);
   const editTimer = useCallback(async (id: string, input: TimerDefInput) => {
@@ -435,7 +457,7 @@ export function useTimersSession(): TimersApi {
     // (duration, type, target clock/period, elapsed bounds) still reset,
     // because the banked `baseSec` would otherwise keep the OLD duration.
     const before = defsRef.current.find((x) => x.id === id);
-    const res = await updateTimerDefinition(id, input);
+    const res = await callAction("save the timer", () => updateTimerDefinition(id, input), toast.error);
     if (!res.ok) return;
     await refresh();
     const timingChanged =
@@ -449,7 +471,7 @@ export function useTimersSession(): TimersApi {
     if (timingChanged) command(id, "reset");
   }, [refresh, command]);
   const removeTimer = useCallback(async (id: string) => {
-    const res = await deleteTimerDefinition(id);
+    const res = await callAction("delete the timer", () => deleteTimerDefinition(id), toast.error);
     if (res.ok) {
       setRuntimes((rs) => { const n = { ...rs }; delete n[id]; return n; });
       await refresh();
@@ -484,7 +506,7 @@ export function useTimersSession(): TimersApi {
     };
   }), [defs, runtimes, meta, nowMs, targets]);
 
-  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, hide, setPosition, setScale, setAppearance, increment, commandAll };
+  return { slots, loading, loadError, refresh, addTimer, editTimer, removeTimer, command, toggleShown, hide, setPosition, setScale, setAppearance, increment, commandAll };
 }
 
 /** Map a stored def row to the engine's TimerDefinition. `resolvedTargetMs` is
