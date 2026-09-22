@@ -116,6 +116,12 @@ export function mergeThemeConfigPatch(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...(prev ?? {}) };
   for (const [k, v] of Object.entries(patch ?? {})) {
+    // Defence in depth. Today every caller feeds the result straight to
+    // sanitizeThemeConfig, which enumerates own-enumerable keys into a FRESH
+    // object, so a "__proto__" key could never reach the DB or Object.prototype
+    // (verified). Skipping them here keeps the helper safe in isolation for any
+    // future caller that forgets to sanitize.
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
     if (v === undefined) continue;
     if (v === null) delete out[k];
     else out[k] = v;
@@ -156,7 +162,7 @@ export function sanitizeThemeConfig(input: unknown, opts: { allowBuiltinId?: boo
         if (obj[k] === undefined || obj[k] === null) continue;
         if (typeof obj[k] === "object" && !Array.isArray(obj[k])) out.scriptureBand = sanitizeBandStyle(obj[k]);
         else rejected.push(k);
-      } else if (k in THEME_NUMBER_RANGES) {
+      } else if (Object.hasOwn(THEME_NUMBER_RANGES, k)) {
         // bgAngle/dim/logoOpacity + font size/weight: clamped (a 0/NaN font
         // size baked into songs made lyrics vanish).
         if (obj[k] === undefined || obj[k] === null) continue;

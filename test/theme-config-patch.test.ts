@@ -74,6 +74,35 @@ check("a patch CANNOT smuggle an out-of-range number onto the wire", () => {
   assert.ok(n === undefined || (typeof n === "number" && n < 999999), `unclamped: ${n}`);
 });
 
+console.log("\nprototype keys cannot ride in on a patch:");
+check("__proto__ in a patch never reaches Object.prototype or the stored config", () => {
+  const merged = mergeThemeConfigPatch({ fontFamily: "Inter" }, JSON.parse('{"__proto__":{"polluted":true}}'));
+  assert.equal(({} as Record<string, unknown>).polluted, undefined, "GLOBAL prototype polluted");
+  assert.ok(!Object.keys(merged).includes("__proto__"));
+  const { config } = sanitizeThemeConfig(merged);
+  assert.equal((config as Record<string, unknown>).polluted, undefined);
+  assert.equal(config.fontFamily, "Inter", "the legitimate field was lost");
+});
+check("constructor / prototype keys are skipped by the merge", () => {
+  for (const k of ["constructor", "prototype"]) {
+    const merged = mergeThemeConfigPatch({}, JSON.parse(`{"${k}":{"prototype":{"x":1}}}`));
+    assert.ok(!Object.keys(merged).includes(k), `${k} survived the merge`);
+    assert.equal(({} as Record<string, unknown>).x, undefined, `Object.prototype polluted via ${k}`);
+  }
+});
+check("a band carrying __proto__ is rebuilt from defaults, not spread", () => {
+  const { config } = sanitizeThemeConfig(
+    mergeThemeConfigPatch({}, { scriptureLayout: "lowerThird", scriptureBand: JSON.parse('{"__proto__":{"pwn":1},"mode":"solid"}') }));
+  assert.equal(({} as Record<string, unknown>).pwn, undefined, "Object.prototype polluted via the band");
+  assert.ok(config.scriptureBand, "band lost");
+  assert.equal(config.scriptureBand!.mode, "solid");
+});
+check("the number-range lookup does not walk the prototype chain", () => {
+  const src = readFileSync(new URL("../src/lib/theme-config.ts", import.meta.url), "utf8");
+  assert.match(src, /Object\.hasOwn\(THEME_NUMBER_RANGES, k\)/,
+    "reverted to `k in THEME_NUMBER_RANGES`, which walks the prototype chain");
+});
+
 console.log("\nwiring (the racing writers actually use it):");
 check("patchThemeConfig runs in a transaction and locks the row", () => {
   const src = read("../src/lib/actions.ts");
