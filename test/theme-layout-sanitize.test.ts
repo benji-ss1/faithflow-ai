@@ -101,7 +101,8 @@ check("sanitizeThemeConfig wires the dedicated validators", () => {
   }
   assert.match(src, /"layout", "bgAngle", "dim", "logoOpacity"/);
   assert.match(src, /sanitizeThemeLayout\(obj\[k\]\)/);
-  assert.match(src, /k in THEME_NUMBER_RANGES/);
+  // Own-key lookup (was `k in ...`, which walks the prototype chain).
+  assert.match(src, /Object\.hasOwn\(THEME_NUMBER_RANGES, k\)/);
   assert.match(src, /sanitizeThemeNumber\(k, obj\[k\]\)/);
 });
 check("font size / weight never persist 0, NaN or out of range", () => {
