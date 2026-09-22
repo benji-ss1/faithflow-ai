@@ -1,7 +1,7 @@
 ---
 headline: Smart folders and smart playlists — a folder that fills itself
 audience: operator
-version: 0.1.506
+version: 0.1.507
 date: 2026-09-22
 highlights:
   - "Where to make a smart FOLDER: the operator's left-hand Library list — click the ✨ star button next to the + button."
