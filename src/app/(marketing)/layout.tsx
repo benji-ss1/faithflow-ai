@@ -1,52 +1,17 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, JetBrains_Mono, Fraunces, Caveat, Cormorant_Garamond, Lora } from "next/font/google";
+import {
+  plusJakartaSans as jakarta, jetbrainsMono as mono, fraunces,
+  caveat, cormorantGaramond as cormorant, lora,
+} from "@/lib/fonts";
 import SiteNav from "@/components/marketing/SiteNav";
 import SiteFooter from "@/components/marketing/SiteFooter";
 import CookieConsent from "@/components/marketing/CookieConsent";
 import "@/components/marketing/site.css";
 
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--pf-sans",
-  display: "swap",
-});
-
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--pf-mono",
-  display: "swap",
-});
-
-// Editorial serif + handwritten face for the light-mode CTA section / footer.
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
-  style: ["normal", "italic"],
-  variable: "--pf-serif",
-  display: "swap",
-});
-const caveat = Caveat({
-  subsets: ["latin"],
-  weight: ["400", "600"],
-  variable: "--pf-hand",
-  display: "swap",
-});
-// Parchment menu faces.
-const cormorant = Cormorant_Garamond({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  style: ["normal", "italic"],
-  variable: "--pf-cormorant",
-  display: "swap",
-});
-const lora = Lora({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--pf-lora",
-  display: "swap",
-});
+// SELF-HOSTED (2026-09-22). These six were next/font/google declarations that
+// fetched from Google at BUILD time; three production builds died inside that
+// loader in one afternoon. The faces, weights and CSS variable names are
+// unchanged — see src/lib/fonts.ts.
 
 export const metadata: Metadata = {
   title: "PresentFlow — AI-native presentation for churches",
