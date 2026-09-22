@@ -10,7 +10,10 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "highlights": [
       "Fixed a bug that could hit you if you turned the verse text size right up AND also turned up the separate Font slider in the projection zone settings. With both near their maximum, the projector quietly jumped back to normal size in the middle of a service — while your own preview carried on showing the big text, so there was no sign anything was wrong. It affected all slide text, not only verses.",
       "Your text size now stays large on the screen instead of resetting.",
-      "Your preview and the projector now always agree on the text size."
+      "Your preview and the projector now always agree on the text size.",
+      "Setting a theme's Scripture layout to Third band now sticks. The choice was offered in the theme editor and looked right while you were setting it, but it was thrown away the moment the theme was saved - so reopening the theme, or going live, always fell back to Full screen.",
+      "Any band styling you set on the theme (colour, gradient, height, position, text size) is now saved with it too.",
+      "A saved church Scripture Style still overrides the theme, exactly as before, and a theme that says nothing about scripture is unchanged."
     ]
   },
   {

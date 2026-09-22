@@ -4,6 +4,7 @@
 import { sanitizeThemeLayout, sanitizeThemeNumber, THEME_NUMBER_RANGES, type ThemeLayout } from "./theme-layout";
 import { cleanRenderUrl } from "./render-url";
 import { isBuiltinThemeId } from "./builtin-themes";
+import { sanitizeBandStyle, type BandStyle, type ScriptureLayout } from "./scripture-design";
 
 // Extended per Section 4 of the visual-overhaul brief. Existing fields kept
 // so applyThemeToSong (which reads a subset) keeps working. New fields are
@@ -46,6 +47,14 @@ export type ThemeConfig = {
   scriptureShowReference?: boolean;
   scriptureReferencePosition?: "above" | "below" | "inline";
   scriptureTranslationVisible?: boolean;
+  /** 2026-09-22 fix: a theme may carry the lower-third BAND for scripture, not just
+   *  a full-screen layout. `theme-scripture.ts` has read these two keys since the
+   *  0.1.490 "themes can use the Third band" ship, but they were never in
+   *  THEME_ALLOWED_KEYS, so sanitizeThemeConfig stripped them on EVERY write and the
+   *  ThemeEditorTab "Full screen / Third band" control silently did nothing.
+   *  Absent ⇒ fullscreen, exactly as before. A saved church Scripture Style still wins. */
+  scriptureLayout?: ScriptureLayout;
+  scriptureBand?: BandStyle;
   // Transitions (existing "transition" kept for backwards compat; simpler
   // pair below is what the editor UI reads/writes)
   transition?: { effectId: string; durationMs: number; easing: string };
@@ -71,6 +80,7 @@ export const THEME_ALLOWED_KEYS: (keyof ThemeConfig)[] = [
   "logoPosition", "logoSizePx", "logoUrl", "churchNameVisible", "churchNamePosition",
   "lowerThirdEnabled", "lowerThirdStyle", "lowerThirdColor",
   "scriptureShowReference", "scriptureReferencePosition", "scriptureTranslationVisible",
+  "scriptureLayout", "scriptureBand",
   "transition", "transitionType", "transitionDurationMs",
   "safeArea",
   "layout", "bgAngle", "dim", "logoOpacity",
@@ -110,6 +120,18 @@ export function sanitizeThemeConfig(input: unknown, opts: { allowBuiltinId?: boo
         if (obj[k] === undefined || obj[k] === null) continue;
         const layout = sanitizeThemeLayout(obj[k]);
         if (layout) out.layout = layout; else rejected.push(k);
+      } else if (k === "scriptureLayout") {
+        // Only the two known layouts persist; anything else is rejected rather
+        // than written through (this value picks a whole projector design).
+        if (obj[k] === undefined || obj[k] === null) continue;
+        if (obj[k] === "fullscreen" || obj[k] === "lowerThird") out.scriptureLayout = obj[k] as ScriptureLayout;
+        else rejected.push(k);
+      } else if (k === "scriptureBand") {
+        // Clamped by the SAME sanitizer a saved church Scripture Style uses, so a
+        // hand-edited or corrupted theme can never put an invalid band on the wire.
+        if (obj[k] === undefined || obj[k] === null) continue;
+        if (typeof obj[k] === "object" && !Array.isArray(obj[k])) out.scriptureBand = sanitizeBandStyle(obj[k]);
+        else rejected.push(k);
       } else if (k in THEME_NUMBER_RANGES) {
         // bgAngle/dim/logoOpacity + font size/weight: clamped (a 0/NaN font
         // size baked into songs made lyrics vanish).
