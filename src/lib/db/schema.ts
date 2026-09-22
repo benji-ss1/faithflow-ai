@@ -634,6 +634,12 @@ export const themes = pgTable("themes", {
 // Runtime state (running/remaining/shown) is NEVER persisted here — it lives in
 // the operator session so a fresh Sunday never resurrects last week's countdown.
 export const timerTypeEnum = pgEnum("timer_type", ["countdown", "countdown_to", "elapsed"]);
+// ProPresenter's "Countdown to Time" offers AM / PM / 24-hour. `countdown_to`
+// above ALREADY is that timer type (it stores a wall-clock target), so this is
+// a NEW enum TYPE for the period only — deliberately NOT a new value added to
+// timer_type, which Postgres cannot cleanly drop. A new type is reversible
+// (DROP TYPE), so this migration has a real rollback. 2026-09-21.
+export const timerPeriodEnum = pgEnum("timer_period", ["am", "pm", "24_hour"]);
 
 export const timerDefinitions = pgTable("timer_definitions", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -645,11 +651,65 @@ export const timerDefinitions = pgTable("timer_definitions", {
   // Wall-clock target "HH:MM" (24h) for countdown_to. Null otherwise; resolved
   // to today's epoch on load.
   targetClock: text("target_clock"),
+  // ── ProPresenter parity (2026-09-21). All additive + defaulted, so existing
+  // rows keep behaving exactly as before. ────────────────────────────────────
+  // PP "Allows Overrun": run past the endpoint (countdowns go negative).
+  // Default FALSE — ProPresenter's own default. PresentFlow timers always
+  // overran before this existed, so this DOES change existing behaviour: a
+  // countdown now STOPS at 0:00 unless the operator ticks Allows Overrun.
+  // That change is deliberate and user-directed — ProPresenter is the base
+  // layer and its default wins over ours (CLAUDE.md rule 0a,
+  // docs/PRODUCT_DOCTRINE.md). Announced in the changelog.
+  allowsOverrun: boolean("allows_overrun").notNull().default(false),
+  // PP "Countdown to Time" period. NULL = interpret target_clock as 24h, which
+  // is exactly how every existing row already behaves.
+  period: timerPeriodEnum("period"),
+  // PP "Elapsed Time" start / end. end NULL = "unlimited end time" (PP's words).
+  elapsedStartSec: integer("elapsed_start_sec"),
+  elapsedEndSec: integer("elapsed_end_sec"),
+  // PP stage-layout `oCl` — colour once past zero. NULL = renderer default.
+  overrunColor: text("overrun_color"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_timer_definitions_church").on(t.churchId, t.sortOrder),
+]);
+
+// ── Stage Layouts (ProPresenter 1:1, 2026-09-21, user-directed) ─────────────
+// A named, reusable confidence-monitor design — ProPresenter's Screens > Edit
+// Layouts (Ctrl+4) list. `config` holds the StageLayout shape from
+// src/engine/stage (widgets + placement + colour triggers), sanitised on read
+// AND write, so the layout model can evolve without a migration per field.
+// Built-in layouts live in CODE (src/engine/stage/presets.ts), never as rows —
+// same pattern as BUILT_IN_SCENES. A church customises by DUPLICATING one.
+export const stageLayouts = pgTable("stage_layouts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  config: jsonb("config").notNull().default({}),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_stage_layouts_church").on(t.churchId, t.sortOrder),
+]);
+
+// One row per physical stage screen, so a church can run several confidence
+// monitors each showing a DIFFERENT layout — ProPresenter assigns a layout per
+// stage screen independently. `layoutId` is a built-in id (text, e.g.
+// "builtin-timer-only") OR a stage_layouts uuid; kept as TEXT precisely so a
+// built-in can be assigned without first materialising it as a row.
+export const stageScreens = pgTable("stage_screens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  layoutId: text("layout_id"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_stage_screens_church").on(t.churchId, t.sortOrder),
 ]);
 
 // Church-persisted MESSAGE TEMPLATES: a reusable name + text + position preset +

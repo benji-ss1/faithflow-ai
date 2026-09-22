@@ -66,6 +66,12 @@ import { usePp7Messages } from "./right/usePp7Layers";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
+import { resolveTimerColor, triggerValueFor } from "@/engine/timers";
+import { buildTimersWire } from "@/engine/timers/wire";
+import { timerToOverlay, timerClearOverlay } from "@/engine/timers/overlay";
+import { parseDurationToSec } from "@/engine/timers";
+import { useStageLayouts } from "./right/useStageLayouts";
+import type { StageLayout } from "@/engine/stage";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
@@ -2782,7 +2788,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // never re-creates the interval. The legacy timer (slot "default") is
   // untouched by this effect — the two coexist on the wire by id.
   const shownTimerIdsRef = useRef<Set<string>>(new Set());
-  const shownTimerKey = timers.slots.filter((s) => s.shown).map((s) => `${s.def.id}:${s.position}:${s.scale}`).join(",");
+  // Includes the LOOK, so changing a colour / trigger / label re-arms the
+  // heartbeat immediately instead of waiting for the next tick.
+  const shownTimerKey = timers.slots.filter((s) => s.shown)
+    .map((s) => {
+      const a = s.appearance;
+      return `${s.def.id}:${s.position}:${s.scale}:${a.color ?? ""}:${a.overrunColor ?? ""}:${a.showLabel}:${a.showHours ?? ""}:${a.leadingZeros}:${(a.colorTriggers ?? []).map((t) => `${t.atSec}@${t.color}`).join("|")}`;
+    })
+    .join(",");
   useEffect(() => {
     const ch = overlayChRef.current;
     if (!ch) return;
@@ -2792,23 +2805,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       for (const s of slots) {
         if (!s.shown) continue;
         nowShown.add(s.def.id);
-        safePost(ch, {
-          type: "timer",
-          overlay: {
-            id: s.def.id,
-            name: s.def.name,
-            remainingSec: Math.max(-3600, Math.min(24 * 60 * 60, Math.round(s.remaining))),
-            running: s.def.type === "countdown_to" ? true : s.runtime.running,
-            kind: s.def.type === "elapsed" ? "elapsed" : "countdown",
-            position: s.position,
-            overrun: s.overrun,
-            scale: s.scale,
-          },
-        });
+        // ONE mapping, in the pure engine — this block used to hand-roll it
+        // and had already drifted from src/engine/timers/overlay.ts.
+        safePost(ch, { type: "timer", overlay: timerToOverlay(s, Date.now()) });
       }
       // Clear any timer that WAS shown last tick but isn't now.
       for (const id of shownTimerIdsRef.current) {
-        if (!nowShown.has(id)) safePost(ch, { type: "timer", overlay: { clear: true, id } });
+        if (!nowShown.has(id)) safePost(ch, { type: "timer", overlay: timerClearOverlay(id) });
       }
       shownTimerIdsRef.current = nowShown;
     };
@@ -2816,6 +2819,81 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const id = setInterval(post, 1000);
     return () => clearInterval(id);
   }, [shownTimerKey]);
+
+  // ── NETWORKED timers (2026-09-21) ────────────────────────────────────────
+  // The same-machine 1Hz TimerOverlay heartbeat above is UNTOUCHED (rule 8).
+  // This is an additive, parallel path for REMOTE surfaces: it hands the
+  // console a frame carrying the ANCHOR, which the console folds into
+  // OutputState. Keyed on the frame's CONTENT — `remaining` is deliberately
+  // absent from TimerWire, so a running timer does not re-emit.
+  // The LEGACY quick timer rides the wire too, under the reserved id "default".
+  // It is what most churches actually use, and it reached no remote screen at
+  // all — the wire even reserved the id for it and nothing ever filled it.
+  const wireableSlots = useMemo(() => {
+    const named = timers.slots;
+    const q = timer.state;
+    if (!q.shown) return named;
+    const legacy = {
+      def: {
+        id: "default", name: q.name || "Timer",
+        type: (q.type === "elapsed" ? "elapsed" : "countdown") as "countdown" | "elapsed",
+        durationSec: parseDurationToSec(q.duration),
+        targetMs: null, allowsOverrun: true,
+        elapsedStartSec: null, elapsedEndSec: null,
+      },
+      runtime: { running: q.running, anchorMs: q.anchorMs, baseSec: q.baseSec },
+      shown: true,
+      appearance: {
+        position: q.position, scale: 1, showLabel: false,
+        leadingZeros: false, colorTriggers: [] as Array<{ atSec: number; color: string }>,
+      },
+    };
+    return [legacy, ...named] as typeof named;
+  }, [timers.slots, timer.state]);
+
+  const timersWireKey = useMemo(() => {
+    try { return JSON.stringify(buildTimersWire(wireableSlots as never, 0, 0).timers); }
+    catch { return ""; }
+  }, [wireableSlots]);
+  const timersWireRevRef = useRef(Date.now());
+  const wireableSlotsRef = useRef(wireableSlots);
+  useEffect(() => { wireableSlotsRef.current = wireableSlots; }, [wireableSlots]);
+  useEffect(() => {
+    timersWireRevRef.current += 1;
+    const wire = buildTimersWire(wireableSlotsRef.current as never, Date.now(), timersWireRevRef.current);
+    // dispatchInternal is nonce-gated, so a browser extension cannot forge a
+    // timer set onto the projector.
+    dispatchInternal("presentflow:timers-wire", wire);
+  }, [timersWireKey]);
+
+  const stageLayouts = useStageLayouts();
+
+  // ── Stage layout (2026-09-21) ────────────────────────────────────────────
+  // Resolved HERE and handed to the console, because /stage is a public route
+  // with no church DB access and cannot look a layout up by id. Without this
+  // the Stage Layout editor would be scaffolding with no consumer.
+  const stageLayoutPayload = useMemo(() => {
+    const toWire = (l: StageLayout) => ({
+      id: l.id, name: l.name, background: l.background,
+      widgets: l.widgets.map((w) => ({
+        id: w.id, kind: w.kind, rect: w.rect, timerId: w.timerId ?? null,
+        text: w.text, previewScreen: w.previewScreen,
+        scale: w.scale, align: w.align, color: w.color,
+        showHours: w.showHours, leadingZeros: w.leadingZeros, zIndex: w.zIndex,
+      })),
+    });
+    // EVERY screen, not just the first. The multi-screen UI was a control that
+    // lied: an operator could add "Stage 2", assign it a layout, and nothing
+    // anywhere changed.
+    const list = stageLayouts.screens
+      .map((sc) => { const l = sc.layoutId ? stageLayouts.byId(sc.layoutId) : null; return l ? { screen: sc.id, layout: toWire(l) } : null; })
+      .filter((x): x is { screen: string; layout: ReturnType<typeof toWire> } => x !== null);
+    return { first: list[0]?.layout ?? null, list };
+  }, [stageLayouts]);
+  const stageLayoutKey = useMemo(() => JSON.stringify(stageLayoutPayload), [stageLayoutPayload]);
+  useEffect(() => {
+    dispatchInternal("presentflow:stage-layout", stageLayoutPayload);
+  }, [stageLayoutKey, stageLayoutPayload]);
 
   // Wave 7: engine/macro TIMER_COMMAND entry point (ctx.onTimerCommand emits
   // this CustomEvent). "default" routes to the legacy quick timer; any other id
@@ -5123,7 +5201,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               this change) for easy rollback if this regresses; will
               be deleted in a follow-up ship. */}
           <OperatorErrorBoundary fallbackLabel="Right icon bar error">
-            <RightIconBar ctx={ctx} timer={timer} messages={messages} timers={timers} messagesBoard={messagesBoard} />
+            <RightIconBar ctx={ctx} timer={timer} messages={messages} timers={timers} messagesBoard={messagesBoard} stageLayouts={stageLayouts} />
           </OperatorErrorBoundary>
           {/* Placeholder keeps the sidebar flex column filling the
               available height so the icon bar sits at the bottom of the

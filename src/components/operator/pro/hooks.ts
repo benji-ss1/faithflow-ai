@@ -18,6 +18,10 @@ import {
   applyCommand,
   resolveTargetMs,
   type TimerCommand,
+  type TimerPeriod,
+  timerState,
+  incrementTimer,
+  type TimerState as EngineTimerState,
 } from "@/engine/timers";
 import {
   listTimerDefinitions,
@@ -36,6 +40,13 @@ const TIMER_KEY = "presentflow.pro.timer.v1";
 export type TimerType = "countdown" | "countdown_to" | "elapsed";
 
 export type TimerState = {
+  /** Wall-clock ms this timer last started, or null when stopped. Exposed so
+   *  the legacy quick timer can ride the NETWORKED wire, which carries an
+   *  anchor rather than a ticking value. Without it the timer every existing
+   *  church actually uses reaches no paired tablet or LAN stage screen. */
+  anchorMs: number | null;
+  /** Value banked at that anchor. */
+  baseSec: number;
   name: string;
   type: TimerType;
   duration: string; // mm:ss
@@ -108,7 +119,14 @@ export function useTimerSession(): TimerApi {
   const hide = useCallback(() => setShown(false), []);
 
   return {
-    state: { name, type, duration, remaining, running, shown, position },
+    state: {
+      name, type, duration, remaining, running, shown, position,
+      // The anchor + banked value, so this timer can ride the networked wire
+      // like the named ones. `remaining` is a ticking value and must never be
+      // what crosses the wire.
+      anchorMs: running ? startedAt.current : null,
+      baseSec: running ? baseline.current : remaining,
+    },
     setName, setType, setDuration, toggleRun, reset, toggleShown, hide, setPosition,
   };
 }
@@ -126,16 +144,55 @@ const TIMERS_RUNTIME_KEY = "presentflow.pro.timers.runtime.v1";
 // directly unit-testable; re-exported here for existing importers.
 export { resolveTargetMs };
 
+/** Per-timer look, set by the operator. Persisted per machine alongside
+ *  position/scale (the existing pattern) so a church's chosen design survives a
+ *  reload. Timer BEHAVIOUR (allows overrun, period, elapsed bounds, overrun
+ *  colour) lives on the DB def instead, because it is church-wide. */
+export type TimerAppearance = {
+  position: OverlayPosition;
+  scale: number;
+  /** Normal colour. Undefined = the renderer's default white. */
+  color?: string;
+  /** Show the timer's NAME above the clock. */
+  showLabel: boolean;
+  /** Force hours (0:05:00). Undefined = automatic (hours only past an hour). */
+  showHours?: boolean;
+  /** Zero-pad minutes (05:00 rather than 5:00). */
+  leadingZeros: boolean;
+  /** Colour once past zero (ProPresenter's stage `oCl`). Undefined = red. */
+  overrunColor?: string;
+  /** Threshold colour changes, ProPresenter "Color Triggers". */
+  colorTriggers: Array<{ atSec: number; color: string }>;
+};
+
 export type TimerSlot = {
   def: TimerDefinition;
   /** Raw "HH:MM" for countdown_to (persisted); def.targetMs is the resolved value. */
   targetClock: string | null;
+  /** AM / PM / 24-hour for countdown_to. MUST be surfaced: the edit form used
+   *  to default it to "24_hour" because the slot did not carry it, so renaming
+   *  a 7:00 PM timer silently retargeted it to 07:00 tomorrow morning. */
+  period: TimerPeriod | null;
+  /** Church-wide overrun colour from the DB. The per-machine appearance colour
+   *  overrides it when the operator sets one locally. */
+  overrunColor: string | null;
   runtime: TimerRuntime;
   remaining: number; // recomputed each tick for display
   overrun: boolean;
   shown: boolean;
   position: OverlayPosition;
   scale: number; // operator size multiplier (1 = default)
+  appearance: TimerAppearance;
+  /** ProPresenter's five-state model: stopped | running | complete |
+   *  overrunning | overran. "complete" (ended cleanly) and "overran" (ended
+   *  past its time) are different facts an operator needs to tell apart.
+   *  Aliased on import: `TimerState` in this file is the LEGACY quick-timer
+   *  shape, which predates the engine's five-state model. */
+  state: EngineTimerState;
+  /** 0..1 progress through a countdown, for the ProPresenter-style row bar.
+   *  null when there is nothing meaningful to measure against (elapsed with no
+   *  end time, or a countdown_to whose target could not be resolved). */
+  progress: number | null;
 };
 
 export type TimersApi = {
@@ -151,12 +208,31 @@ export type TimersApi = {
   hide: (id: string) => void;
   setPosition: (id: string, p: OverlayPosition) => void;
   setScale: (id: string, scale: number) => void;
+  /** Patch one timer's look (colour, label, format, colour triggers). */
+  setAppearance: (id: string, patch: Partial<TimerAppearance>) => void;
+  /** Add or subtract seconds from a timer WITHOUT resetting it — the "give the
+   *  preacher two more minutes" control (ProPresenter's TimerIncrement). */
+  increment: (id: string, deltaSec: number) => void;
+  /** Start / stop / reset EVERY timer at once (ProPresenter's
+   *  /v1/timers/{operation}). The end-of-service "reset everything" button. */
+  commandAll: (cmd: TimerCommand) => void;
 };
 
-type RuntimeMeta = { shown: boolean; position: OverlayPosition; scale: number };
+type RuntimeMeta = { shown: boolean } & TimerAppearance;
+
+export const TIMER_APPEARANCE_DEFAULTS: TimerAppearance = {
+  // showLabel DEFAULTS FALSE (2026-09-21). ProPresenter never puts a timer's
+  // NAME on an output — the name is an internal identifier, and any label on
+  // screen is text the operator deliberately typed into a stage layout or
+  // message. We were printing it by default, so an operator could get
+  // "PRE-SERVICE COUNTDOWN" burned onto the projector without ever asking for
+  // it. The toggle stays; only the default changed (CLAUDE.md rule 0a —
+  // ProPresenter's default wins over ours).
+  position: "top-right", scale: 1, showLabel: false, leadingZeros: false, colorTriggers: [],
+};
 
 export function useTimersSession(): TimersApi {
-  const [defs, setDefs] = useState<Array<{ id: string; name: string; type: string; durationSec: number; targetClock: string | null }>>([]);
+  const [defs, setDefs] = useState<TimerDefRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [runtimes, setRuntimes] = useState<Record<string, TimerRuntime>>({});
   const [meta, setMeta] = useState<Record<string, RuntimeMeta>>({});
@@ -168,17 +244,28 @@ export function useTimersSession(): TimersApi {
   // by def id; null = unparseable clock.
   const [targets, setTargets] = useState<Record<string, number | null>>({});
 
+  // Mirror of `defs` for callbacks that must read the CURRENT list without
+  // taking it as a dependency (which would re-create them on every refresh).
+  const defsRef = useRef<TimerDefRow[]>([]);
+  useEffect(() => { defsRef.current = defs; }, [defs]);
+  const targetsRef = useRef<Record<string, number | null>>({});
+
   const refresh = useCallback(async () => {
     try {
       const res = await listTimerDefinitions();
       if (res.ok && res.data) {
-        setDefs(res.data.map((d) => ({ id: d.id, name: d.name, type: d.type, durationSec: d.durationSec, targetClock: d.targetClock })));
+        setDefs(res.data.map((d) => ({
+          id: d.id, name: d.name, type: d.type, durationSec: d.durationSec, targetClock: d.targetClock,
+          allowsOverrun: d.allowsOverrun, period: d.period, elapsedStartSec: d.elapsedStartSec,
+          elapsedEndSec: d.elapsedEndSec, overrunColor: d.overrunColor,
+        })));
       }
     } catch { /* offline / no session — leave list empty */ }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { targetsRef.current = targets; }, [targets]);
 
   // Resolve each countdown_to's target ONCE when it first appears; keep the
   // already-resolved value on subsequent def refreshes (a running countdown_to
@@ -193,7 +280,7 @@ export function useTimersSession(): TimersApi {
       for (const d of defs) {
         if (d.type !== "countdown_to") continue;
         if (d.id in prev) next[d.id] = prev[d.id];
-        else { next[d.id] = resolveTargetMs(d.targetClock, now); changed = true; }
+        else { next[d.id] = resolveTargetMs(d.targetClock, now, d.period as TimerPeriod | null); changed = true; }
       }
       if (!changed && Object.keys(prev).length === Object.keys(next).length) return prev;
       return next;
@@ -206,7 +293,7 @@ export function useTimersSession(): TimersApi {
     setTargets((prev) => {
       const d = defs.find((x) => x.id === id);
       if (!d || d.type !== "countdown_to") return prev;
-      return { ...prev, [id]: resolveTargetMs(d.targetClock, Date.now()) };
+      return { ...prev, [id]: resolveTargetMs(d.targetClock, Date.now(), d.period as TimerPeriod | null) };
     });
   }, [defs]);
 
@@ -215,11 +302,31 @@ export function useTimersSession(): TimersApi {
     try {
       const raw = window.localStorage.getItem(TIMERS_RUNTIME_KEY);
       if (raw) {
-        const p = JSON.parse(raw) as Record<string, { position?: unknown }>;
+        const p = JSON.parse(raw) as Record<string, Record<string, unknown>>;
         const restored: Record<string, RuntimeMeta> = {};
         for (const k of Object.keys(p)) {
-          const sc = Number((p[k] as { scale?: unknown })?.scale);
-          restored[k] = { shown: false, position: sanitizePosition(p[k]?.position, "top-right"), scale: Number.isFinite(sc) && sc >= 0.25 && sc <= 8 ? sc : 1 };
+          const e = p[k] ?? {};
+          const sc = Number(e.scale);
+          const hex = (v: unknown) => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : undefined;
+          restored[k] = {
+            // `shown` is deliberately NEVER restored — a fresh Sunday must not
+            // resurrect last week's countdown onto the projector.
+            shown: false,
+            position: sanitizePosition(e.position, TIMER_APPEARANCE_DEFAULTS.position),
+            scale: Number.isFinite(sc) && sc >= 0.25 && sc <= 8 ? sc : TIMER_APPEARANCE_DEFAULTS.scale,
+            color: hex(e.color),
+            overrunColor: hex(e.overrunColor),
+            showLabel: e.showLabel === true,
+            showHours: typeof e.showHours === "boolean" ? e.showHours : undefined,
+            leadingZeros: e.leadingZeros === true,
+            colorTriggers: Array.isArray(e.colorTriggers)
+              ? (e.colorTriggers as Array<Record<string, unknown>>)
+                  .filter((t) => Number.isFinite(Number(t?.atSec)) && hex(t?.color))
+                  .slice(0, 8)
+                  .map((t) => ({ atSec: Math.max(0, Math.round(Number(t.atSec))), color: String(t.color) }))
+                  .sort((a, b) => b.atSec - a.atSec)
+              : [],
+          };
         }
         setMeta(restored);
       }
@@ -242,11 +349,15 @@ export function useTimersSession(): TimersApi {
 
   const setMetaFor = useCallback((id: string, patch: Partial<RuntimeMeta>) => {
     setMeta((m) => {
-      const prev = m[id] ?? { shown: false, position: "top-right" as OverlayPosition, scale: 1 };
+      const prev: RuntimeMeta = m[id] ?? { shown: false, ...TIMER_APPEARANCE_DEFAULTS };
       const next = { ...m, [id]: { ...prev, ...patch } };
       try {
-        const persist: Record<string, { position: OverlayPosition; scale: number }> = {};
-        for (const k of Object.keys(next)) persist[k] = { position: next[k].position, scale: next[k].scale };
+        // Persist the LOOK only — never `shown` (see the restore path above).
+        const persist: Record<string, Omit<RuntimeMeta, "shown">> = {};
+        for (const k of Object.keys(next)) {
+          const { shown: _shown, ...look } = next[k];
+          persist[k] = look;
+        }
         window.localStorage.setItem(TIMERS_RUNTIME_KEY, JSON.stringify(persist));
       } catch { /* noop */ }
       return next;
@@ -273,14 +384,57 @@ export function useTimersSession(): TimersApi {
   const hide = useCallback((id: string) => setMetaFor(id, { shown: false }), [setMetaFor]);
   const setPosition = useCallback((id: string, p: OverlayPosition) => setMetaFor(id, { position: p }), [setMetaFor]);
   const setScale = useCallback((id: string, scale: number) => setMetaFor(id, { scale: Math.max(0.25, Math.min(8, scale)) }), [setMetaFor]);
+  const setAppearance = useCallback((id: string, patch: Partial<TimerAppearance>) => {
+    const clean: Partial<TimerAppearance> = { ...patch };
+    if (clean.scale !== undefined) clean.scale = Math.max(0.25, Math.min(8, clean.scale));
+    if (clean.colorTriggers) {
+      // Bounded and ordered high→low so the renderer can take the first match.
+      clean.colorTriggers = clean.colorTriggers
+        .filter((t) => Number.isFinite(t.atSec) && t.atSec >= 0 && typeof t.color === "string")
+        .slice(0, 8)
+        .sort((a, b) => b.atSec - a.atSec);
+    }
+    setMetaFor(id, clean);
+  }, [setMetaFor]);
+
+  const increment = useCallback((id: string, deltaSec: number) => {
+    setRuntimes((rs) => {
+      const d = defsRef.current.find((x) => x.id === id);
+      const def = defToEngine(d, targetsRef.current[id] ?? null);
+      if (!def) return rs;
+      const cur = rs[id] ?? initialRuntime(def);
+      return { ...rs, [id]: incrementTimer(def, cur, deltaSec, Date.now()) };
+    });
+  }, []);
+
+  const commandAll = useCallback((cmd: TimerCommand) => {
+    for (const d of defsRef.current) command(d.id, cmd);
+  }, [command]);
 
   const addTimer = useCallback(async (input: TimerDefInput) => {
     const res = await createTimerDefinition(input);
     if (res.ok) await refresh();
   }, [refresh]);
   const editTimer = useCallback(async (id: string, input: TimerDefInput) => {
+    // Only reset when a change actually invalidates the running value. This
+    // used to reset UNCONDITIONALLY, so renaming a running sermon timer — or
+    // ticking Allows Overrun, or changing its colour — silently rewound it to
+    // full duration and stopped it, mid-service. Timing-relevant edits
+    // (duration, type, target clock/period, elapsed bounds) still reset,
+    // because the banked `baseSec` would otherwise keep the OLD duration.
+    const before = defsRef.current.find((x) => x.id === id);
     const res = await updateTimerDefinition(id, input);
-    if (res.ok) { await refresh(); command(id, "reset"); }
+    if (!res.ok) return;
+    await refresh();
+    const timingChanged =
+      !before
+      || (input.type !== undefined && input.type !== before.type)
+      || (input.durationSec !== undefined && input.durationSec !== before.durationSec)
+      || (input.targetClock !== undefined && (input.targetClock ?? null) !== (before.targetClock ?? null))
+      || (input.period !== undefined && (input.period ?? null) !== (before.period ?? null))
+      || (input.elapsedStartSec !== undefined && (input.elapsedStartSec ?? null) !== (before.elapsedStartSec ?? null))
+      || (input.elapsedEndSec !== undefined && (input.elapsedEndSec ?? null) !== (before.elapsedEndSec ?? null));
+    if (timingChanged) command(id, "reset");
   }, [refresh, command]);
   const removeTimer = useCallback(async (id: string) => {
     const res = await deleteTimerDefinition(id);
@@ -296,28 +450,70 @@ export function useTimersSession(): TimersApi {
     return {
       def,
       targetClock: d.targetClock,
+      period: (d.period as TimerPeriod | null) ?? null,
+      overrunColor: d.overrunColor ?? null,
       runtime,
       remaining: computeRemainingSec(def, runtime, nowMs),
       overrun: isOverrun(def, runtime, nowMs),
       shown: meta[d.id]?.shown ?? false,
-      position: meta[d.id]?.position ?? "top-right",
-      scale: meta[d.id]?.scale ?? 1,
+      position: meta[d.id]?.position ?? TIMER_APPEARANCE_DEFAULTS.position,
+      scale: meta[d.id]?.scale ?? TIMER_APPEARANCE_DEFAULTS.scale,
+      appearance: {
+        ...TIMER_APPEARANCE_DEFAULTS,
+        ...(meta[d.id] ?? {}),
+        position: meta[d.id]?.position ?? TIMER_APPEARANCE_DEFAULTS.position,
+        scale: meta[d.id]?.scale ?? TIMER_APPEARANCE_DEFAULTS.scale,
+        colorTriggers: meta[d.id]?.colorTriggers ?? [],
+        // The church-wide colour is the FALLBACK; a local override wins.
+        overrunColor: meta[d.id]?.overrunColor ?? d.overrunColor ?? undefined,
+      },
+      progress: timerProgress(def, computeRemainingSec(def, runtime, nowMs)),
+      state: timerState(def, runtime, nowMs),
     };
   }), [defs, runtimes, meta, nowMs, targets]);
 
-  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, hide, setPosition, setScale };
+  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, hide, setPosition, setScale, setAppearance, increment, commandAll };
 }
 
 /** Map a stored def row to the engine's TimerDefinition. `resolvedTargetMs` is
  *  the ALREADY-resolved countdown_to target (resolved once by the hook), not a
  *  clock to resolve per call — passing `nowMs` here would re-roll on overrun. */
-function defToEngine(
-  d: { id: string; name: string; type: string; durationSec: number; targetClock: string | null } | undefined,
-  resolvedTargetMs: number | null,
-): TimerDefinition | null {
+/** 0..1 through a countdown, for the ProPresenter-style row progress bar.
+ *  null when there is no meaningful total to measure against (an elapsed timer
+ *  with no end, or a countdown_to whose clock could not be resolved). */
+function timerProgress(def: TimerDefinition, remaining: number): number | null {
+  const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+  if (def.type === "countdown") {
+    if (!def.durationSec) return null;
+    return clamp01(1 - remaining / def.durationSec);
+  }
+  if (def.type === "elapsed") {
+    const end = def.elapsedEndSec;
+    if (typeof end !== "number" || !Number.isFinite(end) || end <= 0) return null;
+    const start = def.elapsedStartSec ?? 0;
+    if (end <= start) return null;
+    return clamp01((remaining - start) / (end - start));
+  }
+  return null; // countdown_to has no fixed total — it depends when you looked
+}
+
+type TimerDefRow = {
+  id: string; name: string; type: string; durationSec: number; targetClock: string | null;
+  allowsOverrun?: boolean; period?: string | null;
+  elapsedStartSec?: number | null; elapsedEndSec?: number | null; overrunColor?: string | null;
+};
+
+function defToEngine(d: TimerDefRow | undefined, resolvedTargetMs: number | null): TimerDefinition | null {
   if (!d) return null;
   const type = (d.type === "countdown_to" || d.type === "elapsed" ? d.type : "countdown") as TimerDefinition["type"];
-  return { id: d.id, name: d.name, type, durationSec: d.durationSec, targetMs: type === "countdown_to" ? resolvedTargetMs : null };
+  return {
+    id: d.id, name: d.name, type, durationSec: d.durationSec,
+    targetMs: type === "countdown_to" ? resolvedTargetMs : null,
+    // ProPresenter "Allows Overrun" — the engine clamps at the endpoint without it.
+    allowsOverrun: d.allowsOverrun === true,
+    elapsedStartSec: d.elapsedStartSec ?? null,
+    elapsedEndSec: d.elapsedEndSec ?? null,
+  };
 }
 
 // ------------------------------------------------------------- Messages (R4)

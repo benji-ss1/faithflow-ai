@@ -4,16 +4,166 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.494",
+    "version": "0.1.507",
+    "date": "2026-09-22",
+    "headline": "Fixed — a slide element could get stuck to the mouse in the slide editor",
+    "highlights": [
+      "Dragging or resizing an element in the slide editor no longer gets stuck if you release the mouse outside the app window - over a menu, off the edge of the screen, or on a video. The element used to keep following the pointer until you clicked again.",
+      "Right-clicking an element no longer starts a drag by accident.",
+      "Trackpad and touch drags are now handled properly, and a drag that the system interrupts is ended cleanly instead of being left half-finished.",
+      "The editor now refuses to start a drag while the canvas has not been measured yet, instead of moving the element to an invalid position that was then silently thrown away when the slide was saved."
+    ]
+  },
+  {
+    "version": "0.1.506",
+    "date": "2026-09-22",
+    "headline": "Fixed — a theme's \"Third band\" scripture choice is now actually saved",
+    "highlights": [
+      "Setting a theme's Scripture layout to Third band now sticks. The choice was offered in the theme editor and looked right while you were setting it, but it was thrown away the moment the theme was saved - so reopening the theme, or going live, always fell back to Full screen.",
+      "Any band styling you set on the theme (colour, gradient, height, position, text size) is now saved with it too.",
+      "A saved church Scripture Style still overrides the theme, exactly as before, and a theme that says nothing about scripture is unchanged."
+    ]
+  },
+  {
+    "version": "0.1.505",
     "date": "2026-09-22",
     "headline": "Fixed — large text could snap back to normal size on the projector",
     "highlights": [
       "Fixed a bug that could hit you if you turned the verse text size right up AND also turned up the separate Font slider in the projection zone settings. With both near their maximum, the projector quietly jumped back to normal size in the middle of a service — while your own preview carried on showing the big text, so there was no sign anything was wrong. It affected all slide text, not only verses.",
       "Your text size now stays large on the screen instead of resetting.",
-      "Your preview and the projector now always agree on the text size.",
-      "Setting a theme's Scripture layout to Third band now sticks. The choice was offered in the theme editor and looked right while you were setting it, but it was thrown away the moment the theme was saved - so reopening the theme, or going live, always fell back to Full screen.",
-      "Any band styling you set on the theme (colour, gradient, height, position, text size) is now saved with it too.",
-      "A saved church Scripture Style still overrides the theme, exactly as before, and a theme that says nothing about scripture is unchanged."
+      "Your preview and the projector now always agree on the text size."
+    ]
+  },
+  {
+    "version": "0.1.504",
+    "date": "2026-09-21",
+    "headline": "Choose which screens each timer shows on",
+    "highlights": [
+      "Timers can now be shown or hidden per screen. In Scenes you'll find a new \"Timer\" row next to Projector, Stage, Livestream and NDI feed — tick any combination.",
+      "Useful when the countdown belongs on the stage display for the preacher but not in front of the congregation, or when you want it off the livestream only.",
+      "Nothing changes unless you set it up. If you've never built a Scene, your timers show exactly where they always have.",
+      "Turning \"Timer\" off for a screen also hides the older service countdown on that screen, since both appear in the same corner."
+    ]
+  },
+  {
+    "version": "0.1.503",
+    "date": "2026-09-22",
+    "headline": "You can now tell a test build from the live app",
+    "highlights": [
+      "A red bar now appears at the top of any test build saying it is not the live app. The real app never shows it.",
+      "The same mark appears in the corner of your projector, stage and livestream outputs on a test build, so a test screen can never be mistaken for the real one.",
+      "A demo church now says so, even on the live app, so nobody mistakes demo data for a real congregation's.",
+      "Safety fix: uploaded media can no longer be deleted from a test build. Media is shared with the live app and cannot be recovered once deleted."
+    ]
+  },
+  {
+    "version": "0.1.502",
+    "date": "2026-09-22",
+    "headline": "Multiple stage screens, and timers everywhere",
+    "highlights": [
+      "Fixed: adding a second stage screen now actually works. You could add one, name it and give it a layout, and nothing changed on any screen. Each stage screen now shows its own layout — open it with ?screen= followed by its name.",
+      "Fixed: the colour a timer turns past zero is now saved with the timer, so it follows your church to another computer. It was only ever saved in one browser.",
+      "Fixed: the Screen preview block on a stage layout now shows something. It used to be a blank box.",
+      "Fixed: the Quick timer now reaches a paired tablet or a LAN OBS source, like your named timers already did."
+    ]
+  },
+  {
+    "version": "0.1.501",
+    "date": "2026-09-22",
+    "headline": "Your stage layout now actually shows on the stage screen",
+    "highlights": [
+      "The stage layout you design now drives your stage display. Assign one to a screen and that screen shows exactly what you built — the words, the next line, a timer, a clock, your own text.",
+      "Timers inside a layout count correctly on a paired tablet too, and their colour changes work there.",
+      "If you have not assigned a layout, your stage display is completely unchanged.",
+      "A timer widget whose timer was deleted shows a dash rather than vanishing, so you can see what needs fixing.",
+      "New timers are now called Timer to begin with, instead of refusing to save without a name."
+    ]
+  },
+  {
+    "version": "0.1.500",
+    "date": "2026-09-21",
+    "headline": "Timers no longer print their name on screen",
+    "highlights": [
+      "CHANGED: a timer no longer shows its name on your screens by default. ProPresenter never does this — the name is just how you find the timer in the list. If you want a label on screen, turn on Show the timer's name in the Look tab.",
+      "Fixed: a device with a badly wrong clock — days or more out — showed no timer at all on the newly networked path. It now corrects itself and shows the right time.",
+      "Timers on a LAN OBS source now get the right time when they join or reconnect part-way through a countdown."
+    ]
+  },
+  {
+    "version": "0.1.499",
+    "date": "2026-09-21",
+    "headline": "Timers now reach your other screens",
+    "highlights": [
+      "Timers now show on a paired tablet, a second computer, and a LAN OBS source. Until now they only ever appeared on screens attached to the operator computer, so a stage display on a tablet showed nothing at all.",
+      "Each screen keeps its own time, so a device with a wrong clock still shows the same number as the projector.",
+      "Colour changes keep working on those screens too.",
+      "If the operator computer crashes, a timer on another device clears itself within a minute instead of staying frozen.",
+      "Needs testing on real hardware before you rely on it in a service."
+    ]
+  },
+  {
+    "version": "0.1.498",
+    "date": "2026-09-21",
+    "headline": "Design what your stage screen shows",
+    "highlights": [
+      "New Stage layouts panel in the right-hand icon bar. Choose what each confidence monitor shows — the words, what is coming next, a timer, a clock, or your own text.",
+      "Five ready-made layouts to start from — Current + Next Text, Current + Timer Text, Current text only, Timer only, Current + Timers. Pick one, or copy it and make it yours.",
+      "Put anything anywhere with one click — full screen, upper third, middle, lower third, or any corner — then set its size, colour and alignment.",
+      "Add as many stage screens as you need. Each one can show a different layout, so the preacher and the worship team can see different things.",
+      "Nothing changes until you set it up. If you never open this, your stage display keeps working exactly as it does today.",
+      "Fixed: Stop now works on a countdown to a time of day. It used to carry on ticking."
+    ]
+  },
+  {
+    "version": "0.1.497",
+    "date": "2026-09-21",
+    "headline": "Timer fixes from a deep ProPresenter review",
+    "highlights": [
+      "Fixed: editing a countdown-to-a-time no longer loses AM or PM. Renaming a 7:00 PM timer used to quietly change it to 7:00 in the morning.",
+      "Fixed: the word (paused) no longer appears beside a timer on your screens. That was operator information showing to the congregation.",
+      "Fixed: the Always show hours and Leading zeros options now actually change what is on screen. They previously did nothing.",
+      "Fixed: colour changes on a stopwatch now happen near the end, not the beginning. They were the wrong way round.",
+      "Fixed: where you place a timer is now respected on the stage display and the livestream. Those two still forced it to a corner.",
+      "Fixed: if the operator computer crashes, a timer no longer stays frozen on the NDI feed. It now clears like every other screen.",
+      "New: +1 and −1 buttons add or take a minute from a running timer without resetting it. For when the preacher needs a little longer.",
+      "New: Reset all clears every timer at once, ready for the next service.",
+      "New: a timer now says whether it finished on time or ran over."
+    ]
+  },
+  {
+    "version": "0.1.496",
+    "date": "2026-09-21",
+    "headline": "Timers now look the same on every screen",
+    "highlights": [
+      "A timer now appears on the NDI feed. It never did before — NDI was the one output that ignored timers completely.",
+      "Where you put a timer is now respected on the stage display and the livestream, not just the projector. Before, those two always forced it into a corner whatever you chose.",
+      "Timers over an hour now read 1:30:00 on the screens instead of 90:00, matching what you see in the Timers panel.",
+      "A paused timer now says so on every screen. Only the stage display used to show that, so a stopped timer could look like it was still running on the projector.",
+      "Colour changes you set on a timer now reach every screen.",
+      "Fixed: renaming a running timer, or changing its colour, no longer rewinds it. Only a change to its duration or type resets it now.",
+      "Fixed: a countdown to a time of day now respects AM and PM. Setting 1:00 PM previously counted down to 1:00 in the morning."
+    ]
+  },
+  {
+    "version": "0.1.495",
+    "date": "2026-09-21",
+    "headline": "Timers now match ProPresenter, including Allows Overrun",
+    "highlights": [
+      "IMPORTANT CHANGE: a countdown now STOPS at 0:00 instead of carrying on into negative time. If you want it to keep running past zero, tick Allows Overrun on that timer. This matches ProPresenter, where Allows Overrun is off unless you turn it on.",
+      "Countdown to a time of day now takes AM, PM or 24-hour, so you can set 11:00 AM without converting it yourself.",
+      "A stopwatch can now start from a set time rather than zero, and can have an end time. Leave the end blank and it runs as long as you need.",
+      "You can set the colour a timer turns once it goes past zero."
+    ]
+  },
+  {
+    "version": "0.1.494",
+    "date": "2026-09-21",
+    "headline": "Turn Scenes on yourself in Settings",
+    "highlights": [
+      "Scenes now has an on/off switch in Settings, under Screens, next to Layers. Only a church admin can change it.",
+      "Scenes is where you say what each screen shows — words, background, camera, logo and now the timer — so you can switch the whole look in one tap.",
+      "Turning it on is what makes the new per-screen timer control appear. After switching it on, reload the app (Advanced, then Reload and clear cache) on that computer.",
+      "Turning it off again just hides the Scenes controls. Any scene you already published keeps working on your screens."
     ]
   },
   {

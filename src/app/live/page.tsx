@@ -1,10 +1,14 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { OutputEnvironmentMark } from "@/components/EnvironmentBanner";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
+import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
+import { foldClockSync, shouldSweepWireTimers, type ClockSync } from "@/lib/timer-clock";
+import type { TimerWire, TimersWire } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 
@@ -80,6 +84,23 @@ export default function LivePage() {
   // church — that tells this surface to pre-wrap its layers, so the first scene
   // of a service can never remount the stack mid-service.
   const [scenesPossible, setScenesPossible] = useState(false);
+  // NETWORKED timers (2026-09-21): anchors from OutputState, ticked locally by
+  // TimerOverlayLayer. Separate from the same-machine 1Hz path above — the
+  // local one always wins, this only fills a gap on a remote screen.
+  const [wireTimers, setWireTimers] = useState<TimerWire[]>([]);
+  const clockSyncRef = useRef<ClockSync | null>(null);
+  const lastTimersWireAt = useRef(0);
+  const timersWireRevRef = useRef(-1);
+  const foldTimersWire = useCallback((tw: TimersWire | null | undefined) => {
+    if (!tw) return;
+    // Ghost-operator guard: an older tab replaying a snapshot must not
+    // resurrect a stale timer set (same rev discipline as layers).
+    if (tw.rev <= timersWireRevRef.current) return;
+    timersWireRevRef.current = tw.rev;
+    clockSyncRef.current = foldClockSync(clockSyncRef.current, tw.senderNowMs, Date.now());
+    lastTimersWireAt.current = Date.now();
+    setWireTimers(tw.timers);
+  }, []);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [messageOverlay, setMessageOverlay] = useState<{ text: string; position: OverlayPosition; scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number } | null>(null);
@@ -247,6 +268,7 @@ export default function LivePage() {
             setVideoInput(msg.state.videoInput ?? null);
             setZone(msg.state.zone ?? null);
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
+            foldTimersWire(msg.state.timersWire);
             // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
             if (msg.state.scene !== undefined) setScenesPossible(true);
           }
@@ -367,6 +389,14 @@ export default function LivePage() {
       // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
       {
         const now = Date.now();
+        // Remote timers have no 1Hz heartbeat to go stale, so the operator's
+        // liveness re-stamp is what stops arriving when it crashes. Separate
+        // window from the 5s sweep above, which still guards the local path.
+        if (shouldSweepWireTimers(lastTimersWireAt.current, now)) {
+          lastTimersWireAt.current = 0;
+          timersWireRevRef.current = -1;
+          setWireTimers([]);
+        }
         const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
         if (staleIds.length) {
           for (const id of staleIds) delete namedTimerAtRef.current[id];
@@ -604,46 +634,21 @@ export default function LivePage() {
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
               placement keeps overlays off the slide text unless the operator
               explicitly picks "center". */}
-          {timerOverlay && (() => {
-            const pos = timerOverlay.position ?? "top-right";
-            const over = timerOverlay.remainingSec < 0;
-            const color = over ? "#f87171" : "#ffffff";
-            return (
-              <div className={`${overlayPosClass(pos)} pointer-events-none z-20 flex flex-col leading-none`} style={{ alignItems: pos.includes("right") ? "flex-end" : pos === "center" ? "center" : "flex-start" }}>
-                {timerOverlay.name && (
-                  <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: "1.4vw", textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{timerOverlay.name}</div>
-                )}
-                <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: "7vw", textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
-                  {formatTimerMMSS(timerOverlay.remainingSec)}
-                </div>
-              </div>
-            );
-          })()}
-          {/* Wave 7: named timers, grouped per position so multiple in one
-              corner stack instead of overlapping. */}
-          {Object.values(namedTimers).length > 0 && (() => {
-            const groups: Record<string, TimerItem[]> = {};
-            for (const t of Object.values(namedTimers)) { const p = t.position ?? "top-right"; (groups[p] ??= []).push(t); }
-            return Object.entries(groups).map(([pos, items]) => (
-              <div key={pos} className={`${overlayPosClass(pos as OverlayPosition)} pointer-events-none z-20 flex flex-col gap-4`}>
-                {items.map((t) => {
-                  const scale = t.scale ?? 1;
-                  const over = t.remainingSec < 0;
-                  const color = t.color ?? (over ? "#f87171" : "#ffffff");
-                  return (
-                    <div key={t.id} className="flex flex-col leading-none" style={{ alignItems: pos.includes("right") ? "flex-end" : pos === "center" ? "center" : "flex-start" }}>
-                      {t.name && (
-                        <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: `${1.4 * scale}vw`, textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{t.name}</div>
-                      )}
-                      <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: `${7 * scale}vw`, textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
-                        {formatTimerMMSS(t.remainingSec)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ));
-          })()}
+          {/* ONE shared renderer across /live, /stage, /livestream and /ndi —
+              see src/components/live/TimerOverlayLayer.tsx. Previously each
+              surface had its own copy and its own MM:SS formatter, so the same
+              timer could read "90:00" here and "1:30:00" in the operator panel. */}
+          {!sceneHidesLayer(scene, "main", "timer") && (
+            <TimerOverlayLayer
+              wireTimers={wireTimers}
+              clockSync={clockSyncRef.current}
+              density="full"
+              timers={[
+                ...(timerOverlay ? [timerOverlay as TimerOverlayItem] : []),
+                ...Object.values(namedTimers),
+              ]}
+            />
+          )}
           {/* Wave 7: extra simultaneous messages, stacked in the lower-third band. */}
           {extraMessages.length > 0 && (
             <div className="absolute left-[6%] right-[6%] bottom-[6%] pointer-events-none z-30 flex flex-col gap-2">
@@ -730,14 +735,10 @@ export default function LivePage() {
           <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" /> Operator disconnected
         </div>
       )}
+      {/* If a test build's projector output looked identical to
+          production, someone would eventually run a real service off it. */}
+      <OutputEnvironmentMark vercelEnv={process.env.NEXT_PUBLIC_VERCEL_ENV} />
     </div>
   );
 }
 
-function formatTimerMMSS(sec: number): string {
-  const negative = sec < 0;
-  const abs = Math.abs(Math.round(sec));
-  const mm = Math.floor(abs / 60);
-  const ss = abs % 60;
-  return `${negative ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-}

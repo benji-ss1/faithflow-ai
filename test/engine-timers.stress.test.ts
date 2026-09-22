@@ -26,6 +26,13 @@ import {
   resolveTargetMs,
 } from "../src/engine/timers";
 import { timerToOverlay, timerClearOverlay } from "../src/engine/timers/overlay";
+
+// timerToOverlay is now slot-shaped: the shell CALLS it rather than
+// hand-rolling the same mapping, so the look travels with the timer.
+const LOOK = {
+  position: "top-right" as const, scale: 1, showLabel: true,
+  leadingZeros: false, colorTriggers: [] as Array<{ atSec: number; color: string }>,
+};
 // expandMessageTokens + resolveTargetMs are PURE and now live in the engine
 // (resolveTargetMs in engine/timers, expandMessageTokens in engine/timers/
 // messages), so the stress suite imports the REAL functions directly — no more
@@ -38,9 +45,12 @@ import {
   coerceLiveMessage,
 } from "../src/lib/broadcast";
 
-const cd = (durationSec: number): TimerDefinition => ({ id: "t1", name: "T", type: "countdown", durationSec });
+// These stress cases deliberately drive timers PAST zero, so they opt into
+// ProPresenter's "Allows Overrun" (off by default since 2026-09-21). The
+// clamped default is covered in test/engine-timers.test.ts.
+const cd = (durationSec: number): TimerDefinition => ({ id: "t1", name: "T", type: "countdown", durationSec, allowsOverrun: true });
 const el = (): TimerDefinition => ({ id: "t2", name: "E", type: "elapsed", durationSec: 0 });
-const cto = (targetMs: number): TimerDefinition => ({ id: "t3", name: "C", type: "countdown_to", durationSec: 0, targetMs });
+const cto = (targetMs: number): TimerDefinition => ({ id: "t3", name: "C", type: "countdown_to", durationSec: 0, targetMs, allowsOverrun: true });
 
 // ---------------------------------------------------------------- (1) anchor+banked
 
@@ -93,10 +103,15 @@ test("STRESS: countdown_to target in the PAST shows negative immediately, runnin
   const rem = computeRemainingSec(def, rt, now);
   assert.equal(Math.round(rem), -90);
   assert.ok(isOverrun(def, rt, now));
-  // countdown_to always reports running:true on the wire regardless of rt.
-  const ov = timerToOverlay(def, initialRuntime(def), now, "top-right");
-  assert.equal(ov.running, true);
+  // `running` follows the OPERATOR, not the wall clock. This used to report
+  // true unconditionally for countdown_to, which is why Stop appeared to do
+  // nothing: the flag flipped and the number kept ticking (fixed 2026-09-21).
+  const ov = timerToOverlay({ def, runtime: rt, appearance: LOOK }, now);
+  assert.equal(ov.running, true, "started ⇒ running");
   assert.equal(ov.remainingSec, -90);
+
+  const stoppedOv = timerToOverlay({ def, runtime: initialRuntime(def), appearance: LOOK }, now);
+  assert.equal(stoppedOv.running, false, "never started ⇒ NOT running");
 });
 
 test("STRESS: countdown_to across midnight resolves to NEXT occurrence (not negative day)", () => {
@@ -145,7 +160,7 @@ test("STRESS: 50 timers tick + map to valid overlays every 1Hz push", () => {
   for (let s = 0; s < 60; s++) {
     const now = 1_000_000 + s * 1000;
     for (const d of defs) {
-      const ov = timerToOverlay(d, rts[d.id], now, "top-right");
+      const ov = timerToOverlay({ def: d, runtime: rts[d.id], appearance: LOOK }, now);
       assert.ok(isValidTimerOverlay(ov), `timer ${d.id} @${s}s produced invalid overlay: ${JSON.stringify(ov)}`);
     }
   }
@@ -276,13 +291,13 @@ test("STRESS: timer overlay clamps out-of-range remaining to wire bounds", () =>
   // 100h countdown overrun would be -360000s; overlay must clamp to -3600 floor.
   const def = cd(1);
   const rt = startTimer(def, initialRuntime(def), 0);
-  const ov = timerToOverlay(def, rt, 100 * 3600 * 1000, "top-right");
+  const ov = timerToOverlay({ def, runtime: rt, appearance: LOOK }, 100 * 3600 * 1000);
   assert.equal(ov.remainingSec, -3600);
   assert.ok(isValidTimerOverlay(ov));
   // 100h positive elapsed clamps to the 24h ceiling.
   const eDef = el();
   const eRt = startTimer(eDef, initialRuntime(eDef), 0);
-  const eOv = timerToOverlay(eDef, eRt, 100 * 3600 * 1000, "top-right");
+  const eOv = timerToOverlay({ def: eDef, runtime: eRt, appearance: LOOK }, 100 * 3600 * 1000);
   assert.equal(eOv.remainingSec, 24 * 3600);
   assert.ok(isValidTimerOverlay(eOv));
 });

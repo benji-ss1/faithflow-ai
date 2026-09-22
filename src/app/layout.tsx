@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { EnvironmentBanner } from "@/components/EnvironmentBanner";
 import { cookies, headers } from "next/headers";
 import { Toaster } from "sonner";
 import { Analytics } from "@vercel/analytics/next";
@@ -131,6 +132,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           }}
         />
         </OperatorChrome>
+        {/* Renders unless VERCEL_ENV is EXPLICITLY "production", so a missing
+            or misconfigured value shows the banner rather than hiding it. */}
+        <EnvironmentBanner vercelEnv={process.env.VERCEL_ENV} />
         {isVercelProd ? <Analytics /> : null}
         {isVercelProd ? <SpeedInsights /> : null}
       </body>

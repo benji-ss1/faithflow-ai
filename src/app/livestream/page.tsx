@@ -1,10 +1,14 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
+import { OutputEnvironmentMark } from "@/components/EnvironmentBanner";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire, type ObsLookWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
+import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
+import { foldClockSync, shouldSweepWireTimers, type ClockSync } from "@/lib/timer-clock";
+import type { TimerWire, TimersWire } from "@/lib/broadcast";
 import { livestreamRenderPlan, DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { parseObsUrl, resolveObsRender, obsThemeColorsOf, applyObsLiveFields, type ObsUrlDefaults } from "@/lib/obs-look";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
@@ -42,6 +46,23 @@ export default function LivestreamPage() {
   // church — that tells this surface to pre-wrap its layers, so the first scene
   // of a service can never remount the stack mid-service.
   const [scenesPossible, setScenesPossible] = useState(false);
+  // NETWORKED timers (2026-09-21): anchors from OutputState, ticked locally by
+  // TimerOverlayLayer. Separate from the same-machine 1Hz path above — the
+  // local one always wins, this only fills a gap on a remote screen.
+  const [wireTimers, setWireTimers] = useState<TimerWire[]>([]);
+  const clockSyncRef = useRef<ClockSync | null>(null);
+  const lastTimersWireAt = useRef(0);
+  const timersWireRevRef = useRef(-1);
+  const foldTimersWire = useCallback((tw: TimersWire | null | undefined) => {
+    if (!tw) return;
+    // Ghost-operator guard: an older tab replaying a snapshot must not
+    // resurrect a stale timer set (same rev discipline as layers).
+    if (tw.rev <= timersWireRevRef.current) return;
+    timersWireRevRef.current = tw.rev;
+    clockSyncRef.current = foldClockSync(clockSyncRef.current, tw.senderNowMs, Date.now());
+    lastTimersWireAt.current = Date.now();
+    setWireTimers(tw.timers);
+  }, []);
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [referenceScale, setReferenceScale] = useState(1); // scripture reference-footer size — match the projector
   const [referenceColor, setReferenceColor] = useState<string | undefined>(undefined);
@@ -65,7 +86,10 @@ export default function LivestreamPage() {
   // Wave 7: named (keyed) timers ride alongside the legacy default slot — mirrors
   // /live and /stage so multiple named timers on the public OBS surface each
   // render independently instead of one clobbering the others via setTimerOverlay.
-  type TimerItem = { id: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; overrun?: boolean; scale?: number; color?: string };
+  // Keep the WHOLE overlay: the shared renderer honours position, and
+  // this local shape used to drop it, silently discarding the operator's
+  // placement on this surface.
+  type TimerItem = TimerOverlayItem & { id: string };
   const [namedTimers, setNamedTimers] = useState<Record<string, TimerItem>>({});
   const namedTimerAtRef = useRef<Record<string, number>>({});
   const [connected, setConnected] = useState(false);
@@ -226,7 +250,7 @@ export default function LivestreamPage() {
               setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
               delete namedTimerAtRef.current[oid];
             } else if ("remainingSec" in ov) {
-              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, kind: ov.kind, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
+              setNamedTimers((m) => ({ ...m, [oid]: { ...(ov as TimerOverlayItem), id: oid } }));
               namedTimerAtRef.current[oid] = Date.now();
             }
           } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
@@ -300,6 +324,14 @@ export default function LivestreamPage() {
       // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
       {
         const now = Date.now();
+        // Remote timers have no 1Hz heartbeat to go stale, so the operator's
+        // liveness re-stamp is what stops arriving when it crashes. Separate
+        // window from the 5s sweep above, which still guards the local path.
+        if (shouldSweepWireTimers(lastTimersWireAt.current, now)) {
+          lastTimersWireAt.current = 0;
+          timersWireRevRef.current = -1;
+          setWireTimers([]);
+        }
         const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
         if (staleIds.length) {
           for (const id of staleIds) delete namedTimerAtRef.current[id];
@@ -354,6 +386,7 @@ export default function LivestreamPage() {
       setVideoInput(state.videoInput ?? null);
       setLowerThird(state.lowerThird);
       setScene(state.scene ?? null); // Scenes: never LAYERS_V2-gated
+      foldTimersWire(state.timersWire);
       // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
       if (state.scene !== undefined) setScenesPossible(true);
       setAnnouncement(state.announcement ?? null);
@@ -574,38 +607,19 @@ export default function LivestreamPage() {
           ))}
         </div>
       )}
-      {timerOverlay && mode === "full" && (() => {
-        const over = timerOverlay.remainingSec < 0;
-        const color = over ? "#f87171" : "#ffffff";
-        const n = over; const a = Math.abs(Math.round(timerOverlay.remainingSec)); const m = Math.floor(a / 60); const s = a % 60;
-        return (
-          <div className="absolute top-[6%] right-[6%] pointer-events-none flex flex-col items-end leading-none">
-            {timerOverlay.name && <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: "1.4vw", textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{timerOverlay.name}</div>}
-            <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: "7vw", textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
-              {`${n ? "-" : ""}${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`}
-            </div>
-          </div>
-        );
-      })()}
-      {/* Wave 7: named (keyed) timers — stacked top-right, below the legacy one.
-          Sized by the operator's per-timer scale (public OBS surface). */}
-      {Object.values(namedTimers).length > 0 && mode === "full" && (
-        <div className="absolute top-[20%] right-[6%] pointer-events-none flex flex-col items-end gap-[3vh] leading-none">
-          {Object.values(namedTimers).map((t) => {
-            const scale = t.scale ?? 1;
-            const over = t.remainingSec < 0;
-            const color = t.color ?? (over ? "#f87171" : "#ffffff");
-            const a = Math.abs(Math.round(t.remainingSec)); const mm = Math.floor(a / 60); const ss = a % 60;
-            return (
-              <div key={t.id} className="flex flex-col items-end leading-none">
-                {t.name && <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: `${1.4 * scale}vw`, textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{t.name}</div>}
-                <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: `${7 * scale}vw`, textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
-                  {`${over ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {/* ONE shared renderer across every output surface. `mode === "full"`
+          stays: in lower-third mode the stream deliberately shows only the
+          words over the camera. */}
+      {mode === "full" && !sceneHidesLayer(scene, "livestream", "timer") && (
+        <TimerOverlayLayer
+          wireTimers={wireTimers}
+          clockSync={clockSyncRef.current}
+          density="full"
+          timers={[
+            ...(timerOverlay ? [timerOverlay as TimerOverlayItem] : []),
+            ...Object.values(namedTimers),
+          ]}
+        />
       )}
 
       {/* NB: hidden in transparent (OBS-key) mode — like the pair/disconnect
@@ -652,6 +666,9 @@ export default function LivestreamPage() {
           <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" /> Operator disconnected
         </div>
       )}
+      {/* If a test build's projector output looked identical to
+          production, someone would eventually run a real service off it. */}
+      <OutputEnvironmentMark vercelEnv={process.env.NEXT_PUBLIC_VERCEL_ENV} />
     </div>
   );
 }
