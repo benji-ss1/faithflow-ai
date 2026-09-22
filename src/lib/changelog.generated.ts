@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.508",
+    "version": "0.1.509",
     "date": "2026-09-22",
     "headline": "Big ProPresenter libraries now import instead of failing",
     "highlights": [
@@ -16,7 +16,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.507",
+    "version": "0.1.508",
     "date": "2026-09-22",
     "headline": "Smart folders and smart playlists — a folder that fills itself",
     "highlights": [
@@ -30,6 +30,19 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
+    "version": "0.1.507",
+    "date": "2026-09-22",
+    "headline": "Import a whole ProPresenter service in one drop — and it keeps your running order",
+    "highlights": [
+      "Where: Songs library → Import (top right), or the Import button in the operator's Songs panel.",
+      "Drop a ProPresenter PLAYLIST export (the .proPlaylist file) and every song in that service comes in at once. Until now that file was quietly rejected and nothing imported, so you had to export songs one at a time.",
+      "The songs arrive in the order your worship team actually planned the service, not in alphabetical order. PresentFlow reads the running order out of the ProPresenter file itself.",
+      "Song lyrics now keep their line breaks. Imported slides used to arrive as one long run-on line; each line now sits on its own line, the way it looked in ProPresenter.",
+      "Library exports (.prolib) and theme bundles (.protheme) are accepted the same way.",
+      "One thing to know - a .proPlaylist holds your songs but NOT your background images or videos. To bring artwork across, export a Presentation Bundle (.proBundle) from ProPresenter as well."
+    ]
+  },
+  {
     "version": "0.1.506",
     "date": "2026-09-22",
     "headline": "A network blip no longer throws away a service that is already running",
@@ -37,13 +50,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "If the internet drops mid-service, the desktop app now leaves your console exactly where it is. It used to fall back to the loading screen and start reconnecting — losing your loaded slides and your place in the service, to recover from a blip the app had not even noticed.",
       "A real crash still recovers the way it always did.",
       "Approving a verse and the \"show verse\" voice command now work with no internet, as long as that translation has been downloaded. They were quietly going to the server every time and failing, even though the whole Bible was already saved on the machine.",
-      "The app stops re-checking your song library every 90 seconds while offline, so the logs stay clean and the machine is left alone.",
-      "Where: Songs library → Import (top right), or the Import button in the operator's Songs panel.",
-      "Drop a ProPresenter PLAYLIST export (the .proPlaylist file) and every song in that service comes in at once. Until now that file was quietly rejected and nothing imported, so you had to export songs one at a time.",
-      "The songs arrive in the order your worship team actually planned the service, not in alphabetical order. PresentFlow reads the running order out of the ProPresenter file itself.",
-      "Song lyrics now keep their line breaks. Imported slides used to arrive as one long run-on line; each line now sits on its own line, the way it looked in ProPresenter.",
-      "Library exports (.prolib) and theme bundles (.protheme) are accepted the same way.",
-      "One thing to know - a .proPlaylist holds your songs but NOT your background images or videos. To bring artwork across, export a Presentation Bundle (.proBundle) from ProPresenter as well."
+      "The app stops re-checking your song library every 90 seconds while offline, so the logs stay clean and the machine is left alone."
     ]
   },
   {
