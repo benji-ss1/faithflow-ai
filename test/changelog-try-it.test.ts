@@ -11,7 +11,6 @@
  * literal "{try: ...}" text in front of every operator.
  */
 import assert from "node:assert";
-// @ts-expect-error - plain .mjs helper, no types
 import { parseChangeFile } from "../scripts/changelog-lib.mjs";
 
 let pass = 0, fail = 0;
