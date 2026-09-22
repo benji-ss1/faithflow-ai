@@ -4,8 +4,8 @@ audience: operator
 version: 0.1.509
 date: 2026-09-22
 highlights:
-  - "Where to make a smart FOLDER: the operator's left-hand Library list — click the ✨ star button next to the + button."
-  - "Where to make a smart PLAYLIST: Services → New smart playlist, next to the Create button."
+  - "Make one in the Library list on the left of your operator screen — the star button next to +. {try: /operator | smart-folder | Show me where}"
+  - "Smart PLAYLISTS work the same way and live on the Services page, next to the Create button. {try: /services | | Open Services}"
   - Give it rules — for example Title contains "Christmas", or Date added in the last 30 days — and every song that matches shows up in it automatically. You never drag anything in.
   - Nothing is moved or copied. A song in a smart folder still lives exactly where it was, so your existing folders and playlists are completely untouched.
   - It keeps itself up to date. Add a new Christmas song next July and it appears in the Christmas folder on its own.

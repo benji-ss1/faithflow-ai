@@ -1,7 +1,7 @@
 ---
 headline: Fixed — a theme's "Third band" scripture choice is now actually saved
 audience: operator
-version: 0.1.514
+version: 0.1.515
 date: 2026-09-22
 highlights:
   - Setting a theme's Scripture layout to Third band now sticks. The choice was offered in the theme editor and looked right while you were setting it, but it was thrown away the moment the theme was saved - so reopening the theme, or going live, always fell back to Full screen.
