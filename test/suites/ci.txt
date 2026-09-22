@@ -104,6 +104,7 @@ test/nav-clauses.test.ts
 test/no-dead-capability.test.ts
 test/obs-editor.test.ts
 test/obs-lowerthird.test.ts
+test/offline-resilience.test.ts
 test/openflow-parse.test.ts
 test/openflow-resolve-helpers.test.ts
 test/operator-nav.test.ts
@@ -135,6 +136,7 @@ test/pptx-convert.test.ts
 test/proclaim-order.test.ts
 test/projector-fontsize.test.ts
 test/projector-output.test.ts
+test/propresenter-playlist-import.test.ts
 test/quick-edit-apply-text.test.ts
 test/raw-capture.test.ts
 test/release-gate-fixes.test.ts
@@ -164,6 +166,7 @@ test/slide-paste.test.ts
 test/slide-renderer-empty.test.ts
 test/slide-renderer-quick-edit-blank.test.ts
 test/slide-selection.test.ts
+test/smart-folders.test.ts
 test/song-background-affordance.test.ts
 test/song-best-slide.test.ts
 test/song-chunk-import.test.ts
@@ -205,6 +208,7 @@ test/timer-clock-warfare.test.ts
 test/timer-clock.test.ts
 test/timer-scene-routing.test.ts
 test/timer-screen-parity.test.ts
+test/timer-screen-routing.test.ts
 test/timer-transport-parity.test.ts
 test/timer-wire-clockskew.test.ts
 test/timer-wire-reconnect-merge.test.ts
@@ -227,6 +231,4 @@ test/voice-commands.test.ts
 test/whats-new.test.ts
 test/windows-media.test.ts
 test/windows-responsive.test.ts
-test/timer-screen-routing.test.ts
-test/offline-resilience.test.ts
 test/schema-preflight.test.ts

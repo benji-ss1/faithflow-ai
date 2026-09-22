@@ -15,7 +15,10 @@ import { generateImageThumbnail } from "./media-thumbnail";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
-const MAX_TOTAL_BYTES = 250 * 1024 * 1024; // 250 MB total drop
+// NOTE (2026-09-22 scaling audit): a server-side backstop, NOT an achievable
+// single-request size — the platform body limit is far lower, so this is only
+// ever reached via a large accumulated batch. The client chunks before upload.
+const MAX_TOTAL_BYTES = 250 * 1024 * 1024;
 
 export type FileDrop = { path: string; b64: string };
 

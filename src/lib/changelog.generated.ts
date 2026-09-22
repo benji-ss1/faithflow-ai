@@ -4,13 +4,54 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.510",
+    "date": "2026-09-22",
+    "headline": "Big ProPresenter libraries now import instead of failing",
+    "highlights": [
+      "Where: Library → Imports, and the Import button in the Songs library.",
+      "A large ProPresenter library used to stop with a bare error part-way through. The import is now sent up in small pieces automatically, so a library of several thousand songs goes through in one go.",
+      "Importing a big library is also a lot faster.",
+      "If something still will not fit, the message now tells you what to do — export the library from ProPresenter in smaller parts — instead of just failing.",
+      "You can drag pictures and videos from your desktop straight onto the media grid. Dropping there used to do nothing; you had to aim at the Import button or the library list."
+    ]
+  },
+  {
+    "version": "0.1.509",
+    "date": "2026-09-22",
+    "headline": "Smart folders and smart playlists — a folder that fills itself",
+    "highlights": [
+      "Where to make a smart FOLDER: the operator's left-hand Library list — click the ✨ star button next to the + button.",
+      "Where to make a smart PLAYLIST: Services → New smart playlist, next to the Create button.",
+      "Give it rules — for example Title contains \"Christmas\", or Date added in the last 30 days — and every song that matches shows up in it automatically. You never drag anything in.",
+      "Nothing is moved or copied. A song in a smart folder still lives exactly where it was, so your existing folders and playlists are completely untouched.",
+      "It keeps itself up to date. Add a new Christmas song next July and it appears in the Christmas folder on its own.",
+      "Smart folders and playlists are marked with a ✨ star, and show the rules underneath so anyone can see why a song is in there. Because they fill themselves, you cannot drag songs into one or reorder it — edit the rules instead, from the ⋮ menu (folders) or the Edit rules button (playlists).",
+      "Deleting a smart folder or playlist never deletes songs. It only holds rules, so removing it just removes the rules."
+    ]
+  },
+  {
     "version": "0.1.508",
     "date": "2026-09-22",
-    "headline": "A deploy can no longer ship code the database is not ready for",
+    "headline": "Import a whole ProPresenter service in one drop — and it keeps your running order",
     "highlights": [
+      "Where: Songs library → Import (top right), or the Import button in the operator's Songs panel.",
+      "Drop a ProPresenter PLAYLIST export (the .proPlaylist file) and every song in that service comes in at once. Until now that file was quietly rejected and nothing imported, so you had to export songs one at a time.",
+      "The songs arrive in the order your worship team actually planned the service, not in alphabetical order. PresentFlow reads the running order out of the ProPresenter file itself.",
+      "Song lyrics now keep their line breaks. Imported slides used to arrive as one long run-on line; each line now sits on its own line, the way it looked in ProPresenter.",
+      "Library exports (.prolib) and theme bundles (.protheme) are accepted the same way.",
+      "One thing to know - a .proPlaylist holds your songs but NOT your background images or videos. To bring artwork across, export a Presentation Bundle (.proBundle) from ProPresenter as well.",
       "Today the Timers and Stage Layouts panels showed \"Background task failed\" because a database change was written but never applied, and the code that needed it shipped anyway.",
       "Every build now checks the live database against the code before it deploys. If the database is behind, the build stops and names exactly which tables and columns are missing — and the version already running stays up.",
       "The check reads the real schema, so a new table or column is covered the moment it is written. There is no list anyone has to remember to update."
+    ]
+  },
+  {
+    "version": "0.1.507",
+    "date": "2026-09-22",
+    "headline": "Groundwork for launching without internet",
+    "highlights": [
+      "The health endpoint now reports which build is live, and carries a remote switch for the offline cache that is coming next.",
+      "No user-visible change. This exists so the offline cache can be turned off for every church without shipping a new desktop app — the property that made the 2026-08-11 service-worker incident survivable."
     ]
   },
   {

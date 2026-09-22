@@ -27,6 +27,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useSelectedLibrary, libraryQueryParam, getSelectedLibrary, setSelectedLibrary, type LibraryFilter } from "../left/libraryFilter";
+import { classifyDrop, isRealDragLeave } from "@/lib/spring-load";
 import { setMediaOnActiveTheme, clearActiveThemeBackground, type QuickThemeChange } from "@/lib/theme-quick-apply";
 import { setMediaAsBackground, normalizeMediaKind } from "@/backgrounds/mediaAsBackground";
 import { snapshotBackgroundState, restoreBackgroundState, removeCustomBackground } from "@/backgrounds/store/backgroundStore";
@@ -126,6 +127,51 @@ export function MediaBrowser({
     consume();
     return onOsDropImport(consume);
   }, []);
+
+  // Drop Finder/Explorer files straight onto the media grid.
+  //
+  // The wizard and the left-rail Library rows already accepted OS drops, but
+  // the media bin ITSELF — the most obvious place to aim a PNG at — did not,
+  // so a drop there did nothing. We reuse the exact same path the left rail
+  // uses (queue files → open the wizard pre-filled), so there is one upload
+  // code path, not two.
+  //
+  // `classifyDrop` keeps this off in-app card drags (which also report
+  // "Files"), so the existing drag-to-playlist and dnd-kit reorder behaviour
+  // is untouched. Reorder mode opts out entirely.
+  const [osDragOver, setOsDragOver] = useState(false);
+
+  const onGridDragOver = (e: React.DragEvent) => {
+    if (reorderMode) return;
+    if (classifyDrop(e.dataTransfer.types) !== "os-files") return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setOsDragOver(true);
+  };
+  const onGridDragLeave = (e: React.DragEvent) => {
+    if (isRealDragLeave(e.currentTarget as Node, e.relatedTarget as Node | null)) setOsDragOver(false);
+  };
+  const onGridDrop = (e: React.DragEvent) => {
+    if (reorderMode) return;
+    if (classifyDrop(e.dataTransfer.types) !== "os-files") return;
+    e.preventDefault();
+    setOsDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return; // folder drops report no files — say nothing rather than lie
+    // Drop into whichever library the grid is currently showing; "all" and the
+    // implicit Default bucket both mean "no explicit library".
+    // A smart folder can't receive an upload (the server rewrites the id to
+    // null), so say so instead of letting the file silently land in Default
+    // and appear to vanish from the folder they aimed at.
+    const smart = libs.find((l) => l.id === selectedLibrary && l.kind === "smart");
+    if (smart) {
+      toast.info(`"${smart.name}" is a smart folder — it fills automatically. Importing to your main media instead.`);
+    }
+    const libraryId =
+      smart || selectedLibrary === "all" || selectedLibrary === "default" ? null : selectedLibrary;
+    setDropImport({ files, libraryId });
+    setWizardOpen(true);
+  };
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   // ProPresenter parity (Phase 3.6): filter the grid by the selected Library.
@@ -138,8 +184,8 @@ export function MediaBrowser({
   const [libs, setLibs] = useState<LibraryRow[]>([]);
   useEffect(() => {
     let m = true;
-    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); });
-    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); }); };
+    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind !== "smart")); });
+    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind !== "smart")); }); };
     window.addEventListener("presentflow:libraries-changed", h);
     return () => { m = false; window.removeEventListener("presentflow:libraries-changed", h); };
   }, []);
@@ -609,8 +655,18 @@ export function MediaBrowser({
           </div>
         )}
 
-        {/* Grid */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Grid — also the OS-file drop target (see onGridDrop above). */}
+        <div
+          className="flex-1 overflow-y-auto relative"
+          onDragOver={onGridDragOver}
+          onDragLeave={onGridDragLeave}
+          onDrop={onGridDrop}
+        >
+          {osDragOver && (
+            <div className="pointer-events-none absolute inset-2 z-20 rounded-xl border-2 border-dashed border-[#F2712E] bg-black/40 flex items-center justify-center">
+              <span className="text-[12px] font-bold text-[#F2712E]">Drop to add to your media</span>
+            </div>
+          )}
           {filtered.length === 0 && !loading && !reorderMode && (
             <div className="text-[12px] text-[var(--color-muted-foreground)] py-10 text-center">
               {assets.length === 0

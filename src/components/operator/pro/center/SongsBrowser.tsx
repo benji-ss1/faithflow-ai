@@ -118,8 +118,8 @@ export function SongsBrowser({
   const [libs, setLibs] = useState<LibraryRow[]>([]);
   useEffect(() => {
     let m = true;
-    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); });
-    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); }); };
+    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind !== "smart")); });
+    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind !== "smart")); }); };
     window.addEventListener("presentflow:libraries-changed", h);
     return () => { m = false; window.removeEventListener("presentflow:libraries-changed", h); };
   }, []);
@@ -300,13 +300,13 @@ export function SongsBrowser({
     // VideoPsalm / text (EasyWorship guided export) take their own client-parse path.
     if (arr.some((f) => /\.(vpagd|txt|ews)$/i.test(f.name))) {
       void importVideoPsalmFiles(arr);
-      if (!arr.some((f) => /\.(pro6|pro5|pro|propresenter|proBundle|pro7|pro7x|zip)$/i.test(f.name))) return;
+      if (!arr.some((f) => /\.(pro6|pro5|pro|propresenter|proBundle|proPlaylist|prolib|proLibrary|pro7|pro7x|zip)$/i.test(f.name))) return;
     }
     // Route through the dialog for anything Pro7/bundle-shaped. Legacy
     // .pro6/.pro5 XML drops keep the fast one-shot path so a single-file
     // drop of an older ProPresenter export still finishes in one action.
     const needsDialog = arr.some((f) =>
-      /\.(proBundle|pro7|pro7x|zip)$/i.test(f.name) ||
+      /\.(proBundle|proPlaylist|prolib|proLibrary|pro7|pro7x|zip)$/i.test(f.name) ||
       /\.pro$/i.test(f.name), // .pro is Pro7 binary — dialog handles it
     );
     if (needsDialog) {

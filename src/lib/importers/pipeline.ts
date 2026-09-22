@@ -11,9 +11,16 @@
 import type { ImportedItem, Parser, ParsedSong } from "./types";
 import { PARSERS } from "./registry";
 import AdmZip from "adm-zip";
+import { parsePlaylistManifest, orderByManifest, type ParsedManifest } from "../propresenter-manifest";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per song file
-const MAX_BUNDLE_BYTES = 500 * 1024 * 1024; // 500 MB per .proBundle
+// NOTE (2026-09-22 scaling audit): this is a LOCAL safety cap for the
+// in-process unzip, NOT an achievable upload size. The platform refuses a
+// request body far smaller than this, so a 500 MB bundle can never arrive
+// here in one piece — the client strips and CHUNKS first (see
+// WizardClient's MAX_UPLOAD_BYTES). Kept generous because the Electron
+// desktop path can hand us a large local bundle directly.
+const MAX_BUNDLE_BYTES = 500 * 1024 * 1024;
 const MAX_BUNDLE_ENTRIES = 8000; // guard against zip bombs; fits a full ~6600-song ProPresenter library with headroom
 
 export type PipelineInput = { path: string; contents: Buffer }[];
@@ -24,6 +31,13 @@ export type PipelineOutput = {
   mediaAssets: { fileName: string; contents: Buffer; mimeType: string }[];
   byParser: Record<string, { examined: number; imported: number; skipped: number }>;
   warnings: { file: string; warnings: string[] }[];
+  /**
+   * Playlist name + service order, when the container carried a `data`
+   * manifest we could read. `songs` is already sorted to match. Null for a
+   * loose file drop or an unreadable manifest — callers must treat this as
+   * optional enrichment, never a requirement.
+   */
+  playlist: { name: string | null; itemCount: number } | null;
 };
 
 const LOGO_PATTERNS = [
@@ -63,9 +77,28 @@ function isZipBuffer(buf: Buffer): boolean {
   return buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
 }
 
+/**
+ * ProPresenter ZIP-container extensions.
+ *
+ * ProPresenter exports several different archives that are all plain ZIPs
+ * holding `.pro` documents plus a protobuf manifest:
+ *   - `.proBundle`   — a presentation + its media
+ *   - `.proPlaylist` — a service/playlist export (verified against a real
+ *     Kings Court "Sept 20.proPlaylist": 7 `.pro` docs + `data` manifest +
+ *     empty `Media/` and `PDF/` folders)
+ *   - `.prolib` / `.proLibrary` — a whole library export
+ *   - `.protheme` / `.proThemeBundle` — theme exports
+ *
+ * Before this list existed only `.proBundle` and `.zip` were unzipped, so a
+ * `.proPlaylist` fell through to the per-file parsers, matched none of them,
+ * and imported ZERO songs. The parsers themselves were always fine — the
+ * same file renamed to `.zip` imported all 7 songs correctly.
+ */
+const PRO_CONTAINER_RX = /\.(proBundle|proPlaylist|prolib|proLibrary|protheme|proThemeBundle)$/i;
+
 /** True if the file is a ProPresenter bundle we should try to unzip. */
 function isProBundleFile(path: string, buf: Buffer): boolean {
-  if (/\.proBundle$/i.test(path)) return isZipBuffer(buf);
+  if (PRO_CONTAINER_RX.test(path)) return isZipBuffer(buf);
   // Also treat any generic .zip that contains .pro/.pro6 as a proBundle.
   if (/\.zip$/i.test(path) && isZipBuffer(buf)) return true;
   return false;
@@ -101,7 +134,7 @@ export function expandProBundles(input: PipelineInput): BundleExpansionResult {
         warnings.push({ file: f.path, warnings: [`Bundle contains ${entries.length} entries (max ${MAX_BUNDLE_ENTRIES}) — skipped`] });
         continue;
       }
-      const bundleName = (f.path.split(/[/\\]/).pop() || f.path).replace(/\.(proBundle|zip)$/i, "");
+      const bundleName = (f.path.split(/[/\\]/).pop() || f.path).replace(PRO_CONTAINER_RX, "").replace(/\.zip$/i, "");
       let added = 0;
       for (const e of entries) {
         if (e.isDirectory) continue;
@@ -144,6 +177,7 @@ export function runImportPipeline(input: PipelineInput): PipelineOutput {
     mediaAssets: [],
     byParser: Object.fromEntries(PARSERS.map((p) => [p.id, { examined: 0, imported: 0, skipped: 0 }])),
     warnings: [],
+    playlist: null,
   };
   const seenTitles = new Map<string, ParsedSong>(); // dedupe by title within batch
 
@@ -153,6 +187,24 @@ export function runImportPipeline(input: PipelineInput): PipelineOutput {
   const expansion = expandProBundles(input);
   if (expansion.warnings.length) output.warnings.push(...expansion.warnings);
   const files = expansion.files;
+
+  // A ProPresenter container carries its playlist order in a protobuf file
+  // literally named `data`. Read it first so we can re-sort the songs into
+  // SERVICE order at the end; ZIP entry order is alphabetical, which is not
+  // the order the worship team planned.
+  //
+  // Scoped PER CONTAINER (keyed by the folder prefix `expandProBundles` adds),
+  // because dropping two playlists at once must not reorder one by the other's
+  // manifest — that silently scrambled the second service.
+  const manifests = new Map<string, ParsedManifest>();
+  for (const file of files) {
+    const parts = file.path.split(/[/\\]/);
+    if (parts[parts.length - 1] !== "data") continue;
+    const prefix = parts.slice(0, -1).join("/");
+    if (manifests.has(prefix)) continue;
+    const m = parsePlaylistManifest(file.contents);
+    if (m.items.length > 0) manifests.set(prefix, m);
+  }
 
   for (const file of files) {
     if (file.contents.length > MAX_FILE_BYTES) {
@@ -210,6 +262,48 @@ export function runImportPipeline(input: PipelineInput): PipelineOutput {
     if (!parsedByAny) {
       // Might just be a metadata file (playlists.xml, index.json, etc)
       // — silently ignore unless requested to log
+    }
+  }
+
+  // Re-sort into playlist order, per container.
+  //
+  // Songs keep their container grouping (a song is only ranked by the manifest
+  // of the bundle it came from), and anything a manifest doesn't mention is
+  // appended in its original order — so this can only ever REORDER, never lose
+  // or duplicate, a song.
+  if (manifests.size > 0) {
+    const containerOf = (song: ParsedSong) => {
+      const parts = (song.sourceRef || "").split(/[/\\]/);
+      return parts.slice(0, -1).join("/");
+    };
+    const basenameOf = (song: ParsedSong) => {
+      const base = (song.sourceRef || song.title).split(/[/\\]/).pop() || song.title;
+      return base.replace(/\.(pro|pro6|pro5|pro7|pro7x)$/i, "");
+    };
+    // Preserve the order the containers themselves first appeared.
+    const order: string[] = [];
+    const groups = new Map<string, ParsedSong[]>();
+    for (const song of output.songs) {
+      const key = containerOf(song);
+      if (!groups.has(key)) { groups.set(key, []); order.push(key); }
+      groups.get(key)!.push(song);
+    }
+    const resorted: ParsedSong[] = [];
+    for (const key of order) {
+      const group = groups.get(key)!;
+      const m = manifests.get(key);
+      resorted.push(...(m ? orderByManifest(group, m, basenameOf) : group));
+    }
+    output.songs = resorted;
+
+    // Report the playlist only when the batch is ONE container — naming a
+    // multi-playlist drop after whichever came first would be a lie.
+    if (manifests.size === 1) {
+      const only = manifests.values().next().value as ParsedManifest;
+      output.playlist = { name: only.name, itemCount: only.items.length };
+    }
+    for (const m of manifests.values()) {
+      if (m.warnings.length) output.warnings.push({ file: "data", warnings: m.warnings });
     }
   }
   return output;

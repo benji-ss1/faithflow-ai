@@ -1,6 +1,8 @@
 # Increment 4 — Offline Launch via Electron-Level Cache (build plan)
 
-_Status: NOT built. Gated on Apple Developer enrollment (this change requires a **signed** DMG). Ready to execute the moment signing lands._
+_Status: NOT built. **The Apple-signing gate recorded here was wrong** (corrected 2026-09-22): `package.json` sets `mac.identity: null`, so PresentFlow already ships **unsigned** DMGs today. An Electron change ships in exactly the same unsigned DMG. Signing is worth doing on its own merits; it does not block this._
+
+_Prerequisite SHIPPED 2026-09-22: `/api/health` now returns `buildId` (the deploy commit SHA) and `offlineCache` (a remote kill-switch). See §7._
 
 _Decision record: the user chose Electron-level caching over a service worker. **Why not a service worker:** the previous offline SW pinned the desktop to a stale build AND its forced-navigate caused a reload loop that reconnected the audio WebSocket every 1–2s — it bricked live audio. `public/sw.js` is now a deliberate kill-switch. See `docs/AI_HANDOFF.md` §5 and the memory `reminder_presentflow_local_first`._
 
@@ -74,3 +76,54 @@ Chromium won't disk-cache the Next.js document/RSC (Vercel sends `no-store`). So
 4. Apply to output windows.
 5. On-device offline acceptance test (user).
 6. 3-agent review → signed DMG → changelog → ship.
+
+
+---
+
+## 7. Amendments (2026-09-22) — non-negotiable, after re-reading the 2026-08-11 incidents
+
+The service worker shipped at 09:06 and was killed at 14:06 the same day, then its *fix* caused a second incident at 14:26. Both are quoted in `git log`. The three rules below are what those five hours actually taught, and §§1–6 above are under-specified on each.
+
+### Amendment 1 — cache atomically, per build id
+
+Key the store by **build generation**, not by URL alone.
+
+- On each successful **online** load, read `buildId` from `/api/health`, and write that load's document **and every `/_next/*` chunk it referenced** into `pfcache/<buildId>/`.
+- **Only serve a generation where the document AND every referenced chunk are present.** A half-captured generation is never served — it would produce a white screen, which is strictly worse than the honest splash it replaced.
+- Promote a generation to "current" **only after a complete capture**, by an atomic rename. Never by writing into the live directory.
+- Keep exactly **two** generations (current + previous). That bounds disk and buys one free rollback. Delete anything older.
+
+Mixing a document from one build with chunks from another is the classic Next.js `ChunkLoadError` / hydration-mismatch white screen. Per-generation directories make it structurally impossible rather than merely unlikely.
+
+### Amendment 2 — the escape hatch must not loop
+
+The 14:26 incident was the **recovery mechanism** looping, not the cache. So:
+
+- **The cache never triggers a navigation. Ever.** No `clients.navigate`, no auto-reload, no self-refresh. It only ever *answers* a load the app already asked for. This is the single most important constraint in this document.
+- **Network-first always** — if the network answers, the network wins, every time. The cache is only reachable when the alternative is a splash screen. This is what structurally prevents the stale-build pinning; it is not a heuristic.
+- Recovery without a support call, in three layers that already exist in the codebase:
+  1. **Automatic:** next launch with working internet → network-first wins → fresh build, cache re-primed. Zero user action. This covers almost every case.
+  2. **One keystroke:** Cmd+Shift+R is already wired to "Clear Cache and Reload" in `electron/main.ts`. Extend it to also wipe `userData/pfcache/`. Operators can be told that one key fixes anything.
+  3. **In-app:** `src/components/operator/pro/DeepReloadButton.tsx` already probes for `electronAPI.app.clearCacheAndReload`. Implement that IPC and the button becomes the full recovery path for a non-technical operator.
+- **Remote kill-switch.** The cache reads `offlineCache` from `/api/health` **and** an env var, and is OFF unless both allow it. If it misbehaves in the field it is turned off for every church **without shipping a DMG** — the property that made the `sw.js` kill-switch possible, which an Electron-side cache does not get for free.
+
+### Amendment 3 — auth, and the poisoning case §§1–6 miss
+
+`src/middleware.ts` redirects to `/login` when there is no token, and its matcher covers the console route. Two things must be verified **on-device** before this is trusted:
+
+- **(a)** A cached document served offline still carries a valid session cookie from `session.defaultSession`. It should — cookies are persisted and the JWT is decoded per request — but this is assumed, not proven.
+- **(b)** A **redirected** navigation is never persisted as the cached copy of `/operator`. The old service worker had exactly this guard ("redirected navs not cached — no auth-redirect poisoning", commit `2dd69cc`); it is not mentioned anywhere in §§1–6 and must be ported. Without it, one expired-session load poisons the cache with a login page, and the church boots to `/login` with no network and no way back.
+
+Also verify that the cached copy **replays the global security headers** from `next.config.ts` — CSP behaving differently offline is a plausible and hard-to-diagnose failure.
+
+### Scope guard
+
+Exclude `/api/*` from interception entirely, and allowlist narrowly. `protocol.handle` on the default session can otherwise subtly break the NDI offscreen window, the LAN overlay server, and the device-exchange auth hop.
+
+### Do not build a partial version
+
+Half a persist-and-serve cache — one that serves an incomplete generation, or that ever wins while online — is **worse than today's splash screen**, because a splash is unambiguous and a white screen at 8:45am is not. If Amendments 1–3 cannot all ship, ship none of it.
+
+### What cannot be verified by an agent
+
+All of it. The acceptance test in §6 must be run **on-device by a human**: load online, quit, disable wifi, relaunch → console + `/live` load, the prepared service runs, scripture projects, slides advance, AI degrades honestly; then wifi on → the next launch is the fresh build.
