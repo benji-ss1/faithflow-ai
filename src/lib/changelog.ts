@@ -25,6 +25,21 @@ const CHANGELOG_HISTORY: ChangelogEntry[] = [
     ],
   },
   {
+    version: "0.1.402",
+    date: "2026-09-22",
+    headline: "ProPresenter playlists import in service order — plus Smart Folders",
+    highlights: [
+      "You can now drop a ProPresenter PLAYLIST export (.proPlaylist) straight into the Songs import and every song in that service comes in at once — previously a .proPlaylist was silently rejected and imported nothing, so you had to export each song one at a time.",
+      "Library exports (.prolib / .proLibrary) and theme bundles (.protheme) are now accepted the same way.",
+      "Song lyrics now keep the line breaks you wrote them with. Imported slides used to arrive as one long run-on line; each line now lands on its own line, exactly as it looked in ProPresenter.",
+      "Imported playlists keep your SERVICE ORDER. PresentFlow now reads the order your worship team actually planned out of the ProPresenter file, instead of listing the songs alphabetically.",
+      "Smart Folders: create a folder that fills itself. Give it rules (for example, Title contains \"Christmas\", or Date added in the last 30 days) and every matching song or piece of media appears in it automatically — nothing is moved or copied, and your existing folders are untouched. Find it next to the + button in the Library rail.",
+      "Drag pictures and videos from your desktop straight onto the media bin. Dropping onto the media grid itself used to do nothing — you had to aim at the Import button or the library list.",
+      "Big ProPresenter libraries now import instead of failing. Very large exports used to stop with a bare error; the import is now sent up in small pieces automatically, so a library of several thousand songs goes through — and if something still can't fit, the message tells you what to do instead of just failing.",
+      "Importing a large library is also much faster, and the song lyrics it brings in keep their line breaks.",
+    ],
+  },
+  {
     version: "0.1.401",
     date: "2026-09-11",
     headline: "NDI network audio now finds your sources (Windows) — no more empty “scanning…” list",

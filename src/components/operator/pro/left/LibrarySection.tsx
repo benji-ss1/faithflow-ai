@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, ChevronRight, Plus, BookOpen, Library as LibraryIcon, MoreVertical } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, BookOpen, Library as LibraryIcon, MoreVertical, Sparkles } from "lucide-react";
+import { SmartFolderDialog } from "./SmartFolderDialog";
+import { describeRules, type SmartRules } from "@/lib/smart-folders";
 import { cn } from "@/lib/utils";
 import type { CenterMode } from "../ProOperatorShell";
 import { createLibrary, renameLibrary, deleteLibrary, listLibraries, setLibraryColor, setSongLibrary, setMediaLibrary, type LibraryRow } from "@/lib/actions";
@@ -128,17 +130,42 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
   // this library preselected (4c). `libraryId` is null for the Default bucket.
   const spring = useSpringLoad();
 
-  const handleRowDragOver = (rowKey: string, e: React.DragEvent<HTMLElement>) => {
+  // Smart folder editor: null = closed, {} = creating, {id,...} = editing.
+  const [smartDialog, setSmartDialog] = useState<
+    { mode: "create" } | { mode: "edit"; id: string; name: string; rules: SmartRules } | null
+  >(null);
+
+  // A SMART folder fills itself from rules, so it must refuse drops. We return
+  // BEFORE preventDefault() so the browser shows the "no-drop" cursor and the
+  // spring-load never arms — the row visibly does not accept the drag, rather
+  // than accepting it and silently doing nothing. The server refuses too
+  // (libraryMoveError), so this is affordance, not the security boundary.
+  const handleRowDragOver = (rowKey: string, e: React.DragEvent<HTMLElement>, isSmart = false) => {
     const kind = classifyDrop(e.dataTransfer.types);
     if (kind === "none") return;
+    if (isSmart) {
+      // We MUST still preventDefault here. Returning early leaves the drop to
+      // the browser default, which NAVIGATES the operator console away to the
+      // dropped file. dropEffect "none" shows the no-drop cursor, and the row
+      // never spring-arms.
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "none";
+      return;
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = kind === "os-files" ? "copy" : "move";
     spring.enter(rowKey);
   };
 
-  const handleRowDrop = async (rowKey: string, libraryId: string | null, e: React.DragEvent<HTMLElement>) => {
+  const handleRowDrop = async (rowKey: string, libraryId: string | null, e: React.DragEvent<HTMLElement>, isSmart = false) => {
     const kind = classifyDrop(e.dataTransfer.types);
     if (kind === "none") return;
+    if (isSmart) {
+      e.preventDefault();
+      spring.reset();
+      toast.info("Smart folders fill automatically — edit their rules instead");
+      return;
+    }
     e.preventDefault();
     spring.reset();
     if (kind === "os-files") {
@@ -202,6 +229,14 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
         >
           <Plus className="w-3.5 h-3.5" strokeWidth={2.4} />
         </button>
+        <button
+          type="button"
+          onClick={() => { setSmartDialog({ mode: "create" }); setOpen(true); }}
+          className="ml-1 w-[22px] h-[22px] grid place-items-center rounded-md border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] text-[var(--color-muted-foreground)] transition-[transform,box-shadow,color,border-color] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:text-[var(--color-brand)] hover:border-[color-mix(in_oklab,var(--color-brand)_50%,var(--color-border))] active:translate-y-0 active:scale-95"
+          title="New smart folder (fills automatically from rules)"
+        >
+          <Sparkles className="w-3.5 h-3.5" strokeWidth={2.4} />
+        </button>
       </header>
       {open && (
         <ul className="pb-1">
@@ -232,9 +267,9 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
           {libs.map((lib) => (
             <li
               key={lib.id}
-              onDragOver={(e) => handleRowDragOver(lib.id, e)}
+              onDragOver={(e) => handleRowDragOver(lib.id, e, lib.kind === "smart")}
               onDragLeave={(e) => onRowDragLeave(lib.id, e)}
-              onDrop={(e) => void handleRowDrop(lib.id, lib.id, e)}
+              onDrop={(e) => void handleRowDrop(lib.id, lib.id, e, lib.kind === "smart")}
               className={cn("transition-transform", spring.armed(lib.id) && "scale-[1.02]")}
             >
               {renamingId === lib.id ? (
@@ -258,13 +293,18 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
                         type="button"
                         onClick={() => select(lib.id)}
                         onDoubleClick={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }}
-                        title={`${lib.name} — ${lib.songCount} song${lib.songCount === 1 ? "" : "s"}, ${lib.mediaCount} media (right-click or ⋮ for options)`}
+                        title={lib.kind === "smart"
+                          ? `${lib.name} (smart folder — fills automatically) — ${describeRules(lib.rules, "songs")}`
+                          : `${lib.name} — ${lib.songCount} song${lib.songCount === 1 ? "" : "s"}, ${lib.mediaCount} media (right-click or ⋮ for options)`}
                         className={cn("min-w-0 flex-1", rowCls(selected === lib.id), spring.armed(lib.id) && "border-transparent bg-transparent")}
                       >
                         {lib.color ? (
                           <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-inset ring-black/20" style={{ background: lib.color }} aria-hidden />
                         ) : (
                           <LibraryIcon className={cn("w-4 h-4 shrink-0", selected === lib.id && "text-[var(--color-brand)]")} />
+                        )}
+                        {lib.kind === "smart" && (
+                          <Sparkles className="w-3 h-3 shrink-0 text-[var(--color-brand)]" aria-label="Smart folder" />
                         )}
                         <span className="truncate">{lib.name}</span>
                         {spring.armed(lib.id) ? escHint : countBadge(lib.songCount + lib.mediaCount, selected === lib.id)}
@@ -284,6 +324,9 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Portal>
                           <DropdownMenu.Content align="end" sideOffset={4} className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[150px]">
+                            {lib.kind === "smart" && (
+                              <DropdownMenu.Item onSelect={() => setSmartDialog({ mode: "edit", id: lib.id, name: lib.name, rules: lib.rules })} className="px-3 py-1.5 min-h-[28px] flex items-center rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Edit rules…</DropdownMenu.Item>
+                            )}
                             <DropdownMenu.Item onSelect={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }} className="px-3 py-1.5 min-h-[28px] flex items-center rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</DropdownMenu.Item>
                             <DropdownMenu.Sub>
                               <DropdownMenu.SubTrigger className="px-3 py-1.5 min-h-[28px] rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><ChevronRight className="w-3.5 h-3.5 opacity-60" /></DropdownMenu.SubTrigger>
@@ -337,6 +380,16 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
             </li>
           )}
         </ul>
+      )}
+      {smartDialog && (
+        <SmartFolderDialog
+          key={smartDialog.mode === "edit" ? smartDialog.id : "new"}
+          open
+          onOpenChange={(v) => { if (!v) setSmartDialog(null); }}
+          target="songs"
+          editing={smartDialog.mode === "edit" ? smartDialog : undefined}
+          onSaved={() => { setSmartDialog(null); void reload(); }}
+        />
       )}
     </section>
   );

@@ -1,9 +1,10 @@
 // Server-only. Do not import from client components.
-import { eq, asc, and, sql, inArray } from "drizzle-orm";
+import { eq, asc, and, sql, inArray, type SQL } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { sanitizeLyrics } from "../pro6-parser";
 import { desc } from "drizzle-orm";
-import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, aiSuggestions, themes } from "../db/schema";
+import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, aiSuggestions, themes, libraries } from "../db/schema";
+import { compileRules, validateRules, describeRules, type SmartTarget, type SmartTable } from "../smart-folders";
 import { presignGet } from "../s3";
 import type { SlidePayload } from "../broadcast";
 import type { ServiceItemType } from "../db/schema";
@@ -85,10 +86,71 @@ export type ExpandedItem = {
 export type ExpandedPlan = {
   id: string;
   title: string;
+  /**
+   * 'smart' plans are rule-derived and read-only — see synthesizeSmartPlanItems.
+   * OPTIONAL so every existing ExpandedPlan literal (tests, the ad-hoc plan
+   * fallback) stays valid; absent means "manual", i.e. today's behaviour.
+   */
+  kind?: "manual" | "smart";
+  /** Human-readable rule summary, for the smart-playlist rail subtitle. */
+  rulesSummary?: string;
   items: ExpandedItem[];
   logoUrl?: string;
   blankBgColor: string;
 };
+
+/**
+ * Build the item list for a SMART playlist.
+ *
+ * Returns rows shaped exactly like `serviceItems.$inferSelect` so the normal
+ * expansion pipeline needs no special-casing. The `id` is a `smart:` sentinel
+ * rather than a real service_items UUID, which is deliberate: any mutation
+ * action aimed at one will not match a row and will fail closed instead of
+ * silently editing someone else's item. The UI hides those affordances.
+ *
+ * Failure semantics mirror smart folders exactly: unusable rules mean EMPTY,
+ * never "no filter" — showing the church's whole song library as a service
+ * plan would be confidently wrong.
+ */
+async function synthesizeSmartPlanItems(
+  churchId: string,
+  planId: string,
+  rawRules: unknown,
+): Promise<(typeof serviceItems.$inferSelect)[]> {
+  let matched: { id: string; title: string }[] = [];
+  try {
+    const pred = compileRules(validateRules(rawRules, "songs"), "songs", "songs");
+    if (pred) {
+      matched = await getDb()
+        .select({ id: songs.id, title: songs.title })
+        .from(songs)
+        .where(and(eq(songs.churchId, churchId), pred))
+        .orderBy(asc(songs.title))
+        .limit(SMART_PLAYLIST_MAX_ITEMS);
+    }
+  } catch {
+    // A malformed rule set must render an EMPTY playlist, never 500 the
+    // operator console mid-service.
+    matched = [];
+  }
+  const now = new Date();
+  return matched.map((song, i) => ({
+    id: `smart:${song.id}`,
+    servicePlanId: planId,
+    order: i,
+    type: "song" as const,
+    title: song.title,
+    payload: { songId: song.id },
+    createdAt: now,
+  }));
+}
+
+/**
+ * Hard ceiling on a smart playlist's size. A service plan is something a human
+ * runs on a Sunday; a rule that matches 6,000 songs is a mistake, and
+ * expanding every one of them would stall the operator console.
+ */
+const SMART_PLAYLIST_MAX_ITEMS = 500;
 
 export async function getExpandedServicePlan(planId: string, churchId: string): Promise<ExpandedPlan | null> {
   if (!isUuid(planId)) return null; // clean not-found instead of a Postgres uuid-cast throw
@@ -96,7 +158,14 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, churchId))).limit(1);
   if (!plan) return null;
 
-  const items = await db.select().from(serviceItems).where(eq(serviceItems.servicePlanId, plan.id)).orderBy(asc(serviceItems.order));
+  // A SMART playlist owns no service_items rows — its list is derived from
+  // `rules` at read time. We synthesise rows of EXACTLY the shape the ~280
+  // lines of expansion below already consume, so the projector payload, the
+  // operator preview and every downstream consumer work unchanged.
+  const planKind: "manual" | "smart" = plan.kind === "smart" ? "smart" : "manual";
+  const items = planKind === "smart"
+    ? await synthesizeSmartPlanItems(churchId, plan.id, plan.rules)
+    : await db.select().from(serviceItems).where(eq(serviceItems.servicePlanId, plan.id)).orderBy(asc(serviceItems.order));
   const [chSettings] = await db.select().from(settings).where(eq(settings.churchId, churchId)).limit(1);
   const logoUrl = chSettings?.logoS3Key ? await presignGet(chSettings.logoS3Key) : undefined;
   const blankBgColor = chSettings?.blankBgColor || "#000000";
@@ -424,7 +493,15 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, ...(songAppliedThemeId ? { songAppliedThemeId } : {}), songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds, slideActions });
   }
 
-  return { id: plan.id, title: plan.title, items: expanded, logoUrl, blankBgColor };
+  return {
+    id: plan.id,
+    title: plan.title,
+    kind: planKind,
+    rulesSummary: planKind === "smart" ? describeRules(validateRules(plan.rules, "songs"), "songs") : undefined,
+    items: expanded,
+    logoUrl,
+    blankBgColor,
+  };
 }
 
 export async function listServicePlans(churchId: string) {
@@ -436,16 +513,83 @@ export async function listServicePlans(churchId: string) {
 // to one library. `undefined` = all content (unchanged legacy behaviour, so
 // every existing caller is a no-op); `null` = the implicit "Default" bucket
 // (library_id IS NULL); a string = that library's content.
+/**
+ * Resolve a library id to its smart-folder predicate, if it is one.
+ *
+ * Returns:
+ *   { smart: false }              → a manual library; filter by library_id
+ *   { smart: true, where: SQL }   → a smart folder with usable rules
+ *   { smart: true, where: null }  → a smart folder with NO usable rules
+ *
+ * That last case MUST match nothing. Falling back to "no filter" would show
+ * the church's whole library under an empty smart folder — the exact kind of
+ * silent, confusing wrongness this codebase avoids.
+ *
+ * The lookup itself is church-scoped, so one church can never resolve (or
+ * evaluate) another church's smart folder.
+ */
+async function resolveSmartFolder(
+  churchId: string,
+  libraryId: string,
+  target: SmartTarget,
+  table: SmartTable,
+): Promise<{ smart: boolean; where: SQL | null }> {
+  const db = getDb();
+  const [row] = await db
+    .select({ kind: libraries.kind, rules: libraries.rules })
+    .from(libraries)
+    .where(and(eq(libraries.id, libraryId), eq(libraries.churchId, churchId)))
+    .limit(1);
+  if (!row || row.kind !== "smart") return { smart: false, where: null };
+  try {
+    return { smart: true, where: compileRules(validateRules(row.rules, target), target, table) };
+  } catch {
+    // A folder with unusable rules must show as EMPTY, never take down the
+    // whole songs/media list. Mirrors countSmart's "a count is decoration".
+    return { smart: true, where: null };
+  }
+}
+
+// ProPresenter parity (Phase 3.6): an optional `libraryFilter` scopes the list
+// to one library. `undefined` = all content (unchanged legacy behaviour, so
+// every existing caller is a no-op); `null` = the implicit "Default" bucket
+// (library_id IS NULL); a string = that library's content.
+//
+// Smart Folders (2026-09-22): when that string names a SMART folder, the
+// membership test is replaced by the folder's compiled rule predicate. The
+// church scope is always `and()`-ed on regardless (CLAUDE.md rule 5).
 export async function listSongs(churchId: string, libraryFilter?: string | null) {
   const db = getDb();
-  const where = libraryFilter === undefined
-    ? eq(songs.churchId, churchId)
-    : and(eq(songs.churchId, churchId), libraryFilter === null ? sql`${songs.libraryId} IS NULL` : eq(songs.libraryId, libraryFilter));
-  return db.select().from(songs).where(where).orderBy(asc(songs.title));
+  if (libraryFilter === undefined) {
+    return db.select().from(songs).where(eq(songs.churchId, churchId)).orderBy(asc(songs.title));
+  }
+  if (libraryFilter === null) {
+    return db.select().from(songs)
+      .where(and(eq(songs.churchId, churchId), sql`${songs.libraryId} IS NULL`))
+      .orderBy(asc(songs.title));
+  }
+  const smart = await resolveSmartFolder(churchId, libraryFilter, "songs", "songs");
+  if (smart.smart) {
+    if (!smart.where) return [];                       // no rules → matches nothing
+    return db.select().from(songs)
+      .where(and(eq(songs.churchId, churchId), smart.where))
+      .orderBy(asc(songs.title));
+  }
+  return db.select().from(songs)
+    .where(and(eq(songs.churchId, churchId), eq(songs.libraryId, libraryFilter)))
+    .orderBy(asc(songs.title));
 }
 
 export async function listMedia(churchId: string, libraryFilter?: string | null, opts?: { includeAudio?: boolean }) {
   const db = getDb();
+  // Smart folders are SONGS-only today (see src/lib/smart-folders.ts), so one
+  // selected in the media browser holds nothing. Returning [] is honest;
+  // falling through to the library_id filter would also return [] but for the
+  // wrong reason, and would silently start returning rows if media rules land.
+  if (libraryFilter !== undefined && libraryFilter !== null) {
+    const smart = await resolveSmartFolder(churchId, libraryFilter, "media", "media_assets");
+    if (smart.smart) return [];
+  }
   const base = libraryFilter === undefined
     ? eq(mediaAssets.churchId, churchId)
     : and(eq(mediaAssets.churchId, churchId), libraryFilter === null ? sql`${mediaAssets.libraryId} IS NULL` : eq(mediaAssets.libraryId, libraryFilter));

@@ -102,6 +102,28 @@ function extractPrintableRuns(buf: Buffer, minLen = 3): { offset: number; text: 
   return runs;
 }
 
+/**
+ * Normalize one slide's text for projection.
+ *
+ * ProPresenter stores each lyric line separated by RTF `\par`, which
+ * `stripRtf` already turns into a newline. Those line breaks are the
+ * song's own phrasing and MUST survive — collapsing them into spaces
+ * (the previous behaviour) produced one long run-on line per slide and
+ * lost the operator's intended line layout on the projector.
+ *
+ * So: collapse only HORIZONTAL whitespace, trim each line, drop blank
+ * lines, and keep the newlines. Matches what the .pro6 path already
+ * emits (`parts.join("\n")`), so downstream consumers are unchanged.
+ */
+function normalizeSlideText(raw: string): string {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[^\S\n]+/g, " ").trim())
+    .filter((line) => line.length > 0)
+    .join("\n")
+    .trim();
+}
+
 /** Given a candidate label string, return a normalized section name or null. */
 function classifySectionLabel(s: string): string | null {
   const cleaned = s.trim().toLowerCase();
@@ -190,7 +212,7 @@ function reorderPro7ByArrangement(buf: Buffer): string[] | null {
     try { uuid = firstUuid(pbFields(c.buf).find((x) => x.field === 1)?.buf); } catch { /* skip */ }
     if (!uuid) continue;
     const blocks = findRtfBlocks(c.buf);
-    const text = blocks.length > 0 ? blocks[0].text.replace(/\s+/g, " ").trim() : "";
+    const text = blocks.length > 0 ? normalizeSlideText(blocks[0].text) : "";
     if (text) cues.push({ uuid, text });
   }
   if (cues.length === 0) return null;
@@ -227,7 +249,7 @@ export function parsePro7(buf: Buffer, fileName: string): ParsedPro7Song {
   const rtf = findRtfBlocks(buf);
   const fileOrderSlides = rtf
     .map((b) => b.text)
-    .map((t) => t.replace(/\s+/g, " ").trim())
+    .map((t) => normalizeSlideText(t))
     .filter((t) => t.length > 0);
   const slides = arranged ?? fileOrderSlides;
 
@@ -247,30 +269,26 @@ export function parsePro7(buf: Buffer, fileName: string): ParsedPro7Song {
   const sections: { name: string; slides: string[] }[] = [];
   if (rtf.length > 0) {
     // For each RTF block, find the last section label whose offset < RTF start.
+    // `li` is a monotonic cursor: because both `rtf` and `labels` are in file
+    // order, advancing it leaves `currentSection` set to the LAST label before
+    // this block — which is exactly the section the block belongs to.
+    //
+    // SCALING (2026-09-22): this loop used to ALSO run a full `for (const l of
+    // labels)` rescan per block to recompute the same value, making section
+    // assignment O(blocks x labels) on a hot import path. The rescan was
+    // provably redundant with the cursor, so it is gone.
     let currentSection = "Song";
-    let currentSlides: string[] = [];
     let li = 0;
     for (const block of rtf) {
       while (li < labels.length && labels[li].offset < block.start) {
-        // Advance labels — the latest one before this RTF block is the current section.
-        if (labels[li].offset < block.start) currentSection = labels[li].name;
+        currentSection = labels[li].name;
         li++;
       }
-      // If the next slide is in a new section, flush the accumulator.
-      const lastAccumSection = sections.length > 0 ? sections[sections.length - 1].name : null;
-      const bestLabel = (() => {
-        let best: string | null = null;
-        for (const l of labels) if (l.offset < block.start) best = l.name;
-        return best;
-      })();
-      const thisSection = bestLabel || currentSection;
-      if (sections.length === 0 || sections[sections.length - 1].name !== thisSection) {
-        sections.push({ name: thisSection, slides: [] });
+      if (sections.length === 0 || sections[sections.length - 1].name !== currentSection) {
+        sections.push({ name: currentSection, slides: [] });
       }
-      const cleaned = block.text.replace(/\s+/g, " ").trim();
+      const cleaned = normalizeSlideText(block.text);
       if (cleaned) sections[sections.length - 1].slides.push(cleaned);
-      // Silence unused-variable warnings from the exploratory loop.
-      void lastAccumSection; void currentSlides;
     }
   }
 

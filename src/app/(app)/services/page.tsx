@@ -4,6 +4,8 @@ import { listServicePlans } from "@/lib/server/services";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ServicePlanRow } from "@/components/services/ServicePlanRow";
 import { CleanupAdHocButton } from "@/components/services/CleanupAdHocButton";
+import { SmartPlaylistButton } from "@/components/services/SmartPlaylistButton";
+import { validateRules, describeRules } from "@/lib/smart-folders";
 import { createServicePlan } from "@/lib/actions";
 import { redirect } from "next/navigation";
 
@@ -31,6 +33,10 @@ export default async function ServicesPage() {
         <button className="h-9 px-4 bg-foreground text-background rounded-md text-sm font-semibold hover:opacity-90">Create</button>
       </form>
 
+      <div className="mb-6 -mt-3">
+        <SmartPlaylistButton />
+      </div>
+
       {adHocCount > 1 ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-accent)] p-3">
           <div className="text-xs text-[var(--pf-admin-text-secondary)]">
@@ -45,7 +51,14 @@ export default async function ServicesPage() {
       ) : (
         <ul className="divide-y divide-border border border-border rounded-md">
           {plans.map((p) => (
-            <ServicePlanRow key={p.id} id={p.id} title={p.title} />
+            <ServicePlanRow
+              key={p.id}
+              id={p.id}
+              title={p.title}
+              kind={p.kind === "smart" ? "smart" : "manual"}
+              rules={p.kind === "smart" ? validateRules(p.rules, "songs") : undefined}
+              rulesSummary={p.kind === "smart" ? describeRules(validateRules(p.rules, "songs"), "songs") : undefined}
+            />
           ))}
         </ul>
       )}
