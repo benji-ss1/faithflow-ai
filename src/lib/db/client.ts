@@ -50,11 +50,27 @@ function poolMax(): number {
   return Math.max(1, Math.min(24, Math.floor(raw)));
 }
 
+/**
+ * The Fly audio bridge is a LONG-LIVED process; Vercel functions are not. Two
+ * settings matter only for the long-lived case, and adopting them here (rather
+ * than in a second DB module, which would be a second way to do one thing) was
+ * the good idea in PR #75:
+ *   - `min: 1` keeps one connection warm, so the first detection of a service
+ *     does not pay a fresh TCP + TLS + auth handshake.
+ *   - `keepAlive` stops an idle connection being silently dropped by a NAT or
+ *     load balancer between Sunday services, which surfaces later as a
+ *     mysterious first-query failure.
+ * Both are inert for a short-lived function, so they are safe everywhere, but
+ * we only turn them on where a pool size was deliberately configured.
+ */
+const LONG_LIVED = process.env.PG_POOL_MAX !== undefined;
+
 export function getDb() {
   if (_db) return _db;
   _pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: poolMax(),
+    ...(LONG_LIVED ? { min: 1, keepAlive: true } : {}),
     idleTimeoutMillis: 45_000,
     connectionTimeoutMillis: 8_000,
   });

@@ -51,7 +51,7 @@ Anything more would be more powerful than ProPresenter itself.
 | Y7 | **Media load failure is silent.** | ✅ **FIXED 2026-09-21** — `media-failure.ts`: the operator is toasted, the projector still hides it, and the output pages have no listener (test-locked). |
 | Y8 | **No per-layer transitions** (PP7 splits media vs slide). | OPEN |
 | Y9 | **No true Builds** — our per-object `anim` is an entrance stagger, not build-in/build-out with on-click sequencing. | OPEN |
-| Y10 | **Stage display is a fixed view**, not PP7's composable layout with per-screen assignment. | OPEN |
+| Y10 | **Stage display is a fixed view**, not PP7's composable layout. | 🟠 **BUILT, UNPROVEN** — a Stage Layout editor exists on `feat/pp7-timers` (PR #97): named/duplicable presets, a canvas with current/next text, timer, clock, screen preview, message and static text, per-widget size/colour/alignment, and multiple stage screens via `/stage?screen=<id>`. Built-ins are code not rows, so "restore defaults" always works. **NOT field-verified on a real confidence monitor** — do not treat as closed. |
 | Y11 | **No Mask, no Screen Color.** PP7's Screen Color is operator-configurable; we hardcode black per output route. | OPEN |
 | Y12 | **Scenes include `stage`** as a controllable screen; PP7's Looks are audience-only. | OPEN |
 | Y13 | **Legacy black backgrounds**: rows saved before 2026-09-21 with a deliberately chosen black have no `bgExplicit` and will render as transparent. Needs a backfill or explicit sign-off. | OPEN |
@@ -69,6 +69,16 @@ Anything more would be more powerful than ProPresenter itself.
 | # | Gap | Status |
 |---|---|---|
 | W1 | **HEVC `.mov` may be silently black on a Windows projector** — allowed upload type, no codec check, stock Chromium cannot decode HEVC. | OPEN 🔴 (unverified — needs a Windows box) |
+
+### Timers — noted from PR #97 (not this PR's work)
+
+- PP's timer state machine is **five** states (stopped / running / complete /
+  overrunning / overran), not two. Implemented on that branch.
+- PP pushes a formatted time **string** ~1/sec to a dumb renderer. PR #97 sends
+  an **anchor** and each screen ticks locally instead — deliberately different,
+  far cheaper over Supabase, and it survives a wifi drop mid-countdown where
+  PP's approach freezes on the last string it received. A **named divergence**,
+  not a parity gap.
 
 ## Needs verification, not code
 

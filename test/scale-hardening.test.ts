@@ -106,6 +106,14 @@ check("PG_POOL_MAX is clamped and defaults to the safe value", async () => {
 check("the Fly bridge raises its own pool, the web app does not", () => {
   assert.match(read("fly.toml"), /PG_POOL_MAX = "12"/);
 });
+check("a long-lived bridge keeps a warm connection and survives idle NAT drops", () => {
+  // PR #75's good idea, folded in rather than duplicated into a second DB
+  // module: min:1 avoids a cold handshake on the first detection of a service,
+  // keepAlive stops an idle connection being dropped between Sundays.
+  const src = read("src/lib/db/client.ts");
+  assert.match(src, /const LONG_LIVED = process\.env\.PG_POOL_MAX !== undefined/);
+  assert.match(src, /LONG_LIVED \? \{ min: 1, keepAlive: true \}/);
+});
 
 console.log("shared rate limits degrade rather than lock a church out:");
 check("Redis backend falls back to the in-memory limiter, never open, never closed", () => {
