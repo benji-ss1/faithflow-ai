@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.511",
+    "version": "0.1.514",
     "date": "2026-09-22",
     "headline": "Fixed — scripture and lyrics in the preview could shake and look doubled up",
     "highlights": [
@@ -14,7 +14,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.510",
+    "version": "0.1.513",
     "date": "2026-09-22",
     "headline": "Fixed — slide cards showed a plain black background while the screen showed the theme",
     "highlights": [
@@ -26,7 +26,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.509",
+    "version": "0.1.512",
     "date": "2026-09-22",
     "headline": "Fixed — quick theme changes in the Theme panel no longer undo each other",
     "highlights": [
@@ -36,7 +36,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.508",
+    "version": "0.1.511",
     "date": "2026-09-22",
     "headline": "Fixed — the slide editor no longer previews designed text bigger than it projects",
     "highlights": [
@@ -47,13 +47,40 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.507",
+    "version": "0.1.510",
     "date": "2026-09-22",
     "headline": "Fixed — a slide element could get stuck to the mouse in the slide editor",
     "highlights": [
       "Dragging or resizing an element in the slide editor no longer gets stuck if you release the mouse outside the app window - over a menu, off the edge of the screen, or on a video. The element used to keep following the pointer until you clicked again.",
       "Right-clicking an element no longer starts a drag by accident.",
-      "The editor no longer lets you move an element before the slide has finished loading, which used to leave it in a position that was quietly thrown away when the slide was saved.",
+      "The editor no longer lets you move an element before the slide has finished loading, which used to leave it in a position that was quietly thrown away when the slide was saved."
+    ]
+  },
+  {
+    "version": "0.1.509",
+    "date": "2026-09-22",
+    "headline": "Fixed — a theme's \"Third band\" scripture choice is now actually saved",
+    "highlights": [
+      "Setting a theme's Scripture layout to Third band now sticks. The choice was offered in the theme editor and looked right while you were setting it, but it was thrown away the moment the theme was saved - so reopening the theme, or going live, always fell back to Full screen.",
+      "Fine-tuning the band itself (colour, height, position, text size) still lives in Edit scripture slide, and that still applies to your whole church.",
+      "A saved church Scripture Style still overrides the theme, exactly as before, and a theme that says nothing about scripture is unchanged."
+    ]
+  },
+  {
+    "version": "0.1.508",
+    "date": "2026-09-22",
+    "headline": "Fixed — large text could snap back to normal size on the projector",
+    "highlights": [
+      "Fixed a bug that could hit you if you turned the verse text size right up AND also turned up the separate Font slider in the projection zone settings. With both near their maximum, the projector quietly jumped back to normal size in the middle of a service — while your own preview carried on showing the big text, so there was no sign anything was wrong. It affected all slide text, not only verses.",
+      "Your text size now stays large on the screen instead of resetting.",
+      "Your preview and the projector now always agree on the text size."
+    ]
+  },
+  {
+    "version": "0.1.507",
+    "date": "2026-09-22",
+    "headline": "Groundwork for launching without internet",
+    "highlights": [
       "The health endpoint now reports which build is live, and carries a remote switch for the offline cache that is coming next.",
       "No user-visible change. This exists so the offline cache can be turned off for every church without shipping a new desktop app — the property that made the 2026-08-11 service-worker incident survivable."
     ]
@@ -66,20 +93,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "If the internet drops mid-service, the desktop app now leaves your console exactly where it is. It used to fall back to the loading screen and start reconnecting — losing your loaded slides and your place in the service, to recover from a blip the app had not even noticed.",
       "A real crash still recovers the way it always did.",
       "Approving a verse and the \"show verse\" voice command now work with no internet, as long as that translation has been downloaded. They were quietly going to the server every time and failing, even though the whole Bible was already saved on the machine.",
-      "The app stops re-checking your song library every 90 seconds while offline, so the logs stay clean and the machine is left alone.",
-      "Setting a theme's Scripture layout to Third band now sticks. The choice was offered in the theme editor and looked right while you were setting it, but it was thrown away the moment the theme was saved - so reopening the theme, or going live, always fell back to Full screen.",
-      "Fine-tuning the band itself (colour, height, position, text size) still lives in Edit scripture slide, and that still applies to your whole church.",
-      "A saved church Scripture Style still overrides the theme, exactly as before, and a theme that says nothing about scripture is unchanged."
+      "The app stops re-checking your song library every 90 seconds while offline, so the logs stay clean and the machine is left alone."
     ]
   },
   {
     "version": "0.1.505",
     "date": "2026-09-22",
-    "headline": "Fixed — large text could snap back to normal size on the projector",
+    "headline": "Each timer now chooses its own screens, and the row tells you where it is going",
     "highlights": [
-      "Fixed a bug that could hit you if you turned the verse text size right up AND also turned up the separate Font slider in the projection zone settings. With both near their maximum, the projector quietly jumped back to normal size in the middle of a service — while your own preview carried on showing the big text, so there was no sign anything was wrong. It affected all slide text, not only verses.",
-      "Your text size now stays large on the screen instead of resetting.",
-      "Your preview and the projector now always agree on the text size.",
       "Every timer has its own \"Shows on\" row — Projector, Stage, Livestream, NDI. One timer can be a stage-only confidence clock for the preacher while another counts the congregation in on the projector.",
       "The timer row now tells you where it is going. Turning a timer ON used to say only that it was live, never which screens it reached; it now reads \"Shows on Projector · Stage\" right under the button.",
       "Switch every screen off and the panel says so in red, instead of leaving you wondering why nothing appeared.",

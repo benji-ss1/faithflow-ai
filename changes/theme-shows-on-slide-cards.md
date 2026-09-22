@@ -1,7 +1,7 @@
 ---
 headline: Fixed — slide cards showed a plain black background while the screen showed the theme
 audience: operator
-version: 0.1.510
+version: 0.1.513
 date: 2026-09-22
 highlights:
   - The slide cards in the middle of the screen, and the stage row under them, now show your theme's background again. They could show plain black while the projector and the live preview showed the theme correctly, which made it look like the theme had not applied.
