@@ -4,6 +4,12 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("../sentry.server.config");
+    // Shared rate limits across instances. No-op (and stays on the in-memory
+    // limiter) unless UPSTASH_REDIS_REST_URL + _TOKEN are set, so this is safe
+    // to ship before the Redis instance exists.
+    const { installSharedRateLimiter } = await import("./lib/rate-limit-redis");
+    const mode = installSharedRateLimiter();
+    if (mode === "redis") console.log("[rate-limit] shared backend active (Upstash)");
   }
   if (process.env.NEXT_RUNTIME === "edge") {
     await import("../sentry.edge.config");

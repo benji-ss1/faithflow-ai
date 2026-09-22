@@ -4,6 +4,10 @@ import type { SlideObjectWire } from "@/lib/broadcast";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
 import { flipTransform } from "@/lib/editor-geometry";
+import { FittedText } from "./FittedText";
+import { DEFAULT_TEXT_SCALE } from "@/lib/text-fit";
+import { reportMediaFailure } from "@/lib/media-failure";
+import { SlideVideo } from "./SlideVideo";
 
 /**
  * Read-only projector render of a slide's positioned objects (Phase 1 of the
@@ -84,7 +88,10 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
           const objFs = isRef ? fs * refScale : fs;
           return (
             <div key={key} className={animCls} style={boxStyle}>
-              <div
+              <FittedText
+                text={obj.text}
+                runs={obj.runs}
+                mode={obj.textScale ?? DEFAULT_TEXT_SCALE}
                 className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
                 style={{
                   fontFamily: fontStack(obj.fontFamily) || "Inter, system-ui, sans-serif",
@@ -109,9 +116,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
                   textShadow: (obj.shadow ?? true) ? "0 2px 8px rgba(0,0,0,0.45)" : undefined,
                   opacity: obj.opacity ?? 1,
                 }}
-              >
-                {obj.text}
-              </div>
+              />
             </div>
           );
         }
@@ -138,15 +143,16 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
         if (obj.kind === "video") {
           return (
             <div key={key} className={animCls} style={boxStyle}>
-              <video
-                src={obj.url}
-                autoPlay={!frozen}
-                preload={frozen ? "metadata" : undefined}
-                loop={obj.loop ?? true}
-                muted={obj.muted ?? true}
-                playsInline
-                style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1 }}
-                onError={(e) => { (e.currentTarget as HTMLVideoElement).style.visibility = "hidden"; }}
+              <SlideVideo
+                url={obj.url}
+                fit={obj.fit}
+                opacity={obj.opacity}
+                frozen={frozen}
+                spec={{
+                  loop: obj.loop, endAction: obj.endAction,
+                  inSec: obj.inSec, outSec: obj.outSec,
+                  rate: obj.rate, volume: obj.volume, muted: obj.muted,
+                }}
               />
             </div>
           );
@@ -172,7 +178,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
                   filter: "blur(34px) brightness(0.62) saturate(1.08)", transform: "scale(1.15)",
                 }}
                 draggable={false}
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; reportMediaFailure(obj.url, "image"); }}
               />
             ) : null}
             {/* eslint-disable-next-line @next/next/no-img-element */}

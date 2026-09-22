@@ -46,6 +46,14 @@ export function usePp7ClearEffects(ctx: OperatorShellCtx, onClearMessages: () =>
     clearAnnouncement: () => ctx.onSetAnnouncement(null),
     clearMessages: onClearMessages,
     clearLowerThird: ctx.onClearLowerThird ? () => ctx.onClearLowerThird?.() : undefined,
+    // Clear to Logo (F12). Reuses the existing `{kind:"logo"}` payload — the
+    // same thing the "L" hotkey sends — so there is ONE way a logo reaches the
+    // projector, not two. Left UNDEFINED when the church has no logo, which is
+    // what hides the button: a Clear to Logo that clears to nothing would look
+    // like the app had crashed mid-service.
+    showLogo: ctx.plan?.logoUrl
+      ? () => ctx.onSendSlideToLive({ kind: "logo", url: ctx.plan.logoUrl })
+      : undefined,
   }), [ctx, onClearMessages]);
 }
 

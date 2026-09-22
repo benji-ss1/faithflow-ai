@@ -1,5 +1,7 @@
 {
-  "regions": ["dub1"],
+  "regions": [
+    "dub1"
+  ],
   "crons": [
     {
       "path": "/api/cron/warm-embeddings",
@@ -8,6 +10,14 @@
     {
       "path": "/api/cron/backfill-sermons",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/prune-transcripts",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/warm",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

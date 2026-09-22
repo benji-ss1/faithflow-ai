@@ -79,10 +79,15 @@ async function main() {
   }
 
   // 1. Structure: 7 layer buttons in PP7 order + the circled ✕.
-  check("rail renders 7 PP7 rows in order + Clear All", () => {
+  check("rail renders 7 PP7 rows in order + Clear Groups + Clear All", () => {
     const { host, root } = mount(false);
     const btns = [...host.querySelectorAll("button")];
-    assert.equal(btns.length, 8, "7 layers + Clear All");
+    // 7 layer rows + named Clear Groups + the circled Clear All. "Clear to
+    // Logo" is hidden here because this mount has no church logo, which is
+    // deliberate — see pp7-clear-groups.test.ts.
+    assert.equal(btns.length, 9, "7 layers + 1 visible Clear Group + Clear All");
+    const abv = btns.find((b) => (b.getAttribute("aria-label") || "").startsWith("All But Video Input"));
+    assert.ok(abv, "the IMAG clear group must be on the rail");
     const labels = btns.slice(0, 7).map((b) => b.getAttribute("aria-label"));
     assert.deepEqual(labels, [
       "Audio (coming soon)",
@@ -94,7 +99,10 @@ async function main() {
       "Clear Video Input",
     ]);
     // Second binding shown per platform (jsdom UA is not Mac → Ctrl+Shift+C).
-    assert.equal(btns[7].getAttribute("aria-label"), "Clear All (F1 or Ctrl+Shift+C)");
+    // By label, not index: the rail gains buttons over time and an index here
+    // silently starts asserting about a different control.
+    const clearAll = btns.find((b) => (b.getAttribute("aria-label") || "").startsWith("Clear All"));
+    assert.equal(clearAll?.getAttribute("aria-label"), "Clear All (F1 or Ctrl+Shift+C)");
     act(() => root.unmount());
   });
 
@@ -134,7 +142,9 @@ async function main() {
   // 5. Clear All runs every per-layer clear + the lower third.
   check("Clear All clears each layer then the lower third", () => {
     const { host, root, calls } = mount(true);
-    const all = [...host.querySelectorAll("button")][7];
+    const all = [...host.querySelectorAll("button")]
+      .find((b) => (b.getAttribute("aria-label") || "").startsWith("Clear All"))!;
+    assert.ok(all, "Clear All must be findable by label, not position");
     calls.length = 0;
     act(() => { all.click(); });
     assert.deepEqual(calls, [

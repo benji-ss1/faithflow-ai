@@ -60,6 +60,14 @@ export type TextObject = {
   letterSpacing?: number;   // canvas px, ~-10–40 (tracking)
   uppercase?: boolean;      // force UPPERCASE
   shadow?: boolean;         // drop shadow (default true — preserves existing look)
+  // ProPresenter scale-to-fit for this box (see src/lib/text-fit.ts). Absent =
+  // "down": text that fits is untouched, text that would be CLIPPED shrinks to
+  // fit instead of vanishing off the box.
+  textScale?: import("./text-fit").TextScaleMode;
+  // "Special" formatting that survives a theme apply (src/lib/text-runs.ts).
+  // PP7 keeps bold/italic/underline/colour ONLY where it contrasts with the
+  // rest of the box. Absent = no special formatting = today's behaviour.
+  runs?: import("./text-runs").TextRun[];
   stroke?: string;          // text outline colour
   strokeWidth?: number;     // outline width, canvas px (0 = none)
   // Theme Editor (PR 1): which content a THEME text box holds — main
@@ -136,6 +144,17 @@ export type VideoObject = {
   loop?: boolean;
   muted?: boolean;
   opacity?: number;
+  // ProPresenter video controls (src/lib/video-playback.ts). All optional and
+  // all defaulting to exactly today's behaviour.
+  /** Trim, in seconds from the start of the FILE (not the trimmed clip). */
+  inSec?: number;
+  outSec?: number;
+  /** What happens at the out-point. Absent = derived from `loop`. */
+  endAction?: import("./video-playback").VideoEndAction;
+  /** Playback speed, 0.25–4. Absent = 1. */
+  rate?: number;
+  /** 0–1. `muted` still wins. Absent = full (but muted by default). */
+  volume?: number;
 };
 
 export type SlideObject = TextObject | ShapeObject | ImageObject | VideoObject;
