@@ -1,5 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { validateRules, compileRules, type SmartRules, type SmartTarget } from "./smart-folders";
+import type { SQL } from "drizzle-orm";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { adHocCleanupTargets, recentChurchDayKeys } from "./operator-plan-select";
 import { getDb } from "./db/client";
@@ -221,6 +223,11 @@ export async function addServiceItem(planId: string, type: ServiceItemType, titl
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
   if (!plan) return { ok: false, error: "Not found" };
+  if (plan.kind === "smart") return { ok: false, error: "Smart playlists fill automatically — edit their rules instead" };
+  // A smart playlist has no service_items rows — writing one would create an
+  // item that is invisible in the plan. This is the SECURITY boundary; the
+  // drop refusal in PlaylistSection is only affordance.
+  if (plan.kind === "smart") return { ok: false, error: "Smart playlists fill automatically — edit their rules instead" };
   const guard = await validateAddServiceItemPayload(db, user.churchId, type, payload || {});
   if (!guard.ok) return guard;
   // Lock the plan row (FOR UPDATE) for the read-existing + insert, so this add
@@ -280,6 +287,7 @@ export async function addServiceItems(
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
   if (!plan) return { ok: false, error: "Not found" };
+  if (plan.kind === "smart") return { ok: false, error: "Smart playlists fill automatically — edit their rules instead" };
   if (!Array.isArray(items) || items.length === 0) return { ok: true, data: { inserted: 0, skipped: 0 } };
 
   // Validate every item's payload shape / church-scoping BEFORE touching the
@@ -356,6 +364,7 @@ export async function reorderServiceItems(planId: string, orderedIds: string[]):
     .where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId)))
     .limit(1);
   if (!plan) return { ok: false, error: "Not found" };
+  if (plan.kind === "smart") return { ok: false, error: "Smart playlists fill automatically — edit their rules instead" };
   const existing = await db.select({ id: serviceItems.id }).from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
   const existingSet = new Set(existing.map((e) => e.id));
   for (const id of orderedIds) if (!existingSet.has(id)) return { ok: false, error: "Item not part of this plan" };
@@ -691,7 +700,14 @@ export async function renameServiceItem(itemId: string, newTitle: string): Promi
 // Named content buckets. Content with a NULL library_id is the implicit
 // "Default" library, which is never a real row (so it can't be deleted/renamed).
 
-export type LibraryRow = { id: string; name: string; order: number; color: string | null; songCount: number; mediaCount: number };
+export type LibraryRow = {
+  id: string; name: string; order: number; color: string | null;
+  songCount: number; mediaCount: number;
+  /** 'manual' = drag-and-drop membership; 'smart' = rule-derived. */
+  kind: "manual" | "smart";
+  /** Rule set for a smart folder; always empty for a manual library. */
+  rules: SmartRules;
+};
 
 export async function listLibraries(): Promise<Result<{ libraries: LibraryRow[]; defaultSongCount: number; defaultMediaCount: number }>> {
   const user = await requireUser();
@@ -707,11 +723,123 @@ export async function listLibraries(): Promise<Result<{ libraries: LibraryRow[];
   return {
     ok: true,
     data: {
-      libraries: rows.map((r) => ({ id: r.id, name: r.name, order: r.order, color: r.color ?? null, songCount: sc.get(r.id) ?? 0, mediaCount: mc.get(r.id) ?? 0 })),
+      libraries: await (async () => {
+        // SCALING: this used to run one COUNT(*) per smart folder, sequentially,
+        // on every rail render. Now every smart folder is counted in ONE query.
+        const smartRows = rows.filter((r) => r.kind === "smart");
+        const smartCounts = await countSmartBatch(db, user.churchId, smartRows);
+        return rows.map((r) => {
+          const kind = r.kind === "smart" ? ("smart" as const) : ("manual" as const);
+          if (kind === "manual") {
+            return { id: r.id, name: r.name, order: r.order, color: r.color ?? null,
+              songCount: sc.get(r.id) ?? 0, mediaCount: mc.get(r.id) ?? 0,
+              kind, rules: { match: "all" as const, rules: [] } };
+          }
+          // Smart folders are SONGS-only, so mediaCount is always 0 — counting
+          // media by a shared field like created_at would put media the
+          // operator never asked for behind a rule they can't see.
+          return { id: r.id, name: r.name, order: r.order, color: r.color ?? null,
+            songCount: smartCounts.get(r.id) ?? 0, mediaCount: 0,
+            kind, rules: validateRules(r.rules, "songs") };
+        });
+      })(),
       defaultSongCount: sc.get(null) ?? 0,
       defaultMediaCount: mc.get(null) ?? 0,
     },
   };
+}
+
+/**
+ * Count the rows a smart folder currently matches.
+ *
+ * Always church-scoped, and a folder with no usable rules counts 0 (matching
+ * `listSongs`/`listMedia`, which return nothing) rather than the whole library.
+ */
+async function countSmart(
+  db: ReturnType<typeof getDb>,
+  churchId: string,
+  target: SmartTarget,
+  rules: SmartRules,
+): Promise<number> {
+  const table: "songs" | "media_assets" = target === "songs" ? "songs" : "media_assets";
+  const pred = compileRules(rules, target, table);
+  if (!pred) return 0;
+  try {
+    const res = await db.execute(
+      sql`SELECT count(*)::int AS n FROM ${sql.raw(`"${table}"`)} WHERE church_id = ${churchId} AND ${pred}`,
+    );
+    return (res as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0;
+  } catch (err) {
+    // A count is decoration — never fail the whole rail over one bad rule set.
+    // But DO log it: swallowing silently turned "the migration hasn't run"
+    // into every smart folder quietly showing 0, with nothing to debug.
+    console.error("[smart-folders] count failed", { target, err });
+    return 0;
+  }
+}
+
+/**
+ * Count every smart folder's matches in ONE query.
+ *
+ * Each folder contributes a `SELECT <id>, count(*) … WHERE church_id = ? AND
+ * <its predicate>` arm, UNION ALL'd together, so the rail costs one round trip
+ * no matter how many smart folders a church has. Folders with no usable rules
+ * are omitted entirely and default to 0, matching `compileRules` returning null.
+ */
+async function countSmartBatch(
+  db: ReturnType<typeof getDb>,
+  churchId: string,
+  rows: { id: string; rules: unknown }[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const arms: SQL[] = [];
+  for (const r of rows) {
+    const pred = compileRules(validateRules(r.rules, "songs"), "songs", "songs");
+    if (!pred) { out.set(r.id, 0); continue; }
+    arms.push(sql`SELECT ${r.id}::text AS id, count(*)::int AS n FROM "songs" WHERE church_id = ${churchId} AND ${pred}`);
+  }
+  if (arms.length === 0) return out;
+  try {
+    let q: SQL = arms[0];
+    for (let i = 1; i < arms.length; i++) q = sql`${q} UNION ALL ${arms[i]}`;
+    const res = await db.execute(q);
+    for (const row of (res as unknown as { rows: { id: string; n: number }[] }).rows) {
+      out.set(row.id, row.n);
+    }
+  } catch (err) {
+    console.error("[smart-folders] batch count failed", err);
+  }
+  for (const r of rows) if (!out.has(r.id)) out.set(r.id, 0);
+  return out;
+}
+
+/** Create a rule-based folder. Rules are validated before they are stored. */
+export async function createSmartFolder(name: string, rules: unknown): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const trimmed = name.trim().slice(0, 100);
+  if (!trimmed) return { ok: false, error: "Folder name required" };
+  const clean = validateRules(rules, "songs");
+  const db = getDb();
+  const existing = await db.select({ order: libraries.order }).from(libraries).where(eq(libraries.churchId, user.churchId));
+  const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.order)) + 1 : 0;
+  const [row] = await db.insert(libraries)
+    .values({ churchId: user.churchId, name: trimmed, order: nextOrder, kind: "smart", rules: clean })
+    .returning({ id: libraries.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+/** Replace a smart folder's rule set. Refuses to turn a manual library smart. */
+export async function updateSmartFolderRules(id: string, rules: unknown): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const [row] = await db.select({ kind: libraries.kind }).from(libraries)
+    .where(and(eq(libraries.id, id), eq(libraries.churchId, user.churchId))).limit(1);
+  if (!row) return { ok: false, error: "Folder not found" };
+  if (row.kind !== "smart") return { ok: false, error: "That library is not a smart folder" };
+  const res = await db.update(libraries).set({ rules: validateRules(rules, "songs") })
+    .where(and(eq(libraries.id, id), eq(libraries.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Folder not found" };
+  return { ok: true };
 }
 
 export async function createLibrary(name: string): Promise<Result<{ id: string }>> {
@@ -757,16 +885,24 @@ export async function setLibraryColor(id: string, color: string | null): Promise
 
 // Move a song / media asset into a library (null → the Default bucket). The
 // target library (when non-null) must belong to the caller's church.
-async function assertOwnLibrary(db: ReturnType<typeof getDb>, churchId: string, libraryId: string | null): Promise<boolean> {
-  if (libraryId === null) return true;
-  const [row] = await db.select({ id: libraries.id }).from(libraries).where(and(eq(libraries.id, libraryId), eq(libraries.churchId, churchId))).limit(1);
-  return !!row;
+// Returns the reason a move is not allowed, or null when it is.
+//
+// A SMART folder must reject content writes at the SERVER, not just in the UI:
+// its membership is derived from rules, so a stored library_id would be
+// invisible in the folder and would silently vanish from the Default bucket.
+async function libraryMoveError(db: ReturnType<typeof getDb>, churchId: string, libraryId: string | null): Promise<string | null> {
+  if (libraryId === null) return null;
+  const [row] = await db.select({ id: libraries.id, kind: libraries.kind }).from(libraries).where(and(eq(libraries.id, libraryId), eq(libraries.churchId, churchId))).limit(1);
+  if (!row) return "Library not found in your church";
+  if (row.kind === "smart") return "Smart folders fill automatically — edit its rules instead";
+  return null;
 }
 
 export async function setSongLibrary(songId: string, libraryId: string | null): Promise<Result> {
   const user = await requireCap("edit_library");
   const db = getDb();
-  if (!(await assertOwnLibrary(db, user.churchId, libraryId))) return { ok: false, error: "Library not found in your church" };
+  const moveErr = await libraryMoveError(db, user.churchId, libraryId);
+  if (moveErr) return { ok: false, error: moveErr };
   const res = await db.update(songs).set({ libraryId }).where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
   if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Song not found" };
   return { ok: true };
@@ -775,7 +911,8 @@ export async function setSongLibrary(songId: string, libraryId: string | null): 
 export async function setMediaLibrary(assetId: string, libraryId: string | null): Promise<Result> {
   const user = await requireCap("edit_library");
   const db = getDb();
-  if (!(await assertOwnLibrary(db, user.churchId, libraryId))) return { ok: false, error: "Library not found in your church" };
+  const moveErr = await libraryMoveError(db, user.churchId, libraryId);
+  if (moveErr) return { ok: false, error: moveErr };
   const res = await db.update(mediaAssets).set({ libraryId }).where(and(eq(mediaAssets.id, assetId), eq(mediaAssets.churchId, user.churchId)));
   if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Media asset not found" };
   return { ok: true };
@@ -784,6 +921,43 @@ export async function setMediaLibrary(assetId: string, libraryId: string | null)
 // ── Playlist section headers (ProPresenter parity, Phase 3.6) ────────────────
 // A header is a non-content service item; it reuses the service_items table
 // (type "header", payload.color) so it reorders/persists exactly like any item.
+
+/**
+ * Create a rule-based (smart) playlist.
+ *
+ * Mirrors createSmartFolder, but gated on "operate_services" because a plan is
+ * a service-plan object, not a library object.
+ */
+export async function createSmartPlaylist(title: string, rules: unknown): Promise<Result<{ id: string }>> {
+  const user = await requireCap("operate_services");
+  const trimmed = title.trim().slice(0, 200);
+  if (!trimmed) return { ok: false, error: "Playlist name required" };
+  const clean = validateRules(rules, "songs");
+  if (clean.rules.length === 0) return { ok: false, error: "Add at least one complete rule" };
+  const db = getDb();
+  const [row] = await db.insert(servicePlans)
+    .values({ churchId: user.churchId, title: trimmed, kind: "smart", rules: clean })
+    .returning({ id: servicePlans.id });
+  revalidatePath("/services");
+  return { ok: true, data: { id: row.id } };
+}
+
+/** Replace a smart playlist's rules. Refuses to convert a hand-built plan. */
+export async function updateSmartPlaylistRules(planId: string, rules: unknown): Promise<Result> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  const [plan] = await db.select({ kind: servicePlans.kind }).from(servicePlans)
+    .where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
+  if (!plan) return { ok: false, error: "Not found" };
+  if (plan.kind !== "smart") return { ok: false, error: "That playlist is not a smart playlist" };
+  const clean = validateRules(rules, "songs");
+  if (clean.rules.length === 0) return { ok: false, error: "Add at least one complete rule" };
+  const res = await db.update(servicePlans).set({ rules: clean, updatedAt: new Date() })
+    .where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Not found" };
+  revalidatePath("/services");
+  return { ok: true };
+}
 
 export async function addPlaylistHeader(planId: string, title: string, color?: string): Promise<Result<{ id: string }>> {
   const trimmed = (title || "Section").trim().slice(0, 120) || "Section";
@@ -1577,7 +1751,7 @@ export async function registerMediaAsset(data: { kind: "image" | "video" | "audi
   const { kind, fileName, s3Key } = check;
   const mimeType = verified.mimeType; // SNIFFED type when known (e.g. a PNG saved as .jpg)
   const sizeBytes = verified.sizeBytes; // the REAL stored size, not the client's claim
-  const resolvedLibraryId = libraryId && (await assertOwnLibrary(db, user.churchId, libraryId)) ? libraryId : null;
+  const resolvedLibraryId = libraryId && (await libraryMoveError(db, user.churchId, libraryId)) === null ? libraryId : null;
   // Explicit whitelist of the columns we persist — never spread caller input
   // into the insert, so a future extra field on `data` can't silently write an
   // unintended column.

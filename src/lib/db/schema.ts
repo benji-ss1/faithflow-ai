@@ -169,6 +169,15 @@ export const libraries = pgTable("libraries", {
   // Wave 3 (item 3b): optional #rrggbb colour label, rendered as a dot/accent
   // on the rail row. NULL = no label. Validated on write like header colours.
   color: text("color"),
+  // Smart Folders (2026-09-22): 'manual' = drag-and-drop membership via
+  // songs.library_id / media_assets.library_id (the original behaviour, and
+  // the default so every existing row is unchanged). 'smart' = membership is
+  // derived from `rules` at query time and NOTHING is ever written to a
+  // content row's library_id. DB CHECK constraint guards the domain.
+  kind: text("kind").notNull().default("manual"),
+  // SmartRules json ({match, rules[]}) — see src/lib/smart-folders.ts.
+  // Always `{}` for a manual library.
+  rules: jsonb("rules").notNull().default({}),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_libraries_church").on(t.churchId, t.order),
@@ -180,6 +189,13 @@ export const servicePlans = pgTable("service_plans", {
   title: text("title").notNull(),
   scheduledFor: date("scheduled_for"),
   notes: text("notes"),
+  // Smart Playlists (2026-09-22): 'manual' = hand-built from service_items
+  // (the original behaviour, and the default so every existing plan is
+  // unchanged). 'smart' = the item list is DERIVED from `rules` at read time
+  // and the plan owns no service_items rows at all.
+  kind: text("kind").notNull().default("manual"),
+  // SmartRules json ({match, rules[]}) — see src/lib/smart-folders.ts.
+  rules: jsonb("rules").notNull().default({}),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

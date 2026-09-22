@@ -53,7 +53,7 @@ type CompleteData = {
   warnings: { file: string; warnings: string[] }[];
 };
 
-const ACCEPTED_EXTS = [".proBundle", ".pro", ".pro6", ".pro5", ".pro7", ".pro7x", ".zip"];
+const ACCEPTED_EXTS = [".proBundle", ".proPlaylist", ".prolib", ".proLibrary", ".pro", ".pro6", ".pro5", ".pro7", ".pro7x", ".zip"];
 const MAX_TOTAL_MB = 250;
 
 function fileMatchesAccept(name: string): boolean {
@@ -250,8 +250,8 @@ export function ProPresenterImportDialog({
     }
     if (arr.length === 0) {
       toast.error(onOtherFiles
-        ? "No song files found. Accepted: ProPresenter (.proBundle, .pro, .pro6, .pro5, .pro7, .pro7x), VideoPsalm (.vpagd), EasyWorship / text (.txt, .ews)"
-        : "No ProPresenter files found. Accepted: .proBundle, .pro, .pro6, .pro5, .pro7, .pro7x");
+        ? "No song files found. Accepted: ProPresenter (.proBundle, .proPlaylist, .prolib, .pro, .pro6, .pro5, .pro7, .pro7x), VideoPsalm (.vpagd), EasyWorship / text (.txt, .ews)"
+        : "No ProPresenter files found. Accepted: .proBundle, .proPlaylist, .prolib, .pro, .pro6, .pro5, .pro7, .pro7x");
       return;
     }
     // NB: no raw-size gate here anymore. Bundles are media-heavy (a 171 MB
@@ -510,7 +510,9 @@ function UploadStep({
         <input
           type="file"
           multiple
-          accept={allFormats ? ".proBundle,.pro,.pro6,.pro5,.pro7,.pro7x,.zip,.vpagd,.txt,.ews" : ".proBundle,.pro,.pro6,.pro5,.pro7,.pro7x,.zip"}
+          accept={allFormats
+            ? ".proBundle,.proPlaylist,.prolib,.proLibrary,.pro,.pro6,.pro5,.pro7,.pro7x,.zip,.vpagd,.txt,.ews"
+            : ".proBundle,.proPlaylist,.prolib,.proLibrary,.pro,.pro6,.pro5,.pro7,.pro7x,.zip"}
           className="hidden"
           onChange={(e) => e.target.files && onFiles(e.target.files)}
         />
@@ -525,8 +527,8 @@ function UploadStep({
         </div>
         <div className="text-xs text-muted-foreground">
           {allFormats
-            ? <>ProPresenter (.proBundle, .pro, .pro6, .pro5, .pro7), VideoPsalm (.vpagd), EasyWorship / text (.txt) — up to {MAX_TOTAL_MB} MB</>
-            : <>.proBundle, .pro, .pro6, .pro5, .pro7, .pro7x — up to {MAX_TOTAL_MB} MB</>}
+            ? <>ProPresenter (.proBundle, .proPlaylist, .prolib, .pro, .pro6, .pro5, .pro7), VideoPsalm (.vpagd), EasyWorship / text (.txt) — up to {MAX_TOTAL_MB} MB</>
+            : <>.proBundle, .proPlaylist, .prolib, .pro, .pro6, .pro5, .pro7, .pro7x — up to {MAX_TOTAL_MB} MB</>}
         </div>
       </label>
 

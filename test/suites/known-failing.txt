@@ -18,3 +18,5 @@ test/propresenter-import.test.ts  # broken
 test/song-lyric-search.test.ts  # needs-db
 test/stress-wave5.test.ts  # broken
 test/swift-helper-protocol.test.ts  # broken
+test/adversarial/smart-folders-cross-church.test.ts  # needs-db
+test/adversarial/smart-playlists.test.ts  # needs-db

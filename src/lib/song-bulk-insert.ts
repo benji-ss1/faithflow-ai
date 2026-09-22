@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { songs, songSlides } from "./db/schema";
 
@@ -38,8 +38,25 @@ export async function bulkInsertSongs(
   // grace" to one song before this function ever saw them, but batching splits
   // such variants across separate calls, so cross-batch dedupe now happens
   // ONLY here — it must match the pipeline's case-insensitive key.
-  const existingTitles = new Set(
-    (await db.select({ title: songs.title }).from(songs).where(eq(songs.churchId, churchId))).map((r) => r.title.trim().toLowerCase()),
+  //
+  // SCALING (2026-09-22): this used to `SELECT title FROM songs WHERE
+  // church_id = ?` with NO limit, on every call. At 40 songs per batch a
+  // 6,600-song import made ~330 of those scans and shipped ~1.1 M rows —
+  // quadratic in library size. We now ask only about the titles in THIS
+  // batch, which is O(batch) and uses the (church_id, title) index. The
+  // semantics are identical: all we ever needed was "does this title exist".
+  const wantedKeys = Array.from(
+    new Set(candidates.map((c) => c.title.trim().toLowerCase()).filter(Boolean)),
+  );
+  const existingTitles = new Set<string>(
+    wantedKeys.length === 0
+      ? []
+      : (
+          await db
+            .select({ title: songs.title })
+            .from(songs)
+            .where(and(eq(songs.churchId, churchId), inArray(sql`lower(trim(${songs.title}))`, wantedKeys)))
+        ).map((r) => r.title.trim().toLowerCase()),
   );
 
   const toInsert: SongCandidate[] = [];

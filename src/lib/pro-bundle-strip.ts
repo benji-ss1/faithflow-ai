@@ -33,7 +33,12 @@ const ZIP_EXT_RE = /\.(probundle|pro7x|zip)$/i;
 const MAX_DOC_BYTES = 10 * 1024 * 1024;          // a lyric doc over 10MB is not lyrics
 const MAX_RAW_INPUT_BYTES = 600 * 1024 * 1024;   // refuse to buffer an absurd file
 const MAX_KEPT_ENTRIES = 20000;                   // mirrors/exceeds server bundle-entry cap
-const MAX_TOTAL_DECOMP_BYTES = 80 * 1024 * 1024; // cap total lyrics decompression (zip-bomb guard)
+// Raised 80 MB -> 160 MB (2026-09-22). A 6,600-song library is ~64 MB of
+// lyric documents, which sat right on the old cliff: a slightly lyric-heavier
+// library truncated MID-LIBRARY and reported only a vague toast. Lyrics are
+// text, so this is a bounded memory cost, and `truncated` is now surfaced with
+// an exact count by the callers.
+const MAX_TOTAL_DECOMP_BYTES = 160 * 1024 * 1024; // cap total lyrics decompression (zip-bomb guard)
 
 async function unzipFiltered(
   bytes: Uint8Array,

@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.514",
+    "version": "0.1.517",
     "date": "2026-09-22",
     "headline": "Fixed — scripture and lyrics in the preview could shake and look doubled up",
     "highlights": [
@@ -14,7 +14,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.513",
+    "version": "0.1.516",
     "date": "2026-09-22",
     "headline": "Fixed — slide cards showed a plain black background while the screen showed the theme",
     "highlights": [
@@ -26,7 +26,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.512",
+    "version": "0.1.515",
     "date": "2026-09-22",
     "headline": "Fixed — quick theme changes in the Theme panel no longer undo each other",
     "highlights": [
@@ -36,7 +36,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.511",
+    "version": "0.1.514",
     "date": "2026-09-22",
     "headline": "Fixed — the slide editor no longer previews designed text bigger than it projects",
     "highlights": [
@@ -47,7 +47,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.510",
+    "version": "0.1.513",
     "date": "2026-09-22",
     "headline": "Fixed — a slide element could get stuck to the mouse in the slide editor",
     "highlights": [
@@ -57,7 +57,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.509",
+    "version": "0.1.512",
     "date": "2026-09-22",
     "headline": "Fixed — a theme's \"Third band\" scripture choice is now actually saved",
     "highlights": [
@@ -67,13 +67,52 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.508",
+    "version": "0.1.511",
     "date": "2026-09-22",
     "headline": "Fixed — large text could snap back to normal size on the projector",
     "highlights": [
       "Fixed a bug that could hit you if you turned the verse text size right up AND also turned up the separate Font slider in the projection zone settings. With both near their maximum, the projector quietly jumped back to normal size in the middle of a service — while your own preview carried on showing the big text, so there was no sign anything was wrong. It affected all slide text, not only verses.",
       "Your text size now stays large on the screen instead of resetting.",
       "Your preview and the projector now always agree on the text size."
+    ]
+  },
+  {
+    "version": "0.1.510",
+    "date": "2026-09-22",
+    "headline": "Big ProPresenter libraries now import instead of failing",
+    "highlights": [
+      "Where: Library → Imports, and the Import button in the Songs library.",
+      "A large ProPresenter library used to stop with a bare error part-way through. The import is now sent up in small pieces automatically, so a library of several thousand songs goes through in one go.",
+      "Importing a big library is also a lot faster.",
+      "If something still will not fit, the message now tells you what to do — export the library from ProPresenter in smaller parts — instead of just failing.",
+      "You can drag pictures and videos from your desktop straight onto the media grid. Dropping there used to do nothing; you had to aim at the Import button or the library list."
+    ]
+  },
+  {
+    "version": "0.1.509",
+    "date": "2026-09-22",
+    "headline": "Smart folders and smart playlists — a folder that fills itself",
+    "highlights": [
+      "Where to make a smart FOLDER: the operator's left-hand Library list — click the ✨ star button next to the + button.",
+      "Where to make a smart PLAYLIST: Services → New smart playlist, next to the Create button.",
+      "Give it rules — for example Title contains \"Christmas\", or Date added in the last 30 days — and every song that matches shows up in it automatically. You never drag anything in.",
+      "Nothing is moved or copied. A song in a smart folder still lives exactly where it was, so your existing folders and playlists are completely untouched.",
+      "It keeps itself up to date. Add a new Christmas song next July and it appears in the Christmas folder on its own.",
+      "Smart folders and playlists are marked with a ✨ star, and show the rules underneath so anyone can see why a song is in there. Because they fill themselves, you cannot drag songs into one or reorder it — edit the rules instead, from the ⋮ menu (folders) or the Edit rules button (playlists).",
+      "Deleting a smart folder or playlist never deletes songs. It only holds rules, so removing it just removes the rules."
+    ]
+  },
+  {
+    "version": "0.1.508",
+    "date": "2026-09-22",
+    "headline": "Import a whole ProPresenter service in one drop — and it keeps your running order",
+    "highlights": [
+      "Where: Songs library → Import (top right), or the Import button in the operator's Songs panel.",
+      "Drop a ProPresenter PLAYLIST export (the .proPlaylist file) and every song in that service comes in at once. Until now that file was quietly rejected and nothing imported, so you had to export songs one at a time.",
+      "The songs arrive in the order your worship team actually planned the service, not in alphabetical order. PresentFlow reads the running order out of the ProPresenter file itself.",
+      "Song lyrics now keep their line breaks. Imported slides used to arrive as one long run-on line; each line now sits on its own line, the way it looked in ProPresenter.",
+      "Library exports (.prolib) and theme bundles (.protheme) are accepted the same way.",
+      "One thing to know - a .proPlaylist holds your songs but NOT your background images or videos. To bring artwork across, export a Presentation Bundle (.proBundle) from ProPresenter as well."
     ]
   },
   {

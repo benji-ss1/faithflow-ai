@@ -10,7 +10,17 @@ import Link from "next/link";
 import { CheckCircle2, FileText, FolderOpen, Upload, X } from "lucide-react";
 import { finalizeImport } from "@/lib/import-actions";
 import { ElectronPickFilesButton, ElectronPickFolderButton } from "@/components/electron/ElectronFilePickers";
-import { stripProBundles } from "@/lib/pro-bundle-strip";
+import { stripProBundles, chunkDocsByBytes } from "@/lib/pro-bundle-strip";
+
+/**
+ * Max raw document bytes per upload request.
+ *
+ * Deliberately well under the platform request-body limit: multipart adds
+ * per-part overhead on top of the raw bytes, and a request that is refused at
+ * the edge never reaches our route (so our own size checks can't report it).
+ * 3 MB keeps a batch comfortably small while still being ~300 songs.
+ */
+const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 
 type SourceCard = {
   id: "propresenter" | "easyworship" | "proclaim" | "openlp" | "mediashout" | "worshiptools" | "videopsalm" | "csv" | "none";
@@ -64,7 +74,9 @@ export function WizardClient() {
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<ProgressState | null>(null);
-  const [migrationJobId, setMigrationJobId] = useState<string | null>(null);
+  // A large library is uploaded in SEVERAL requests (see MAX_UPLOAD_BYTES), so
+  // we collect one migration job per batch and finalize them all.
+  const [migrationJobIds, setMigrationJobIds] = useState<string[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finalized, setFinalized] = useState<{ songs: number; media: number; skipped: number } | null>(null);
@@ -102,7 +114,15 @@ export function WizardClient() {
       // dies with a generic error. We upload lyrics only (backgrounds are
       // re-themed in-app). Bare .pro/.pro6/.pro7 files pass through unchanged.
       const isProPresenter = source.id === "propresenter";
-      const fd = new FormData();
+
+      // Build the batches to upload. A 6,600-song library is ~64 MB of lyric
+      // documents — far over the platform request-body limit — so it MUST go
+      // up in several requests. `chunkDocsByBytes` was written for exactly
+      // this and had never been wired in, which is why a large library failed
+      // with a bare HTTP 413 and no guidance.
+      let batches: FormData[];
+      let batchLabel = "";
+
       if (isProPresenter) {
         const { docs, expandedFrom, skippedMedia, truncated, skippedFiles } = await stripProBundles(files);
         if (docs.length === 0) {
@@ -110,83 +130,125 @@ export function WizardClient() {
             ? `Could not read ${skippedFiles.length} file(s). If these are very large bundles, export the library in smaller parts.`
             : "No song documents found in these files.");
         }
-        for (const d of docs) {
-          const name = d.path.split("/").pop() || d.path;
-          // Copy into a fresh ArrayBuffer so the Blob type is definitively
-          // ArrayBuffer (not a shared view) before handing it to File().
-          const ab = new ArrayBuffer(d.bytes.length);
-          new Uint8Array(ab).set(d.bytes);
-          fd.append("files", new File([ab], name, { type: "application/octet-stream" }), name);
-        }
-        const rawBytes = docs.reduce((s, d) => s + d.bytes.length, 0);
+        const rawBytes = docs.reduce((sum, d) => sum + d.bytes.length, 0);
+        const chunks = chunkDocsByBytes(docs, MAX_UPLOAD_BYTES);
+        batches = chunks.map((chunk) => {
+          const fd = new FormData();
+          for (const d of chunk) {
+            const name = d.path.split("/").pop() || d.path;
+            // Copy into a fresh ArrayBuffer so the Blob type is definitively
+            // ArrayBuffer (not a shared view) before handing it to File().
+            const ab = new ArrayBuffer(d.bytes.length);
+            new Uint8Array(ab).set(d.bytes);
+            fd.append("files", new File([ab], name, { type: "application/octet-stream" }), name);
+          }
+          return fd;
+        });
+        batchLabel = `${docs.length} songs (${Math.round(rawBytes / 1024 / 1024)} MB)`;
         if (expandedFrom > 0 || skippedMedia > 0) {
           setProgress({ stage: "parsing", processed: 0, total: docs.length,
-            currentFile: `Extracted ${docs.length} songs (${Math.round(rawBytes / 1024 / 1024)} MB, skipped ${skippedMedia} media)` });
+            currentFile: `Extracted ${batchLabel}, skipped ${skippedMedia} media` });
         }
         if (truncated || skippedFiles.length > 0) {
           // Non-fatal: proceed with what we extracted, warn via error banner after.
           console.warn("[import] some content skipped (size caps):", skippedFiles);
         }
       } else {
+        const fd = new FormData();
         for (const f of files) fd.append("files", f, f.webkitRelativePath || f.name);
+        batches = [fd];
       }
-      const res = await fetch(`/api/imports/parse?source=${encodeURIComponent(source.id)}`, {
-        method: "POST",
-        body: fd,
-      });
-      if (!res.ok) {
-        // Errors on the parse endpoint are JSON (not NDJSON) — a 4xx / 5xx
-        // never enters streaming mode. Fall back to json().
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${res.status}`);
-      }
-      // Consume NDJSON stream — one JSON event per line. Bufferful reads
-      // are split on newlines; anything after the last newline stays in
-      // buffer for the next chunk.
-      if (!res.body) throw new Error("No response body");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          let event: {
-            type: string;
-            stage?: StageKind;
-            processed?: number;
-            total?: number;
-            currentFile?: string;
-            migrationJobId?: string;
-            summary?: Summary;
-            error?: string;
-          };
-          try {
-            event = JSON.parse(trimmed);
-          } catch { continue; }
-          if (event.type === "stage" || event.type === "progress") {
-            if (event.stage && typeof event.processed === "number" && typeof event.total === "number") {
-              setProgress({
-                stage: event.stage,
-                processed: event.processed,
-                total: event.total,
-                currentFile: event.currentFile,
-              });
+
+      // Upload each batch in turn, merging the per-batch summaries into one
+      // review screen and collecting a migration job per batch.
+      const jobIds: string[] = [];
+      const merged: Summary = {
+        parserId: source.id,
+        counts: { songs: 0, media: 0, skipped: 0, duplicates: 0 },
+        songs: [], media: [], skipped: [], duplicates: [],
+      };
+
+      for (let b = 0; b < batches.length; b++) {
+        const res = await fetch(`/api/imports/parse?source=${encodeURIComponent(source.id)}`, {
+          method: "POST",
+          body: batches[b],
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          if (res.status === 413) {
+            throw new Error(
+              `This library is too large to send in one piece (${batchLabel || `${files.length} files`}). ` +
+              `Export it from ProPresenter in smaller parts and import them one at a time.`,
+            );
+          }
+          throw new Error(j.error || `HTTP ${res.status}`);
+        }
+        if (!res.body) throw new Error("No response body");
+
+        // Consume NDJSON stream — one JSON event per line. Bufferful reads
+        // are split on newlines; anything after the last newline stays in
+        // buffer for the next chunk.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            let event: {
+              type: string;
+              stage?: StageKind;
+              processed?: number;
+              total?: number;
+              currentFile?: string;
+              migrationJobId?: string;
+              summary?: Summary;
+              error?: string;
+            };
+            try {
+              event = JSON.parse(trimmed);
+            } catch { continue; }
+            if (event.type === "stage" || event.type === "progress") {
+              if (event.stage && typeof event.processed === "number" && typeof event.total === "number") {
+                setProgress({
+                  stage: event.stage,
+                  // Report progress across the WHOLE import, not per batch, so
+                  // the bar doesn't restart at 0 for every chunk.
+                  processed: event.processed,
+                  total: event.total,
+                  currentFile: batches.length > 1
+                    ? `Part ${b + 1} of ${batches.length}${event.currentFile ? ` — ${event.currentFile}` : ""}`
+                    : event.currentFile,
+                });
+              }
+            } else if (event.type === "done") {
+              if (event.migrationJobId) jobIds.push(event.migrationJobId);
+              if (event.summary) {
+                merged.counts.songs += event.summary.counts.songs;
+                merged.counts.media += event.summary.counts.media;
+                merged.counts.skipped += event.summary.counts.skipped;
+                merged.counts.duplicates += event.summary.counts.duplicates;
+                merged.songs.push(...event.summary.songs);
+                merged.media.push(...event.summary.media);
+                merged.skipped.push(...event.summary.skipped);
+                merged.duplicates.push(...event.summary.duplicates);
+              }
+            } else if (event.type === "error") {
+              throw new Error(event.error || "Server error during parse");
             }
-          } else if (event.type === "done") {
-            if (event.migrationJobId) setMigrationJobId(event.migrationJobId);
-            if (event.summary) setSummary(event.summary);
-            setStep(3);
-          } else if (event.type === "error") {
-            throw new Error(event.error || "Server error during parse");
           }
         }
       }
+
+      if (jobIds.length === 0) throw new Error("Import produced no reviewable result");
+      setMigrationJobIds(jobIds);
+      setSummary(merged);
+      setStep(3);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -196,13 +258,32 @@ export function WizardClient() {
   }
 
   async function confirmImport() {
-    if (!migrationJobId) return;
+    if (migrationJobIds.length === 0) return;
     setUploading(true);
     setError(null);
     try {
-      const res = await finalizeImport(migrationJobId);
-      if (!res.ok) throw new Error(res.error);
-      setFinalized({ songs: res.data!.added.songs, media: res.data!.added.media, skipped: res.data!.skipped });
+      // Finalize every batch's job. Each is independent, so a later failure
+      // still leaves earlier batches imported — report what actually landed
+      // rather than implying the whole import failed.
+      let songs = 0, media = 0, skipped = 0;
+      for (let i = 0; i < migrationJobIds.length; i++) {
+        const res = await finalizeImport(migrationJobIds[i]);
+        if (!res.ok) {
+          if (i > 0) {
+            setFinalized({ songs, media, skipped });
+            setStep(4);
+          }
+          throw new Error(
+            migrationJobIds.length > 1
+              ? `${res.error} (imported ${songs} song(s) from the first ${i} part(s) before this)`
+              : res.error,
+          );
+        }
+        songs += res.data!.added.songs;
+        media += res.data!.added.media;
+        skipped += res.data!.skipped;
+      }
+      setFinalized({ songs, media, skipped });
       setStep(4);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Finalize failed");
@@ -528,7 +609,7 @@ export function WizardClient() {
               {uploading ? "Importing…" : "Confirm import"}
             </button>
             <button
-              onClick={() => { setStep(1); setSummary(null); setMigrationJobId(null); setFiles([]); }}
+              onClick={() => { setStep(1); setSummary(null); setMigrationJobIds([]); setFiles([]); }}
               className="inline-flex h-10 items-center rounded-md border border-border px-4 text-sm hover:bg-[var(--pf-admin-bg-hover)]"
             >
               Cancel
