@@ -16,7 +16,6 @@
  *                                   from — which widgets, where, how big.
  */
 
-import { resolveTimerColor } from "../timers";
 
 /** Widget kinds, mirroring ProPresenter's stage element palette. */
 
@@ -117,78 +116,20 @@ export function clampRect(r: StageRect): StageRect {
   };
 }
 
-/** Resolve the colour for a timer widget at a given remaining value.
- *  Overrun wins outright; otherwise the LOWEST triggered threshold wins, so
- *  {60:orange, 30:yellow, 10:red} paints red at 5s, not orange. Pure. */
-export function resolveWidgetColor(
-  w: Pick<StageWidget, "color" | "overrunColor" | "colorTriggers">,
-  remainingSec: number,
-  fallback = "#ffffff",
-): string {
-  // Delegates to the ONE resolver in src/engine/timers so a timer can never be
-  // one colour on the projector and another on the stage screen. This used to
-  // be a second implementation that disagreed on the UNSET-overrun-colour case:
-  // it hardcoded red past zero while the timer resolver fell back to the base
-  // colour, so the same overrun timer painted red here and white there.
-  return resolveTimerColor(w, remainingSec) ?? fallback;
-}
-
-/** Format a signed seconds value for a stage widget. Mirrors PP's linked-text
- *  format options (show hours, leading zeros). Negative renders with a leading
- *  "-" so an overrun reads unambiguously. Pure. */
-export function formatStageClock(
-  sec: number,
-  opts: { showHours?: boolean; leadingZeros?: boolean } = {},
-): string {
-  const neg = sec < 0;
-  const total = Math.floor(Math.abs(sec));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const showH = opts.showHours ?? h > 0;
-  const mm = opts.leadingZeros || showH ? pad(m) : String(m);
-  const body = showH ? `${opts.leadingZeros ? pad(h) : h}:${pad(m)}:${pad(s)}` : `${mm}:${pad(s)}`;
-  return neg ? `-${body}` : body;
-}
-
-/** A widget that binds to something which no longer exists (deleted timer) is
- *  NOT dropped — it renders as a dash so the operator SEES the broken binding
- *  on the stage screen and can fix it, rather than silently losing a widget. */
-export const STAGE_UNBOUND = "—";
-
-export interface StageRenderContext {
-  nowMs: number;
-  /** timerId -> live signed seconds. Absent id = unbound/deleted. */
-  timers: Record<string, number>;
-  currentText?: string | null;
-  nextText?: string | null;
-  message?: string | null;
-}
-
-/** Resolve a widget to its display string. Pure; `slide_preview` returns null
- *  because it renders a live surface, not text. */
-export function resolveWidgetText(w: StageWidget, ctx: StageRenderContext): string | null {
-  switch (w.kind) {
-    case "static_text": return w.text ?? "";
-    case "current_text": return ctx.currentText ?? "";
-    case "next_text": return ctx.nextText ?? "";
-    case "message": return ctx.message ?? "";
-    case "clock": {
-      const d = new Date(ctx.nowMs);
-      const h = w.showHours === false ? d.getHours() % 12 || 12 : d.getHours();
-      return `${w.leadingZeros ? String(h).padStart(2, "0") : h}:${String(d.getMinutes()).padStart(2, "0")}`;
-    }
-    case "timer": {
-      if (!w.timerId) return STAGE_UNBOUND;
-      const v = ctx.timers[w.timerId];
-      if (v === undefined) return STAGE_UNBOUND;
-      return formatStageClock(v, { showHours: w.showHours, leadingZeros: w.leadingZeros });
-    }
-    case "slide_preview": return null;
-    default: return null;
-  }
-}
+// DELETED 2026-09-22: resolveWidgetColor, formatStageClock, STAGE_UNBOUND,
+// StageRenderContext and resolveWidgetText lived here and were called from
+// NOWHERE in src/. StageLayoutRenderer did all four jobs itself, against the
+// engine/timers versions — and the two had already drifted: formatStageClock
+// and formatTimerClock disagreed on minute padding, which a test RECORDED as a
+// 🟡 note instead of the loop closing it.
+//
+// They are deleted rather than kept "for later". An uncalled pure function is
+// not spare capacity, it is a second implementation waiting to disagree with
+// the real one — which is exactly how the stage screen and the projector drift
+// apart. Timer formatting and colour live in src/engine/timers
+// (formatTimerClock, resolveTimerColor, triggerValueFor) and are shared by
+// every surface, so there is one answer to "what does this timer say and what
+// colour is it".
 
 /** Sanitize an untrusted layout (DB row, import, wire) into a safe one.
  *  Fail-open per-field like the rest of the codebase: a bad field falls back to

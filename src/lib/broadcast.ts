@@ -519,6 +519,14 @@ export type OutputState = {
    * which is the rule-0 anchor for every church that never opens the editor.
    */
   stageLayout?: StageLayoutWire | null;
+  /**
+   * Layouts per stage screen (2026-09-22). `stageLayout` above is the FIRST
+   * screen, kept for older receivers; this carries all of them so a church with
+   * a drummer monitor and a preacher monitor can show different things — the
+   * normal case, not an edge case. /stage picks its own by `?screen=<id>`,
+   * defaulting to the first.
+   */
+  stageLayouts?: Array<{ screen: string; layout: StageLayoutWire }> | null;
 };
 
 /**
@@ -646,6 +654,8 @@ export type StageLayoutWire = {
     rect: { x: number; y: number; w: number; h: number };
     timerId?: string | null;
     text?: string;
+    /** slide_preview only: which output this mirrors. */
+    previewScreen?: string;
     scale: number;
     align: "left" | "center" | "right";
     color?: string;
@@ -680,6 +690,7 @@ export function isValidStageLayoutWire(v: unknown): v is StageLayoutWire {
     }
     if (x.timerId != null && (typeof x.timerId !== "string" || !LAYER_ID_RE.test(x.timerId))) return false;
     if (x.text !== undefined && (typeof x.text !== "string" || x.text.length > 200)) return false;
+    if (x.previewScreen !== undefined && (typeof x.previewScreen !== "string" || x.previewScreen.length > 32)) return false;
     if (!fin(x.scale) || (x.scale as number) < 0.2 || (x.scale as number) > 6) return false;
     if (x.align !== "left" && x.align !== "center" && x.align !== "right") return false;
     // A colour goes straight into a style attribute — hex only, never free text.
@@ -687,6 +698,23 @@ export function isValidStageLayoutWire(v: unknown): v is StageLayoutWire {
     if (x.showHours !== undefined && typeof x.showHours !== "boolean") return false;
     if (x.leadingZeros !== undefined && typeof x.leadingZeros !== "boolean") return false;
     if (!fin(x.zIndex)) return false;
+  }
+  return true;
+}
+
+/** Matches MAX_STAGE_SCREENS in actions.ts — a church does not have more
+ *  confidence monitors than this, and an unbounded array is a DoS vector. */
+export const MAX_STAGE_SCREENS_WIRE = 8;
+
+export function isValidStageLayoutList(v: unknown): v is Array<{ screen: string; layout: StageLayoutWire }> {
+  if (!Array.isArray(v) || v.length > MAX_STAGE_SCREENS_WIRE) return false;
+  const seen = new Set<string>();
+  for (const e of v) {
+    if (!e || typeof e !== "object" || hasPollutionKey(e)) return false;
+    const o = e as Record<string, unknown>;
+    if (typeof o.screen !== "string" || !LAYER_ID_RE.test(o.screen) || seen.has(o.screen)) return false;
+    seen.add(o.screen);
+    if (!isValidStageLayoutWire(o.layout)) return false;
   }
   return true;
 }
@@ -1645,6 +1673,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
   if (st.scene !== undefined && st.scene !== null && !isValidSceneWire(st.scene)) return false;
   if (st.timersWire !== undefined && st.timersWire !== null && !isValidTimersWire(st.timersWire)) return false;
   if (st.stageLayout !== undefined && st.stageLayout !== null && !isValidStageLayoutWire(st.stageLayout)) return false;
+  if (st.stageLayouts !== undefined && st.stageLayouts !== null && !isValidStageLayoutList(st.stageLayouts)) return false;
   return true;
 }
 
@@ -1821,6 +1850,7 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   // Fail-open: a malformed layout falls back to the existing stage screen
   // rather than blanking a confidence monitor mid-service.
   if (out.stageLayout !== undefined && out.stageLayout !== null && !isValidStageLayoutWire(out.stageLayout)) delete out.stageLayout;
+  if (out.stageLayouts !== undefined && out.stageLayouts !== null && !isValidStageLayoutList(out.stageLayouts)) delete out.stageLayouts;
   return out as unknown as OutputState;
 }
 

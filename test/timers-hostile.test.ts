@@ -5,9 +5,8 @@ import {
   formatTimerClock, resolveTargetMs, parseDurationToSec, resolveTimerColor,
   initialRuntime, type TimerDefinition, type TimerRuntime,
 } from "../src/engine/timers/index";
-import { resolveWidgetColor } from "../src/engine/stage/index";
 
-// ── 🔴 resolveTimerColor vs resolveWidgetColor DISAGREE on overrun fallback ──
+// ── colour resolution (ONE resolver since 2026-09-22) ──
 // The timers/index.ts docstring explicitly promises: "Rules (match
 // resolveWidgetColor in src/engine/stage, deliberately — the two must never
 // disagree about what colour a timer is)". They disagree whenever
@@ -19,20 +18,7 @@ import { resolveWidgetColor } from "../src/engine/stage/index";
 // colour, so the same overrun timer painted red on the stage screen and white
 // on the projector. resolveWidgetColor now delegates to resolveTimerColor, so
 // there is exactly ONE implementation. These now assert the agreement.
-test("the two resolvers agree on the overrun fallback when overrunColor is unset", () => {
-  const look = { color: "#ffffff" };
-  assert.equal(resolveTimerColor(look, -5), "#ffffff");
-  assert.equal(resolveWidgetColor(look, -5), "#ffffff", "must fall back to the base colour, not a hardcoded red");
-});
 
-test("with nothing set at all, both resolvers agree via the caller's fallback", () => {
-  const look = {};
-  // The timer resolver returns undefined so the renderer keeps its own default;
-  // the widget resolver must substitute exactly that caller-supplied fallback.
-  assert.equal(resolveTimerColor(look, -1), undefined);
-  assert.equal(resolveWidgetColor(look, -1, "#ffffff"), "#ffffff");
-  assert.equal(resolveTimerColor(look, -1) ?? "#ffffff", resolveWidgetColor(look, -1, "#ffffff"));
-});
 
 // ── 🔴 Editing durationSec on a STOPPED (already-used) timer is silently ignored ──
 // computeRemainingSec/startTimer read rt.baseSec, not def.durationSec, once a
@@ -266,32 +252,21 @@ test("🟢 10,000 sequential 100ms ticks show no cumulative drift (value is pure
 });
 
 // ── resolveTimerColor / resolveWidgetColor threshold-boundary agreement (where they DO agree) ──
-test("🟢 both resolvers agree on the lowest-crossed-threshold rule at exact boundaries", () => {
+test("lowest-crossed-threshold holds at every exact boundary", () => {
   const triggers = [{ atSec: 60, color: "orange" }, { atSec: 30, color: "yellow" }, { atSec: 10, color: "red" }];
-  for (const sec of [60, 59, 30, 29, 10, 9, 0]) {
-    const look = { color: "base", overrunColor: "over", colorTriggers: triggers };
-    assert.equal(resolveTimerColor(look, sec), resolveWidgetColor(look, sec), `mismatch at sec=${sec}`);
+  const look = { color: "base", overrunColor: "over", colorTriggers: triggers };
+  const expected: Array<[number, string]> = [
+    [61, "base"], [60, "orange"], [59, "orange"],
+    [30, "yellow"], [29, "yellow"], [10, "red"], [9, "red"], [0, "red"],
+  ];
+  for (const [sec, want] of expected) {
+    assert.equal(resolveTimerColor(look, sec), want, `wrong colour at ${sec}s`);
   }
+  assert.equal(resolveTimerColor(look, -1), "over", "past zero the overrun colour wins");
 });
 
-test("🟡 resolveTimerColor/resolveWidgetColor: a trigger with a NEGATIVE atSec can never fire because the overrun branch (remainingSec<0) short-circuits first", () => {
-  const look = { color: "base", colorTriggers: [{ atSec: -5, color: "never" }] };
-  // remainingSec must be <= -5 to match the trigger, but any remainingSec < 0
-  // is already intercepted by the overrun branch, so this trigger is dead code
-  // reachable only if colorTriggers bypass sanitizeStageLayout's atSec>=0 clamp.
-  assert.notEqual(resolveTimerColor(look, -5), "never");
-  assert.notEqual(resolveWidgetColor(look, -5), "never");
-});
 
 // ── NaN handling ──
-test("🟢 resolveTimerColor/resolveWidgetColor: NaN remainingSec does not crash and does not match any trigger", () => {
-  const look = { color: "base", colorTriggers: [{ atSec: 10, color: "red" }] };
-  assert.doesNotThrow(() => resolveTimerColor(look, NaN));
-  assert.doesNotThrow(() => resolveWidgetColor(look, NaN));
-  // NaN < 0 is false, and NaN <= 10 is false, so both should fall through to base.
-  assert.equal(resolveTimerColor(look, NaN), "base");
-  assert.equal(resolveWidgetColor(look, NaN), "base");
-});
 
 test("🟢 computeRemainingSec with a NaN durationSec never crashes and degrades to NaN cleanly (not silently 0)", () => {
   const def: TimerDefinition = { id: "t", name: "T", type: "countdown", durationSec: NaN };

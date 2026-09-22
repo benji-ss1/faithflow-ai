@@ -5,16 +5,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  clampRect, resolveWidgetColor, formatStageClock, resolveWidgetText,
-  sanitizeStageLayout, STAGE_UNBOUND, STAGE_MAX_WIDGETS, STAGE_MAX_TRIGGERS,
+  clampRect,
+  sanitizeStageLayout, STAGE_MAX_WIDGETS, STAGE_MAX_TRIGGERS,
   STAGE_SCALE_MIN, STAGE_SCALE_MAX, STAGE_WIDGET_KINDS, STAGE_WIDGET_LABELS,
-  type StageWidget, type StageRenderContext,
+  type StageWidget,
 } from "../src/engine/stage";
 import { BUILT_IN_STAGE_LAYOUTS, isBuiltInStageLayout, duplicateStageLayout } from "../src/engine/stage/presets";
 
-const ctx = (over: Partial<StageRenderContext> = {}): StageRenderContext => ({
-  nowMs: new Date(2026, 8, 21, 14, 5, 0).getTime(), timers: {}, ...over,
-});
 const W = (p: Partial<StageWidget> & Pick<StageWidget, "kind">): StageWidget => ({
   id: "w", rect: { x: 0, y: 0, w: 0.5, h: 0.2 }, scale: 1, align: "center", zIndex: 0, ...p,
 });
@@ -32,63 +29,16 @@ test("clampRect survives NaN/Infinity instead of producing an invisible widget",
 });
 
 // ── colour triggers (the ProPresenter-documented example) ──────────────────
-test("colour triggers: LOWEST crossed threshold wins (PP example 60/30/10)", () => {
-  const w = W({
-    kind: "timer", color: "#4ade80",
-    colorTriggers: [{ atSec: 60, color: "orange" }, { atSec: 30, color: "yellow" }, { atSec: 10, color: "red" }],
-  });
-  assert.equal(resolveWidgetColor(w, 120), "#4ade80", "above all thresholds = base");
-  assert.equal(resolveWidgetColor(w, 60), "orange", "boundary is inclusive");
-  assert.equal(resolveWidgetColor(w, 45), "orange");
-  assert.equal(resolveWidgetColor(w, 30), "yellow");
-  assert.equal(resolveWidgetColor(w, 10), "red");
-  assert.equal(resolveWidgetColor(w, 5), "red", "5s must be RED, not orange");
-});
 
-test("overrun colour beats every trigger", () => {
-  const w = W({ kind: "timer", overrunColor: "#f87171", colorTriggers: [{ atSec: 60, color: "orange" }] });
-  assert.equal(resolveWidgetColor(w, -1), "#f87171");
-});
 
-test("trigger order in the array does not matter", () => {
-  const a = W({ kind: "timer", colorTriggers: [{ atSec: 10, color: "red" }, { atSec: 60, color: "orange" }] });
-  assert.equal(resolveWidgetColor(a, 5), "red");
-});
 
 // ── formatting ─────────────────────────────────────────────────────────────
-test("formatStageClock: overrun is signed so it reads unambiguously", () => {
-  assert.equal(formatStageClock(-12), "-0:12");
-  assert.equal(formatStageClock(0), "0:00");
-  assert.equal(formatStageClock(65), "1:05");
-  assert.equal(formatStageClock(3661, { showHours: true }), "1:01:01");
-  assert.equal(formatStageClock(65, { leadingZeros: true }), "01:05");
-});
 
-test("formatStageClock auto-shows hours past an hour", () => {
-  assert.equal(formatStageClock(3600), "1:00:00");
-});
 
 // ── widget resolution ──────────────────────────────────────────────────────
-test("an unbound or deleted timer shows a dash, never vanishes", () => {
-  assert.equal(resolveWidgetText(W({ kind: "timer", timerId: null }), ctx()), STAGE_UNBOUND);
-  assert.equal(resolveWidgetText(W({ kind: "timer", timerId: "gone" }), ctx()), STAGE_UNBOUND,
-    "a deleted timer must be VISIBLY broken so the operator can fix it");
-});
 
-test("a bound timer resolves to its live value", () => {
-  assert.equal(resolveWidgetText(W({ kind: "timer", timerId: "t1" }), ctx({ timers: { t1: 95 } })), "1:35");
-});
 
-test("text widgets resolve from context, empty when absent", () => {
-  assert.equal(resolveWidgetText(W({ kind: "current_text" }), ctx({ currentText: "Amazing grace" })), "Amazing grace");
-  assert.equal(resolveWidgetText(W({ kind: "next_text" }), ctx()), "");
-  assert.equal(resolveWidgetText(W({ kind: "static_text", text: "STAGE 1" }), ctx()), "STAGE 1");
-});
 
-test("clock renders host time; slide_preview is not text", () => {
-  assert.equal(resolveWidgetText(W({ kind: "clock" }), ctx()), "14:05");
-  assert.equal(resolveWidgetText(W({ kind: "slide_preview" }), ctx()), null);
-});
 
 // ── sanitize (untrusted input) ─────────────────────────────────────────────
 test("sanitize drops unknown widget kinds but keeps the rest", () => {
@@ -187,3 +137,12 @@ test("duplicate produces an independent, editable copy", () => {
 test("every widget kind has a label (the editor palette needs one)", () => {
   for (const k of STAGE_WIDGET_KINDS) assert.ok(STAGE_WIDGET_LABELS[k], `missing label for ${k}`);
 });
+
+// NOTE 2026-09-22: the tests for resolveWidgetColor / formatStageClock /
+// resolveWidgetText / STAGE_UNBOUND were removed with those functions. They
+// were a SECOND implementation that nothing called, and formatStageClock had
+// already drifted from formatTimerClock on minute padding. The same behaviour
+// is covered against the single implementation in test/engine-timers.test.ts
+// (formatTimerClock options, resolveTimerColor triggers, cross-resolver
+// parity) and the unbound-timer dash is covered in
+// test/stage-layout-render.test.ts.

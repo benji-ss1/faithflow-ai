@@ -40,6 +40,13 @@ const TIMER_KEY = "presentflow.pro.timer.v1";
 export type TimerType = "countdown" | "countdown_to" | "elapsed";
 
 export type TimerState = {
+  /** Wall-clock ms this timer last started, or null when stopped. Exposed so
+   *  the legacy quick timer can ride the NETWORKED wire, which carries an
+   *  anchor rather than a ticking value. Without it the timer every existing
+   *  church actually uses reaches no paired tablet or LAN stage screen. */
+  anchorMs: number | null;
+  /** Value banked at that anchor. */
+  baseSec: number;
   name: string;
   type: TimerType;
   duration: string; // mm:ss
@@ -112,7 +119,14 @@ export function useTimerSession(): TimerApi {
   const hide = useCallback(() => setShown(false), []);
 
   return {
-    state: { name, type, duration, remaining, running, shown, position },
+    state: {
+      name, type, duration, remaining, running, shown, position,
+      // The anchor + banked value, so this timer can ride the networked wire
+      // like the named ones. `remaining` is a ticking value and must never be
+      // what crosses the wire.
+      anchorMs: running ? startedAt.current : null,
+      baseSec: running ? baseline.current : remaining,
+    },
     setName, setType, setDuration, toggleRun, reset, toggleShown, hide, setPosition,
   };
 }
@@ -159,6 +173,9 @@ export type TimerSlot = {
    *  to default it to "24_hour" because the slot did not carry it, so renaming
    *  a 7:00 PM timer silently retargeted it to 07:00 tomorrow morning. */
   period: TimerPeriod | null;
+  /** Church-wide overrun colour from the DB. The per-machine appearance colour
+   *  overrides it when the operator sets one locally. */
+  overrunColor: string | null;
   runtime: TimerRuntime;
   remaining: number; // recomputed each tick for display
   overrun: boolean;
@@ -434,6 +451,7 @@ export function useTimersSession(): TimersApi {
       def,
       targetClock: d.targetClock,
       period: (d.period as TimerPeriod | null) ?? null,
+      overrunColor: d.overrunColor ?? null,
       runtime,
       remaining: computeRemainingSec(def, runtime, nowMs),
       overrun: isOverrun(def, runtime, nowMs),
@@ -446,6 +464,8 @@ export function useTimersSession(): TimersApi {
         position: meta[d.id]?.position ?? TIMER_APPEARANCE_DEFAULTS.position,
         scale: meta[d.id]?.scale ?? TIMER_APPEARANCE_DEFAULTS.scale,
         colorTriggers: meta[d.id]?.colorTriggers ?? [],
+        // The church-wide colour is the FALLBACK; a local override wins.
+        overrunColor: meta[d.id]?.overrunColor ?? d.overrunColor ?? undefined,
       },
       progress: timerProgress(def, computeRemainingSec(def, runtime, nowMs)),
       state: timerState(def, runtime, nowMs),

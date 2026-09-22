@@ -1,8 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  sanitizeStageLayout, clampRect, resolveWidgetColor, formatStageClock,
-  resolveWidgetText, STAGE_MAX_WIDGETS, STAGE_SCALE_MIN, STAGE_SCALE_MAX,
+  sanitizeStageLayout, clampRect, STAGE_MAX_WIDGETS, STAGE_SCALE_MIN, STAGE_SCALE_MAX,
 } from "../src/engine/stage/index";
 import { BUILT_IN_STAGE_LAYOUTS, duplicateStageLayout } from "../src/engine/stage/presets";
 
@@ -139,29 +138,8 @@ test("🟢 clampRect: NaN in every field falls back to sane 0.2x0.1 defaults rat
   assert.equal(r.h, 0.1);
 });
 
-test("🟡 formatStageClock and formatTimerClock disagree on minute padding when showHours is forced true but hours are 0", () => {
-  // formatStageClock forces 2-digit minute (pad) whenever leadingZeros OR
-  // showHours is true, even for the non-hour path — check consistency at h=0.
-  const s = formatStageClock(65, { showHours: true });
-  assert.equal(s, "0:01:05");
-});
 
-test("🟢 resolveWidgetText: an unbound timer widget renders the STAGE_UNBOUND dash instead of vanishing", () => {
-  const text = resolveWidgetText(
-    { id: "t", kind: "timer", rect: { x: 0, y: 0, w: 1, h: 1 }, scale: 1, align: "center", zIndex: 0, timerId: "missing" },
-    { nowMs: 0, timers: {} },
-  );
-  assert.equal(text, "—");
-});
 
-test("🟢 resolveWidgetText: clock widget with showHours=false wraps 0 hour to 12, not 0", () => {
-  const d = new Date(2026, 0, 1, 0, 15, 0);
-  const text = resolveWidgetText(
-    { id: "c", kind: "clock", rect: { x: 0, y: 0, w: 1, h: 1 }, scale: 1, align: "center", zIndex: 0, showHours: false },
-    { nowMs: d.getTime(), timers: {} },
-  );
-  assert.equal(text, "12:15");
-});
 
 test("🟢 duplicateStageLayout deep-copies rect/colorTriggers so mutating the copy never touches the built-in preset", () => {
   const src = BUILT_IN_STAGE_LAYOUTS.find((l) => l.id === "builtin-current-timer")!;

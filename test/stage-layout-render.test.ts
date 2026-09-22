@@ -17,12 +17,29 @@ const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 
 const shell = read("../src/components/operator/pro/ProOperatorShell.tsx");
 assert.ok(/presentflow:stage-layout/.test(shell), "the shell must RESOLVE and emit the assigned layout");
-assert.ok(/stageLayouts\.byId\(screen\.layoutId\)/.test(shell),
+assert.ok(/stageLayouts\.byId\(/.test(shell),
   "it must resolve the id to a real layout — /stage cannot look one up itself");
+
+// MULTI-SCREEN. The first version of this guard asserted the exact line that
+// read `screens[0]`, so it would have passed forever while "Stage 2" stayed a
+// control that lied — an operator could add a screen, assign a layout, and
+// nothing anywhere changed. Assert the BEHAVIOUR instead of the line.
+assert.ok(/stageLayouts\.screens\s*\n?\s*\.map\(/.test(shell) || /screens\.map\(/.test(shell),
+  "the shell must publish EVERY screen's layout, not just the first");
+assert.ok(!/stageLayouts\.screens\[0\]/.test(shell),
+  "screens[0] means screens 2..N are inert — the multi-screen UI would be lying");
+assert.ok(/stageLayouts\?:/.test(read("../src/lib/broadcast.ts")),
+  "OutputState must carry a layout PER SCREEN");
+const stagePage = read("../src/app/stage/page.tsx");
+assert.ok(/get\("screen"\)/.test(stagePage),
+  "/stage must know WHICH screen it is, or every monitor shows the same layout");
+assert.ok(/stageLayoutList\.find\(/.test(stagePage),
+  "/stage must pick its OWN layout by screen id");
 
 const console_ = read("../src/components/operator/OperatorConsole.tsx");
 assert.ok(/presentflow:stage-layout/.test(console_), "the console must listen for it");
-assert.ok(/isValidStageLayoutWire\(d\)/.test(console_), "and validate it — this reaches a live screen");
+assert.ok(/isValidStageLayoutWire\(/.test(console_) && /isValidStageLayoutList\(/.test(console_),
+  "and validate BOTH the single layout and the per-screen list — this reaches a live screen");
 assert.ok(/\.\.\.\(stageLayout \? \{ stageLayout \} : \{\}\)/.test(console_),
   "and fold it into OutputState");
 
@@ -32,7 +49,7 @@ assert.ok(/msg\.state\.stageLayout/.test(stage), "/stage must read it off Output
 
 /* ── 2. NO REGRESSION: no layout ⇒ the existing screen, untouched ────────── */
 
-assert.ok(/if \(stageLayout\) \{/.test(stage),
+assert.ok(/if \(myLayout\) \{/.test(stage),
   "the layout path must be a guarded EARLY RETURN, so the existing screen is the fallback");
 assert.ok(/flex-col"\n\s*style=\{\{ margin: 0, padding: 0, background: "#000"/.test(stage)
   || /background: "#000", color: "#e9edee"/.test(stage),

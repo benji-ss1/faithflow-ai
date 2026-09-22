@@ -100,6 +100,7 @@ test/multi-output.test.ts
 test/multiview.test.ts
 test/native-channel-filter.test.ts
 test/nav-clauses.test.ts
+test/no-dead-capability.test.ts
 test/obs-editor.test.ts
 test/obs-lowerthird.test.ts
 test/openflow-parse.test.ts

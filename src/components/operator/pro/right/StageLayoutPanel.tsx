@@ -300,6 +300,18 @@ function LayoutEditor({
             </div>
           )}
 
+          {widget.kind === "slide_preview" && (
+            <div>
+              <div className={label}>Preview which screen</div>
+              <select value={widget.previewScreen ?? "main"}
+                onChange={(e) => patch(widget.id, { previewScreen: e.target.value as StageWidget["previewScreen"] })}
+                className={field}>
+                <option value="main">Projector (current words)</option>
+                <option value="stage">Stage (what is coming next)</option>
+              </select>
+            </div>
+          )}
+
           {widget.kind === "static_text" && (
             <div>
               <div className={label}>Text</div>

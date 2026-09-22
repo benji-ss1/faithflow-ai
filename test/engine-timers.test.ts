@@ -191,10 +191,11 @@ test("resolveTargetMs rolls a passed clock to the next day; a future clock stays
 // ── resolveTimerColor — ProPresenter "Color Triggers" ──────────────────────
 // Resolved operator-side into the single `color` the wire already carries, so
 // threshold colours reach every output with no wire or renderer change.
-// MUST agree with resolveWidgetColor in src/engine/stage — a timer cannot be
-// one colour on the projector and another on the stage screen.
+// There is now exactly ONE colour resolver. The stage duplicate was deleted on
+// 2026-09-22 precisely because a second implementation is how the projector and
+// the stage screen drift apart — this test used to prove they AGREED; there is
+// nothing left to disagree with.
 import { resolveTimerColor } from "../src/engine/timers";
-import { resolveWidgetColor } from "../src/engine/stage";
 
 const TRIGGERS = [{ atSec: 60, color: "orange" }, { atSec: 30, color: "yellow" }, { atSec: 10, color: "red" }];
 
@@ -230,33 +231,28 @@ test("garbage thresholds are ignored, not crashed on", () => {
   assert.equal(resolveTimerColor(look, 20), "yellow");
 });
 
-test("the timer and stage resolvers agree at every boundary", () => {
-  // Same look, same value ⇒ same colour, or the projector and the stage screen
-  // would disagree about what colour the sermon timer is.
-  //
-  // The FIRST version of this test only covered the case where every colour was
-  // explicitly set, and so missed a real bug: with overrunColor UNSET the stage
-  // resolver hardcoded red past zero while the timer resolver fell back to the
-  // base colour. Every combination is now covered, including unset ones.
+test("colour resolution is stable across every set/unset combination", () => {
+  // The original version of this compared TWO resolvers and, worse, only
+  // covered fully-populated looks — which is how it missed that they disagreed
+  // when overrunColor was unset. One resolver now, and every combination.
   const LOOKS = [
     { color: "#4ade80", overrunColor: "#f87171", colorTriggers: TRIGGERS },
-    { color: "#4ade80", colorTriggers: TRIGGERS },          // no overrun colour
-    { color: "#4ade80" },                                    // no triggers
-    { overrunColor: "#f87171", colorTriggers: TRIGGERS },   // no base colour
-    { colorTriggers: TRIGGERS },                             // triggers only
-    {},                                                      // nothing set at all
+    { color: "#4ade80", colorTriggers: TRIGGERS },
+    { color: "#4ade80" },
+    { overrunColor: "#f87171", colorTriggers: TRIGGERS },
+    { colorTriggers: TRIGGERS },
+    {},
   ];
-  const SECONDS = [500, 61, 60, 59, 31, 30, 29, 11, 10, 9, 1, 0, -1, -600, -3600];
   for (const look of LOOKS) {
-    for (const sec of SECONDS) {
-      const fallback = "#ffffff";
-      assert.equal(
-        resolveTimerColor(look, sec) ?? fallback,
-        resolveWidgetColor(look, sec, fallback),
-        `resolvers disagree at ${sec}s for look ${JSON.stringify(look)}`,
-      );
+    for (const sec of [500, 61, 60, 59, 31, 30, 29, 11, 10, 9, 1, 0, -1, -600, -3600]) {
+      const c = resolveTimerColor(look, sec);
+      assert.ok(c === undefined || typeof c === "string", `bad colour at ${sec}s for ${JSON.stringify(look)}`);
     }
   }
+  // And the contract that matters: past zero with an overrun colour set, it wins.
+  assert.equal(resolveTimerColor({ color: "#fff", overrunColor: "#f87171", colorTriggers: TRIGGERS }, -1), "#f87171");
+  // Unset ⇒ undefined, so the renderer keeps its own default.
+  assert.equal(resolveTimerColor({}, 500), undefined);
 });
 
 // ── Format options (were dead UI controls until 2026-09-21) ────────────────

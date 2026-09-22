@@ -100,9 +100,32 @@ export function StageLayoutRenderer({
           text = message ?? "";
         } else if (w.kind === "static_text") {
           text = w.text ?? "";
+        } else if (w.kind === "slide_preview") {
+          // A live preview of what an output is showing — ProPresenter's
+          // screen-preview stage object. Rendered as the slide's text on a
+          // framed panel: /stage has the text, not a video feed of the
+          // projector, so this is an honest preview rather than a fake one.
+          const previewText = w.previewScreen === "stage" ? (nextText ?? "") : (currentText ?? "");
+          return (
+            <div key={w.id} className="absolute overflow-hidden rounded border border-white/20 bg-black/40"
+              style={{
+                left: `${w.rect.x * 100}%`, top: `${w.rect.y * 100}%`,
+                width: `${w.rect.w * 100}%`, height: `${w.rect.h * 100}%`,
+              }}>
+              <div className="absolute top-1 left-2 text-[9px] uppercase tracking-widest text-white/40">
+                {w.previewScreen ?? "main"}
+              </div>
+              <div className="w-full h-full flex items-center justify-center p-2">
+                <span className="font-semibold text-center leading-tight"
+                  style={{ color: w.color ?? "#ffffff", fontSize: `${Math.max(1, w.rect.h * 26 * w.scale)}px` }}>
+                  {previewText}
+                </span>
+              </div>
+            </div>
+          );
         } else {
-          // Unknown or not-yet-implemented kind (e.g. slide_preview): draw
-          // nothing rather than guessing.
+          // A kind we do not render must never be offered in the editor —
+          // test/no-dead-capability.test.ts enforces that.
           return null;
         }
 

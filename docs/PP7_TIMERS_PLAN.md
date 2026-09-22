@@ -123,3 +123,24 @@ Phase 1 (timer in the Scene matrix) is unaffected and stays as shipped.
 ## 🔴 Test gap
 No existing coverage for ANY timer wire/relay behaviour (test/engine-timers*.test.ts is pure-engine only).
 Every phase touching the wire needs new tests + the rule-2 agent gate.
+
+---
+
+## Open finding: dead exports beyond timers (2026-09-22)
+
+`test/no-dead-capability.test.ts` is deliberately SCOPED to `src/engine/timers`
+and `src/engine/stage`. Running it across the whole engine immediately found
+exported functions called from nowhere in `src/`:
+
+- `validateSpec`, `sanitizeSpec` — `src/engine/actions/spec.ts`
+- `slidesInGroup`, `masterOrder` — `src/engine/arrangements/index.ts`
+- `buildCueSheet` — `src/engine/cue-sheet/index.ts`
+
+These are NOT timer code and have not been audited, so the guard does not fail
+CI on them — failing on code nobody has read would just get the guard disabled.
+But they are the same class that produced five bugs in timers: an uncalled pure
+function is a second implementation waiting to disagree with the live one.
+
+Each needs one of: a caller, deletion, or an explicit note saying why it is
+kept. Widen the guard's scope as each area is cleared. Do NOT widen it by
+deleting code you have not read.

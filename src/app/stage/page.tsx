@@ -68,6 +68,13 @@ export default function StagePage() {
   // local one always wins, this only fills a gap on a remote screen.
   const [wireTimers, setWireTimers] = useState<TimerWire[]>([]);
   const [stageLayout, setStageLayout] = useState<StageLayoutWire | null>(null);
+  const [stageLayoutList, setStageLayoutList] = useState<Array<{ screen: string; layout: StageLayoutWire }>>([]);
+  // Which confidence monitor THIS window is. `?screen=<id>` lets a church run a
+  // drummer monitor and a preacher monitor showing different layouts; with no
+  // param we are the first screen, which is the single-monitor default.
+  const screenId = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("screen")
+    : null;
   const clockSyncRef = useRef<ClockSync | null>(null);
   const lastTimersWireAt = useRef(0);
   const timersWireRevRef = useRef(-1);
@@ -191,6 +198,7 @@ export default function StagePage() {
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
             foldTimersWire(msg.state.timersWire);
             setStageLayout(msg.state.stageLayout ?? null);
+            setStageLayoutList(msg.state.stageLayouts ?? []);
             // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
             if (msg.state.scene !== undefined) setScenesPossible(true);
           }
@@ -391,11 +399,16 @@ export default function StagePage() {
   // An operator-designed layout REPLACES this screen entirely. With none
   // assigned we fall through to the existing hardcoded screen below, byte for
   // byte — the rule-0 anchor for every church that never opens the editor.
-  if (stageLayout) {
+  // Resolve MY layout: the one assigned to this screen id, else the first.
+  const myLayout = (screenId
+    ? stageLayoutList.find((e) => e.screen === screenId)?.layout
+    : stageLayoutList[0]?.layout) ?? stageLayout;
+
+  if (myLayout) {
     return (
       <div className="fixed inset-0 overflow-hidden cursor-none" onDoubleClick={goFullscreen}>
         <StageLayoutRenderer
-          layout={stageLayout}
+          layout={myLayout}
           wireTimers={wireTimers}
           clockSync={clockSyncRef.current}
           currentText={slideText(current)}

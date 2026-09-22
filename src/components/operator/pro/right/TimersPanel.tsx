@@ -47,6 +47,10 @@ type Draft = {
   name: string; type: TimerType; duration: string;
   targetClock: string; period: Period;
   elapsedStart: string; elapsedEnd: string; allowsOverrun: boolean;
+  /** Church-wide overrun colour. Persisted on the timer itself, so it follows
+   *  the church to a second operator machine — the per-machine appearance
+   *  colour cannot. The DB column existed and was never written. */
+  overrunColor: string;
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -54,7 +58,7 @@ const EMPTY_DRAFT: Draft = {
   // new timer is usable with one click (rule 0a).
   name: "Timer", type: "countdown", duration: "05:00",
   targetClock: "11:00", period: "am",
-  elapsedStart: "", elapsedEnd: "", allowsOverrun: false,
+  elapsedStart: "", elapsedEnd: "", allowsOverrun: false, overrunColor: "#f87171",
 };
 
 const input = "h-8 px-2 bg-[var(--color-panel)] border border-[var(--color-border)] rounded text-[12px] w-full";
@@ -77,6 +81,7 @@ function draftToInput(d: Draft) {
     elapsedStartSec: d.type === "elapsed" ? clockToSec(d.elapsedStart) : null,
     elapsedEndSec: d.type === "elapsed" ? clockToSec(d.elapsedEnd) : null,
     allowsOverrun: d.allowsOverrun,
+    overrunColor: d.overrunColor,
   };
 }
 
@@ -138,6 +143,17 @@ function TypeFields({ d, set }: { d: Draft; set: (p: Partial<Draft>) => void }) 
           onChange={(e) => set({ allowsOverrun: e.target.checked })} />
         Allows Overrun
       </label>
+
+      {/* Only reachable when overrun is on — without it the timer clamps at
+          0:00 and this colour can never be seen. */}
+      {d.allowsOverrun && (
+        <div>
+          <div className={label}>Colour once past zero</div>
+          <input type="color" value={d.overrunColor}
+            onChange={(e) => set({ overrunColor: e.target.value })}
+            className="h-7 w-full bg-transparent border border-[var(--color-border)] rounded cursor-pointer" />
+        </div>
+      )}
     </>
   );
 }
@@ -231,6 +247,7 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
     elapsedStart: secToClock(slot.def.elapsedStartSec),
     elapsedEnd: secToClock(slot.def.elapsedEndSec),
     allowsOverrun: slot.def.allowsOverrun === true,
+    overrunColor: slot.overrunColor ?? "#f87171",
   });
 
   // countdown_to is stoppable too: Stop freezes it at its current value, which
