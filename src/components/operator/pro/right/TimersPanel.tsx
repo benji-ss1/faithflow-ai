@@ -50,7 +50,9 @@ type Draft = {
 };
 
 const EMPTY_DRAFT: Draft = {
-  name: "", type: "countdown", duration: "05:00",
+  // ProPresenter pre-fills "Timer" rather than refusing an empty name, so a
+  // new timer is usable with one click (rule 0a).
+  name: "Timer", type: "countdown", duration: "05:00",
   targetClock: "11:00", period: "am",
   elapsedStart: "", elapsedEnd: "", allowsOverrun: false,
 };
@@ -145,7 +147,8 @@ export function TimersPanel({ quick, timers }: { quick: TimerApi; timers: Timers
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
 
   const submit = async () => {
-    if (!draft.name.trim()) return;
+    // Never a dead button: an emptied name falls back rather than refusing.
+    if (!draft.name.trim()) draft.name = "Timer";
     await timers.addTimer(draftToInput(draft));
     setDraft(EMPTY_DRAFT); setAdding(false);
   };

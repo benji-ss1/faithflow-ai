@@ -511,6 +511,14 @@ export type OutputState = {
    * timer produces a byte-identical snapshot and costs nothing to republish.
    */
   timersWire?: TimersWire | null;
+  /**
+   * The stage layout the confidence monitor should render (2026-09-21).
+   * RESOLVED OPERATOR-SIDE, exactly like scene's appearance: /stage is a public
+   * output route with no church DB access, so it cannot look a layout up by id.
+   * Absent ⇒ no layout assigned ⇒ /stage keeps its existing hardcoded screen,
+   * which is the rule-0 anchor for every church that never opens the editor.
+   */
+  stageLayout?: StageLayoutWire | null;
 };
 
 /**
@@ -625,6 +633,63 @@ export type TimersWire = {
    *  answering a snapshot request cannot resurrect a stale timer set. */
   rev: number;
 };
+
+/** A stage layout on the wire. Structural — the pure model lives in
+ *  src/engine/stage; this is only what crosses to a public output route. */
+export type StageLayoutWire = {
+  id: string;
+  name?: string;
+  background: string;
+  widgets: Array<{
+    id: string;
+    kind: string;
+    rect: { x: number; y: number; w: number; h: number };
+    timerId?: string | null;
+    text?: string;
+    scale: number;
+    align: "left" | "center" | "right";
+    color?: string;
+    showHours?: boolean;
+    leadingZeros?: boolean;
+    zIndex: number;
+  }>;
+};
+
+export const MAX_STAGE_WIDGETS_WIRE = 24;
+
+export function isValidStageLayoutWire(v: unknown): v is StageLayoutWire {
+  if (!v || typeof v !== "object" || hasPollutionKey(v)) return false;
+  const o = v as Record<string, unknown>;
+  const fin = (x: unknown) => typeof x === "number" && Number.isFinite(x);
+  if (typeof o.id !== "string" || !LAYER_ID_RE.test(o.id)) return false;
+  if (o.name !== undefined && (typeof o.name !== "string" || o.name.length > 120)) return false;
+  if (!isValidColor(o.background)) return false;
+  if (!Array.isArray(o.widgets) || o.widgets.length > MAX_STAGE_WIDGETS_WIRE) return false;
+  const ids = new Set<string>();
+  for (const w of o.widgets) {
+    if (!w || typeof w !== "object" || hasPollutionKey(w)) return false;
+    const x = w as Record<string, unknown>;
+    if (typeof x.id !== "string" || !LAYER_ID_RE.test(x.id) || ids.has(x.id)) return false;
+    ids.add(x.id);
+    if (typeof x.kind !== "string" || x.kind.length > 32) return false;
+    const r = x.rect as Record<string, unknown> | undefined;
+    if (!r || typeof r !== "object") return false;
+    for (const k of ["x", "y", "w", "h"]) {
+      const n = r[k];
+      if (!fin(n) || (n as number) < 0 || (n as number) > 1) return false;
+    }
+    if (x.timerId != null && (typeof x.timerId !== "string" || !LAYER_ID_RE.test(x.timerId))) return false;
+    if (x.text !== undefined && (typeof x.text !== "string" || x.text.length > 200)) return false;
+    if (!fin(x.scale) || (x.scale as number) < 0.2 || (x.scale as number) > 6) return false;
+    if (x.align !== "left" && x.align !== "center" && x.align !== "right") return false;
+    // A colour goes straight into a style attribute — hex only, never free text.
+    if (x.color !== undefined && !isValidColor(x.color)) return false;
+    if (x.showHours !== undefined && typeof x.showHours !== "boolean") return false;
+    if (x.leadingZeros !== undefined && typeof x.leadingZeros !== "boolean") return false;
+    if (!fin(x.zIndex)) return false;
+  }
+  return true;
+}
 
 export const MAX_WIRE_TIMERS = 16;
 /** A loose sanity ceiling for SENDER-clock stamps (~year 2100). Deliberately
@@ -1579,6 +1644,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
   // Scenes: optional per-screen routing snapshot. null = "no scene" (explicit).
   if (st.scene !== undefined && st.scene !== null && !isValidSceneWire(st.scene)) return false;
   if (st.timersWire !== undefined && st.timersWire !== null && !isValidTimersWire(st.timersWire)) return false;
+  if (st.stageLayout !== undefined && st.stageLayout !== null && !isValidStageLayoutWire(st.stageLayout)) return false;
   return true;
 }
 
@@ -1752,6 +1818,9 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   // Fail-open, exactly like scene: a malformed timer set is DROPPED, never
   // allowed to reject the whole snapshot. A bad timer must not blank a screen.
   if (out.timersWire !== undefined && out.timersWire !== null && !isValidTimersWire(out.timersWire)) delete out.timersWire;
+  // Fail-open: a malformed layout falls back to the existing stage screen
+  // rather than blanking a confidence monitor mid-service.
+  if (out.stageLayout !== undefined && out.stageLayout !== null && !isValidStageLayoutWire(out.stageLayout)) delete out.stageLayout;
   return out as unknown as OutputState;
 }
 

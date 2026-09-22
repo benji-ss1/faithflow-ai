@@ -173,6 +173,7 @@ test/songs-toolbar.test.ts
 test/spring-load.test.ts
 test/stage-hostile.test.ts
 test/stage-layout-engine.test.ts
+test/stage-layout-render.test.ts
 test/stage-layout-scoping.test.ts
 test/stale-action.test.ts
 test/stress-wave6-3.test.ts

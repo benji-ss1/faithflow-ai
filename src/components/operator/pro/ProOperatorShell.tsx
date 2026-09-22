@@ -67,6 +67,7 @@ import { BottomBar } from "./BottomBar";
 import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
 import { resolveTimerColor, triggerValueFor } from "@/engine/timers";
 import { buildTimersWire } from "@/engine/timers/wire";
+import { useStageLayouts } from "./right/useStageLayouts";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
@@ -2841,6 +2842,30 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     dispatchInternal("presentflow:timers-wire", wire);
   }, [timersWireKey]);
 
+  const stageLayouts = useStageLayouts();
+
+  // ── Stage layout (2026-09-21) ────────────────────────────────────────────
+  // Resolved HERE and handed to the console, because /stage is a public route
+  // with no church DB access and cannot look a layout up by id. Without this
+  // the Stage Layout editor would be scaffolding with no consumer.
+  const stageLayoutWire = useMemo(() => {
+    const screen = stageLayouts.screens[0];           // v1: the first stage screen
+    const l = screen ? stageLayouts.byId(screen.layoutId) : null;
+    if (!l) return null;                               // no assignment ⇒ /stage keeps today's screen
+    return {
+      id: l.id, name: l.name, background: l.background,
+      widgets: l.widgets.map((w) => ({
+        id: w.id, kind: w.kind, rect: w.rect, timerId: w.timerId ?? null,
+        text: w.text, scale: w.scale, align: w.align, color: w.color,
+        showHours: w.showHours, leadingZeros: w.leadingZeros, zIndex: w.zIndex,
+      })),
+    };
+  }, [stageLayouts]);
+  const stageLayoutKey = useMemo(() => JSON.stringify(stageLayoutWire), [stageLayoutWire]);
+  useEffect(() => {
+    dispatchInternal("presentflow:stage-layout", stageLayoutWire);
+  }, [stageLayoutKey, stageLayoutWire]);
+
   // Wave 7: engine/macro TIMER_COMMAND entry point (ctx.onTimerCommand emits
   // this CustomEvent). "default" routes to the legacy quick timer; any other id
   // routes to the named-timer session.
@@ -5147,7 +5172,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               this change) for easy rollback if this regresses; will
               be deleted in a follow-up ship. */}
           <OperatorErrorBoundary fallbackLabel="Right icon bar error">
-            <RightIconBar ctx={ctx} timer={timer} messages={messages} timers={timers} messagesBoard={messagesBoard} />
+            <RightIconBar ctx={ctx} timer={timer} messages={messages} timers={timers} messagesBoard={messagesBoard} stageLayouts={stageLayouts} />
           </OperatorErrorBoundary>
           {/* Placeholder keeps the sidebar flex column filling the
               available height so the icon bar sits at the bottom of the

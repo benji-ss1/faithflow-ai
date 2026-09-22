@@ -47,7 +47,7 @@ import { useRightRailDetections } from "./useRightRailDetections";
 import { countCrossRefCandidates } from "@/lib/right-rail-visible";
 import { TimersPanel } from "./TimersPanel";
 import { StageLayoutPanel } from "./StageLayoutPanel";
-import { useStageLayouts } from "./useStageLayouts";
+import type { StageLayoutsApi } from "./useStageLayouts";
 import { MessagesPanel } from "./MessagesPanel";
 import { ThemesModal } from "../ThemesModal";
 import { readLegacyThemesFlag, OPEN_THEME_POPOVER_EVENT } from "@/lib/legacy-themes-flag";
@@ -66,13 +66,16 @@ type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "themes" | "layers" | "
 const LAYERS_OPENED_KEY = "presentflow.layers.opened.v1";
 
 export function RightIconBar({
-  ctx, timer, messages, timers, messagesBoard,
+  ctx, timer, messages, timers, messagesBoard, stageLayouts,
 }: {
   ctx: OperatorShellCtx;
   timer: TimerApi;
   messages: MessagesApi;
   timers: TimersApi;
   messagesBoard: MessagesBoardApi;
+  /** Owned by the shell so there is ONE instance — the shell also publishes
+   *  the assigned layout onto OutputState for /stage to render. */
+  stageLayouts: StageLayoutsApi;
 }) {
   // PP7 Layers panel (2026-09-17). Flag OFF ⇒ the legacy LayersPanel renders
   // exactly as before — `NEXT_PUBLIC_PP7_LAYERS=0` / localStorage
@@ -80,7 +83,6 @@ export function RightIconBar({
   const pp7Layers = usePp7Layers();
   const pp7Messages = usePp7Messages({ messages, messagesBoard, timer, timers });
   const [openKey, setOpenKeyInner] = useState<PopoverKey | null>(null);
-  const stageLayouts = useStageLayouts();
   // JPD Fix 5 (2026-07-27): restore the last-open sidebar popover on
   // relaunch and persist changes. Restore runs post-mount (no SSR/hydration
   // mismatch) and only accepts currently-valid keys — "logs" is UI-hidden,

@@ -9,7 +9,8 @@ import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStal
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
 import { foldClockSync, shouldSweepWireTimers, type ClockSync } from "@/lib/timer-clock";
-import type { TimerWire, TimersWire } from "@/lib/broadcast";
+import type { TimerWire, TimersWire, StageLayoutWire } from "@/lib/broadcast";
+import { StageLayoutRenderer } from "@/components/live/StageLayoutRenderer";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 
@@ -36,6 +37,18 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffStageGuarded?:
  * Behind the platform: cyan accent = current, muted grey = next. Big
  * clock so the pastor can see time-of-day at a glance.
  */
+/** Best-effort plain text from a slide payload, for a stage layout's
+ *  current/next text widgets. Shapes vary by slide kind, so this reads the
+ *  common fields and returns "" rather than guessing. */
+function slideText(s: SlidePayload | null | undefined): string {
+  if (!s || typeof s !== "object") return "";
+  const o = s as Record<string, unknown>;
+  if (typeof o.text === "string") return o.text;
+  if (Array.isArray(o.lines)) return (o.lines as unknown[]).filter((l) => typeof l === "string").join("\n");
+  if (typeof o.body === "string") return o.body;
+  return "";
+}
+
 export default function StagePage() {
   const [current, setCurrent] = useState<SlidePayload>({ kind: "empty" });
   const [next, setNext] = useState<SlidePayload | null>(null);
@@ -54,6 +67,7 @@ export default function StagePage() {
   // TimerOverlayLayer. Separate from the same-machine 1Hz path above — the
   // local one always wins, this only fills a gap on a remote screen.
   const [wireTimers, setWireTimers] = useState<TimerWire[]>([]);
+  const [stageLayout, setStageLayout] = useState<StageLayoutWire | null>(null);
   const clockSyncRef = useRef<ClockSync | null>(null);
   const lastTimersWireAt = useRef(0);
   const timersWireRevRef = useRef(-1);
@@ -176,6 +190,7 @@ export default function StagePage() {
             setTransition(msg.state.transition ?? null);
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
             foldTimersWire(msg.state.timersWire);
+            setStageLayout(msg.state.stageLayout ?? null);
             // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
             if (msg.state.scene !== undefined) setScenesPossible(true);
           }
@@ -372,6 +387,24 @@ export default function StagePage() {
     ? null
     : countdownEndsAt;
   const countdownStr = effectiveCountdownEndsAt && now ? formatCountdown(effectiveCountdownEndsAt - now.getTime()) : null;
+
+  // An operator-designed layout REPLACES this screen entirely. With none
+  // assigned we fall through to the existing hardcoded screen below, byte for
+  // byte — the rule-0 anchor for every church that never opens the editor.
+  if (stageLayout) {
+    return (
+      <div className="fixed inset-0 overflow-hidden cursor-none" onDoubleClick={goFullscreen}>
+        <StageLayoutRenderer
+          layout={stageLayout}
+          wireTimers={wireTimers}
+          clockSync={clockSyncRef.current}
+          currentText={slideText(current)}
+          nextText={slideText(next)}
+          message={operatorMessage ?? null}
+        />
+      </div>
+    );
+  }
 
   return (
     <div

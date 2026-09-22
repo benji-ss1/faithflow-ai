@@ -16,7 +16,7 @@ import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, readObsEditorStore, obsLookWireFromStore, publishObsPreviewState, heldLowerThirdFor, createTrailingPublisher, type HeldLowerThird } from "@/lib/obs-look";
 import type { ObsLookWire } from "@/lib/broadcast";
-import { isValidTimersWire, type TimersWire } from "@/lib/broadcast";
+import { isValidTimersWire, isValidStageLayoutWire, type TimersWire, type StageLayoutWire } from "@/lib/broadcast";
 import { TIMERS_LIVENESS_MS } from "@/lib/timer-clock";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
@@ -903,6 +903,9 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // same CustomEvent pattern the OBS editor already uses. Validated on arrival:
   // this value ends up on every paired screen.
   const [timersWire, setTimersWire] = useState<TimersWire | null>(null);
+  // The stage layout, resolved by the shell (which can read the church DB) and
+  // carried here so /stage — a public route — can render it.
+  const [stageLayout, setStageLayout] = useState<StageLayoutWire | null>(null);
   useEffect(() => {
     const onTimersWire = (e: Event) => {
       const d = (e as CustomEvent).detail;
@@ -910,6 +913,15 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     };
     window.addEventListener("presentflow:timers-wire", onTimersWire as EventListener);
     return () => window.removeEventListener("presentflow:timers-wire", onTimersWire as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const onLayout = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      setStageLayout(d && isValidStageLayoutWire(d) ? d : null);
+    };
+    window.addEventListener("presentflow:stage-layout", onLayout as EventListener);
+    return () => window.removeEventListener("presentflow:stage-layout", onLayout as EventListener);
   }, []);
 
   // Liveness: with no 1Hz heartbeat there is nothing for a remote surface to
@@ -1040,6 +1052,8 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // Omitted entirely when nothing is shown, so a church that never opens
       // Timers emits a byte-identical snapshot to before (parity test-locked).
       ...(timersWire && timersWire.timers.length > 0 ? { timersWire } : {}),
+      // Absent ⇒ no layout assigned ⇒ /stage keeps its existing screen.
+      ...(stageLayout ? { stageLayout } : {}),
     };
     // PROJECTOR-RELIABILITY GUARANTEE (2026-09-06 field incident). Fail-open
     // sanitize the state before it goes on ANY wire (BroadcastChannel / Realtime /
@@ -1085,7 +1099,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn, timersWire]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn, timersWire, stageLayout]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
