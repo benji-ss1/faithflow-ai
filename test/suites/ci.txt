@@ -231,3 +231,4 @@ test/windows-responsive.test.ts
 test/theme-band-persist.test.ts
 test/canvas-coords.test.ts
 test/theme-config-patch.test.ts
+test/wire-contract-drift.test.ts
