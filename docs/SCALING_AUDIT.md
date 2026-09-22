@@ -18,7 +18,7 @@
 | 7 | "Fly = ONE machine" | CRITICAL | **WRONG — there are TWO** (`damp-moon-2740`, `shy-meadow-3274`, both started, both `lhr`). Machine SPOF is GONE. **Region SPOF remains** — both in London | `fly machines list -a faithflow-audio` |
 | 8 | No staging; push to `main` auto-deploys mid-service | CRITICAL | **STILL TRUE** — CI only lints/typechecks | `.github/workflows/ci.yml` |
 | 9 | Rate limiters are per-instance memory | HIGH | **STILL TRUE** — and **no Redis/Upstash exists**. `RATE_LIMIT_BACKEND` is set in Vercel but nothing in `src/` reads it — a dead env var | `src/lib/rate-limit.ts` |
-| 10 | RLS enabled with no policies; app connects as owner → isolation is app-layer only | MEDIUM | **STILL TRUE** (deliberate, documented) | `docs/migrations/2026-08-18-enable-rls-security-lockdown.sql` |
+| 10 | RLS enabled with no policies; app connects as owner → isolation is app-layer only | MEDIUM | **STILL TRUE** (deliberate, documented). **A real implementation already exists** — see "Salvaged from PR #1" below | `docs/migrations/2026-08-18-enable-rls-security-lockdown.sql` |
 | 11 | ~12 adversarial cross-church tests excluded from CI (need a DB) | — | **STILL TRUE** — incl. `cross-church.test.ts` itself | `test/suites/known-failing.txt` |
 | 12 | **`DATABASE_URL` port unknown** — 6543 pooler vs 5432 direct | — | **UNVERIFIABLE from code** (write-only secret). **Check this first.** | Supabase dashboard |
 
@@ -52,6 +52,32 @@ the pooler's proxy IP vs direct client addresses.
 6. **CI Postgres service container (#11)** so cross-church tests actually run.
 7. **External uptime prober + paging (#6)** — the cheapest way to stop finding out
    from a church that Sunday is broken.
+
+### Salvaged from PR #1 (closed 2026-09-22, 1,690 commits stale)
+
+PR #1 "Admin Portal Phase 1" sat open since 2026-07-12. Its **auth hardening
+landed independently** — `src/lib/auth.ts` on main already has the constant
+dummy-bcrypt compare that defeats timing enumeration, and login rate limiting.
+So that half is done, by other means.
+
+Its **RLS half was never done and is still the real gap (#10)**. Worth reviving
+as its own piece of work, not as that branch:
+
+- `drizzle/0001_rls.sql` — actual POLICIES on 25 tenant tables + `auth_tokens`.
+  Main only has the 2026-08-18 lockdown, which enables RLS with **no policies**
+  and is bypassed by the owner role, so it contributes nothing to tenant
+  isolation.
+- `src/lib/db/rls.ts` — `withChurchScope` / `withServiceRole` helpers. **Not on
+  main.**
+- `test/adversarial/rls-cross-church.test.ts` — passed 5/5 against a NON-OWNER
+  role. **Not on main.** Note that `test/adversarial/cross-church.test.ts` is
+  currently in `known-failing.txt` because CI has no Postgres, so this is the
+  suite we most want running and least have.
+
+Recover the content with `git show origin/admin-portal-v2:<path>` — the branch is
+kept, not deleted. Do NOT try to merge that branch: it also rewrites `auth.ts`,
+`login/page.tsx`, `signup/page.tsx` and `OnboardingWizard.tsx`, all of which have
+moved on substantially in 1,690 commits.
 
 ### What is NOT a scaling problem (measured 2026-09-21)
 
