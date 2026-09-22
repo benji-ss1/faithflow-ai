@@ -25,11 +25,18 @@ export type SlideObjectWire =
       fontFamily?: string; fontSize?: number; fontWeight?: number; color?: string;
       align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean; opacity?: number;
       lineHeight?: number; letterSpacing?: number; uppercase?: boolean; shadow?: boolean; stroke?: string; strokeWidth?: number;
+      // ProPresenter scale-to-fit (src/lib/text-fit.ts). Absent = "down", so a
+      // box that would CLIP its text shrinks instead of hiding it.
+      textScale?: "none" | "down" | "up" | "both";
+      // Special formatting runs (PP7 "Maintaining Text Attributes").
+      runs?: Array<{ start: number; end: number; bold?: boolean; italic?: boolean; underline?: boolean; color?: string }>;
       role?: "main" | "verse" | "reference" }
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
   | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; posX?: number; posY?: number; zoom?: number; opacity?: number; blurFill?: boolean; blur?: boolean }
-  | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number };
+  | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; flipH?: boolean; flipV?: boolean; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number;
+      // PP7 video controls — trim, end behaviour, rate, volume.
+      inSec?: number; outSec?: number; endAction?: "loop" | "freeze" | "clear"; rate?: number; volume?: number };
 
 export const SLIDE_CANVAS_W = 1920;
 export const SLIDE_CANVAS_H = 1080;
@@ -1289,6 +1296,24 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
       if (p.shadow !== undefined && typeof p.shadow !== "boolean") return false;
       if (p.stroke !== undefined && !isValidColor(p.stroke)) return false;
       if (p.strokeWidth !== undefined && (typeof p.strokeWidth !== "number" || !Number.isFinite(p.strokeWidth) || p.strokeWidth < 0 || p.strokeWidth > 200)) return false;
+      if (p.textScale !== undefined && !["none", "down", "up", "both"].includes(p.textScale as string)) return false;
+      // Formatting runs. Offsets are validated as finite non-negative numbers
+      // here; overlap/ordering/bounds are normalised at render (normalizeRuns),
+      // so a hostile array can never produce a bad slice.
+      if (p.runs !== undefined) {
+        if (!Array.isArray(p.runs) || p.runs.length > 200) return false;
+        for (const r of p.runs) {
+          if (!r || typeof r !== "object" || hasPollutionKey(r)) return false;
+          const rr = r as Record<string, unknown>;
+          for (const k of ["start", "end"] as const) {
+            if (typeof rr[k] !== "number" || !Number.isFinite(rr[k] as number) || (rr[k] as number) < 0 || (rr[k] as number) > 5000) return false;
+          }
+          for (const k of ["bold", "italic", "underline"] as const) {
+            if (rr[k] !== undefined && typeof rr[k] !== "boolean") return false;
+          }
+          if (rr.color !== undefined && !isValidColor(rr.color)) return false;
+        }
+      }
       if (p.role !== undefined && p.role !== "main" && p.role !== "verse" && p.role !== "reference") return false;
       return true;
     case "shape":
@@ -1315,6 +1340,16 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
       if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover" && p.fit !== "fill") return false;
       if (p.loop !== undefined && typeof p.loop !== "boolean") return false;
       if (p.muted !== undefined && typeof p.muted !== "boolean") return false;
+      // Trim: finite, non-negative seconds. A bad pair is caught at render
+      // (resolveTrim falls back to the whole clip) but never let NaN/Infinity
+      // onto the wire in the first place.
+      for (const k of ["inSec", "outSec"] as const) {
+        const v = p[k];
+        if (v !== undefined && (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 86_400)) return false;
+      }
+      if (p.endAction !== undefined && !["loop", "freeze", "clear"].includes(p.endAction as string)) return false;
+      if (p.rate !== undefined && (typeof p.rate !== "number" || !Number.isFinite(p.rate) || p.rate <= 0 || p.rate > 4)) return false;
+      if (p.volume !== undefined && (typeof p.volume !== "number" || !Number.isFinite(p.volume) || p.volume < 0 || p.volume > 1)) return false;
       return true;
     default:
       return false;

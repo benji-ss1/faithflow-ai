@@ -2,7 +2,7 @@
 import { FontOptions, WeightOptions, selectedFontValue } from "@/components/fonts/FontOptions";
 import { useShortcutLabel, useIsWindows } from "@/lib/usePlatformLabel";
 import type { LiveOrigin } from "@/lib/song-switch-guard";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -27,6 +27,8 @@ import { ThemeEditorTab } from "./ThemeEditorTab";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject, ObjectAnim } from "@/lib/slide-objects";
 import { projectableTextSlide } from "@/lib/broadcast";
+import { subscribeTextSelection, selectionFor } from "@/lib/text-selection-store";
+import { normalizeRuns, type TextRun } from "@/lib/text-runs";
 import { CANVAS_W, CANVAS_H, newObjectId } from "@/lib/slide-objects";
 import { loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, type CustomTemplate } from "@/lib/custom-templates";
 import { cn } from "@/lib/utils";
@@ -1404,6 +1406,18 @@ function Toggle({ on, label, onClick, className }: { on: boolean; label: string;
 }
 
 function TextProps({ o, upd, guardEmptySize = false }: { o: TextObject; upd: (p: Partial<SlideObject>) => void; /** Theme mode: ignore an empty/0 size so a cleared box can't drop the text box or bake 0 into songs. */ guardEmptySize?: boolean }) {
+  // The selection is remembered from while the box was being edited — clicking
+  // any button here blurs it and the browser drops the live selection.
+  const sel = useSyncExternalStore(
+    subscribeTextSelection,
+    () => selectionFor(o.id),
+    () => null,
+  );
+  const applyRun = (attrs: Partial<TextRun>) => {
+    if (!sel) return;
+    const next = normalizeRuns([...(o.runs ?? []), { start: sel.start, end: sel.end, ...attrs }], o.text.length);
+    upd({ runs: next.length > 0 ? next : undefined });
+  };
   return (
     <>
       <div><span className={rowCls}>Text</span>
@@ -1442,6 +1456,65 @@ function TextProps({ o, upd, guardEmptySize = false }: { o: TextObject; upd: (p:
       <div className="grid grid-cols-2 gap-2">
         <div><span className={rowCls}>Line height</span><input type="number" min={0.5} max={4} step={0.05} value={o.lineHeight ?? 1.1} onChange={(e) => upd({ lineHeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
         <div><span className={rowCls}>Letter spacing</span><input type="number" min={-20} max={100} step={1} value={o.letterSpacing ?? 0} onChange={(e) => upd({ letterSpacing: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+      </div>
+      {/* Emphasis on a SELECTION — ProPresenter's "special" formatting, the
+          only formatting that survives a theme apply. Whole-box formatting is
+          deliberately NOT this: PP7 treats a uniformly-bold box as having no
+          special formatting at all, and a theme wipes it. */}
+      <div>
+        <span className={rowCls}>Emphasise selected words</span>
+        <div className="flex gap-1.5 items-center">
+          {([["bold", "B"], ["italic", "I"], ["underline", "U"]] as const).map(([attr, glyph]) => (
+            <button
+              key={attr}
+              type="button"
+              disabled={!sel}
+              onClick={() => applyRun({ [attr]: true })}
+              title={sel ? `Make the selected words ${attr}` : "Select some words in the slide first"}
+              className={`h-8 w-9 rounded-md border text-[12px] font-bold disabled:opacity-35 disabled:cursor-not-allowed hover:bg-[var(--color-brand)]/10 ${attr === "italic" ? "italic" : ""} ${attr === "underline" ? "underline" : ""}`}
+              style={{ borderColor: "var(--color-border)" }}
+            >{glyph}</button>
+          ))}
+          <input
+            type="color"
+            disabled={!sel}
+            defaultValue="#ffd700"
+            onChange={(e) => applyRun({ color: e.target.value })}
+            title={sel ? "Colour the selected words" : "Select some words in the slide first"}
+            className="h-8 w-9 rounded-md border cursor-pointer bg-transparent disabled:opacity-35"
+            style={{ borderColor: "var(--color-border)" }}
+          />
+          {(o.runs?.length ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => upd({ runs: undefined })}
+              title="Remove all emphasis from this text box"
+              className="ml-auto text-[10px] text-[var(--color-destructive)] hover:opacity-80"
+            >Clear emphasis</button>
+          )}
+        </div>
+        <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)] leading-snug">
+          {sel
+            ? "This emphasis is kept when you apply a theme."
+            : "Double-click the text on the slide and select a word or two first."}
+        </p>
+      </div>
+
+      {/* ProPresenter "Text Scaling". Default "down" means a box that would
+          CLIP its text shrinks instead of hiding it off the projector. */}
+      <div>
+        <span className={rowCls}>Scale to fit</span>
+        <select
+          value={o.textScale ?? "down"}
+          onChange={(e) => upd({ textScale: e.target.value as "none" | "down" | "up" | "both" })}
+          className={inCls}
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <option value="down">Shrink text to fit</option>
+          <option value="up">Grow text to fit</option>
+          <option value="both">Shrink or grow to fit</option>
+          <option value="none">Don&apos;t scale (may clip)</option>
+        </select>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div><span className={rowCls}>Outline</span><input type="color" value={o.stroke ?? "#000000"} onChange={(e) => upd({ stroke: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "var(--color-border)" }} /></div>
@@ -1494,6 +1567,48 @@ function VideoProps({ o, upd }: { o: VideoObject; upd: (p: Partial<SlideObject>)
       <div className="grid grid-cols-2 gap-2">
         <Toggle on={o.loop ?? true} label={`Loop ${(o.loop ?? true) ? "on" : "off"}`} onClick={() => upd({ loop: !(o.loop ?? true) })} className="uppercase" />
         <Toggle on={o.muted ?? true} label={(o.muted ?? true) ? "Muted" : "Sound on"} onClick={() => upd({ muted: !(o.muted ?? true) })} className="uppercase" />
+      </div>
+      {/* ProPresenter video controls. Blank trim fields = the whole clip. */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <span className={rowCls}>Start at (s)</span>
+          <input type="number" min={0} step={0.1} value={o.inSec ?? ""} placeholder="0"
+            onChange={(e) => upd({ inSec: e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)) })}
+            className={inCls} style={{ borderColor: "var(--color-border)" }} />
+        </div>
+        <div>
+          <span className={rowCls}>End at (s)</span>
+          <input type="number" min={0} step={0.1} value={o.outSec ?? ""} placeholder="end"
+            onChange={(e) => upd({ outSec: e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)) })}
+            className={inCls} style={{ borderColor: "var(--color-border)" }} />
+        </div>
+      </div>
+      <div>
+        <span className={rowCls}>When it reaches the end</span>
+        <select
+          value={o.endAction ?? ((o.loop ?? true) ? "loop" : "freeze")}
+          onChange={(e) => upd({ endAction: e.target.value as "loop" | "freeze" | "clear" })}
+          className={inCls} style={{ borderColor: "var(--color-border)" }}
+        >
+          <option value="loop">Play again (loop)</option>
+          <option value="freeze">Hold the last frame</option>
+          <option value="clear">Take it off the screen</option>
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <span className={rowCls}>Speed</span>
+          <input type="number" min={0.25} max={4} step={0.05} value={o.rate ?? 1}
+            onChange={(e) => upd({ rate: Number(e.target.value) })}
+            className={inCls} style={{ borderColor: "var(--color-border)" }} />
+        </div>
+        <div>
+          <span className={rowCls}>Volume</span>
+          <input type="range" min={0} max={1} step={0.05} value={o.volume ?? 1}
+            disabled={o.muted ?? true}
+            onChange={(e) => upd({ volume: Number(e.target.value) })}
+            className="w-full h-8 accent-[var(--color-brand)] disabled:opacity-40" />
+        </div>
       </div>
     </>
   );

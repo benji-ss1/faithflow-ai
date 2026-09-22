@@ -4,6 +4,17 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.504",
+    "date": "2026-09-21",
+    "headline": "Choose which screens each timer shows on",
+    "highlights": [
+      "Timers can now be shown or hidden per screen. In Scenes you'll find a new \"Timer\" row next to Projector, Stage, Livestream and NDI feed — tick any combination.",
+      "Useful when the countdown belongs on the stage display for the preacher but not in front of the congregation, or when you want it off the livestream only.",
+      "Nothing changes unless you set it up. If you've never built a Scene, your timers show exactly where they always have.",
+      "Turning \"Timer\" off for a screen also hides the older service countdown on that screen, since both appear in the same corner."
+    ]
+  },
+  {
     "version": "0.1.503",
     "date": "2026-09-22",
     "headline": "You can now tell a test build from the live app",
@@ -127,12 +138,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
     "version": "0.1.493",
     "date": "2026-09-21",
-    "headline": "Choose which screens each timer shows on",
+    "headline": "Groundwork so many churches can run services at the same time without slowing each other down",
     "highlights": [
-      "Timers can now be shown or hidden per screen. In Scenes you'll find a new \"Timer\" row next to Projector, Stage, Livestream and NDI feed — tick any combination.",
-      "Useful when the countdown belongs on the stage display for the preacher but not in front of the congregation, or when you want it off the livestream only.",
-      "Nothing changes unless you set it up. If you've never built a Scene, your timers show exactly where they always have.",
-      "Turning \"Timer\" off for a screen also hides the older service countdown on that screen, since both appear in the same corner."
+      "If something goes wrong while the AI is listening for one church, it no longer interrupts the live transcription for every other church running a service at the same time.",
+      "Old service transcripts are now actually deleted after the number of days set in Settings. Until now that setting was saved but never acted on, so nothing was ever removed. The first clear-outs happen overnight and work through any backlog a night at a time.",
+      "Transcript history is now indexed, so sermon summaries and anything that reads back through a service stay fast as your history grows.",
+      "The AI listening service has been given more memory and processing power, ready for many more churches at once."
     ]
   },
   {

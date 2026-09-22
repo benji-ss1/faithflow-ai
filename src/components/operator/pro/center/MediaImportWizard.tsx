@@ -13,6 +13,7 @@ import {
   CheckCircle2, Upload, X, FileImage, FileVideo, AlertCircle, Presentation, FolderOpen, Music,
 } from "lucide-react";
 import { toast } from "sonner";
+import { probeVideoCodec, uploadCodecWarning, CODEC_PROBE_BYTES } from "@/lib/video-codec";
 import { cn } from "@/lib/utils";
 import { registerMediaAsset } from "@/lib/actions";
 import { isPdfFile, renderPdfToImages } from "@/lib/pdf-to-images";
@@ -31,6 +32,17 @@ const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
 const PRO_EXTENSIONS = [".pro6", ".pro7", ".pro7x", ".pro5", ".pro"];
 // Videos can be up to 5 GB (large ones upload in parts); everything else 500 MB.
 const MAX_FILE_SIZE_MB = 5120;
+
+/** Read the header, and if the video is HEVC tell the operator what it means
+ *  for a Windows machine. Best-effort: any failure is silent — a codec probe
+ *  must never stop someone uploading. */
+async function warnIfHevc(file: File): Promise<void> {
+  try {
+    const head = new Uint8Array(await file.slice(0, CODEC_PROBE_BYTES).arrayBuffer());
+    const warning = uploadCodecWarning(probeVideoCodec(head));
+    if (warning) toast.warning(`"${file.name}": ${warning}`, { duration: 12000 });
+  } catch { /* probe is advisory only */ }
+}
 const MAX_NON_VIDEO_SIZE_MB = 500;
 
 function isProFile(file: File): boolean {
@@ -400,6 +412,11 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
         valid.push({ tag: "media", key, file, previewUrl: URL.createObjectURL(file), status: "pending" });
       } else if (ALLOWED_VIDEO_TYPES.includes(file.type)) {
         valid.push({ tag: "media", key, file, previewUrl: null, status: "pending" });
+        // Windows churches cannot play HEVC (H.265). A Mac/iPhone export looks
+        // perfect here and can be a BLACK SCREEN on their projector, so warn
+        // now while swapping the file is still cheap. Async + best-effort: it
+        // never blocks or fails the upload.
+        void warnIfHevc(file);
       } else if ((routed = classifyDroppedFile(file)).route === "audio" && cachedAudioSupport() === false) {
         toast.info(`"${file.name}": audio in the Media Bin is coming soon.`);
         continue;

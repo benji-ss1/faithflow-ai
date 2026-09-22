@@ -5,6 +5,7 @@
 // objectsJson so the look lives IN the slide → preview and live render it
 // identically (the WYSIWYG mandate), with the same contrast/gradient/black-bg
 // guards the whole-song bake uses.
+import { specialRuns, type TextRun } from "./text-runs";
 import { readableTextColor } from "./colorway";
 
 export type BakeableThemeConfig = {
@@ -74,7 +75,7 @@ export function bakeThemeIntoObjectsJson(cfg: BakeableThemeConfig, rawObjectsJso
     transition: cfg.transition ?? raw.transition,
     objects: objects.map((o) => {
       if (o?.kind !== "text") return o;
-      return {
+      const baked = {
         ...o,
         fontFamily: cfg.fontFamily ?? o.fontFamily,
         fontSize: cfg.fontSizePx ?? o.fontSize,
@@ -82,6 +83,26 @@ export function bakeThemeIntoObjectsJson(cfg: BakeableThemeConfig, rawObjectsJso
         color: bakeTextColor(cfg.textColor, o.color),
         align: cfg.align ?? o.align,
       };
+      // PP7 "Maintaining Text Attributes": formatting that CONTRASTS with the
+      // rest of its own box survives a theme apply — the one bolded word stays
+      // bold. Formatting shared by the whole box does not (it is
+      // indistinguishable from no formatting), and position/size/family always
+      // follow the theme. We recompute "special" against the NEWLY baked box
+      // values, so a run that happens to match the incoming theme correctly
+      // stops being special. No runs ⇒ nothing changes.
+      const runs = (o as { runs?: TextRun[] }).runs;
+      if (Array.isArray(runs) && runs.length > 0) {
+        const text = typeof (o as { text?: unknown }).text === "string" ? (o as { text: string }).text : "";
+        const kept = specialRuns(runs, {
+          bold: Number(baked.fontWeight ?? 400) >= 600,
+          italic: !!(o as { italic?: boolean }).italic,
+          underline: !!(o as { underline?: boolean }).underline,
+          color: typeof baked.color === "string" ? baked.color : undefined,
+        }, text.length);
+        if (kept.length > 0) (baked as Record<string, unknown>).runs = kept;
+        else delete (baked as Record<string, unknown>).runs;
+      }
+      return baked;
     }),
   };
   if (themeOwnsBg) {

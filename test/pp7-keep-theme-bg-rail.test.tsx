@@ -97,7 +97,12 @@ async function main() {
       act(() => { el.click(); });
     };
     const clickAll = (host: HTMLElement) => {
-      const el = surface === "rail" ? (host.querySelectorAll("button")[7] as HTMLButtonElement) : (host.querySelector('[data-clear="all"]') as HTMLButtonElement);
+      // By LABEL, not index. The rail gained named Clear Groups between the
+      // layer rows and Clear All, so an index silently retargets this at a
+      // group and then reports Clear All as broken.
+      const el = surface === "rail"
+        ? ([...host.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") || "").startsWith("Clear All")) as HTMLButtonElement)
+        : (host.querySelector('[data-clear="all"]') as HTMLButtonElement);
       act(() => { el.click(); });
     };
 

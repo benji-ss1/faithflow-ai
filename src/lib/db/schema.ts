@@ -407,7 +407,17 @@ export const transcriptSegments = pgTable("transcript_segments", {
   servicePlanId: uuid("service_plan_id").references(() => servicePlans.id, { onDelete: "cascade" }).notNull(),
   ts: timestamp("ts").defaultNow().notNull(),
   text: text("text").notNull(),
-});
+}, (t) => [
+  // 2026-09-21 scale hardening. This is the fastest-growing table in the
+  // schema — the Fly bridge writes one row per finalized utterance for EVERY
+  // church, continuously, through every service. It had no index at all.
+  // Postgres does not auto-index foreign keys (the same pitfall is documented
+  // on song_slides above), so every sermon-summary JOIN, every plan read and
+  // every retention DELETE was a sequential scan that gets worse each week.
+  // (service_plan_id, ts) serves both the per-plan reads and the retention
+  // prune's "this plan, older than N days" range in one index.
+  index("idx_transcript_segments_plan_ts").on(t.servicePlanId, t.ts),
+]);
 
 // Fine-grained, chunk-level RAG over a service's full transcript — distinct
 // from sermonSummaries (one embedded high-level summary per service). Each
@@ -446,7 +456,13 @@ export const detectedReferences = pgTable("detected_references", {
   confidence: integer("confidence").notNull(), // 0-100
   status: detectedStatusEnum("status").notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // Unindexed until 2026-09-21. This FK carries ON DELETE CASCADE, so without
+  // it the retention prune was the worst-scaling path in the whole schema:
+  // deleting one transcript_segments row made Postgres seq-scan the entire
+  // detected_references table to find its children — O(deleted x table).
+  index("idx_detected_references_segment").on(t.transcriptSegmentId),
+]);
 
 export const aiSuggestions = pgTable("ai_suggestions", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -486,7 +502,12 @@ export const churchPreferences = pgTable("church_preferences", {
   audioInputDeviceLabel: text("audio_input_device_label"),
   detectionConfidenceThreshold: integer("detection_confidence_threshold").notNull().default(60),
   productionMode: boolean("production_mode").notNull().default(false),
-  transcriptRetentionDays: integer("transcript_retention_days").notNull().default(90), // 0 = forever
+  // 2026-09-21 (owner directive): 7 days, not 90. Raw transcripts are a
+  // short-lived working artefact — a church that wants its sermon text has a
+  // week to take it. What churches actually keep long-term (sermon summaries
+  // and the searchable sermon index) is stored separately and is NOT pruned,
+  // so shortening this does not cost them sermon search. 0 = keep forever.
+  transcriptRetentionDays: integer("transcript_retention_days").notNull().default(7),
   commandPrefix: text("command_prefix").notNull().default("faithflow"),
   // Autopilot mode — high-confidence scripture detections auto-stage AND
   // auto-send to Live without operator approval. Off by default to

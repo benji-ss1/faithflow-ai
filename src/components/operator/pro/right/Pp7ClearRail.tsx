@@ -19,10 +19,10 @@ import { Music, Send, Layers, Megaphone, SquareMenu, Image as ImageIcon, Video, 
 import type { OperatorShellCtx } from "../../shell/types";
 import { shouldIgnore, modalDialogOpen } from "@/hooks/useOperatorHotkeys";
 import {
-  PP7_CLEAR_ORDER, decodePp7ClearKey,
+  PP7_CLEAR_ORDER, decodePp7ClearKey, pp7ClearGroupById, PP7_CLEAR_GROUPS,
   type Pp7ClearLayer,
 } from "@/lib/pp7-clear";
-import { pp7ClearTitle } from "@/lib/pp7-layer-model";
+import { pp7ClearGroup, pp7ClearTitle } from "@/lib/pp7-layer-model";
 import { useShortcutLabel } from "@/lib/usePlatformLabel";
 import {
   PP7_LAYER_AVAILABLE, pp7AnyLive, pp7ClearAll, pp7ClearLayer, pp7LayerActive,
@@ -71,6 +71,17 @@ export function Pp7ClearRail({
   // from the Layers panel, as a cleared prop does in ProPresenter.
   const clearAll = useCallback(() => pp7ClearAll(inputs, effects), [inputs, effects]);
 
+  // Named Clear Groups (PP7 7.7+). Additive to Clear All, never a replacement —
+  // our Clear All stays fixed so the panic button cannot be configured away.
+  const clearGroup = useCallback((id: string) => {
+    const g = pp7ClearGroupById(id);
+    if (!g) return;
+    // Clear to Logo is hidden when the church has no logo, so it can never be a
+    // button that looks like it worked and did nothing.
+    if (g.toLogo && !effects.showLogo) return;
+    pp7ClearGroup(g, inputs, effects);
+  }, [inputs, effects]);
+
   // Second Clear All binding (2026-09-17): a default Mac keyboard sends F1 to
   // the brightness control, so PP7's F1 "does nothing" until the operator flips
   // a macOS setting. "⌘⇧C" / "Ctrl+Shift+C" works everywhere. F1 still works.
@@ -85,14 +96,15 @@ export function Pp7ClearRail({
   // F5 (Audio) is PREVENTED even though there is no audio layer yet: letting it
   // through reloaded the page mid-service in a plain browser tab. It is now a
   // deliberate no-op that cannot reload.
-  const handlersRef = useRef({ clear, clearAll });
-  handlersRef.current = { clear, clearAll };
+  const handlersRef = useRef({ clear, clearAll, clearGroup });
+  handlersRef.current = { clear, clearAll, clearGroup };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || e.defaultPrevented || shouldIgnore(e.target) || modalDialogOpen()) return;
       const target = decodePp7ClearKey(e);
       if (!target) return;
       e.preventDefault();
+      if (typeof target === "object") { handlersRef.current.clearGroup(target.group); return; }
       if (target === "audio") return; // no audio layer yet — no-op, and NO reload
       if (target === "all") handlersRef.current.clearAll();
       else handlersRef.current.clear(target);
@@ -136,6 +148,33 @@ export function Pp7ClearRail({
           </button>
         );
       })}
+
+      {/* Named Clear Groups, BELOW the per-layer buttons and visibly separate
+          from them — they clear several layers at once, so they must not look
+          like another single-layer button. Clear All stays the circled ✕ and is
+          never one of these (Victor 2026-09-18: the panic button is fixed). */}
+      <div className="shrink-0 border-t-2 border-black/60">
+        {PP7_CLEAR_GROUPS.map((g) => {
+          // Clear to Logo is HIDDEN, not disabled, when the church has no logo:
+          // clearing "to" nothing looks like a crash mid-service.
+          if (g.toLogo && !effects.showLogo) return null;
+          const label = `${g.name}${g.key ? ` (${g.key})` : ""} — ${g.description}`;
+          return (
+            <button
+              key={g.id}
+              type="button"
+              onClick={() => clearGroup(g.id)}
+              title={label}
+              aria-label={label}
+              className="w-full h-7 flex items-center justify-center hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 border-b border-black/40 last:border-b-0"
+            >
+              {g.toLogo
+                ? <ImageIcon className="w-3.5 h-3.5 text-white/85" />
+                : <span aria-hidden className="text-[9px] font-bold tracking-tight text-white/85">ABV</span>}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Clear All — PP7's white circled ✕ on the rail's left edge. */}
       <button

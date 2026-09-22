@@ -1,11 +1,14 @@
 /**
  * Shared rate-limit primitive.
  *
- * Default backend is an in-memory Map (per-lambda-instance). Fine for the
- * pilot demo; not durable across cold starts or Fluid Compute instances.
- * When we move to shared state, swap `defaultBackend` for a Redis/Upstash
- * implementation — every caller keeps working because they only touch the
- * `RateLimiter` interface below.
+ * Default backend is an in-memory Map (per-lambda-instance) — NOT durable
+ * across cold starts or Fluid Compute instances, so the effective limit is
+ * roughly `configured_limit x instance_count`.
+ *
+ * 2026-09-21: `src/lib/rate-limit-redis.ts` implements the shared backend over
+ * Upstash REST and installs itself from `instrumentation.ts` when
+ * UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN are set. Without them this
+ * in-memory limiter remains, so nothing changes until Redis exists.
  */
 
 export interface RateLimiter {
@@ -46,6 +49,13 @@ let defaultBackend: RateLimiter = new MemoryLimiter();
 
 export function setRateLimitBackend(backend: RateLimiter) {
   defaultBackend = backend;
+}
+
+/** The backend in force. Used by the Redis backend to keep the in-memory one
+ *  as its fallback, so a Redis outage degrades to per-instance limits instead
+ *  of losing rate limiting altogether. */
+export function getRateLimitBackend(): RateLimiter {
+  return defaultBackend;
 }
 
 /**

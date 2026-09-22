@@ -12,7 +12,7 @@
  */
 import {
   PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, PP7_CLEAR_KEY,
-  isMediaSlideKind, isEmptySlideKind, type Pp7ClearLayer,
+  isMediaSlideKind, isEmptySlideKind, type Pp7ClearLayer, type Pp7ClearGroup,
 } from "./pp7-clear";
 
 /** Everything the model needs to decide what is live, read from the operator ctx. */
@@ -109,6 +109,10 @@ export type Pp7ClearEffects = {
   clearMessages: () => void;
   /** `ctx.onClearLowerThird?.()` — Clear All only. */
   clearLowerThird?: () => void;
+  /** Put the church logo on the projector (Clear to Logo / F12). Absent when
+   *  the church has no logo set, which is why the group is hidden in that case
+   *  rather than being a button that silently does nothing. */
+  showLogo?: () => void;
 };
 
 /**
@@ -161,6 +165,26 @@ export function pp7ClearLayer(layer: Pp7ClearLayer, i: Pp7LayerInputs, fx: Pp7Cl
 export function pp7ClearAll(i: Pp7LayerInputs, fx: Pp7ClearEffects): void {
   for (const layer of PP7_CLEAR_ORDER) pp7ClearLayer(layer, i, fx, true);
   fx.clearLowerThird?.();
+}
+
+/**
+ * Run a named CLEAR GROUP — several layers at once, then optionally the logo.
+ *
+ * Deliberately NOT the same path as Clear All: Clear All stays a fixed,
+ * uneditable panic button (Victor 2026-09-18), while groups are additive and
+ * named. Layers always run in rail order, whatever order the group lists them
+ * in, so a group can never produce a different result from the same buttons
+ * pressed by hand.
+ *
+ * `fromClearAll` is passed FALSE: a group is not the panic button, so a Slide
+ * clear inside a group keeps the theme background exactly as a lone Slide clear
+ * does. Otherwise "All But Video Input" would blank more than Clear Slide.
+ */
+export function pp7ClearGroup(group: Pp7ClearGroup, i: Pp7LayerInputs, fx: Pp7ClearEffects): void {
+  for (const layer of PP7_CLEAR_ORDER) {
+    if (group.layers.includes(layer)) pp7ClearLayer(layer, i, fx, false);
+  }
+  if (group.toLogo) fx.showLogo?.();
 }
 
 /**

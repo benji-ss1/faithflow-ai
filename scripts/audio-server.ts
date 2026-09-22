@@ -76,6 +76,37 @@ import { loadKeyterms, loadLearnedKeyterms } from "../src/lib/deepgram-keyterms"
 import { and, eq } from "drizzle-orm";
 import crypto from "node:crypto";
 
+// ── MULTI-TENANT CRASH GUARD (2026-09-21, scale hardening) ──────────────────
+// ONE Fly machine, ONE Node process, serves EVERY church's live audio. Since
+// Node 15 an unhandled promise rejection terminates the process by default, and
+// `dgOnMessage` is registered as an async EventEmitter listener — nothing
+// awaits it, so any throw inside it (a pg pool timeout under Sunday load, a
+// transient Supabase blip, a future parser regression) becomes an unhandled
+// rejection. Without a handler here, one church's failed INSERT kills live
+// detection for all of them, mid-service.
+//
+// So: log loudly, keep serving. A single church's request is already lost at
+// this point; the other 19 should not lose their service too. This deliberately
+// does NOT swallow startup errors — `listen` failures still exit below — and it
+// is a backstop, not a licence to skip local try/catch.
+//
+// uncaughtException is intentionally the same shape: Node's default is to exit,
+// and for a shared multi-tenant bridge staying up in a degraded state beats
+// taking 20 churches down. Fly's tcp_check (fly.toml) still restarts the
+// machine if the process becomes genuinely unresponsive.
+let unhandledCount = 0;
+process.on("unhandledRejection", (reason) => {
+  unhandledCount += 1;
+  const msg = reason instanceof Error ? `${reason.message}\n${reason.stack ?? ""}` : String(reason);
+  console.error(`[audio-server] UNHANDLED REJECTION #${unhandledCount} (process kept alive for the other churches):`, msg);
+});
+process.on("uncaughtException", (err) => {
+  unhandledCount += 1;
+  console.error(`[audio-server] UNCAUGHT EXCEPTION #${unhandledCount} (process kept alive for the other churches):`, err?.stack || err);
+});
+/** Test/ops hook: how many fatal-class errors we have absorbed this lifetime. */
+export function absorbedFatalCount(): number { return unhandledCount; }
+
 const PORT = Number(process.env.AUDIO_WS_PORT || 3001);
 const DG_KEY = process.env.DEEPGRAM_API_KEY;
 const TICKET_SECRET = process.env.AUTH_SECRET;

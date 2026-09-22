@@ -25,6 +25,7 @@ import { isWindowsUA } from "@/lib/platform";
 import { leftPanelMaxWidth } from "@/lib/panelLayout";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { MEDIA_FAILURE_EVENT, type MediaFailureDetail } from "@/lib/media-failure";
 import { Quote, X } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { OperatorErrorBoundary } from "../OperatorErrorBoundary";
@@ -808,6 +809,25 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   // Part 7c (silence ticker) never holds a stale closure.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { sendLiveStableRef.current = ctx.onSendSlideToLive; });
+
+  // A picture or video that fails to load is HIDDEN on the projector (the
+  // audience screen must never show an error) — but the operator has to be told,
+  // or they run the service believing a background is there when it is not.
+  // The usual cause is an HEVC .mov, which plays on the Mac it was made on and
+  // not on Windows. See src/lib/media-failure.ts.
+  useEffect(() => {
+    const onFail = (e: Event) => {
+      const d = (e as CustomEvent<MediaFailureDetail>).detail;
+      if (!d) return;
+      const name = (() => { try { return decodeURIComponent(new URL(d.url).pathname.split("/").pop() || ""); } catch { return ""; } })();
+      toast.error(
+        `A ${d.kind} did not load${name ? ` ("${name}")` : ""} — the projector is showing nothing in its place.`,
+        { description: d.kind === "video" ? "If it was exported on a Mac it may be HEVC (H.265), which Windows cannot play. Re-export as H.264 MP4." : undefined, duration: 12000 },
+      );
+    };
+    window.addEventListener(MEDIA_FAILURE_EVENT, onFail);
+    return () => window.removeEventListener(MEDIA_FAILURE_EVENT, onFail);
+  }, []);
 
   const autoApprove = !!ctx.autoApproveOn;
 

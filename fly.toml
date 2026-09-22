@@ -17,13 +17,24 @@ kill_timeout = 10
 [env]
   NODE_ENV = "production"
   AUDIO_WS_PORT = "3001"
+  # The bridge is a LONG-LIVED process serving every church at once, so the
+  # default pool of 6 (sized for a short-lived Vercel instance) is a hard
+  # ceiling: a burst of simultaneous detections queues on it and surfaces as
+  # "verse lookup timed out". Safe to raise because the app reaches Postgres
+  # through Supavisor, which multiplexes onto far fewer server connections
+  # (verified: max_connections = 60). 12 x 2 machines is still well inside that.
+  PG_POOL_MAX = "12"
 
 [[services]]
   internal_port = 3001
   protocol = "tcp"
   auto_stop_machines = "off"     # audio bridge must stay warm
   auto_start_machines = true
-  min_machines_running = 1
+  # 2026-09-21: the app genuinely runs TWO machines (verified with
+  # `fly machines list -a faithflow-audio`: damp-moon-2740 + shy-meadow-3274,
+  # both started, both lhr). This file said 1, so it had DRIFTED below reality —
+  # a deploy reading the old value risks scaling the redundancy away. Pinned to 2.
+  min_machines_running = 2
 
   [[services.ports]]
     port = 443
@@ -34,7 +45,15 @@ kill_timeout = 10
     timeout = "5s"
     grace_period = "30s"
 
+# 2026-09-21: MATCHED TO THE LIVE MACHINES, not guessed. Both machines report
+# shared-cpu-1x:2048MB (`fly machines list -a faithflow-audio`). This file still
+# said 512MB, so it had drifted BELOW reality — deploying the old value would
+# have HALVED the memory of a live audio bridge. Pinned to what is running.
+#
+# Next capacity step, if real Sunday metrics justify it, is cpus = 2 or a
+# dedicated CPU. Not done blind: shared-cpu-1x has been adequate so far and CPU
+# is the one dimension we have no measurement for yet.
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
-  memory_mb = 512
+  memory_mb = 2048
