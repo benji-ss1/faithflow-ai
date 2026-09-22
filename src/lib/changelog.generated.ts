@@ -4,6 +4,16 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.511",
+    "date": "2026-09-22",
+    "headline": "A deploy can no longer ship code the database is not ready for",
+    "highlights": [
+      "Today the Timers and Stage Layouts panels showed \"Background task failed\" because a database change was written but never applied, and the code that needed it shipped anyway.",
+      "Every build now checks the live database against the code before it deploys. If the database is behind, the build stops and names exactly which tables and columns are missing — and the version already running stays up.",
+      "The check reads the real schema, so a new table or column is covered the moment it is written. There is no list anyone has to remember to update."
+    ]
+  },
+  {
     "version": "0.1.510",
     "date": "2026-09-22",
     "headline": "Big ProPresenter libraries now import instead of failing",
@@ -39,10 +49,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "The songs arrive in the order your worship team actually planned the service, not in alphabetical order. PresentFlow reads the running order out of the ProPresenter file itself.",
       "Song lyrics now keep their line breaks. Imported slides used to arrive as one long run-on line; each line now sits on its own line, the way it looked in ProPresenter.",
       "Library exports (.prolib) and theme bundles (.protheme) are accepted the same way.",
-      "One thing to know - a .proPlaylist holds your songs but NOT your background images or videos. To bring artwork across, export a Presentation Bundle (.proBundle) from ProPresenter as well.",
-      "Today the Timers and Stage Layouts panels showed \"Background task failed\" because a database change was written but never applied, and the code that needed it shipped anyway.",
-      "Every build now checks the live database against the code before it deploys. If the database is behind, the build stops and names exactly which tables and columns are missing — and the version already running stays up.",
-      "The check reads the real schema, so a new table or column is covered the moment it is written. There is no list anyone has to remember to update."
+      "One thing to know - a .proPlaylist holds your songs but NOT your background images or videos. To bring artwork across, export a Presentation Bundle (.proBundle) from ProPresenter as well."
     ]
   },
   {
