@@ -1,7 +1,7 @@
 ---
 headline: Releases no longer fail because of an outside font server
 audience: admin
-version: 0.1.513
+version: 0.1.522
 date: 2026-09-22
 highlights:
   - Three releases failed in one afternoon because the build downloads typefaces from Google while it runs, and Google answered oddly. The fonts now ship inside PresentFlow, so a release cannot fail for that reason again.
