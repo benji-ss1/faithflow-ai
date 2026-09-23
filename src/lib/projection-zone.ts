@@ -67,7 +67,14 @@ export const DEFAULT_ZONE: ProjectionZone = {
 };
 
 const clamp01 = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
-const clampScale = (n: number) => (Number.isFinite(n) ? Math.max(0.5, Math.min(2, n)) : 1);
+/** Bounds for the zone's font multiplier. EXPORTED so the wire bound can be
+ *  drift-guarded against them: the operator publishes fontScale * zone.fontScale,
+ *  and that product must never exceed OUTPUT_FONT_SCALE_MAX (broadcast.ts) or the
+ *  projector silently resets to 100%. See test/font-scale-clamp.test.ts. */
+export const ZONE_FONT_SCALE_MIN = 0.5;
+export const ZONE_FONT_SCALE_MAX = 2;
+const clampScale = (n: number) =>
+  (Number.isFinite(n) ? Math.max(ZONE_FONT_SCALE_MIN, Math.min(ZONE_FONT_SCALE_MAX, n)) : 1);
 
 /** Minimum zone size (fraction of canvas) — matches the spec's 20% floor. */
 export const MIN_ZONE = 0.2;

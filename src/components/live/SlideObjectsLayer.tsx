@@ -6,6 +6,7 @@ import { themedObjectTextColor } from "@/lib/slide-objects";
 import { flipTransform } from "@/lib/editor-geometry";
 import { FittedText } from "./FittedText";
 import { DEFAULT_TEXT_SCALE } from "@/lib/text-fit";
+import { objectFontScale } from "@/lib/canvas-coords";
 import { reportMediaFailure } from "@/lib/media-failure";
 import { SlideVideo } from "./SlideVideo";
 
@@ -34,7 +35,7 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, ref
   // Capped at the previous 1.6 maximum (2026-09-16): designed slides use FIXED text
   // boxes with overflow hidden and are not auto-fitted, so the wider 0.3–2.5 operator
   // range would cut their text off far sooner. Smaller is still unlimited.
-  const fs = Number.isFinite(fontScale) && fontScale > 0 ? Math.min(fontScale, 1.6) : 1;
+  const fs = objectFontScale(fontScale);
   // H1 (2026-09-10): the REF −/+ control multiplies ONLY the reference text.
   // For styled scripture slides the reference is a positioned OBJECT (not the
   // fallback footer), so REF was a no-op. Identify it by matching the slide's

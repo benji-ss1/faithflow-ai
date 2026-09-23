@@ -11,6 +11,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard, setTextClipboard, useTextClipboard, getTextClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
+import { syncBackgroundForAppliedTheme } from "@/lib/theme-apply-client";
 import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, setServiceItemSlideActions,clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme, applyThemeToSongSlides, removeThemeFromSongSlide } from "@/lib/actions";
 import { anyOverlayOpen } from "@/hooks/useOperatorHotkeys";
 import { nextSlideSelection, stripVideoDecor, consumeSelectionEscape } from "@/lib/slide-selection";
@@ -192,7 +193,11 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const router = useRouter();
   const item = ctx.plan.items[ctx.previewItemIdx];
   // PR 2: thumbnails use the theme THIS item projects with (boxes + decor).
-  const rawItemAppearance = ctx.appearanceForItem ? ctx.appearanceForItem(ctx.previewItemIdx) : ctx.appearance;
+  // `?? ctx.appearance` is the last-resort belt: appearanceForItem can still
+  // return null (no item theme, no content-type style, no church default), and a
+  // null here paints every card black over its opaque base. Matches SongsBrowser,
+  // which already falls back this way.
+  const rawItemAppearance = (ctx.appearanceForItem ? ctx.appearanceForItem(ctx.previewItemIdx) : null) ?? ctx.appearance;
   // Grid thumbnails never decode theme video decor (same rule as the popover).
   const itemAppearance = useMemo(() => stripVideoDecor(rawItemAppearance), [rawItemAppearance]);
   const slides: SlidePayload[] = item?.slides ?? [];
@@ -606,13 +611,16 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
 
   // A5: themes — fetched once for the "Theme" submenu. Apply/remove operate on the
   // whole song (all slides) via the existing church-scoped actions.
-  const [themes, setThemes] = useState<{ id: string; name: string }[]>([]);
+  // `config` is kept (not just id/name) so applying a theme can tell whether it
+  // carries its OWN background and therefore must switch off an active
+  // Background Template — see syncBackgroundForAppliedTheme.
+  const [themes, setThemes] = useState<{ id: string; name: string; config?: unknown }[]>([]);
   useEffect(() => {
     let alive = true;
     void fetch("/api/themes").then((r) => r.json()).then((d) => {
       if (!alive) return;
       const list = Array.isArray(d?.themes) ? d.themes : [];
-      setThemes(list.map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })));
+      setThemes(list.map((t: { id: string; name: string; config?: unknown }) => ({ id: t.id, name: t.name, config: t.config })));
     }).catch(() => { /* themes optional */ });
     return () => { alive = false; };
   }, []);
@@ -623,6 +631,11 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       if (!songId) { toast.error("Only songs can take a theme"); return; }
       const res = await applyThemeToSong(themeId, songId);
       if (!res.ok) { toast.error(res.error ?? "Couldn't apply theme"); return; }
+      // A theme carrying its own background must turn OFF any active Background
+      // Template, or the template keeps out-ranking it and the operator sees
+      // "Theme applied" with no visible change (field report 2026-09-22).
+      const cfg = themes.find((t) => t.id === themeId)?.config;
+      if (cfg) await syncBackgroundForAppliedTheme(cfg);
       toast.success("Theme applied — re-send a slide to update the screen");
       router.refresh();
     })();

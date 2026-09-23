@@ -7,7 +7,7 @@ import { decidePlanPropChange, shouldPinPlanUrl } from "@/lib/operator-plan-sele
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { decideSlideClear, isKeepThemeBgSlide, pickOutputAppearance, readPp7KeepThemeBgFlag, usePp7KeepThemeBg } from "@/lib/pp7-keep-theme-bg";
-import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, publishedFontScale, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { SCENES_V1, type SceneWire } from "@/lib/scenes";
 import { nextPreviewPosition } from "@/lib/operator-nav";
@@ -491,7 +491,13 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // folded into the fontScale field so a single number reaches AutoFitText.
   const zoneStore = useProjectionZoneStore();
   const activeZone: ProjectionZone = zoneStore.activeProfile ? normalizeZone(zoneStore.activeProfile) : DEFAULT_ZONE;
-  const effectiveFontScale = fontScale * activeZone.fontScale;
+  // ONE shared expression for the scale that reaches every output AND this
+  // console's own preview (shellCtx below) — they must never disagree. It clamps
+  // to the wire bound, because the raw product (slider max 2.5 x zone font max
+  // 2.0 = 5.0) used to exceed it and `sanitizeOutputState` RESET the excess to 1,
+  // silently snapping the projector to 100% mid-service while preview stayed
+  // large. See publishedFontScale / OUTPUT_FONT_SCALE_MAX in broadcast.ts.
+  const effectiveFontScale = publishedFontScale(fontScale, activeZone.fontScale);
   const [zoneEditorOpen, setZoneEditorOpen] = useState(false);
   // The floating Projection-Zone button was removed; keep the editor reachable
   // via a custom event (fired from menus / hotkeys / future entry points).
@@ -1582,7 +1588,26 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   const appearanceForItem = useCallback((itemIdx: number): import("@/lib/broadcast").ThemeAppearance | null => {
     // Same resolver as the live output (effectiveAppearance) — never diverges.
     const cfg = resolveItemThemeConfig(plan.items[itemIdx] as never, contentStyles, (id) => themesByIdRef.current.get(id));
-    return (cfg ? appearanceForConfig(cfg) : null) ?? appearance;
+    // Field bug 2026-09-22 (Victor): every slide CARD rendered black while the live
+    // preview showed the theme. `resolveItemThemeConfig` yields null while
+    // `contentStyles` is still {} (it is on first render by design, filled in a
+    // client effect) or before the themes cache lands, and the `appearance` state
+    // is only ever set for a theme row flagged isDefault — and never at all once
+    // `userTouched` is set by an in-session theme apply. Both legs null ⇒ the card
+    // got `undefined` and painted transparent over its black base, while the live
+    // preview stayed themed because it reads `liveAppearance` (a different value,
+    // anchored to the LIVE item with its own retained-appearance fallback).
+    // Fall back to the church default theme BY ID, exactly as the send path
+    // already does (themeConfigForSend: `byId(ct) ?? byId(defaultThemeIdRef)`),
+    // so a card can never be less themed than what we would actually project.
+    // Only ever fires where the value is null today, so no card can lose an
+    // appearance it already had. Deliberately NOT applied to effectiveAppearance:
+    // that feeds the projector, and changing what it emits is a separate,
+    // sign-off-worthy change.
+    const resolved = (cfg ? appearanceForConfig(cfg) : null) ?? appearance;
+    if (resolved) return resolved;
+    const defCfg = defaultThemeIdRef.current ? themesByIdRef.current.get(defaultThemeIdRef.current) : undefined;
+    return defCfg ? appearanceForConfig(defCfg) : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan.items, contentStyles, appearance, appearanceForConfig, themesVersion]);
   const layoutPreviewSlide = useCallback((slide: SlidePayload): SlidePayload => {
@@ -2928,6 +2953,12 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     setAnnouncement, setTransitionSpec, sendSlideToLive, stageSlide,
     bankAdd, sendBankedToLive, removeBanked, onDeleteSlide, onReorderSlidesInItem,
     startAudio, stopAudio, effectiveAppearance,
+    // 2026-09-22: appearanceForItem/appearance/contentStyles/themesVersion drive
+    // the slide CARDS' theme. They were absent, so ctx could hand the grid an
+    // older resolver closure than the one the live appearance already used —
+    // a staleness hole on any transition that changes the resolution without
+    // changing effectiveAppearance's identity.
+    appearanceForItem, appearance, contentStyles, themesVersion,
     // Preview WYSIWYG — recompute the ctx when these output values change so the
     // operator preview reflects size/colour/background even when AI is off.
     effectiveFontScale, referenceScale, referenceColor, backgroundSpec, videoInput,

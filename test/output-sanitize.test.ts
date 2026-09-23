@@ -20,6 +20,7 @@ import {
   sanitizeOutputState,
   coerceLiveMessage,
   isValidOutputStateExternal,
+  OUTPUT_FONT_SCALE_MAX,
   slideOutputIdentity,
   EMPTY_OUTPUT,
   type OutputState,
@@ -128,10 +129,24 @@ check("bad nextItem (empty title) dropped, not fatal", () => {
   assert.equal(isValidOutputStateExternal(s), true);
 });
 
-check("out-of-range fontScale clamped to 1", () => {
+// 2026-09-20: behaviour CHANGED deliberately. An over-large but otherwise sane
+// fontScale used to be RESET to 1, which made the projector snap back to 100%
+// mid-service. It is now CLAMPED to the bound (still large). Only a value that
+// cannot be interpreted at all (non-finite, <= 0) still falls back to 1.
+// Full coverage lives in test/font-scale-clamp.test.ts.
+check("out-of-range fontScale is clamped to the bound, NOT reset to 1", () => {
   const s = sanitizeOutputState({ ...base, fontScale: 999 } as OutputState);
-  assert.equal(s!.fontScale, 1);
+  assert.equal(s!.fontScale, OUTPUT_FONT_SCALE_MAX);
+  assert.notEqual(s!.fontScale, 1);
   assert.equal(isValidOutputStateExternal(s), true);
+});
+
+check("uninterpretable fontScale still falls back to 1", () => {
+  for (const bad of [0, -3, NaN, Infinity, "big" as unknown as number]) {
+    const s = sanitizeOutputState({ ...base, fontScale: bad } as OutputState);
+    assert.equal(s!.fontScale, 1, `fontScale ${String(bad)} -> 1`);
+    assert.equal(isValidOutputStateExternal(s), true);
+  }
 });
 
 check("bad aspectRatio coerced to 16:9", () => {

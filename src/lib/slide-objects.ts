@@ -4,8 +4,11 @@
 // keep working without a data migration.
 import type { SlidePayload } from "./broadcast";
 
-export const CANVAS_W = 1920;
-export const CANVAS_H = 1080;
+// Derived from the single canvas contract (src/lib/canvas-coords.ts) so these
+// can never drift from broadcast.ts / PresentationCanvas.tsx again.
+import { SLIDE_W, SLIDE_H } from "./canvas-coords";
+export const CANVAS_W = SLIDE_W;
+export const CANVAS_H = SLIDE_H;
 
 // Every text object is created with a default white fill (emptyTextObject,
 // scriptureStyle VERSE/REF_DEFAULT, slide-templates). That default should NOT

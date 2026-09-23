@@ -43,6 +43,9 @@ export function useFitFontSize(
   deps: string = "",
 ): number {
   const [scale, setScale] = useState(1);
+  // Bumped by the ResizeObserver below to RE-RUN the fit after a resize. It is a
+  // dep of the layout effect, so the fit actually recomputes.
+  const [resizeTick, setResizeTick] = useState(0);
   const key = `${text}|${mode}|${String(base)}|${deps}`;
 
   useLayoutEffect(() => {
@@ -64,7 +67,7 @@ export function useFitFontSize(
     }
     setScale(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, mode]);
+  }, [key, mode, resizeTick]);
 
   useEffect(() => {
     const el = ref.current;
@@ -72,7 +75,12 @@ export function useFitFontSize(
     let raf = 0;
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => setScale((s) => (s === 1 ? 1.0000001 : 1)));
+      // Was `setScale(s => s === 1 ? 1.0000001 : 1)`, which THREW AWAY the
+      // fitted multiplier (e.g. 0.6 -> 1) and never re-fitted, because the
+      // layout effect's deps were only [key, mode]. Designed/PP7 text objects
+      // therefore jumped to their authored size on any resize and then toggled
+      // 1 <-> 1.0000001 forever. Bump a tick the fit actually depends on.
+      raf = requestAnimationFrame(() => setResizeTick((n) => n + 1));
     });
     ro.observe(el);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
