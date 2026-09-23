@@ -2,6 +2,9 @@
 
 **Three rules, every agent, every time: [AGENTS.md](AGENTS.md)** — never regress,
 don't over-engineer, go straight to the root.
+**HOW to follow them: [NO_BS_NO_REGRESSION.md](NO_BS_NO_REGRESSION.md)** (user-directed
+2026-09-22) — never guess, never assume, work only from sources and plain facts. A guess
+IS a regression. Applies to every change: new, existing, on top of, sideways, big or small.
 **What is actually true right now: [docs/MILESTONES.md](docs/MILESTONES.md)** —
 verified infra state + locked behaviour. Update it in the same change that ships.
 

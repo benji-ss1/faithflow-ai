@@ -306,6 +306,26 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     const measH = useCanvas ? Math.round(canvas!.h * (1 - reserveV)) : box.clientHeight;
     const padPx = Math.max(4, Math.min(48, Math.round(Math.min(measW, measH) * paddingRatio)));
     setPad(padPx);
+    // `pad` is React STATE, so setPad lands on the NEXT commit — but the fit
+    // below measures the LIVE DOM (`t.scrollWidth/scrollHeight`), whose usable
+    // width is decided by the padding currently painted (initially the
+    // useState(4) seed). So the search tested against `bw` (new padding) while
+    // the text was actually laid out against the OLD padding, and nothing
+    // "fit" — the size collapsed toward the floor. On the next pass, with the
+    // padding settled, the SAME content fitted far larger. That alternation is
+    // the "quivering"/"fighting itself" the operator sees: one element whose
+    // font size snaps between two values, re-wrapping every line each flip
+    // (field report 2026-09-22, Victor — on every theme, preview only).
+    //
+    // Write the padding imperatively so the DOM matches what this fit assumes.
+    // The projector branch never had this bug because it pins `t.style.width`
+    // (padding can't corrupt it); the non-projector branch only pins width when
+    // `wrapToBox` is set, which only the lower-third band passes — grid cards,
+    // the Bible preview card and ThemeFramedText pass neither.
+    box.style.paddingLeft = `${padPx}px`;
+    box.style.paddingRight = `${padPx}px`;
+    box.style.paddingTop = `${padPx + (verticalAlign === "top" ? padPx : 0)}px`;
+    box.style.paddingBottom = `${padPx + (verticalAlign === "bottom" ? padPx : 0)}px`;
     const bw = measW - padPx * 2;
     const bh = measH - padPx * 2;
     if (bw <= 0 || bh <= 0) return;

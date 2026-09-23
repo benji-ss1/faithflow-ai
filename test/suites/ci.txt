@@ -81,6 +81,7 @@ test/fonts-files.test.ts
 test/fonts-no-cdn.test.ts
 test/fonts-picker-value.test.ts
 test/fonts-registry.test.ts
+test/fonts-self-hosted.test.ts
 test/hex-color.test.ts
 test/keyboard-shortcuts.test.ts
 test/layer-store.test.ts
@@ -191,6 +192,7 @@ test/suites-complete.test.ts
 test/text-fit.test.ts
 test/text-runs.test.ts
 test/text-size-freedom.test.ts
+test/font-scale-clamp.test.ts
 test/theme-appearance.test.ts
 test/theme-bake.test.ts
 test/theme-carries-band.test.ts
@@ -234,4 +236,10 @@ test/voice-commands.test.ts
 test/whats-new.test.ts
 test/windows-media.test.ts
 test/windows-responsive.test.ts
-test/fonts-self-hosted.test.ts
+test/theme-band-persist.test.ts
+test/canvas-coords.test.ts
+test/theme-config-patch.test.ts
+test/wire-contract-drift.test.ts
+test/card-appearance-fallback.test.ts
+test/theme-clears-template.test.ts
+test/autofit-quiver.test.ts

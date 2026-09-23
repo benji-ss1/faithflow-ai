@@ -1,0 +1,191 @@
+/**
+ * Theme config writes must not clobber each other (2026-09-22 audit).
+ *
+ * `updateTheme` replaces the WHOLE `config` jsonb from a snapshot the CLIENT
+ * held, and there is no optimistic concurrency anywhere — no version, no etag,
+ * no updatedAt compare. Three writers did read-modify-write from their own
+ * snapshot, the worst being RightInspector.patchConfig, which fires on every
+ * control change (including each keystroke in a colour/URL field). Two changes
+ * made moments apart both built from the SAME render's config, so the second
+ * silently undid the first's field.
+ *
+ * `patchThemeConfig` (actions.ts) now merges SERVER-side inside a transaction,
+ * making a patch last-write-wins PER FIELD instead of per BLOB. This pins the
+ * pure half of that, plus the wiring.
+ *
+ * Run: npx tsx test/theme-config-patch.test.ts
+ */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { mergeThemeConfigPatch, sanitizeThemeConfig } from "../src/lib/theme-config";
+
+let pass = 0, fail = 0;
+const check = (n: string, fn: () => void) => { try { fn(); console.log(`  PASS  ${n}`); pass++; } catch (e) { console.error(`  FAIL  ${n}\n        ${(e as Error).message}`); fail++; } };
+const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+
+console.log("field-level merge:");
+check("a patch changes ONLY its own keys", () => {
+  const prev = { fontFamily: "Inter", bgColor: "#000000", fontSizePx: 90 };
+  assert.deepEqual(mergeThemeConfigPatch(prev, { bgColor: "#112233" }),
+    { fontFamily: "Inter", bgColor: "#112233", fontSizePx: 90 });
+});
+check("THE RACE: two concurrent patches each keep their own field", () => {
+  // Both operators/controls read the same snapshot, then patch different fields.
+  const stored = { fontFamily: "Inter", bgColor: "#000000" };
+  const afterA = mergeThemeConfigPatch(stored, { bgColor: "#ff0000" });   // writer A lands first
+  const afterB = mergeThemeConfigPatch(afterA, { fontFamily: "Georgia" }); // writer B lands second
+  assert.equal(afterB.bgColor, "#ff0000", "writer B undid writer A's colour — the whole-blob bug is back");
+  assert.equal(afterB.fontFamily, "Georgia");
+});
+check("undefined means LEAVE ALONE (not 'clear')", () => {
+  const prev = { fontFamily: "Inter", bgColor: "#000000" };
+  assert.deepEqual(mergeThemeConfigPatch(prev, { bgColor: undefined }), prev);
+});
+check("null means CLEAR the field", () => {
+  const prev = { fontFamily: "Inter", bgColor: "#000000" };
+  assert.deepEqual(mergeThemeConfigPatch(prev, { bgColor: null }), { fontFamily: "Inter" });
+});
+check("an empty patch is a no-op, and a missing prev/patch is safe", () => {
+  const prev = { fontFamily: "Inter" };
+  assert.deepEqual(mergeThemeConfigPatch(prev, {}), prev);
+  assert.deepEqual(mergeThemeConfigPatch(null, { a: 1 }), { a: 1 });
+  assert.deepEqual(mergeThemeConfigPatch(prev, null), prev);
+  assert.deepEqual(mergeThemeConfigPatch(undefined, undefined), {});
+});
+check("it does not MUTATE the stored config it was given", () => {
+  const prev = { fontFamily: "Inter", bgColor: "#000000" };
+  const copy = { ...prev };
+  mergeThemeConfigPatch(prev, { bgColor: "#fff", fontFamily: null });
+  assert.deepEqual(prev, copy, "merge mutated its input");
+});
+
+console.log("\nthe patch still goes through the same gate as every other writer:");
+check("a patch CANNOT smuggle an unknown key past THEME_ALLOWED_KEYS", () => {
+  const merged = mergeThemeConfigPatch({ fontFamily: "Inter" }, { evilKey: "x" });
+  const { config, rejected } = sanitizeThemeConfig(merged);
+  assert.equal((config as Record<string, unknown>).evilKey, undefined);
+  assert.ok(rejected.includes("evilKey"));
+  assert.equal(config.fontFamily, "Inter", "the legitimate field was lost");
+});
+check("a patch CANNOT smuggle an out-of-range number onto the wire", () => {
+  const merged = mergeThemeConfigPatch({}, { fontSizePx: 999999 });
+  const { config } = sanitizeThemeConfig(merged);
+  const n = config.fontSizePx;
+  assert.ok(n === undefined || (typeof n === "number" && n < 999999), `unclamped: ${n}`);
+});
+
+console.log("\nprototype keys cannot ride in on a patch:");
+check("__proto__ in a patch never reaches Object.prototype or the stored config", () => {
+  const merged = mergeThemeConfigPatch({ fontFamily: "Inter" }, JSON.parse('{"__proto__":{"polluted":true}}'));
+  assert.equal(({} as Record<string, unknown>).polluted, undefined, "GLOBAL prototype polluted");
+  assert.ok(!Object.keys(merged).includes("__proto__"));
+  const { config } = sanitizeThemeConfig(merged);
+  assert.equal((config as Record<string, unknown>).polluted, undefined);
+  assert.equal(config.fontFamily, "Inter", "the legitimate field was lost");
+});
+check("constructor / prototype keys are skipped by the merge", () => {
+  for (const k of ["constructor", "prototype"]) {
+    const merged = mergeThemeConfigPatch({}, JSON.parse(`{"${k}":{"prototype":{"x":1}}}`));
+    assert.ok(!Object.keys(merged).includes(k), `${k} survived the merge`);
+    assert.equal(({} as Record<string, unknown>).x, undefined, `Object.prototype polluted via ${k}`);
+  }
+});
+check("a band carrying __proto__ is rebuilt from defaults, not spread", () => {
+  const { config } = sanitizeThemeConfig(
+    mergeThemeConfigPatch({}, { scriptureLayout: "lowerThird", scriptureBand: JSON.parse('{"__proto__":{"pwn":1},"mode":"solid"}') }));
+  assert.equal(({} as Record<string, unknown>).pwn, undefined, "Object.prototype polluted via the band");
+  assert.ok(config.scriptureBand, "band lost");
+  assert.equal(config.scriptureBand!.mode, "solid");
+});
+check("the number-range lookup does not walk the prototype chain", () => {
+  const src = readFileSync(new URL("../src/lib/theme-config.ts", import.meta.url), "utf8");
+  assert.match(src, /Object\.hasOwn\(THEME_NUMBER_RANGES, k\)/,
+    "reverted to `k in THEME_NUMBER_RANGES`, which walks the prototype chain");
+});
+
+console.log("\na bad patch must not destroy good stored data:");
+check("patchThemeConfig restores an allow-listed key the sanitizer rejected", () => {
+  const src = read("../src/lib/actions.ts");
+  const fn = src.slice(src.indexOf("export async function patchThemeConfig"), src.indexOf("export async function duplicateTheme"));
+  assert.match(fn, /for \(const k of clean\.rejected\)/,
+    "only `layout` is preserved — a malformed patch can ERASE a stored-good scriptureBand");
+  assert.match(fn, /THEME_ALLOWED_KEYS as string\[\]\)\.includes\(k\)/,
+    "the restore is not scoped to allow-listed keys — it would resurrect unknown legacy junk");
+});
+check("the erasure scenario: a malformed band must not wipe the stored one", () => {
+  // merged carries prev's GOOD band for a key the patch corrupts, so the
+  // sanitizer rejects the merged key -> without the restore the band is lost.
+  const good = { mode: "solid", color: "#112233", color2: "#000000", angle: 0, opacity: 1,
+                 position: "lower", offsetY: 0, heightPct: 30, fontScale: 1, refScale: 1, widthPct: 88 };
+  const merged = mergeThemeConfigPatch({ scriptureLayout: "lowerThird", scriptureBand: good }, { scriptureBand: "not-an-object" });
+  const { config, rejected } = sanitizeThemeConfig(merged);
+  assert.ok(rejected.includes("scriptureBand"), "test premise changed: the bad band is no longer rejected");
+  assert.equal(config.scriptureBand, undefined, "sanitizer unexpectedly kept it");
+  // patchThemeConfig's restore loop is what puts prev's band back; assert the
+  // ingredients it relies on are present.
+  assert.ok(Object.hasOwn({ scriptureBand: good }, "scriptureBand"));
+});
+check("builtinId: carried over from the DB row, but a PATCH can never set one", () => {
+  const src = read("../src/lib/actions.ts");
+  const fn = src.slice(src.indexOf("export async function patchThemeConfig"), src.indexOf("export async function duplicateTheme"));
+  // Must NOT use allowBuiltinId — only materializeBuiltinTheme may PERSIST one,
+  // so a user theme can never impersonate a built-in (builtin-themes.test.ts).
+  assert.ok(!/allowBuiltinId:\s*true/.test(fn),
+    "patchThemeConfig lets a caller persist builtinId — a user theme could hijack a built-in's find-or-create slot");
+  // ...but the STORED marker must survive, or the first control change to a
+  // materialized built-in orphans the row and it re-materializes as a duplicate.
+  assert.match(fn, /const prevBuiltinId = prev\.builtinId;/, "stored builtinId is not carried over");
+  assert.match(fn, /isBuiltinThemeId\(prevBuiltinId\)/, "the carried-over value is not validated");
+});
+check("a patch carrying builtinId is still stripped by the sanitizer", () => {
+  const merged = mergeThemeConfigPatch({ fontFamily: "Inter" }, { builtinId: "builtin:midnight" });
+  assert.equal(sanitizeThemeConfig(merged).config.builtinId, undefined,
+    "a user patch persisted builtinId — built-in impersonation is possible");
+});
+
+console.log("\nwiring (the racing writers actually use it):");
+check("patchThemeConfig runs in a transaction and locks the row", () => {
+  const src = read("../src/lib/actions.ts");
+  const fn = src.slice(src.indexOf("export async function patchThemeConfig"));
+  assert.match(fn.slice(0, 2500), /db\.transaction\(/, "not transactional");
+  assert.match(fn.slice(0, 2500), /\.for\("update"\)/, "row is not locked — two patches can still interleave");
+  assert.match(fn.slice(0, 2500), /sanitizeThemeConfig\(merged\)/, "patch bypasses the sanitizer");
+  assert.match(fn.slice(0, 2500), /eq\(themes\.churchId, user\.churchId\)/, "church scoping missing on a DB write");
+});
+check("RightInspector.patchConfig no longer sends the whole config", () => {
+  const src = read("../src/components/operator/shell/RightInspector.tsx");
+  const i = src.indexOf("const patchConfig");
+  const body = src.slice(i, i + 900);
+  assert.match(body, /patchThemeConfig\(current\.id, p\)/, "still sending a client-snapshot blob");
+  assert.ok(!/updateTheme\(current\.id, \{ config: cfg \}\)/.test(body), "the whole-blob write survived");
+});
+check("theme-quick-apply's media set/clear patch fields, not the blob", () => {
+  const src = read("../src/lib/theme-quick-apply.ts");
+  assert.match(src, /patchThemeConfig\(target\.id, patch\)/, "setMediaOnActiveTheme still writes the blob");
+  assert.match(src, /patchThemeConfig\(target\.id, \{ bgType: "solid"/, "clearActiveThemeBackground still writes the blob");
+});
+check("no RightInspector control uses `undefined` as a CLEAR sentinel", () => {
+  // patchThemeConfig: undefined = leave alone, null = clear. A control that
+  // sends `x ?? undefined` for its "none" option silently stops clearing.
+  const src = read("../src/components/operator/shell/RightInspector.tsx");
+  const bad = [...src.matchAll(/patchConfig\(\{[^}]*\?\?\s*undefined[^}]*\}\)/g)].map((m) => m[0]);
+  assert.deepEqual(bad, [], `these clear-controls send undefined (a no-op) instead of null: ${bad.join(" | ")}`);
+});
+check("the theme transition 'none' option clears the stored field", () => {
+  const src = read("../src/components/operator/shell/RightInspector.tsx");
+  assert.match(src, /patchConfig\(\{ transition: t \?\? null \}\)/, "the transition picker no longer clears on '— none —'");
+  // and prove null actually removes the key end-to-end
+  const merged = mergeThemeConfigPatch({ fontFamily: "Inter", transition: { effectId: "fade", durationMs: 300, easing: "ease" } }, { transition: null });
+  assert.ok(!("transition" in merged), "null did not clear the field");
+  assert.equal(sanitizeThemeConfig(merged).config.transition, undefined);
+  assert.equal(sanitizeThemeConfig(merged).config.fontFamily, "Inter");
+});
+check("Undo still restores the EXACT prior snapshot (deliberately a blob write)", () => {
+  const src = read("../src/lib/theme-quick-apply.ts");
+  const i = src.indexOf("async function applyConfig");
+  assert.match(src.slice(i, i + 400), /updateTheme\(target\.id, \{ config \}\)/,
+    "applyConfig is the one-tap Undo — it must restore the whole snapshot, not merge");
+});
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
