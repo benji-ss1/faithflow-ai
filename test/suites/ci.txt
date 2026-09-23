@@ -103,6 +103,7 @@ test/media-drop.test.ts
 test/media-frame-bake.test.ts
 test/media-frame-slide.test.ts
 test/media-layout.test.ts
+test/media-sync.test.ts
 test/message-clear-immediate.test.ts
 test/mic-boost-policy.test.ts
 test/multi-output.test.ts

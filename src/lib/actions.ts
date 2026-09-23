@@ -37,6 +37,7 @@ import { createLimiter } from "./rate-limit";
 import { getSongUsage } from "./song-limits";
 import { getEffectiveSongLimit } from "./server/song-limits-server";
 import { bulkInsertSongs } from "./song-bulk-insert";
+import { mergeDuplicateMediaRows, countMediaUsage, type MediaUsage } from "./server/media-dedupe";
 import { reChunkSongCore, type ReChunkOutcome } from "./server/song-rechunk";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
@@ -1818,10 +1819,52 @@ export async function deleteMediaAsset(id: string): Promise<Result> {
       AND si.type = 'media'
       AND si.payload->>'mediaAssetId' = ${id}
   `);
-  try { await deleteObject(row.s3Key); } catch { /* orphan — recoverable */ }
-  if (row.thumbS3Key) try { await deleteObject(row.thumbS3Key); } catch { /* orphan — recoverable */ }
+  // Storage safety (2026-09-23): only delete objects under this church's own
+  // prefix, and never one another row still points at (a ProPresenter finalize
+  // can reuse a streamed key) — otherwise the surviving row would go blank.
+  for (const key of [row.s3Key, row.thumbS3Key]) {
+    // Own church's objects only: presign keys (`<church>/...`) and ProPresenter
+    // import streams (`imports/<church>/...`).
+    if (!key || !(key.startsWith(`${user.churchId}/`) || key.startsWith(`imports/${user.churchId}/`))) continue;
+    const [still] = await db.select({ id: mediaAssets.id }).from(mediaAssets)
+      .where(sql`${mediaAssets.s3Key} = ${key} OR ${mediaAssets.thumbS3Key} = ${key}`).limit(1);
+    if (still) continue;
+    try { await deleteObject(key); } catch { /* orphan — recoverable */ }
+  }
   revalidatePath("/library/media");
   return { ok: true };
+}
+
+/** Where a media asset is still used (playlists, songs, slides, themes,
+ *  announcement presets) — shown in the delete confirmation. Read-only. */
+export async function getMediaUsage(id: string): Promise<Result<MediaUsage>> {
+  const user = await requireCap("edit_library");
+  const usage = await countMediaUsage(getDb(), user.churchId, id);
+  if (!usage) return { ok: false, error: "Not found" };
+  return { ok: true, data: usage };
+}
+
+/**
+ * Resolve a duplicate group: KEEP one asset, delete the others (2026-09-23).
+ * Unlike a plain delete, playlist items that pointed at a removed copy are
+ * RE-POINTED to the kept copy first (single `mediaAssetId` and group
+ * `mediaAssetIds[]`), so cleaning up duplicates never silently removes an item
+ * from someone's service plan. Server re-verifies that every removed id is a
+ * genuine duplicate of the kept one (same kind + trimmed/case-insensitive name
+ * + size) and belongs to this church — the client can't use this to delete
+ * arbitrary media.
+ */
+export async function removeDuplicateMedia(keepId: string, removeIds: string[]): Promise<Result<{ removed: number; removedIds: string[] }>> {
+  const user = await requireCap("edit_library");
+  const res = await mergeDuplicateMediaRows(getDb(), user.churchId, keepId, removeIds);
+  if (!res.ok) return { ok: false, error: res.error };
+  // Storage cleanup after the DB commit (same DB-first rationale as deleteMediaAsset).
+  for (const v of res.removed) {
+    if (v.s3Key) try { await deleteObject(v.s3Key); } catch { /* orphan — recoverable */ }
+    if (v.thumbS3Key && v.thumbS3Key !== v.s3Key) try { await deleteObject(v.thumbS3Key); } catch { /* orphan */ }
+  }
+  revalidatePath("/library/media");
+  return { ok: true, data: { removed: res.removed.length, removedIds: res.removed.map((r) => r.id) } };
 }
 
 export async function renameMediaAsset(id: string, newName: string): Promise<Result> {

@@ -26,7 +26,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
-import { registerMediaAsset, renameMediaAsset, deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
+import { registerMediaAsset, renameMediaAsset, deleteMediaAsset, getMediaUsage, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useSelectedLibrary, libraryQueryParam, getSelectedLibrary, setSelectedLibrary, type LibraryFilter } from "../left/libraryFilter";
 import { classifyDrop, isRealDragLeave } from "@/lib/spring-load";
 import { setMediaOnActiveTheme, clearActiveThemeBackground, type QuickThemeChange } from "@/lib/theme-quick-apply";
@@ -41,6 +41,8 @@ import { resolveFramedBackground } from "./mediaFrameBake";
 import { FramedImage } from "./FramedImage";
 import { mediaClickAction, AUDIO_NOT_PROJECTABLE_MESSAGE } from "@/lib/media-click";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
+import { notifyMediaChanged, onMediaChanged, duplicateIndex, findMediaDuplicates, dupCopyCount, describeMediaUsage, withTimeout } from "@/lib/media-sync";
+import { DuplicateBadge, DuplicatesBanner, MediaDuplicatesDialog, isAssetLive, type DupAsset } from "./MediaDuplicates";
 
 type Asset = {
   id: string;
@@ -220,11 +222,37 @@ export function MediaBrowser({
   const loadAssets = (quiet = false) => {
     if (!quiet) setLoading(true);
     fetch(listUrl)
-      .then((r) => r.json())
-      .then((data: unknown) => setAssets((data as { assets?: Asset[] }).assets ?? []))
-      .catch(() => toast.error("Failed to load media"))
+      .then(async (r) => {
+        // A failed refresh (e.g. 429 rate-limit after a burst of changes) must
+        // KEEP the current grid + cache — never blank the operator's media mid-service.
+        if (!r.ok) throw new Error(`list ${r.status}`);
+        const data = (await r.json()) as { assets?: Asset[] };
+        if (Array.isArray(data.assets)) setAssets(data.assets);
+      })
+      .catch(() => { if (!quiet) toast.error("Failed to load media"); })
       .finally(() => setLoading(false));
   };
+
+  // 2026-09-23: Media and Media Bin are ONE library. Re-fetch whenever any
+  // surface (Media Bin, workspace tab, library page, another window) changes it.
+  const loadAssetsRef = useRef(loadAssets);
+  loadAssetsRef.current = loadAssets;
+  useEffect(() => onMediaChanged(() => loadAssetsRef.current(true)), []);
+
+  // Duplicates (same kind + name + size) — computed over the WHOLE list so the
+  // yellow badge is honest regardless of the type/search filter.
+  // When a specific library is selected, also compare against the last full
+  // (unfiltered) list from the per-church cache so a copy filed in ANOTHER
+  // library still flags here — same verdict as the (unfiltered) Media Bin.
+  const dupPool = useMemo(() => {
+    if (cacheEligible) return assets;
+    const full = mediaListCache.get(ctx.churchId) ?? [];
+    const seen = new Set(assets.map((a) => a.id));
+    return [...assets, ...full.filter((a) => !seen.has(a.id))];
+  }, [assets, cacheEligible, ctx.churchId]);
+  const dupIdx = useMemo(() => duplicateIndex(dupPool), [dupPool]);
+  const dupGroups = useMemo(() => findMediaDuplicates(dupPool), [dupPool]);
+  const [dupDialogGroups, setDupDialogGroups] = useState<DupAsset[][] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -234,8 +262,11 @@ export function MediaBrowser({
     const hasCache = cacheEligible && (mediaListCache.get(ctx.churchId)?.length ?? 0) > 0;
     if (!hasCache) setLoading(true);
     fetch(listUrl)
-      .then((r) => r.json())
-      .then((data: unknown) => { if (!cancelled) setAssets((data as { assets?: Asset[] }).assets ?? []); })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`list ${r.status}`);
+        const data = (await r.json()) as { assets?: Asset[] };
+        if (!cancelled && Array.isArray(data.assets)) setAssets(data.assets);
+      })
       // On a revalidation failure, KEEP the cached grid (graceful) — only surface
       // the error when we had nothing cached to fall back to.
       .catch(() => { if (!cancelled && !hasCache) toast.error("Failed to load media"); })
@@ -468,7 +499,9 @@ export function MediaBrowser({
 
   // ── Delete ────────────────────────────────────────────────────────────────
   const deleteAsset = async (a: Asset) => {
-    if (!(await confirm({ title: `Delete "${a.fileName}"?`, description: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
+    const usage = await withTimeout(getMediaUsage(a.id).then((r) => (r.ok ? r.data ?? null : null)), 1500, null);
+    const used = describeMediaUsage(usage);
+    if (!(await confirm({ title: `Delete "${a.fileName}"?`, description: `${used ? used + " " : ""}This cannot be undone.`, confirmLabel: "Delete", danger: true }))) return;
     const result = await deleteMediaAsset(a.id);
     if (!result?.ok) {
       toast.error((result as { error?: string } | undefined)?.error ?? "Delete failed");
@@ -482,6 +515,7 @@ export function MediaBrowser({
       removeCustomBackground(`media-bg-${a.id}`);
       setAssets((prev) => prev.filter((x) => x.id !== a.id));
       if (selectedId === a.id) setSelectedId(null);
+      notifyMediaChanged(); // Media Bin + other lists drop it too
     }
   };
 
@@ -505,6 +539,7 @@ export function MediaBrowser({
     setAssets((prev) => prev.filter((a) => !bulkIds.has(a.id) || failed.has(a.id)));
     if (selectedId && bulkIds.has(selectedId) && !failed.has(selectedId)) setSelectedId(null);
     setBulkIds(failed);
+    if (deleted > 0) notifyMediaChanged();
     toast[deleted > 0 ? "success" : "error"](`Deleted ${deleted} item${deleted === 1 ? "" : "s"}${failed.size ? ` — ${failed.size} failed` : ""}`);
   };
 
@@ -529,6 +564,7 @@ export function MediaBrowser({
       toast.success("Renamed");
       // Optimistic local update — no full reload needed
       setAssets((prev) => prev.map((a) => (a.id === id ? { ...a, fileName: name } : a)));
+      notifyMediaChanged();
     }
   };
 
@@ -536,10 +572,25 @@ export function MediaBrowser({
   return (
     <>
       {confirmDialog}
+      <MediaDuplicatesDialog
+        open={dupDialogGroups !== null}
+        onClose={() => setDupDialogGroups(null)}
+        groups={dupDialogGroups ?? []}
+        churchId={ctx.churchId}
+        liveIds={new Set((dupDialogGroups ?? []).flat().filter((a) => isAssetLive(ctx.liveSlide, a)).map((a) => a.id))}
+        onResolved={(removed) => {
+          const gone = new Set(removed);
+          setAssets((prev) => prev.filter((x) => !gone.has(x.id)));
+          const full = mediaListCache.get(ctx.churchId);
+          if (full) mediaListCache.set(ctx.churchId, full.filter((x) => !gone.has(x.id)));
+          setBulkIds((prev) => { const n = new Set(prev); removed.forEach((id) => n.delete(id)); return n; });
+          if (selectedId && gone.has(selectedId)) setSelectedId(null);
+        }}
+      />
       <MediaImportWizard
         open={wizardOpen}
         onClose={() => { setWizardOpen(false); setDropImport(null); }}
-        onImported={() => loadAssets(true)}
+        onImported={() => notifyMediaChanged() /* our own subscription re-fetches */}
         initialFiles={dropImport?.files}
         initialLibraryId={dropImport?.libraryId ?? null}
       />
@@ -558,6 +609,7 @@ export function MediaBrowser({
               ? prev
               : [{ id: a.id, fileName: a.fileName, kind: "image", sizeBytes: 0, createdAt: now, url: a.url, thumbUrl: a.url }, ...prev]));
             setEditingImage((prev) => (prev ? { ...prev, id: a.id, url: a.url, fileName: a.fileName } : prev));
+            notifyMediaChanged();
           }}
         />
       )}
@@ -571,6 +623,7 @@ export function MediaBrowser({
             placeholder={loading ? "Loading media…" : `Filter ${assets.length} asset${assets.length !== 1 ? "s" : ""}…`}
             className="flex-1 bg-[var(--color-muted)] border border-[var(--color-border)] rounded-lg px-3 h-8 text-sm font-medium text-[var(--color-foreground)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none transition-colors focus:border-[var(--color-brand)] focus:shadow-[inset_0_1px_2px_rgba(0,0,0,0.28),var(--shadow-ember)]"
           />
+          <DuplicatesBanner extra={dupCopyCount(dupGroups)} onReview={() => setDupDialogGroups(dupGroups)} />
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as Filter)}
@@ -771,6 +824,17 @@ export function MediaBrowser({
                     >
                       {bulkIds.has(a.id) ? <CheckSquare className="w-3.5 h-3.5 text-[var(--color-brand)]" /> : <Square className="w-3.5 h-3.5 text-white/80" />}
                     </span>
+                    {/* Duplicate caution (bottom-left, above the filename bar). */}
+                    {dupIdx.has(a.id) && (
+                      <DuplicateBadge
+                        className="absolute left-1 bottom-8"
+                        copies={dupIdx.get(a.id)!.length}
+                        onClick={() => {
+                          if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                          setDupDialogGroups([dupIdx.get(a.id)!]);
+                        }}
+                      />
+                    )}
                     {/* Edit-slide button (top-right; images only) — an explicit
                         alternative to double-click. Stops the click from projecting. */}
                     {!a.kind.startsWith("video") && (

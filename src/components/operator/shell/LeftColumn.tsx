@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { onMediaChanged } from "@/lib/media-sync";
 import {
   ChevronDown, ChevronRight, Music, BookOpen, Image as ImageIcon, Presentation,
   ListMusic, Upload, Filter as FilterIcon, Circle, X, Bookmark, HelpCircle,
@@ -62,6 +63,9 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
       fetch("/api/imports/list").then((r) => r.json()).then((d) => setImports(d.imports || [])).catch(() => setImports([]));
     }
   }, [activeLib, songs, media, imports]);
+  // 2026-09-23: drop the cached media list on any media change so the next
+  // view re-fetches (uploads/deletes from Media or the Media Bin show here too).
+  useEffect(() => onMediaChanged(() => setMedia(null)), []);
 
   const filteredSongs = useMemo(
     () => (songs || []).filter((s) => !libFilter || s.title.toLowerCase().includes(libFilter.toLowerCase()) || (s.artist || "").toLowerCase().includes(libFilter.toLowerCase())),
