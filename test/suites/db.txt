@@ -7,6 +7,7 @@
 # church cannot see another's data. They are exactly the tests we most want
 # running and, until 2026-09-22, the ones that never ran at all.
 test/adversarial/cross-church.test.ts
+test/adversarial/media-dedupe.test.ts
 test/adversarial/sermon-pptx-cross-church.test.ts
 test/adversarial/scenes-scoping.test.ts
 test/adversarial/phase4-slide-actions-macros.test.ts
