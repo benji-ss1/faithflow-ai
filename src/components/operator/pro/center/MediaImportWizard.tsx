@@ -10,8 +10,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
-  CheckCircle2, Upload, X, FileImage, FileVideo, AlertCircle, Presentation, FolderOpen, Music,
+  CheckCircle2, Upload, X, FileImage, FileVideo, AlertCircle, Presentation, FolderOpen, Music, AlertTriangle,
 } from "lucide-react";
+import { isDuplicateUpload, notifyMediaChanged } from "@/lib/media-sync";
 import { toast } from "sonner";
 import { probeVideoCodec, uploadCodecWarning, CODEC_PROBE_BYTES } from "@/lib/video-codec";
 import { cn } from "@/lib/utils";
@@ -243,7 +244,7 @@ async function convertPptxToPdf(file: File, signal: AbortSignal, onStage: (s: De
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type UploadStatus = "pending" | "uploading" | "done" | "error";
+type UploadStatus = "pending" | "uploading" | "done" | "error" | "skipped";
 
 interface QueuedMedia {
   tag: "media";
@@ -341,6 +342,23 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
 
   // Audio-enabled check (cached) so audio is routed before any upload.
   useEffect(() => { if (open) void loadMediaCapabilities(); }, [open]);
+  // 2026-09-23 "never have duplicates": the library as it stands, so a file
+  // that's already in Media (same type + name + size) is flagged and SKIPPED
+  // by default — the operator can still tick "Import anyway".
+  const [existing, setExisting] = useState<Array<{ fileName: string; kind: string; sizeBytes: number }>>([]);
+  const [allowDup, setAllowDup] = useState<Set<string>>(new Set());
+  const [doneSkipped, setDoneSkipped] = useState(0);
+  const [existingTick, setExistingTick] = useState(0); // re-pull after an upload ("Import more")
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    fetch("/api/media/list", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { assets: [] }))
+      .then((j: { assets?: Array<{ fileName: string; kind: string; sizeBytes: number }> }) => { if (live) setExisting(Array.isArray(j?.assets) ? j.assets : []); })
+      .catch(() => { /* fail-open: no dup flags, upload still works */ });
+    return () => { live = false; };
+  }, [open, existingTick]);
+  const isDupItem = (q: QueuedFile) => q.tag === "media" && !q.deck && isDuplicateUpload(q.file, existing);
 
   // Reset on close
   useEffect(() => {
@@ -358,6 +376,8 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
         setDoneMedia(0);
         setDoneSongs(0);
         setErrorCount(0);
+        setDoneSkipped(0);
+        setAllowDup(new Set());
         setDragOver(false);
       }, 200);
     }
@@ -495,10 +515,16 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
     let media = 0;
     let songs = 0;
     let errors = 0;
+    let skipped = 0;
 
     for (const item of queue) {
       if (cancelRef.current) {
         setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "error", error: "Cancelled", progress: undefined } : q));
+        continue;
+      }
+      if (isDupItem(item) && !allowDup.has(item.key)) {
+        setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "skipped" } : q));
+        skipped++;
         continue;
       }
       setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "uploading" } : q));
@@ -667,16 +693,21 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
     setDoneMedia(media);
     setDoneSongs(songs);
     setErrorCount(errors);
+    setDoneSkipped(skipped);
     setUploading(false);
     setStep(4);
     if (media > 0) onImported();
+    // One library: every media surface (Media, Media Bin, other windows) re-pulls.
+    // ProPresenter imports can also add media rows, so notify on songs too.
+    if (media > 0 || songs > 0) { notifyMediaChanged(); setExistingTick((n) => n + 1); }
   };
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const mediaQueue = queue.filter((q): q is QueuedMedia => q.tag === "media");
   const proQueue = queue.filter((q): q is QueuedPro => q.tag === "pro");
   const totalSizeMB = (queue.reduce((s, q) => s + q.file.size, 0) / 1024 / 1024).toFixed(1);
-  const uploadedCount = queue.filter((q) => q.status === "done" || q.status === "error").length;
+  const uploadedCount = queue.filter((q) => q.status === "done" || q.status === "error" || q.status === "skipped").length;
+  const dupQueued = queue.filter((q) => isDupItem(q) && !allowDup.has(q.key)).length;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -790,6 +821,12 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                   <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
                     Nothing is uploaded yet. Remove files you don't want, then click Import.
                   </p>
+                  {dupQueued > 0 && (
+                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-[var(--color-warning)]/50 bg-[var(--color-warning)]/10 px-2 py-1 text-xs font-medium text-[var(--color-warning)]">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      {dupQueued} file{dupQueued !== 1 ? "s are" : " is"} already in your media — will be skipped so you don&rsquo;t get duplicates.
+                    </p>
+                  )}
                 </div>
 
                 {/* Media thumbnails */}
@@ -817,6 +854,22 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                             className="absolute top-1 right-1 h-5 w-5 flex items-center justify-center rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 hover:bg-red-600 transition-all">
                             <X className="h-3 w-3" />
                           </button>
+                          {isDupItem(q) && (
+                            <label
+                              title="This file is already in your media (same name, type and size)"
+                              className="absolute top-1 left-1 inline-flex items-center gap-1 rounded bg-black/75 px-1 h-5 text-[9px] font-semibold text-[var(--color-warning)] ring-1 ring-[var(--color-warning)]/60 cursor-pointer"
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              {allowDup.has(q.key) ? "Duplicate · importing" : "Already in media"}
+                              <input
+                                type="checkbox"
+                                className="h-3 w-3 accent-[var(--color-warning)]"
+                                aria-label="Import anyway"
+                                checked={allowDup.has(q.key)}
+                                onChange={(e) => setAllowDup((prev) => { const n = new Set(prev); if (e.target.checked) n.add(q.key); else n.delete(q.key); return n; })}
+                              />
+                            </label>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -882,10 +935,12 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                         {q.status === "error" && q.error !== "Cancelled" && <AlertCircle className="h-4 w-4 text-red-400" />}
                         {q.status === "uploading" && <div className="h-4 w-4 rounded-full border-2 border-[var(--color-brand)] border-t-transparent animate-spin" />}
                         {q.status === "pending" && <div className="h-4 w-4 rounded-full border-2 border-[var(--color-border)]" />}
+                        {q.status === "skipped" && <AlertTriangle className="h-4 w-4 text-[var(--color-warning)]" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <span className="text-xs text-[var(--color-foreground)] truncate block">{q.file.name}</span>
                         {q.status === "error" && q.error && <span className={cn("text-[10px]", q.error === "Cancelled" ? "text-[var(--color-muted-foreground)]" : "text-red-400")}>{q.error}</span>}
+                        {q.status === "skipped" && <span className="text-[10px] text-[var(--color-warning)]">Already in your media — skipped</span>}
                         {q.tag === "media" && q.deck && q.status === "uploading" && q.progress && (
                           <span className="text-[10px] text-[var(--color-muted-foreground)]" aria-live="polite">{q.progress}</span>
                         )}
@@ -937,7 +992,8 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                     <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
                       {doneMedia > 0 && <><strong className="text-[var(--color-foreground)]">{doneMedia}</strong> media file{doneMedia !== 1 ? "s" : ""} added to your media library. </>}
                       {doneSongs > 0 && <><strong className="text-[var(--color-foreground)]">{doneSongs}</strong> song{doneSongs !== 1 ? "s" : ""} imported from ProPresenter. </>}
-                      {errorCount > 0 && <><strong className="text-red-400">{errorCount}</strong> failed.</>}
+                      {errorCount > 0 && <><strong className="text-red-400">{errorCount}</strong> failed. </>}
+                      {doneSkipped > 0 && <><strong className="text-[var(--color-warning)]">{doneSkipped}</strong> skipped — already in your media.</>}
                     </p>
                   </div>
                 </div>
@@ -970,7 +1026,7 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
                   </button>
                   <button type="button" onClick={() => {
                     queue.forEach((q) => { if (q.tag === "media" && q.previewUrl) URL.revokeObjectURL(q.previewUrl); });
-                    setStep(1); setQueue([]); setDoneMedia(0); setDoneSongs(0); setErrorCount(0);
+                    setStep(1); setQueue([]); setDoneMedia(0); setDoneSongs(0); setErrorCount(0); setDoneSkipped(0); setAllowDup(new Set());
                   }}
                     className="inline-flex h-10 items-center rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-white/5 transition-colors">
                     Import more

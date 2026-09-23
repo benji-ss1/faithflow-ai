@@ -3,7 +3,9 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { MoreVertical, Download, Pencil, Trash2 } from "lucide-react";
-import { deleteMediaAsset, renameMediaAsset } from "@/lib/actions";
+import { deleteMediaAsset, renameMediaAsset, getMediaUsage } from "@/lib/actions";
+import { notifyMediaChanged, describeMediaUsage, withTimeout } from "@/lib/media-sync";
+import { removeCustomBackground } from "@/backgrounds/store/backgroundStore";
 
 type Item = { id: string; kind: string; fileName: string; url: string; thumbUrl?: string };
 
@@ -14,13 +16,19 @@ export function MediaCard({ item }: { item: Item }) {
   const [name, setName] = useState(item.fileName);
   const [pending, startTransition] = useTransition();
 
-  function onDelete() {
-    if (!confirm(`Delete "${item.fileName}"? This can't be undone.`)) return;
+  async function onDelete() {
+    const usage = await withTimeout(getMediaUsage(item.id).then((r) => (r.ok ? r.data ?? null : null)), 1500, null);
+    const used = describeMediaUsage(usage);
+    if (!confirm(`Delete "${item.fileName}"?${used ? `\n\n${used}` : ""}\n\nThis can't be undone.`)) return;
     setMenuOpen(false);
     startTransition(async () => {
       const res = await deleteMediaAsset(item.id);
       if (!res.ok) { toast.error(res.error || "Delete failed"); return; }
       toast.success("Media deleted");
+      // Same honesty cleanup the operator surfaces do, + tell open operator
+      // windows (Media / Media Bin) to drop it too.
+      removeCustomBackground(`media-bg-${item.id}`);
+      notifyMediaChanged();
       router.refresh();
     });
   }
@@ -32,6 +40,7 @@ export function MediaCard({ item }: { item: Item }) {
       if (!res.ok) { toast.error(res.error || "Rename failed"); return; }
       toast.success("Renamed");
       setRenaming(false);
+      notifyMediaChanged();
       router.refresh();
     });
   }
