@@ -341,8 +341,10 @@ export function SlideRenderer(props: SlideRendererProps) {
     // Over video OR in OBS transparent mode, a blank slide is fully transparent
     // (shows the live feed / camera). transparentBg ignores any per-slide bgColor
     // so "clear" always keys through.
-    const bg = (overVideo || transparentBg) ? { background: "transparent" }
-      : themeBgExternal ? (slide.bgColor && !isDefaultSlideBg(slide.bgColor) ? { background: slide.bgColor } : { background: "transparent" })
+    // Layer Order V3: a blank is OPAQUE (its colour, default black) and covers
+    // camera, media and theme — only OBS/NDI alpha keying stays see-through.
+    const bg = themeBgExternal ? (transparentBg ? { background: "transparent" } : { background: slide.bgColor || "#000000" })
+      : (overVideo || transparentBg) ? { background: "transparent" }
       : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000", transparentDefault);
     const animated = !themeBgExternal && usesAnimatedBg(appearance, overVideo || transparentBg, slide.bgColor);
     return (

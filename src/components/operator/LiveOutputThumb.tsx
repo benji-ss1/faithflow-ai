@@ -18,6 +18,7 @@ export function LiveOutputThumb({
   background,
   videoInput,
   layerOrderV3,
+  themeLayerHidden,
   announcement,
   zone,
   aspectRatio,
@@ -45,6 +46,8 @@ export function LiveOutputThumb({
   videoInput?: VideoInputState | null;
   /** Layer Order V3: render through the SAME compositor + plan as /live. */
   layerOrderV3?: boolean;
+  /** V3: "Hide theme" active for the current send. */
+  themeLayerHidden?: boolean;
   /** Layer Order V3 only — the rest of what /live composes, so the thumb
    *  matches it: announcement (below the logo), projection zone, aspect ratio,
    *  and the Layers-engine overrides (logo / Props toggle etc). Ignored flag-off. */
@@ -80,7 +83,7 @@ export function LiveOutputThumb({
                 videoInput={videoInput ?? null} transition={null} fontScale={fontScale}
                 announcement={announcement ?? null} zone={zone ?? null} {...(aspectRatio ? { aspectRatio } : {})}
                 {...(layerOverrides ? { layersEnabled: true, layerOverrides } : {})}
-                layerOrderV3 previewFrozen
+                layerOrderV3 trustLocalFlag previewFrozen {...(themeLayerHidden ? { themeLayerHidden: true } : {})}
               />
             </div>
           ) : (

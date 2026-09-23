@@ -76,14 +76,29 @@ export function themeLayerShownFor(slide: SlidePayload | null | undefined): bool
 
 /**
  * Identity that a "Hide theme for this slide" applies to. The hide is recorded
- * against this key; it lapses automatically when the next slide goes live OR
- * the effective theme changes (per-item / content-type theme, a new plan) —
- * no effect, no one-frame flash.
+ * against this key; it lapses automatically when ANY new send goes live (the
+ * operator's per-send counter `sendRev`, so A→B→A and re-sending the identical
+ * chorus slide both lapse it) OR the effective theme changes (per-item /
+ * content-type theme, a new plan) — no one-frame flash.
  */
-export function themeHideKey(live: SlidePayload, appearance: ThemeAppearance | null | undefined, planId?: string | null): string {
+export function themeHideKey(live: SlidePayload, appearance: ThemeAppearance | null | undefined, planId?: string | null, sendRev: number = 0): string {
   const bg: Record<string, unknown> = {};
   if (appearance) for (const k of THEME_BG_KEYS) if (appearance[k] !== undefined) bg[k] = appearance[k];
   let slideId = "";
   try { slideId = slideOutputIdentity(live); } catch { slideId = live.kind; }
-  return `${planId ?? ""}|${slideId}|${JSON.stringify(bg)}`;
+  return `${planId ?? ""}|${sendRev}|${slideId}|${JSON.stringify(bg)}`;
+}
+
+/**
+ * PENDING-DECISION SWITCH (Victor 2026-09-24 chose option (a) ⇒ false).
+ * false: Clear Slide removes the words; the theme layer hides WITH the slide
+ *        (it belongs to the presentation) and shows again on the next slide.
+ * true:  Clear Slide ALSO turns the theme layer off: it stays hidden on the
+ *        following slides until a theme is (re)applied.
+ */
+export const clearSlideAlsoClearsTheme = false;
+
+/** What Clear Slide does to the theme layer under V3 (pure; tested for both values). */
+export function clearSlideThemeEffect(alsoClearsTheme: boolean = clearSlideAlsoClearsTheme): "hide-with-slide" | "theme-off" {
+  return alsoClearsTheme ? "theme-off" : "hide-with-slide";
 }

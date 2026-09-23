@@ -95,6 +95,8 @@ export type OperatorShellCtx = {
   onClearTheme?: () => void;
   /** Layer Order V3: the theme layer is painting a background. */
   themeLayerActive?: boolean;
+  /** Layer Order V3: "Hide theme" is active for the current send. */
+  themeLayerHidden?: boolean;
   onClearSlide: () => void;
   onClearMedia: () => void;
   onClearLowerThird: () => void;

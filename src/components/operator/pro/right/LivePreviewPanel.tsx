@@ -225,7 +225,7 @@ export function LivePreviewPanel({ ctx, onVideoRef, hideClearButton = false, rai
             onVideoRef={onVideoRef}
             {...(ctx.layersEngineOn ? { layersEnabled: true, layerOverrides: ctx.liveLayers.overrides } : {})}
             /* Layer Order V3: Preview == Live — the same compositor + plan. */
-            {...(ctx.layerOrderV3 ? { layerOrderV3: true } : {})}
+            {...(ctx.layerOrderV3 ? { layerOrderV3: true, trustLocalFlag: true, ...(ctx.themeLayerHidden ? { themeLayerHidden: true } : {}) } : {})}
             previewFrozen
             scene={ctx.activeScene}
             screen="main"

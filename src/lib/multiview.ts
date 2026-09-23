@@ -143,6 +143,9 @@ export function resolveScreenView(
     layerOverrides: opts.layersEnabled ? previewSafeOverrides(opts.layerOverrides) : undefined,
     scene,
     screen,
+    // Layer Order V3: MultiView is a receiver view — wire value only.
+    ...(s?.layerOrderV3 === true ? { layerOrderV3: true } : {}),
+    ...(s?.layerOrderV3 === true && s?.themeLayerHidden === true ? { themeLayerHidden: true } : {}),
   };
   const sceneHidesAnnouncement = sceneHidesLayer(scene, screen, "announcement");
   const common = { transition: null, videoInput: null, videoMuted: true, previewFrozen: true } as const;

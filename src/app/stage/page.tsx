@@ -66,6 +66,7 @@ export default function StagePage() {
   const [scenesPossible, setScenesPossible] = useState(false);
   // Layer Order V3: the operator's flag decision rides OutputState (absent ⇒ off).
   const [layerOrderV3, setLayerOrderV3] = useState(false);
+  const [themeLayerHidden, setThemeLayerHidden] = useState(false);
   // NETWORKED timers (2026-09-21): anchors from OutputState, ticked locally by
   // TimerOverlayLayer. Separate from the same-machine 1Hz path above — the
   // local one always wins, this only fills a gap on a remote screen.
@@ -192,6 +193,7 @@ export default function StagePage() {
             setReferenceColor(typeof msg.state.referenceColor === "string" ? msg.state.referenceColor : undefined);
             setBackground(msg.state.background ?? null);
             setLayerOrderV3(msg.state.layerOrderV3 === true);
+            setThemeLayerHidden(msg.state.themeLayerHidden === true);
             setAppearance(msg.state.appearance ?? null);
             setZone(msg.state.zone ?? null);
             setNextItem(msg.state.nextItem ?? null);
@@ -328,6 +330,7 @@ export default function StagePage() {
           setReferenceColor(typeof state.referenceColor === "string" ? state.referenceColor : undefined);
           setBackground(state.background ?? null);
           setLayerOrderV3(state.layerOrderV3 === true);
+          setThemeLayerHidden(state.themeLayerHidden === true);
           setAppearance(state.appearance ?? null);
           setZone(state.zone ?? null);
           lastMsgAt.current = Date.now();
@@ -476,6 +479,7 @@ export default function StagePage() {
             stays route-owned (it is stage-unique, not duplicated). */}
         <OutputCompositor
           layerOrderV3={layerOrderV3}
+          themeLayerHidden={themeLayerHidden}
           mode="stage"
           ignoreThemeLayout
           slide={current}

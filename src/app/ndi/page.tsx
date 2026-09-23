@@ -60,6 +60,7 @@ export default function NdiOutputPage() {
   const [scenesPossible, setScenesPossible] = useState(false);
   // Layer Order V3: the operator's flag decision rides OutputState (absent ⇒ off).
   const [layerOrderV3, setLayerOrderV3] = useState(false);
+  const [themeLayerHidden, setThemeLayerHidden] = useState(false);
   // Timers (2026-09-21). /ndi previously had NO timer handling at all — the
   // wire messages arrived on the same same-machine channel as /live and were
   // silently dropped by the switch below, so the NDI feed was the one output
@@ -135,6 +136,7 @@ export default function NdiOutputPage() {
           setAppearance(msg.state.appearance ?? null);
           setBackground(msg.state.background ?? null);
           setLayerOrderV3(msg.state.layerOrderV3 === true);
+          setThemeLayerHidden(msg.state.themeLayerHidden === true);
           setVideoInput(msg.state.videoInput ?? null);
           setTransition(msg.state.transition ?? null);
           setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
@@ -209,6 +211,7 @@ export default function NdiOutputPage() {
           transition wrapper (offscreen paint surface), and muted media. */}
       <OutputCompositor
         layerOrderV3={layerOrderV3}
+        themeLayerHidden={themeLayerHidden}
         mode="ndi"
         slide={slide}
         appearance={appearance}

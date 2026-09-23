@@ -223,6 +223,52 @@ async function main() {
     await act(async () => root.unmount());
   });
 
+  await check("V3 blank = opaque black (default) covering media + theme; media video paused", async () => {
+    const html = renderToStaticMarkup(<OutputCompositor mode="live" slide={{ kind: "blank", bgColor: "#000000" } as SlidePayload} appearance={RED} background={VID} layerOrderV3 />);
+    const slide = html.slice(html.indexOf('data-layer="slide"'), html.indexOf('data-layer="theme-logo"'));
+    assert.ok(/background:\s*#000000/.test(slide), "blank paints solid black");
+    const noColour = renderToStaticMarkup(<OutputCompositor mode="live" slide={{ kind: "blank" } as SlidePayload} appearance={RED} background={VID} layerOrderV3 />);
+    assert.ok(/background:\s*#000000/.test(noColour.slice(noColour.indexOf('data-layer="slide"'))), "unset colour ⇒ black");
+    const { host, root } = mount();
+    await act(async () => { root.render(<OutputCompositor mode="live" slide={lyric("x")} appearance={BLUE} background={VID} layerOrderV3 />); });
+    const mv = host.querySelector("[data-v3-media] video") as HTMLVideoElement;
+    assert.equal(mv.paused, true, "(opaque blue theme covers media)");
+    await act(async () => { root.render(<OutputCompositor mode="live" slide={lyric("x")} appearance={null} background={VID} layerOrderV3 />); });
+    assert.equal(mv.paused, false);
+    await act(async () => { root.render(<OutputCompositor mode="live" slide={{ kind: "blank" } as SlidePayload} appearance={null} background={VID} layerOrderV3 />); });
+    assert.equal(hidden(host, "theme-bg"), true, "theme layer disabled under blank");
+    assert.equal(mv.paused, true, "media under an opaque blank is paused");
+    assert.equal(host.querySelector("[data-v3-media] video"), mv, "same node");
+    await act(async () => root.unmount());
+  });
+
+  await check("receivers trust the wire only: a stale local flag never turns V3 on without trustLocalFlag", () => {
+    flag.setLayerOrderV3Flag(true);
+    try {
+      // First paint on the client uses the store; renderToStaticMarkup uses the server snapshot, so use a mount.
+      const { host, root } = mount();
+      act(() => { root.render(<OutputCompositor mode="live" slide={lyric("x")} appearance={RED} background={VID} />); });
+      assert.equal(host.querySelector("[data-layer]"), null, "receiver without wire flag ⇒ legacy DOM");
+      act(() => { root.render(<OutputCompositor mode="live" slide={lyric("x")} appearance={RED} background={VID} trustLocalFlag />); });
+      assert.ok(host.querySelector("[data-layer]"), "operator preview honours the local flag");
+      act(() => root.unmount());
+    } finally { flag.setLayerOrderV3Flag(null); }
+  });
+
+  await check("Hide theme (wire themeLayerHidden) keeps the theme <video> mounted + paused, resumes same node", async () => {
+    const { host, root } = mount();
+    await act(async () => { root.render(<OutputCompositor mode="live" slide={lyric("1")} appearance={THEME_VID} layerOrderV3 />); });
+    const tv = host.querySelector("[data-theme-bg-video]") as HTMLVideoElement;
+    tv.currentTime = 7.5;
+    await act(async () => { root.render(<OutputCompositor mode="live" slide={lyric("1")} appearance={THEME_VID} layerOrderV3 themeLayerHidden />); });
+    assert.equal(hidden(host, "theme-bg"), true);
+    assert.equal(host.querySelector("[data-theme-bg-video]"), tv, "not unmounted");
+    assert.equal(tv.paused, true); assert.equal(tv.currentTime, 7.5);
+    await act(async () => { root.render(<OutputCompositor mode="live" slide={lyric("2")} appearance={THEME_VID} layerOrderV3 />); });
+    assert.equal(host.querySelector("[data-theme-bg-video]"), tv); assert.equal(tv.paused, false); assert.equal(tv.currentTime, 7.5, "continues, not frame 0");
+    await act(async () => root.unmount());
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
 }

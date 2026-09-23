@@ -143,10 +143,19 @@ export interface OutputCompositorProps {
   scenesPossible?: boolean;
   /**
    * Layer Order V3 (src/lib/layer-order-v3.ts), as carried on
-   * OutputState.layerOrderV3 by the operator. OR-ed with this machine's own
-   * flag. Undefined/false on both ⇒ the existing plan + DOM, byte-identical.
+   * OutputState.layerOrderV3 by the operator. Receivers (/live, /stage,
+   * /livestream, /ndi, MultiView) trust ONLY this wire value. Undefined/false ⇒
+   * the existing plan + DOM, byte-identical.
    */
   layerOrderV3?: boolean;
+  /**
+   * Operator/preview contexts only (LivePreviewPanel, LiveOutputThumb): also
+   * honour THIS machine's localStorage/env flag. Never set on a receiver route,
+   * so a projector machine's stale local flag can't diverge from the wire.
+   */
+  trustLocalFlag?: boolean;
+  /** V3: OutputState.themeLayerHidden ("Hide theme" for this send). */
+  themeLayerHidden?: boolean;
 }
 
 /**
@@ -206,9 +215,9 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // rule, not a layer-override feature, so it must not depend on NEXT_PUBLIC_LAYERS_V2.
   const pp7Order = usePp7DrawOrder();
   const v3Local = useLayerOrderV3();
-  const v3 = !!props.layerOrderV3 || v3Local;
+  const v3 = !!props.layerOrderV3 || (!!props.trustLocalFlag && v3Local);
   const plan = planOutput(
-    v3 ? { ...resolvedInput, layerOrderV3: true, announcementLive: !!announcement }
+    v3 ? { ...resolvedInput, layerOrderV3: true, announcementLive: !!announcement, ...(props.themeLayerHidden ? { themeLayerHidden: true } : {}) }
       : pp7Order ? { ...resolvedInput, pp7DrawOrder: true, announcementLive: !!announcement } : resolvedInput,
   );
   // PP7 "Clear Slide keeps the theme's media" (src/lib/pp7-keep-theme-bg.ts).
@@ -236,7 +245,9 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // Layer Order V3 only (unused otherwise).
   const keyedTransparent = (props.mode === "livestream" || props.mode === "ndi") && !!props.transparent;
   const themeBgPlan = v3 ? plan.layers.find((l) => l.id === "theme-bg") : undefined;
-  const mediaCovered = !!themeBgPlan?.enabled && (opacities["theme-bg"] ?? 1) >= 1 && themeLayerCovers(appearance);
+  const mediaCovered = (!!themeBgPlan?.enabled && (opacities["theme-bg"] ?? 1) >= 1 && themeLayerCovers(appearance))
+    // A V3 blank is opaque (SlideRenderer) ⇒ the media underneath is covered too.
+    || (v3 && slide.kind === "blank" && !keyedTransparent);
 
   // Render one plan layer by its stable id. The z-ordering + enable/disable is
   // owned by planOutput; the compositor just paints enabled layers in order.

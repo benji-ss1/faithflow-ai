@@ -211,6 +211,9 @@ export interface PlanInput {
    * pp7DrawOrder when set.
    */
   layerOrderV3?: boolean;
+  /** V3 only: operator pressed "Hide theme" for this send — the theme-bg layer
+   *  is disabled (kept mounted, its video paused), the appearance untouched. */
+  themeLayerHidden?: boolean;
 }
 
 /** Theme-layer see-through (0..1, `layerOpacity`); anything invalid ⇒ 1.
@@ -261,7 +264,10 @@ function planOutputV3(input: PlanInput): OutputPlan {
   if (videoInput) layers.push({ id: "camera", kind: "camera", z: -10, enabled: true, props: { videoInput } });
   layers.push({ id: "background", kind: "background", z: 0, enabled: bgActive && !transparent, props: { background } });
   const slidePresent = input.slide.kind !== "empty" || (input.slide as { keepThemeBg?: boolean }).keepThemeBg === true;
-  layers.push({ id: "theme-bg", kind: "theme-bg", z: 10, enabled: !transparent && slidePresent, props: { opacity: themeBgOpacity(appearance) } });
+  // A V3 blank is an OPAQUE black slide (see SlideRenderer themeBgExternal), so
+  // the theme layer beneath it is disabled (paused, still mounted).
+  const blankCovers = input.slide.kind === "blank" && !transparent;
+  layers.push({ id: "theme-bg", kind: "theme-bg", z: 10, enabled: !transparent && slidePresent && !blankCovers && !input.themeLayerHidden, props: { opacity: themeBgOpacity(appearance) } });
   if (themeHasDecor(appearance)) {
     layers.push({
       id: "theme-decor", kind: "theme-decor", z: 15,

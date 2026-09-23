@@ -27,6 +27,9 @@ export function usePauseCoveredVideos(ref: RefObject<HTMLElement | null>, paused
     el.addEventListener("play", onPlay, true);
     return () => el.removeEventListener("play", onPlay, true);
   }, [ref]);
+  // Runs only when `paused` flips (not every render). Videos that mount or
+  // autoplay while paused are caught by the capture `play` listener above, so no
+  // per-render querySelectorAll / MutationObserver is needed.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -35,8 +38,13 @@ export function usePauseCoveredVideos(ref: RefObject<HTMLElement | null>, paused
         if (!v.paused) { v.dataset[MARK] = "1"; try { v.pause(); } catch { /* ignore */ } }
       } else if (v.dataset[MARK] === "1") {
         delete v.dataset[MARK];
-        try { const r = v.play(); if (r && typeof r.catch === "function") r.catch(() => { /* autoplay blocked */ }); } catch { /* ignore */ }
+        try {
+          const r = v.play();
+          // AbortError (a pause/unmount raced the play) and NotAllowedError
+          // (autoplay policy) are expected here — swallow quietly.
+          if (r && typeof r.catch === "function") r.catch(() => { /* ignore */ });
+        } catch { /* ignore */ }
       }
     }
-  });
+  }, [ref, paused]);
 }

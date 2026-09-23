@@ -86,6 +86,7 @@ export default function LivePage() {
   const [scenesPossible, setScenesPossible] = useState(false);
   // Layer Order V3: the operator's flag decision rides OutputState (absent ⇒ off).
   const [layerOrderV3, setLayerOrderV3] = useState(false);
+  const [themeLayerHidden, setThemeLayerHidden] = useState(false);
   // NETWORKED timers (2026-09-21): anchors from OutputState, ticked locally by
   // TimerOverlayLayer. Separate from the same-machine 1Hz path above — the
   // local one always wins, this only fills a gap on a remote screen.
@@ -267,6 +268,7 @@ export default function LivePage() {
             setReferenceColor(typeof msg.state.referenceColor === "string" ? msg.state.referenceColor : undefined);
             setBackground(msg.state.background ?? null);
             setLayerOrderV3(msg.state.layerOrderV3 === true);
+            setThemeLayerHidden(msg.state.themeLayerHidden === true);
             setAppearance(msg.state.appearance ?? null);
             setVideoInput(msg.state.videoInput ?? null);
             setZone(msg.state.zone ?? null);
@@ -471,6 +473,7 @@ export default function LivePage() {
           setReferenceColor(typeof state.referenceColor === "string" ? state.referenceColor : undefined);
           setBackground(state.background ?? null);
           setLayerOrderV3(state.layerOrderV3 === true);
+          setThemeLayerHidden(state.themeLayerHidden === true);
           setAppearance(state.appearance ?? null);
           setVideoInput(state.videoInput ?? null);
           setZone(state.zone ?? null);
@@ -621,6 +624,7 @@ export default function LivePage() {
                 (aspect-driven canvas, always-transition, unmuted media). */}
             <OutputCompositor
               layerOrderV3={layerOrderV3}
+              themeLayerHidden={themeLayerHidden}
               mode="live"
               slide={slide}
               appearance={appearance}

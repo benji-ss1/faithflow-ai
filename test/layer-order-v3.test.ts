@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { planOutput, type OutputPlan, type PlanInput, type SlideLayerPlan, type BackgroundLayerPlan, type ThemeBgLayerPlan } from "../src/lib/output-plan";
 import { pp7ClearLayer, pp7ClearAll, pp7ClearTheme, pp7ClearMediaV3, type Pp7ClearEffects, type Pp7LayerInputs } from "../src/lib/pp7-layer-model";
-import { stripThemeBackground, themeLayerPaints, themeLayerCovers, themeLayerShownFor, themeHideKey, themeLayerOpacity } from "../src/lib/theme-layer-v3";
+import { stripThemeBackground, themeLayerPaints, themeLayerCovers, themeLayerShownFor, themeHideKey, themeLayerOpacity, clearSlideThemeEffect, clearSlideAlsoClearsTheme } from "../src/lib/theme-layer-v3";
 import { themeConfigToAppearance } from "../src/lib/theme-appearance";
 import { isValidThemeAppearance } from "../src/lib/broadcast";
 import { matrix, keyOf } from "./pp7-draw-order-matrix";
@@ -38,12 +38,17 @@ const lyric = (t: string): SlidePayload => ({ kind: "text", text: t, bgColor: "#
 const PLAN_ID = "plan-1";
 
 /** Operator-side model, mirroring OperatorConsole: the "Theme" hide is keyed to
- *  (plan, live slide, theme bg) exactly like the console's themeHiddenKey. */
-type Model = { slide: SlidePayload; appearance: ThemeAppearance | null; hiddenKey: string | null; background: BackgroundSpec | null; planId?: string };
-const keyOf3 = (m: Model) => themeHideKey(m.slide, m.appearance, m.planId ?? PLAN_ID);
-const outAppearance = (m: Model) => (m.hiddenKey !== null && m.hiddenKey === keyOf3(m) ? stripThemeBackground(m.appearance) : m.appearance);
+ *  (plan, per-send counter, live slide, theme bg) exactly like the console's
+ *  themeHiddenKey, and is emitted as the wire `themeLayerHidden` (the appearance
+ *  itself is never stripped, so a theme video pauses instead of unmounting). */
+type Model = { slide: SlidePayload; appearance: ThemeAppearance | null; hiddenKey: string | null; background: BackgroundSpec | null; planId?: string; rev?: number };
+const keyOf3 = (m: Model) => themeHideKey(m.slide, m.appearance, m.planId ?? PLAN_ID, m.rev ?? 0);
+const hiddenOf = (m: Model) => m.hiddenKey !== null && m.hiddenKey === keyOf3(m);
+const outAppearance = (m: Model) => m.appearance;
+/** A send to live (sendSlideToLive bumps liveBroadcastRevision). */
+const send = (m: Model, sl: SlidePayload) => { m.slide = sl; m.rev = (m.rev ?? 0) + 1; if (m.hiddenKey !== null && m.hiddenKey !== keyOf3(m)) m.hiddenKey = null; };
 const inputOf = (m: Model, extra: Partial<PlanInput> = {}): PlanInput => ({
-  mode: "live", slide: m.slide, appearance: outAppearance(m), background: m.background, layerOrderV3: true, ...extra,
+  mode: "live", slide: m.slide, appearance: outAppearance(m), background: m.background, layerOrderV3: true, ...(hiddenOf(m) ? { themeLayerHidden: true } : {}), ...extra,
 });
 const plan = (m: Model, extra: Partial<PlanInput> = {}) => planOutput(inputOf(m, extra));
 const layer = <T,>(p: OutputPlan, id: string) => p.layers.find((l) => l.id === id) as T;
@@ -129,7 +134,7 @@ check("blank start (nothing sent) shows NO theme bg, even with a coloured theme"
 });
 
 check("theme shown for every non-empty slide kind and an explicit keep-theme-bg retention", () => {
-  for (const s of [lyric("x"), { kind: "blank" } as SlidePayload, { kind: "logo", url: "https://cdn.example.com/l.png" } as SlidePayload, { kind: "image", url: "https://cdn.example.com/s.jpg" } as SlidePayload]) {
+  for (const s of [lyric("x"), { kind: "logo", url: "https://cdn.example.com/l.png" } as SlidePayload, { kind: "image", url: "https://cdn.example.com/s.jpg" } as SlidePayload]) {
     assert.equal(themeBg(plan(fresh({ slide: s, appearance: RED_THEME }))).enabled, true, s.kind);
   }
   assert.equal(themeBg(plan(fresh({ slide: { kind: "empty", keepThemeBg: true } as SlidePayload, appearance: RED_THEME }))).enabled, true, "keepThemeBg retention");
@@ -155,7 +160,7 @@ check("Theme (hide) resets on the next slide AND on a theme identity change", ()
   assert.equal(themeVisible(m), false, "hidden for this slide"); mediaIs(plan(m), IMG_A);
   assert.equal(outAppearance(m)?.textColor, "#ffffff", "text styling kept");
   assert.equal(m.slide.kind, "text", "slide kept");
-  m.slide = lyric("two");
+  send(m, lyric("two"));
   assert.equal(themeVisible(m), true, "next slide → theme back");
   pp7ClearTheme(inputs(m), fx(m)); assert.equal(themeVisible(m), false);
   m.appearance = BLUE_THEME; // per-item / content-type theme (no applyTheme reset)
@@ -262,15 +267,16 @@ check("flag off: clear model unchanged (Clear Media still kills a media slide, n
   pp7ClearTheme({ ...inputs(m2), layerOrderV3: undefined }, fx(m2)); assert.equal(m2.hiddenKey, null);
 });
 
-check("Esc / live X / voice 'clear screen' route to the V3 blackout (source lock)", () => {
+check("Esc / live X route to the V3 blackout (camera included); voice/AI clear is slide-only (source lock)", () => {
   const src = readFileSync(new URL("../src/components/operator/OperatorConsole.tsx", import.meta.url), "utf8");
   assert.match(src, /e\.key === "Escape"\) \{ e\.preventDefault\(\); killOutput\(\); \}/);
-  assert.match(src, /cmd\.verb === "clear_screen"\) \{ killOutput\(\);/);
-  assert.match(src, /case "clear_live": killOutput\(\); break;/);
+  assert.match(src, /cmd\.verb === "clear_screen"\) \{ voiceClear\(\);/);
+  assert.match(src, /case "clear_live": voiceClear\(\); break;/);
+  assert.match(src, /const voiceClear = useCallback\(\(\) => \{ if \(layerOrderV3On\) clearLive\(\); else killOutput\(\); \}/, "V3 voice = clearLive only; flag off = killOutput (unchanged)");
   assert.match(src, /onKill: killOutput,/);
   const body = src.slice(src.indexOf("const killOutput = useCallback("), src.indexOf("}, [layerOrderV3On, clearLive, clearMediaLayerV3, videoInput]);"));
   assert.match(body, /if \(!layerOrderV3On\) \{ clearLive\(\); return; \}/, "flag off = exactly clearLive");
-  for (const step of ["clearLive();", "clearMediaLayerV3();", "clearVideoInputLive()", "setAnnouncement(null);"]) assert.ok(body.includes(step), step);
+  for (const step of ["clearLive();", "clearMediaLayerV3();", "if (videoInput) clearVideoInputLive()", "setAnnouncement(null);"]) assert.ok(body.includes(step), step);
   assert.ok(!/setThemeHiddenKey/.test(body), "blackout sets no persistent theme state");
   const cm = src.slice(src.indexOf("const clearMediaLayerV3 = useCallback("), src.indexOf("const clearHeldLowerThirdRef"));
   assert.match(cm, /pp7ClearMediaV3\(/, "console Clear Media uses the shared function");
@@ -335,6 +341,57 @@ check("announcement (z30) is an overlay above the slide and BELOW the logo / Pro
   assert.ok(ann.z > slideL(p).z && ann.z < logo.z);
   const ids = p.layers.map((l) => l.id);
   assert.ok(ids.indexOf("announcement") < ids.indexOf("theme-logo"), "plan order");
+});
+
+check("Hide theme lapses on ANY new send: A→B→A and an identical re-send", () => {
+  const A = lyric("chorus"), B = lyric("verse");
+  const m = fresh({ appearance: RED_THEME, background: IMG_A });
+  send(m, A); pp7ClearTheme(inputs(m), fx(m));
+  assert.equal(themeVisible(m), false, "hidden on A");
+  send(m, B); assert.equal(themeVisible(m), true, "B shows theme");
+  send(m, A); assert.equal(themeVisible(m), true, "back to A does NOT re-hide");
+  assert.equal(m.hiddenKey, null, "stale key cleared");
+  pp7ClearTheme(inputs(m), fx(m)); assert.equal(themeVisible(m), false);
+  send(m, { ...A }); assert.equal(themeVisible(m), true, "identical chorus re-send does not carry the hide");
+  send(m, A); assert.equal(themeVisible(m), true, "same object re-send too");
+  assert.notEqual(themeHideKey(A, RED_THEME, PLAN_ID, 1), themeHideKey(A, RED_THEME, PLAN_ID, 2), "send counter is in the key");
+});
+
+check("Hide theme disables the theme layer WITHOUT stripping the appearance (video pauses, not unmounts)", () => {
+  const vidTheme: ThemeAppearance = { bgType: "video", bgVideoUrl: "https://cdn.example.com/t.mp4" };
+  const p = planOutput({ mode: "live", slide: lyric("x"), appearance: vidTheme, layerOrderV3: true, themeLayerHidden: true });
+  assert.equal(themeBg(p).enabled, false);
+  assert.equal(stripThemeBackground(vidTheme)?.bgVideoUrl, undefined, "(strip helper still exists, no longer used for hide)");
+  const src = readFileSync(new URL("../src/components/operator/OperatorConsole.tsx", import.meta.url), "utf8");
+  assert.ok(!/stripThemeBackground/.test(src), "console never strips the appearance for a hide");
+  assert.match(src, /themeLayerHiddenV3 \? \{ themeLayerHidden: true \} : \{\}/);
+});
+
+check("V3 blank is opaque: theme layer disabled under it; flag off unchanged", () => {
+  const p = planOutput({ mode: "live", slide: { kind: "blank" } as SlidePayload, appearance: RED_THEME, background: IMG_A, layerOrderV3: true });
+  assert.equal(themeBg(p).enabled, false, "theme under an opaque blank is disabled (paused)");
+  mediaIs(p, IMG_A);
+  const k = planOutput({ mode: "livestream", slide: { kind: "blank" } as SlidePayload, appearance: RED_THEME, layerOrderV3: true, transparent: true });
+  assert.equal(slideL(k).props.transparentBg, true, "OBS keying keeps blank see-through");
+});
+
+check("clearSlideAlsoClearsTheme: default false; both values map to the documented effect", () => {
+  assert.equal(clearSlideAlsoClearsTheme, false, "Victor 2026-09-24: option (a)");
+  assert.equal(clearSlideThemeEffect(), "hide-with-slide");
+  assert.equal(clearSlideThemeEffect(false), "hide-with-slide");
+  assert.equal(clearSlideThemeEffect(true), "theme-off");
+  const src = readFileSync(new URL("../src/components/operator/OperatorConsole.tsx", import.meta.url), "utf8");
+  assert.match(src, /if \(clearSlideThemeEffect\(\) === "theme-off"\) setThemeOffV3\(true\);/);
+});
+
+check("receivers trust the wire only; local flag only in operator previews", () => {
+  const read = (f: string) => readFileSync(new URL(`../src/${f}`, import.meta.url), "utf8");
+  assert.match(read("components/live/OutputCompositor.tsx"), /const v3 = !!props\.layerOrderV3 \|\| \(!!props\.trustLocalFlag && v3Local\);/);
+  for (const r of ["app/live/page.tsx", "app/stage/page.tsx", "app/livestream/page.tsx", "app/ndi/page.tsx", "lib/multiview.ts"]) {
+    assert.ok(!/trustLocalFlag/.test(read(r)), `${r} must not trust the local flag`);
+  }
+  assert.match(read("components/operator/pro/right/LivePreviewPanel.tsx"), /trustLocalFlag: true/);
+  assert.match(read("components/operator/LiveOutputThumb.tsx"), /layerOrderV3 trustLocalFlag previewFrozen/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

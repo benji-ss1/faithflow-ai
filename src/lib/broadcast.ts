@@ -484,6 +484,9 @@ export type OutputState = {
   /** Layer Order V3 (src/lib/layer-order-v3.ts): the operator's flag decision,
    *  carried so receivers need no DB/localStorage. Absent/false ⇒ legacy order. */
   layerOrderV3?: boolean;
+  /** Layer Order V3 only: "Hide theme" for the current send (theme-bg layer
+   *  disabled + paused, appearance untouched). Absent ⇒ shown. */
+  themeLayerHidden?: boolean;
   live: SlidePayload;                // audience/projector output
   next: SlidePayload | null;         // for stage display "Next up"
   itemTitle: string;                 // "Amazing Grace", "John 3:16"

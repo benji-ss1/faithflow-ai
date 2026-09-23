@@ -1,5 +1,5 @@
 "use client";
-import { stripThemeBackground, themeLayerPaints, themeLayerShownFor, themeHideKey } from "@/lib/theme-layer-v3";
+import { themeLayerPaints, themeLayerShownFor, themeHideKey, clearSlideThemeEffect } from "@/lib/theme-layer-v3";
 import { pp7ClearMediaV3 } from "@/lib/pp7-layer-model";
 import { clearVideoInputLive } from "@/lib/video-input-clear";
 import { useLayerOrderV3, readLayerOrderV3Flag } from "@/lib/layer-order-v3";
@@ -644,6 +644,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       const nextAppearance = detail?.appearance ?? null;
       setAppearance(nextAppearance);
       setThemeHiddenKey(null); // V3: applying a theme shows the theme layer again
+      setThemeOffV3(false);
       // Mutually-exclusive backgrounds (user-approved 2026-08-28): applying a
       // theme that carries its OWN background turns OFF any active Background
       // Template, so the theme's background actually reaches the projector — a
@@ -793,17 +794,29 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // the next slide goes live or the effective theme changes (per-item /
   // content-type theme, a new plan). Never persistent; never read flag-off.
   const [themeHiddenKey, setThemeHiddenKey] = useState<string | null>(null);
+  // Only ever set when `clearSlideAlsoClearsTheme` is true (pending-decision
+  // switch in theme-layer-v3.ts; currently false ⇒ never set).
+  const [themeOffV3, setThemeOffV3] = useState(false);
   const themeKeyNowRef = useRef<string>("");
   // Synchronous mirror of "the live slide is empty-with-theme-kept": `liveRef`
   // only updates on render, and Clear All runs several clears in ONE tick.
   const keepThemeRef = useRef(false);
-  const outputAppearance = useMemo(() => {
-    const a = pickOutputAppearance(live, retainedThemeAppearance, effectiveAppearance);
-    if (!layerOrderV3On) return a;
-    const key = themeHideKey(live, a, plan.id);
-    themeKeyNowRef.current = key;
-    return themeHiddenKey === key ? stripThemeBackground(a) : a;
-  }, [live, retainedThemeAppearance, effectiveAppearance, layerOrderV3On, themeHiddenKey, plan.id]);
+  const outputAppearance = useMemo(
+    () => pickOutputAppearance(live, retainedThemeAppearance, effectiveAppearance),
+    [live, retainedThemeAppearance, effectiveAppearance],
+  );
+  // V3 hide key includes the per-send counter, so ANY new send (A→B→A, or the
+  // identical chorus slide re-sent) lapses a "Hide theme".
+  const themeKeyNow = layerOrderV3On ? themeHideKey(live, outputAppearance, plan.id, liveBroadcastRevision) : "";
+  themeKeyNowRef.current = themeKeyNow;
+  // The hide is NOT an appearance strip: the theme layer stays mounted and is
+  // only disabled (wire `themeLayerHidden`), so a theme video PAUSES and resumes
+  // where it was instead of restarting from frame 0.
+  const themeLayerHiddenV3 = layerOrderV3On && (themeOffV3 || (themeHiddenKey !== null && themeHiddenKey === themeKeyNow));
+  useEffect(() => {
+    // Drop a stale hide as soon as its key no longer matches (never re-applies).
+    if (themeHiddenKey !== null && themeHiddenKey !== themeKeyNow) setThemeHiddenKey(null);
+  }, [themeHiddenKey, themeKeyNow]);
 
 
   // Mutual-exclusivity heal against the EFFECTIVE appearance (2026-08-29): the
@@ -1082,6 +1095,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // (rule 7's fade-pulse), a shader/video restart and a camera re-acquire.
       ...(scenesUiOn ? { scene: activeScene } : {}),
       ...(layerOrderV3On ? { layerOrderV3: true } : {}),
+      ...(themeLayerHiddenV3 ? { themeLayerHidden: true } : {}),
       // Omitted entirely when nothing is shown, so a church that never opens
       // Timers emits a byte-identical snapshot to before (parity test-locked).
       ...(timersWire && timersWire.timers.length > 0 ? { timersWire } : {}),
@@ -1133,7 +1147,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn, timersWire, stageLayout, stageLayoutList, layerOrderV3On]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn, timersWire, stageLayout, stageLayoutList, layerOrderV3On, themeLayerHiddenV3]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1742,11 +1756,12 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   }, []);
   // Filled in below, once sendLowerThird exists (hooks are declared in order).
   const clearHeldLowerThirdRef = useRef<(() => void) | null>(null);
-  // Esc / the live X / voice "clear screen" / Kill Output (`onKill`).
+  // Esc / the live X / Kill Output (`onKill`). NOT voice/AI "clear screen" /
+  // "clear live" — under V3 those are a slide-only clear (`voiceClear` below).
   // Flag off: exactly `clearLive` (unchanged). Layer Order V3: a real BLACKOUT
   // — V3 Clear All: the slide (so the theme layer hides with it — nothing
-  // persistent is set), the media layer, the camera, the announcement and a
-  // held lower third. Messages/timers keep their own clear (as before).
+  // persistent is set), the media layer, the camera (Victor 2026-09-24: yes),
+  // the announcement and a held lower third. Messages/timers keep their own clear.
   const killOutput = useCallback(() => {
     if (!layerOrderV3On) { clearLive(); return; }
     clearLive();
@@ -1755,6 +1770,10 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     setAnnouncement(null);
     clearHeldLowerThirdRef.current?.();
   }, [layerOrderV3On, clearLive, clearMediaLayerV3, videoInput]);
+  // Voice "clear screen" / AI "clear_live": flag off ⇒ killOutput (= clearLive,
+  // unchanged). V3 ⇒ slide-only clear: an ASR false-positive must never kill the
+  // media, camera or announcement.
+  const voiceClear = useCallback(() => { if (layerOrderV3On) clearLive(); else killOutput(); }, [layerOrderV3On, clearLive, killOutput]);
 
   // PP7 Slide clear (rail / F2 / Layers-panel row): the words go, the live theme's
   // media (image / video / animated bg / decor) stays — ProPresenter treats it as
@@ -1765,7 +1784,11 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // Layer Order V3: Clear Slide removes the slide content only. The theme
     // layer hides WITH it (it belongs to the presentation — planOutputV3), the
     // theme itself is not touched and shows again on the next slide; media stays.
-    if (layerOrderV3On) { clearLive(); return; }
+    if (layerOrderV3On) {
+      if (clearSlideThemeEffect() === "theme-off") setThemeOffV3(true);
+      clearLive();
+      return;
+    }
     const decision = decideSlideClear({
       prev: liveRef.current,
       appearance: effectiveAppearance,
@@ -2234,7 +2257,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // Screen commands — always operator-destructive; behave like the
       // BLANK / CLEAR buttons themselves. Do NOT auto-send anything else.
       if (cmd.verb === "blank_screen") { goBlank(); toast.info("Screen blanked"); return; }
-      if (cmd.verb === "clear_screen") { killOutput(); toast.info("Screen cleared"); return; }
+      if (cmd.verb === "clear_screen") { voiceClear(); toast.info("Screen cleared"); return; }
 
       // --- Phase 5 dangerous verbs — ALWAYS approval-gated regardless of mode ---
       if (cmd.verb === "start_countdown") {
@@ -2329,7 +2352,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
         case "prev_slide": move(-1); break;
         case "blank": goBlank(); break;
         case "logo": goLogo(); break;
-        case "clear_live": killOutput(); break;
+        case "clear_live": voiceClear(); break;
         case "show_reference": {
           // Free-text query: try Bible reference parser first; if it fails,
           // silently no-op with a toast asking the operator to be more
@@ -2359,7 +2382,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Command failed");
     }
-  }, [dismissCommand, move, goBlank, goLogo, clearLive, killOutput, defaultTranslationCode]);
+  }, [dismissCommand, move, goBlank, goLogo, clearLive, killOutput, voiceClear, defaultTranslationCode]);
 
   const rejectCommand = useCallback(async (c: CommandSuggestion) => {
     dismissCommand(c.suggestionId);
@@ -2565,6 +2588,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // leave the latch unarmed and the next emit would remount the stack.
       ...(scenesUiOn ? { scene: activeScene } : {}),
       ...(layerOrderV3On ? { layerOrderV3: true } : {}),
+      ...(themeLayerHiddenV3 ? { themeLayerHidden: true } : {}),
     };
     const nextLt = (line1 || line2) ? { line1, line2 } : null;
     // Hold it against the CURRENT live slide so later emits of that same slide
@@ -2582,7 +2606,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     lastOutputStateRef.current = state;
     publishObsPreviewState(state); // after the projector + remote posts
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, activeScene, scenesUiOn, layerOrderV3On]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, activeScene, scenesUiOn, layerOrderV3On, themeLayerHiddenV3]);
   // Actually CLEAR the lower third on the projector (was a placeholder toast
   // that left it on screen — a real live hazard). Reuses the working send path
   // with empty lines, which broadcasts lowerThird:null and toasts "cleared".
@@ -2814,7 +2838,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     onSendToLive: sendPreview,
     onBlank: goBlank, onLogo: goLogo, onKill: killOutput,
     onClearLiveSlide: clearLiveSlide, onReleaseThemeBg: releaseThemeBg,
-    ...(layerOrderV3On ? { layerOrderV3: true, onClearTheme: clearThemeLayer, themeLayerActive: themeLayerShownFor(live) && themeLayerPaints(outputAppearance) } : {}),
+    ...(layerOrderV3On ? { layerOrderV3: true, onClearTheme: clearThemeLayer, themeLayerActive: themeLayerShownFor(live) && themeLayerPaints(outputAppearance) && !themeLayerHiddenV3, ...(themeLayerHiddenV3 ? { themeLayerHidden: true } : {}) } : {}),
     onClearSlide: clearSlide, onClearMedia: clearMedia,
     onClearLowerThird: clearLowerThird, onStageMessage: stageMessage,
     onSendLowerThird: sendLowerThird,
@@ -3008,7 +3032,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // callbacks
     repositionNewItem,
     setAspectRatio, setFitMode, setAutopilotMode, jumpTo, sendPreview,
-    goBlank, goLogo, clearLive, killOutput, clearLiveSlide, releaseThemeBg, outputAppearance, clearSlide, clearMedia, clearLowerThird, layerOrderV3On, clearThemeLayer,
+    goBlank, goLogo, clearLive, killOutput, clearLiveSlide, releaseThemeBg, outputAppearance, clearSlide, clearMedia, clearLowerThird, layerOrderV3On, clearThemeLayer, themeLayerHiddenV3,
     stageMessage, sendLowerThird, sendMessage, clearMessage, startCountdown, openProjector,
     openStageDisplay, openLivestream, recallBanked, approveDetection,
     rejectDetection, approveSong, rejectSong, editSong, approveCommand,
