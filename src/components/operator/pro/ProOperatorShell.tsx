@@ -86,6 +86,7 @@ import { AudioDebugOverlay } from "../dev/AudioDebugOverlay";
 import { CONFIDENCE_THRESHOLD, BIBLE_AUTOFIRE_CONFIDENCE, BIBLE_SUGGEST_CONFIDENCE } from "@/lib/audio-thresholds";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
+import { FeatureSpotlight } from "@/components/operator/FeatureSpotlight";
 import { SettingsWindow } from "../settings/SettingsWindow";
 import { SarahOverlay } from "@/components/setup/sarah/SarahOverlay";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
@@ -5265,6 +5266,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <AudioDebugOverlay audio={ctx.audio} />
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
       <WhatsNewModal />
+      <FeatureSpotlight />
       <SettingsWindow ctx={ctx} />
       <SarahOverlay live={sarahLive} />
     </div>

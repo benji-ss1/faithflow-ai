@@ -80,6 +80,33 @@ export function isCalendarDate(s) {
  *     - text
  * Throws with the slug in the message on any invalid file.
  */
+/**
+ * A highlight may end with a "try it" marker that turns into a button in the
+ * What's New modal, so an operator can be TAKEN to the feature instead of
+ * hunting for it:
+ *
+ *   - Some text. {try: /operator | smart-folder | Show me}
+ *                       href      spotlight     label (optional)
+ *
+ * `spotlight` is the value of a `data-vic="..."` attribute on the real
+ * control. On arrival, FeatureSpotlight rings that element — the same ring
+ * Vic's guide uses — so the operator sees exactly which button is meant.
+ * Omit the spotlight (`{try: /services || Open}`) to just navigate.
+ */
+function parseHighlight(value, slug) {
+  const m = /^(.*?)\s*\{try:\s*([^|}]*?)\s*(?:\|\s*([^|}]*?)\s*)?(?:\|\s*([^|}]*?)\s*)?\}$/.exec(value);
+  if (!m) return value;
+  const [, text, href, spotlight, label] = m;
+  if (!text) throw new Error(`changes/${slug}.md: a {try: ...} marker needs text before it`);
+  if (!href) throw new Error(`changes/${slug}.md: {try: ...} needs a link, e.g. {try: /operator | smart-folder | Show me}`);
+  if (!href.startsWith("/")) throw new Error(`changes/${slug}.md: {try: ...} link must start with "/" (got "${href}")`);
+  const out = { text };
+  out.tryItHref = href;
+  if (spotlight) out.highlightParam = spotlight;
+  if (label) out.tryItLabel = label;
+  return out;
+}
+
 export function parseChangeFile(text, slug) {
   const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/.exec(text);
   if (!m) throw new Error(`changes/${slug}.md: missing --- frontmatter ---`);
@@ -93,7 +120,7 @@ export function parseChangeFile(text, slug) {
     if (item) {
       if (!inList) throw new Error(`changes/${slug}.md: list item outside "highlights:"`);
       const v = unquote(item[1]);
-      if (v) out.highlights.push(v);
+      if (v) out.highlights.push(parseHighlight(v, slug));
       continue;
     }
     const kv = /^([a-zA-Z]+):\s*(.*)$/.exec(raw);
