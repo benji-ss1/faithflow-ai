@@ -2687,7 +2687,8 @@ export async function setDefaultTheme(id: string): Promise<Result> {
   // this from the live console, where a redirect (requireCap) would navigate a
   // volunteer away mid-service — return an error instead. Same capability.
   const user = await requireUser();
-  if (!hasCap(user.role, "edit_library")) return { ok: false, error: "Only admins and editors can change the main theme" };
+  // 2026-09-23 decision: church defaults are ADMIN-only (same gate as the card).
+  if (!hasCap(user.role, "manage_church")) return { ok: false, error: "Only admins can change the main theme" };
   const db = getDb();
   // Confirm target belongs to this church BEFORE we clear the current
   // default — otherwise a caller sending a foreign id could leave the
@@ -2710,6 +2711,12 @@ export async function setDefaultTheme(id: string): Promise<Result> {
 // navigated away. Everything validated church-scoped BEFORE any write
 // (src/lib/church-defaults.ts applyChurchDefaults). In-service switches stay
 // session-only and never call this.
+/** Cheap capability probe so the UI can hide admin-only default controls. */
+export async function canManageChurchDefaults(): Promise<boolean> {
+  const user = await requireUser();
+  return hasCap(user.role, "manage_church");
+}
+
 export async function getChurchDefaults(): Promise<Result<import("@/lib/server/church-defaults").ChurchDefaultsView & { canEdit: boolean }>> {
   const user = await requireUser();
   if (!hasCap(user.role, "view_library") && !hasCap(user.role, "operate_services")) return { ok: false, error: "Not allowed" };

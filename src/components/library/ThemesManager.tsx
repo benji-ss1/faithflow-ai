@@ -7,7 +7,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type D
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
-import { useLiveThemeId, isThemeLiveNow } from "@/lib/live-theme";
+import { useLiveThemeId, isThemeLiveNow, useCanManageChurch } from "@/lib/live-theme";
 import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes, extractLogoPalette, exportTheme, importTheme } from "@/lib/actions";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { buildColorwayFromPalette } from "@/lib/colorway";
@@ -84,6 +84,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
 }) {
   const [themes, setThemes] = useState(initial);
   const liveThemeId = useLiveThemeId();
+  const canSetMain = useCanManageChurch();
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<ThemeRow | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -353,6 +354,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
               liveNow={isThemeLiveNow(t, themes, liveThemeId)}
               onGoLive={() => onGoLive(t.id)}
               onSetMain={() => onSetDefault(t.id)}
+              canSetMain={canSetMain}
               onEdit={() => setEditing(t)}
               onDuplicate={() => onDuplicate(t.id)}
               onDelete={() => onDelete(t.id, t.name)}
@@ -371,6 +373,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
                   churchLogoUrl={churchLogoUrl}
                   onEdit={() => setEditing(t)}
                   onSetDefault={() => onSetDefault(t.id)}
+                  canSetMain={canSetMain}
                   onDuplicate={() => onDuplicate(t.id)}
                   onExport={() => onExport(t.id, t.name)}
                   onDelete={() => onDelete(t.id, t.name)}
@@ -973,8 +976,9 @@ function ThemeEditor({
 // handle so admins can reorder cards; the parent's onDragEnd (which
 // calls the reorderThemes server action) persists the order.
 function SortableThemeCard({
-  theme, pending, churchLogoUrl, onEdit, onSetDefault, onDuplicate, onExport, onDelete,
+  theme, pending, churchLogoUrl, onEdit, onSetDefault, canSetMain, onDuplicate, onExport, onDelete,
 }: {
+  canSetMain: boolean;
   theme: ThemeRow;
   pending: boolean;
   churchLogoUrl?: string | null;
@@ -1034,8 +1038,8 @@ function SortableThemeCard({
             <button
               type="button"
               onClick={onSetDefault}
-              title="Set as default"
-              disabled={pending}
+              title={canSetMain ? "Set as default" : "Only admins can change the main theme"}
+              disabled={pending || !canSetMain}
               className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-brand)] disabled:opacity-50"
             >
               <Star className="h-3.5 w-3.5" />
@@ -1130,8 +1134,9 @@ function ContentTypeStyleBar({ themes }: { themes: ThemeRow[] }) {
 // preview makes the theme LIVE (the primary action — easy go-live); the active
 // theme carries a red "● LIVE" badge; Edit opens the full-screen editor.
 function OperatorThemeCard({
-  theme, pending, churchLogoUrl, liveNow, onGoLive, onSetMain, onEdit, onDuplicate, onDelete,
+  theme, pending, churchLogoUrl, liveNow, onGoLive, onSetMain, canSetMain, onEdit, onDuplicate, onDelete,
 }: {
+  canSetMain: boolean;
   theme: ThemeRow;
   pending: boolean;
   churchLogoUrl?: string | null;
@@ -1179,8 +1184,8 @@ function OperatorThemeCard({
           <button
             type="button"
             onClick={onSetMain}
-            disabled={pending}
-            title="Set as main theme (loads every time the app starts)"
+            disabled={pending || !canSetMain}
+            title={canSetMain ? "Set as main theme (loads every time the app starts)" : "Only admins can change the main theme"}
             aria-label={`Set ${theme.name} as main theme`}
             className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-brand)] disabled:opacity-50"
           >

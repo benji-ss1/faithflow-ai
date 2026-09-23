@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { applyThemeLive } from "@/lib/theme-apply-client";
-import { useLiveThemeId, isThemeLiveNow } from "@/lib/live-theme";
+import { useLiveThemeId, isThemeLiveNow, useCanManageChurch } from "@/lib/live-theme";
 import { setMainTheme } from "@/lib/theme-quick-apply";
 import { toast } from "sonner";
 import { Star } from "lucide-react";
@@ -43,6 +43,7 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
   const [showExtras, setShowExtras] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
   const liveThemeId = useLiveThemeId();
+  const canSetMain = useCanManageChurch();
 
   const [dbThemes, setDbThemes] = useState<DbTheme[]>([]);
   const [dbLoading, setDbLoading] = useState(false);
@@ -71,7 +72,7 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
   // Explicit "Set as main theme" — the ONLY operator path that writes is_default.
   async function makeMain(t: DbTheme) {
     const ok = await setMainTheme(t.id);
-    if (!ok) { toast.error("Only admins and editors can change the main theme"); return; }
+    if (!ok) { toast.error("Only admins can change the main theme"); return; }
     setDbThemes((prev) => prev.map((th) => ({ ...th, isDefault: th.id === t.id })));
     toast.success(`“${t.name}” is now the main theme — it loads every time the app starts`);
   }
@@ -188,9 +189,10 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
                     <button
                       type="button"
                       onClick={() => void makeMain(t)}
-                      title="Set as main theme (loads every time the app starts)"
+                      disabled={!canSetMain}
+                      title={canSetMain ? "Set as main theme (loads every time the app starts)" : "Only admins can change the main theme"}
                       className={cn(
-                        "w-full rounded border border-white/40 text-white font-medium flex items-center justify-center gap-1",
+                        "w-full rounded border border-white/40 text-white font-medium flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed",
                         modal ? "h-9 text-[13px]" : "h-5 text-[8px]",
                       )}
                     >

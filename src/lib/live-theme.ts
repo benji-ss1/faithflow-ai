@@ -49,6 +49,19 @@ export function isThemeLiveNow(t: ThemeLike, themes: ThemeLike[], liveId: string
   return t.isDefault === true;
 }
 
+/** Admin-only gate for "Set as main theme" (cached per window). */
+let canManagePromise: Promise<boolean> | null = null;
+export function useCanManageChurch(): boolean {
+  const [can, setCan] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    canManagePromise ??= import("@/lib/actions").then((m) => m.canManageChurchDefaults()).catch(() => { canManagePromise = null; return false; });
+    void canManagePromise.then((v) => { if (alive) setCan(v); });
+    return () => { alive = false; };
+  }, []);
+  return can;
+}
+
 /** React hook — re-renders when the live theme changes. */
 export function useLiveThemeId(): string | null {
   const [id, setId] = useState<string | null>(liveThemeId);
