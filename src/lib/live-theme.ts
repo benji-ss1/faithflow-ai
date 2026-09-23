@@ -7,24 +7,58 @@
  *  - LIVE theme  = whatever the operator applied mid-service. Session-only: it
  *    drives the outputs via `presentflow:theme-changed` and NEVER writes the DB.
  *
- * The live id lives in a per-window module variable on purpose (not
- * sessionStorage): an app reload (⌘⇧R) must come back on the main theme, which
- * is exactly what OperatorConsole's mount load does. This is client-only UI
- * state inside one renderer window — not server session state.
+ * The live id is mirrored into per-window sessionStorage (2026-09-23 review
+ * decision): a console reload (⌘R / crash recovery) or a plan navigation in
+ * the SAME app session keeps what is on the outputs; a fresh app launch (new
+ * window → empty sessionStorage) starts on the main theme. OperatorConsole's
+ * mount load reads it back and pins the live id (to the main theme when none
+ * is stored) so starring another theme never moves "Live now".
+ * Client-only UI state inside one renderer window — not server session state.
  */
 import { useEffect, useState } from "react";
 
 export const LIVE_THEME_EVENT = "presentflow:live-theme-id-changed";
+export const LIVE_THEME_SESSION_KEY = "presentflow.liveThemeId.v1";
 
 let liveThemeId: string | null = null;
+let hydrated = false;
+
+function hydrate(): void {
+  if (hydrated) return;
+  hydrated = true;
+  try {
+    const v = typeof sessionStorage !== "undefined" ? sessionStorage.getItem(LIVE_THEME_SESSION_KEY) : null;
+    if (v && liveThemeId == null) liveThemeId = v;
+  } catch { /* storage blocked */ }
+}
 
 export function getLiveThemeId(): string | null {
+  hydrate();
   return liveThemeId;
 }
 
 export function setLiveThemeId(id: string | null): void {
+  hydrated = true;
   liveThemeId = id;
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      if (id) sessionStorage.setItem(LIVE_THEME_SESSION_KEY, id);
+      else sessionStorage.removeItem(LIVE_THEME_SESSION_KEY);
+    }
+  } catch { /* storage blocked */ }
   try { window.dispatchEvent(new CustomEvent(LIVE_THEME_EVENT, { detail: { id } })); } catch { /* SSR / no window */ }
+}
+
+/**
+ * Which theme the console mount should put on the outputs: the persisted live
+ * theme when it still exists, else the main theme. Pure — unit-tested.
+ */
+export function resolveMountTheme<T extends ThemeLike>(themes: T[], persistedLiveId: string | null): T | null {
+  if (persistedLiveId) {
+    const hit = themes.find((t) => t.id === persistedLiveId);
+    if (hit) return hit;
+  }
+  return themes.find((t) => t.isDefault) ?? null;
 }
 
 type ThemeLike = { id: string; isDefault?: boolean };
@@ -66,7 +100,7 @@ export function useCanManageChurch(): boolean {
 export function useLiveThemeId(): string | null {
   const [id, setId] = useState<string | null>(liveThemeId);
   useEffect(() => {
-    const on = () => setId(liveThemeId);
+    const on = () => setId(getLiveThemeId());
     on();
     window.addEventListener(LIVE_THEME_EVENT, on);
     return () => window.removeEventListener(LIVE_THEME_EVENT, on);

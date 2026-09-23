@@ -15,9 +15,32 @@
 -- fall back to KJV or fail to load.
 -- ============================================================================
 --
--- ORDERING: either order is safe. Apply before the code for the feature to be
--- usable; before then the "Default animated background" picker just won't save
--- (the action returns a clear error).
+-- ============================================================================
+-- DEPLOY RUNBOOK for branch feat/themes-songs-motion-0923 (strict order):
+--   0. Record the current production deployment id (rollback =
+--      `vercel promote <id>`).
+--   1. Apply THIS migration (additive; safe before the code).
+--   2. Style-lock backfill, BEFORE the code:
+--        npx tsx scripts/backfill-style-lock.ts --dry-run --verbose
+--      Check the per-church song/slide counts are NON-ZERO for churches that
+--      have themed or hand-styled songs, then run it for real:
+--        npx tsx scripts/backfill-style-lock.ts
+--      Why before: the new renderer makes every UNLOCKED plain lyric slide
+--      follow the church theme. Production today ignores `styleLocked`
+--      (verified: origin/main src/lib/broadcast.ts isValidSlideObject has no
+--      styleLocked check and accepts unknown keys; the renderer never reads
+--      it), so writing it early changes nothing on screen.
+--   3. Deploy the code (git → main → Vercel; preview first).
+--   4. Re-run the backfill once after deploy (safe + idempotent; only
+--      not-yet-locked objects are touched) to catch anything styled between
+--      step 2 and step 3.
+--   Rollback of step 2: `npx tsx scripts/backfill-style-lock.ts --rollback`
+--      (removes styleLocked from exactly the objects the backfill locked).
+-- ============================================================================
+--
+-- COLUMN ORDERING: either order is safe. Apply before the code for the feature
+-- to be usable; before then the "Default animated background" picker just
+-- won't save (the action returns a clear error).
 --
 -- Value: a built-in background template id (e.g. 'gentleWaves', 'holyFire') or
 -- NULL = no default. Validated in the app against BUILT_IN_BACKGROUNDS; custom

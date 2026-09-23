@@ -28,6 +28,10 @@ import { normalizeThemeTransition, resolveSendTransition, readOperatorTransition
 import { inferLiveOrigin, type LiveOrigin, recallOrigin, rememberOrigin, carriedOrigin } from "@/lib/song-switch-guard";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 import { seedActiveBackgroundIfFresh } from "@/backgrounds/store/backgroundStore";
+import { getLiveThemeId, setLiveThemeId, resolveMountTheme } from "@/lib/live-theme";
+
+/** Trailing debounce for the themes-cache refetch after theme events. */
+const THEMES_REFRESH_DEBOUNCE_MS = 300;
 import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
 import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
@@ -598,9 +602,11 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // animated background BEFORE the theme load below, so its existing
     // theme-bg/template self-heal decides exclusivity deterministically.
     try { if (defaultBackgroundId) seedActiveBackgroundIfFresh(defaultBackgroundId); } catch { /* storage unavailable */ }
-    // Every console mount starts on the church's MAIN theme (the mount load
-    // below applies it), so the session "live theme" marker starts empty too.
-    void import("@/lib/live-theme").then(({ setLiveThemeId }) => { if (!userTouched.current) setLiveThemeId(null); }).catch(() => {});
+    // The console mount puts the session's LIVE theme back on the outputs
+    // (persisted per window in sessionStorage, so a reload / plan navigation
+    // mid-service keeps it); a fresh app launch has none → the MAIN theme. The
+    // chosen id is then PINNED as live (applyList below), so a later star of
+    // another theme never moves "Live now" or the send-time resolvers.
     type ThemeRow = { id?: string; config?: unknown; isDefault?: boolean };
     // Uses the real `churchId` prop (was previously read off planProp, which
     // never carries churchId — so the offline theme cache silently no-op'd).
@@ -611,10 +617,15 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       if (cancelled) return;
       themesByIdRef.current = new Map(list.filter((t) => typeof t.id === "string").map((t) => [t.id as string, t.config]));
       const mainId = (list.find((t) => t.isDefault && typeof t.id === "string")?.id as string | undefined) ?? null;
+      // Mount (not a cache refresh, no in-session apply yet): pin the live id.
+      let active: ThemeRow | null = null;
+      if (!cachesOnly && !userTouched.current) {
+        active = resolveMountTheme(list.filter((t): t is ThemeRow & { id: string } => typeof t.id === "string"), getLiveThemeId());
+        if (active?.id) { liveThemeIdRef.current = active.id; setLiveThemeId(active.id); }
+      }
       const liveId = liveThemeIdRef.current && list.some((t) => t.id === liveThemeIdRef.current) ? liveThemeIdRef.current : null;
       defaultThemeIdRef.current = liveId ?? mainId;
       if (!cancelled) setThemesVersion((v) => v + 1);
-      const active = list.find((t) => t.isDefault) ?? null;
       // A theme edit/rename/duplicate/delete only refreshes the caches above —
       // never re-applies the default look or clears a Background Template.
       if (!cancelled && !cachesOnly && !userTouched.current && active) {
@@ -675,6 +686,14 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       isCancelled: () => cancelled,
       schedule: (fn, ms) => { retryTimers.push(window.setTimeout(fn, ms)); },
     });
+    // Coalesce theme-changed / themes-changed storms (A+/A− taps, quick
+    // applies) into ONE trailing /api/themes refetch. Caches only — the
+    // appearance itself already arrived on the event.
+    let refreshTimer: number | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer != null) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => { refreshTimer = null; void load(true); }, THEMES_REFRESH_DEBOUNCE_MS);
+    };
     const onChange = (e: Event) => {
       userTouched.current = true; // don't let the stale mount-fetch clobber this
       const detail = (e as CustomEvent).detail;
@@ -700,18 +719,19 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
           });
         }
       });
-      void load(); // refresh the by-id cache (default may have changed)
+      scheduleRefresh(); // refresh the by-id cache (default may have changed)
     };
     window.addEventListener("presentflow:theme-changed", onChange);
     // Theme → Projector (PR 2): ANY theme saved/renamed/duplicated/deleted (not
     // only the default) reloads the by-id cache, so item / song / content-type
     // themes and theme decor take effect immediately. Appearance-only — output
     // identity is content-only, so no transition replays on the held slide.
-    const onThemesChanged = () => { void load(true); };
+    const onThemesChanged = () => { scheduleRefresh(); };
     window.addEventListener("presentflow:themes-changed", onThemesChanged);
     return () => {
       cancelled = true;
       for (const t of retryTimers) window.clearTimeout(t);
+      if (refreshTimer != null) window.clearTimeout(refreshTimer);
       window.removeEventListener("presentflow:theme-changed", onChange);
       window.removeEventListener("presentflow:themes-changed", onThemesChanged);
     };

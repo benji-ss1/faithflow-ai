@@ -261,10 +261,9 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
       }
       const previousConfig = lastSavedCfgRef.current;
       lastSavedCfgRef.current = config;
-      let defaultNow = isDefaultNow;
       if (makeDefault && !isDefaultNow) {
         const d = await setDefaultTheme(themeTarget.id);
-        if (d.ok) { defaultNow = true; setIsDefaultNow(true); setMakeDefault(false); } else toast.error(d.error || "Couldn't set as default");
+        if (d.ok) { setIsDefaultNow(true); setMakeDefault(false); } else toast.error(d.error || "Couldn't set as main theme");
       }
       // The theme itself is saved → clean. Song restyle has its own retry state.
       editor.resetDirty();
@@ -278,7 +277,9 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
       // because it was just starred as main.
       const { getLiveThemeId } = await import("@/lib/live-theme");
       const liveId = getLiveThemeId();
-      if (liveId ? liveId === themeTarget.id : defaultNow) {
+      // `isDefaultNow` is the PRE-star value: ticking "make default" must never
+      // push a theme that wasn't already on the outputs.
+      if (liveId ? liveId === themeTarget.id : isDefaultNow) {
         window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
           detail: { appearance: themeConfigToAppearance(config), themeId: themeTarget.id },
         }));

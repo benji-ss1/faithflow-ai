@@ -14,11 +14,28 @@ import { BUILT_IN_BACKGROUNDS } from "@/backgrounds/presets/defaultTemplates";
 
 export const FALLBACK_TRANSLATION_CODE = "KJV";
 
+/** Static CSS swatches that resemble each animated background as rendered
+ *  (the raw primary→secondary gradient was misleading for several). Falls back
+ *  to that gradient for a preset without an entry. */
+const BACKGROUND_SWATCHES: Record<string, string> = {
+  gentleWaves: "linear-gradient(180deg, #0A1628 0%, #12394a 55%, #1A5C5C 100%)",
+  holyFire: "radial-gradient(circle at 30% 70%, rgba(232,80,26,0.55) 0 3%, transparent 4%), radial-gradient(circle at 65% 40%, rgba(212,120,30,0.5) 0 2.5%, transparent 3.5%), radial-gradient(circle at 80% 80%, rgba(232,80,26,0.45) 0 2%, transparent 3%), #0e0806",
+  cleanSlate: "linear-gradient(180deg, #0F0F14, #0A0A0E)",
+  goldenBokeh: "radial-gradient(ellipse at 12% 0%, rgba(140,115,115,0.55), transparent 55%), radial-gradient(circle at 40% 55%, rgba(232,184,106,0.7) 0 5%, transparent 6%), radial-gradient(circle at 70% 40%, rgba(255,240,215,0.55) 0 3%, transparent 4%), linear-gradient(180deg, #04050a, #0B0F1C)",
+  waterfall: "linear-gradient(90deg, transparent 18%, rgba(159,212,232,0.35) 30% 70%, transparent 82%), linear-gradient(0deg, rgba(220,235,255,0.35), transparent 45%), linear-gradient(180deg, #0B2A36, #06151b)",
+  forestLight: "linear-gradient(210deg, rgba(243,230,166,0.4), transparent 55%), linear-gradient(180deg, #0F3A22, #06170e)",
+  heavenClouds: "radial-gradient(ellipse at 30% 55%, rgba(200,200,215,0.55), transparent 45%), radial-gradient(ellipse at 75% 35%, rgba(215,205,190,0.5), transparent 40%), linear-gradient(0deg, #1E3A66, #5a5a70)",
+  gloryDust: "radial-gradient(circle at 25% 30%, #fff 0 1%, transparent 1.5%), radial-gradient(circle at 70% 60%, #C9A7FF 0 1%, transparent 1.5%), radial-gradient(circle at 50% 50%, #120A24, #05030b)",
+  auroraGlow: "linear-gradient(0deg, transparent 45%, rgba(54,224,160,0.55) 55%, rgba(115,90,240,0.25) 75%, transparent 90%), linear-gradient(180deg, #05101E, #020609)",
+  stillWaters: "linear-gradient(180deg, #14203a 0%, #7a6a5e 50%, #5d5049 54%, #101a2c 100%)",
+};
+
 /** Built-in animated backgrounds a church may pick as its default (no "none",
  *  no retired presets, no per-machine custom uploads). */
 export const DEFAULT_BACKGROUND_CHOICES = BUILT_IN_BACKGROUNDS
   .filter((b) => b.id !== "none")
-  .map((b) => ({ id: b.id, name: b.name, primary: b.shaderPrimaryColor ?? "#111", secondary: b.shaderSecondaryColor ?? "#333" }));
+  .map((b) => ({ id: b.id, name: b.name, primary: b.shaderPrimaryColor ?? "#111", secondary: b.shaderSecondaryColor ?? "#333", swatch: BACKGROUND_SWATCHES[b.id] }));
+
 
 export function isValidDefaultBackgroundId(id: unknown): id is string {
   return typeof id === "string" && DEFAULT_BACKGROUND_CHOICES.some((b) => b.id === id);
@@ -89,6 +106,8 @@ export type ChurchDefaultsDeps = {
   writeMainTheme: (churchId: string, themeId: string) => Promise<void>;
   /** false when the column is not migrated yet */
   writeBackground: (churchId: string, backgroundId: string | null) => Promise<boolean>;
+  /** true when the default_background_id column exists (checked BEFORE any write) */
+  backgroundReady: () => Promise<boolean>;
 };
 
 /**
@@ -112,11 +131,15 @@ export async function applyChurchDefaults(
   if (typeof v.mainThemeId === "string" && !(await deps.themeBelongs(churchId, v.mainThemeId))) {
     return { ok: false, error: "Theme not found" };
   }
+  // All-or-nothing (2026-09-23 review): the background column may not be
+  // migrated yet — check BEFORE writing anything, then write the background
+  // FIRST so its failure can never leave translation/theme half-saved.
+  const bgPending = { ok: false as const, error: "Default background isn't available yet (database update pending). Nothing was saved." };
+  if (v.backgroundId !== undefined) {
+    if (!(await deps.backgroundReady())) return bgPending;
+    if (!(await deps.writeBackground(churchId, v.backgroundId))) return bgPending;
+  }
   if (v.translationId !== undefined) await deps.writeTranslation(churchId, v.translationId);
   if (typeof v.mainThemeId === "string") await deps.writeMainTheme(churchId, v.mainThemeId);
-  if (v.backgroundId !== undefined) {
-    const ok = await deps.writeBackground(churchId, v.backgroundId);
-    if (!ok) return { ok: false, error: "Default background isn't available yet (database update pending)" };
-  }
   return { ok: true };
 }

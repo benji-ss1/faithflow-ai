@@ -175,7 +175,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
   function onSetDefault(id: string) {
     startTransition(async () => {
       const res = await setDefaultTheme(id);
-      if (!res.ok) { toast.error(res.error || "Could not set default"); return; }
+      if (!res.ok) { toast.error(res.error || "Could not set the main theme"); return; }
       // Mirror the server transaction locally: unset any current default,
       // then set the target. Avoids a full refetch.
       setThemes((prev) => prev.map((t) => ({ ...t, isDefault: t.id === id })));
@@ -183,7 +183,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
       // to drive. Operator: starring is NOT going live (church defaults
       // 2026-09-23) — the outputs keep whatever is live now.
       if (!operatorMode) onThemeActivated?.(themes.find((t) => t.id === id)?.config ?? {});
-      toast.success(operatorMode ? "Set as main theme — loads every time the app starts" : "Set as default");
+      toast.success("Set as main theme — loads every time the app starts");
     });
   }
 
@@ -1038,7 +1038,7 @@ function SortableThemeCard({
             <button
               type="button"
               onClick={onSetDefault}
-              title={canSetMain ? "Set as default" : "Only admins can change the main theme"}
+              title={canSetMain ? "Set as main theme (loads every time the app starts)" : "Only admins can change the main theme"}
               disabled={pending || !canSetMain}
               className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-brand)] disabled:opacity-50"
             >

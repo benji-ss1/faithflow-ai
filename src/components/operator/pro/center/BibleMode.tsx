@@ -878,7 +878,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             aria-label={`Make ${translation} the default translation`}
             className="h-8 px-2 inline-flex items-center gap-1 rounded border border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-50 shrink-0"
           >
-            <Star className="w-3 h-3" /> Make default
+            <Star className="w-3 h-3" /> Make this our default translation
           </button>
         )}
         <button

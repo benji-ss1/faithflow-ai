@@ -149,8 +149,9 @@ void main() {
     vec3 tint = mix(u_primaryColor, vec3(1.0, 0.95, 0.85), hash(vec2(fi, 5.0)) * 0.6);
     col += tint * disc * edge * tw * (0.35 + 0.5 * (1.0 - big)) * u_intensity;
   }
-  // Fine dust haze.
-  col += u_primaryColor * 0.05 * fbm(uv * 6.0 + vec2(t * 0.05, 0.0)) * u_intensity;
+  // Fine dust haze (single noise octave — at 5% strength the 4-octave fbm was
+  // indistinguishable and cost 4x per pixel; 2026-09-23 perf review).
+  col += u_primaryColor * 0.05 * noise(uv * 6.0 + vec2(t * 0.05, 0.0)) * u_intensity;
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -210,12 +211,16 @@ void main() {
   float t = u_time * u_speed;
   vec3 sky = mix(u_secondaryColor, u_primaryColor * 0.6, uv.y);
   // Domain warp makes the clouds billow/morph slowly, not just slide.
-  vec2 w = vec2(fbm(uv * 1.5 + vec2(t * 0.03, 0.0)), fbm(uv * 1.5 + vec2(0.0, t * 0.025) + 5.2));
+  // Warp field uses single noise octaves (was 2x fbm = 8 noise/pixel): the
+  // warp is low-frequency, so the extra octaves were invisible (perf review).
+  vec2 w = vec2(noise(uv * 1.5 + vec2(t * 0.03, 0.0)), noise(uv * 1.5 + vec2(0.0, t * 0.025) + 5.2));
   float back = fbm(uv * vec2(1.8, 2.4) + vec2(t * 0.035, 0.0) + w * 0.6);
   float front = fbm(uv * vec2(3.2, 4.0) + vec2(t * 0.07, t * 0.012) + w * 0.9);
   float c = smoothstep(0.36, 0.85, back * 0.7 + front * 0.55);
   vec3 cloud = mix(vec3(0.82, 0.85, 0.94), vec3(1.0, 0.93, 0.8), uv.y);
-  vec3 col = mix(sky, cloud * 0.56, c * 0.82 * u_intensity);
+  // Cloud brightness 0.56 → 0.48 so white lyrics keep contrast over the
+  // brightest clouds (design review 2026-09-23).
+  vec3 col = mix(sky, cloud * 0.48, c * 0.82 * u_intensity);
   // Heavenly glow from the top, breathing very slowly.
   float glow = smoothstep(0.45, 1.25, uv.y + 0.08 * sin(t * 0.15));
   col += u_primaryColor * 0.22 * glow;
@@ -284,13 +289,15 @@ void main() {
   float horizon = 0.46;
   vec2 sun = vec2(0.5, horizon + 0.07);
   vec3 skyTop = u_secondaryColor * 0.7;
-  vec3 skyLow = mix(u_secondaryColor, u_primaryColor, 0.65);
+  // Horizon band toned down x0.8 so white lyrics stay readable over it
+  // (was ~#A7886D ≈ 3.2:1 vs white; design review 2026-09-23).
+  vec3 skyLow = mix(u_secondaryColor, u_primaryColor, 0.65) * 0.8;
   vec3 col;
   if (uv.y > horizon) {
     float k = (uv.y - horizon) / (1.0 - horizon);
     col = mix(skyLow, skyTop, pow(k, 0.7));
     float sg = smoothstep(0.35, 0.0, length((uv - sun) * vec2(aspect, 1.0)));
-    col += u_primaryColor * sg * 0.32;
+    col += u_primaryColor * sg * 0.26;
     // Distant hills silhouette.
     float hill = horizon + 0.04 + 0.03 * fbm(vec2(uv.x * 3.0, 1.0));
     col = mix(col, u_secondaryColor * 0.35, smoothstep(hill + 0.004, hill, uv.y));

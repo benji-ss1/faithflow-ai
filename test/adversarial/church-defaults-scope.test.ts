@@ -28,6 +28,7 @@ const deps = {
   writeTranslation: async (c: string, id: string | null) => { state.translation[c] = id; },
   writeMainTheme: async (c: string, id: string) => { state.mainTheme[c] = id; },
   writeBackground: async () => true,
+  backgroundReady: async () => true,
 };
 
 (async () => {
@@ -62,7 +63,9 @@ const deps = {
   // Live apply must not write the church default any more.
   const client = readFileSync("src/lib/theme-apply-client.ts", "utf8");
   ok(!/fetch\(`\/api\/themes\/\$\{t\.id\}\/apply`/.test(client), "applyThemeLive no longer POSTs the default-writing route");
+  ok(!/CustomEvent\("presentflow:apply-theme-to-song"/.test(client), "live apply is VISUAL ONLY: never bakes/locks the current song or writes the plan item");
   const quick = readFileSync("src/lib/theme-quick-apply.ts", "utf8");
+  ok(!/CustomEvent\("presentflow:apply-theme-to-song"/.test(quick), "quick-apply never bakes/locks the song");
   const sw = quick.slice(quick.indexOf("export async function switchToTheme"), quick.indexOf("export async function setMainTheme"));
   ok(!/setDefaultTheme/.test(sw), "switchToTheme is live-only");
 

@@ -120,9 +120,23 @@ export async function writeChurchMainTheme(churchId: string, themeId: string): P
   });
 }
 
-/** Returns false when the column is not migrated yet (never throws). */
+/** True when church_preferences.default_background_id exists (never throws). */
+export async function churchDefaultBackgroundReady(): Promise<boolean> {
+  try {
+    const db = getDb();
+    const res = await db.execute(sql`SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'church_preferences' AND column_name = 'default_background_id' LIMIT 1`);
+    return (res.rows?.length ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Returns false when the column is not migrated yet (never throws). Checks
+ *  the column BEFORE inserting a preferences row, so a failed call has no
+ *  side effect. */
 export async function writeChurchDefaultBackground(churchId: string, backgroundId: string | null): Promise<boolean> {
   try {
+    if (!(await churchDefaultBackgroundReady())) return false;
     const db = getDb();
     const [existing] = await db.select({ id: churchPreferences.id }).from(churchPreferences)
       .where(eq(churchPreferences.churchId, churchId)).limit(1);

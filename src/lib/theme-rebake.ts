@@ -131,6 +131,10 @@ export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjec
     if (!src) return o; // object added after the first apply — no snapshot to restore from
     const next: Obj = { ...o };
     for (const k of fields.text) copyField(next, src, k);
+    // 2026-09-23: the lock the theme apply added goes too — a reverted slide
+    // gets back EXACTLY its pre-apply lock state (unlocked → follows the
+    // theme again; a slide that was already hand-styled/locked stays locked).
+    copyField(next, src, "styleLocked");
     return next;
   });
   return out;

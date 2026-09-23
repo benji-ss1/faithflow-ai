@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,7 +22,7 @@ import {
 import { PfAuthScene } from "@/components/auth/PfAuthScene";
 
 /**
- * PresentFlow onboarding wizard — six steps, dark-themed AuthShell.
+ * PresentFlow onboarding wizard — seven steps (0–6), dark-themed AuthShell.
  *
  *  0. Welcome hero      — brand-forward "get started" screen
  *  1. Church profile    — creates the church row + attaches user as admin
@@ -32,7 +32,7 @@ import { PfAuthScene } from "@/components/auth/PfAuthScene";
  *  5. Team              — optional multi-email invite (via Resend)
  *  6. Download desktop  — final CTA + "Go to dashboard" finish
  *
- * Steps 2–5 are all skippable. Only step 1 is required (it's the
+ * Steps 2–6 are all skippable. Only step 1 is required (it's the
  * gate that creates the church_id row). Every step after 1 uses
  * server actions that re-read the user by email via requireUser(),
  * so the freshly-attached churchId is visible immediately without
@@ -110,11 +110,16 @@ export function OnboardingWizard({
   const detectedTz =
     typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" : "UTC";
 
-  // Step 3 — song import choice + result
+  // Step 3 — church defaults: saved by the Continue button
+  const saveDefaultsRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [savingDefaults, setSavingDefaults] = useState(false);
+  const [defaultsFailed, setDefaultsFailed] = useState(false);
+
+  // Step 4 — song import choice + result
   const [importChoice, setImportChoice] = useState<ImportChoice>(null);
   const [hymnResult, setHymnResult] = useState<{ added: number; skipped: number } | null>(null);
 
-  // Step 4 — invites
+  // Step 5 — invites
   const [inviteInput, setInviteInput] = useState("");
   const [invites, setInvites] = useState<Invite[]>([]);
 
@@ -362,7 +367,7 @@ export function OnboardingWizard({
         {step === 3 && (
           <div className="mb-5">
             <div className="pf-admin-scope">
-              <ChurchDefaultsCard compact />
+              <ChurchDefaultsCard compact registerSave={(fn) => { saveDefaultsRef.current = fn; }} />
             </div>
           </div>
         )}
@@ -420,7 +425,7 @@ export function OnboardingWizard({
           </div>
         )}
 
-        {/* Step 4 — Team */}
+        {/* Step 5 — Team */}
         {step === 5 && (
           <div className="mb-5">
             <div className="mb-3.5 flex gap-2.5">
@@ -495,7 +500,7 @@ export function OnboardingWizard({
           </div>
         )}
 
-        {/* Step 5 — Download */}
+        {/* Step 6 — Download */}
         {step === 6 && (
           <div className="mb-5 space-y-3">
             <Link
@@ -563,9 +568,26 @@ export function OnboardingWizard({
             </button>
           )}
           {step === 3 && (
-            <button type="button" onClick={() => setStep(4)} className={authCtaCls} style={authCtaStyle}>
-              Continue
-            </button>
+            <>
+              {defaultsFailed && (
+                <button type="button" onClick={() => { setDefaultsFailed(false); setStep(4); }}
+                  className="flex-none cursor-pointer rounded-xl px-4 py-3.5 font-display text-[14px] font-semibold"
+                  style={{ border: "1px solid rgba(255,255,255,0.14)", background: "transparent", color: "#c4bcaf" }}>
+                  Skip for now
+                </button>
+              )}
+              <button type="button" disabled={savingDefaults} className={authCtaCls} style={authCtaStyle}
+                onClick={async () => {
+                  // The picks are SAVED on Continue (never lost silently); an
+                  // error keeps the admin here with an inline message + retry.
+                  setSavingDefaults(true);
+                  const ok = saveDefaultsRef.current ? await saveDefaultsRef.current() : true;
+                  setSavingDefaults(false);
+                  if (ok) { setDefaultsFailed(false); setStep(4); } else setDefaultsFailed(true);
+                }}>
+                {savingDefaults ? "Saving…" : defaultsFailed ? "Try again" : "Continue"}
+              </button>
+            </>
           )}
           {step === 4 && (
             <button

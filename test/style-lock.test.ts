@@ -6,6 +6,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { lockStyledTextObjects, bakeThemeIntoObjectsJson } from "../src/lib/theme-bake";
 import { isValidSlideObject } from "../src/lib/broadcast";
+import { resetThemeOwnedFields } from "../src/lib/theme-rebake";
 (globalThis as unknown as { React: typeof React }).React = React;
 let pass = 0, fail = 0;
 const check = (n: string, f: () => void) => { try { f(); console.log("  PASS " + n); pass++; } catch (e) { console.error("  FAIL " + n + "\n    " + (e as Error).message); fail++; } };
@@ -28,5 +29,30 @@ const t = (x: Record<string, unknown> = {}) => ({ id: "a", kind: "text", x: 0, y
   const slide = (obj: object) => ({ kind: "text", text: "Hi", bgColor: "#b91c1c", objects: [obj] }) as never;
   check("locked slide keeps its own look under the default theme", () => { const h = renderToStaticMarkup(React.createElement(SlideRenderer, { slide: slide(t({ styleLocked: true })), appearance: theme })); assert.match(h, /#b91c1c/i); assert.match(h, /#ffd400/i); });
   check("unlocked (imported) slide follows the default theme", () => { const h = renderToStaticMarkup(React.createElement(SlideRenderer, { slide: slide(t()), appearance: theme })); assert.match(h, /#1e40af/i); assert.doesNotMatch(h, /#ffd400/i); });
+  check("revert theme removes the lock the apply added (exact restore)", () => {
+    const orig = { bgColor: "#000000", objects: [t()] };
+    const baked = bakeThemeIntoObjectsJson({ textColor: "#fff", bgColor: "#222222" }, orig);
+    assert.equal((baked.objects as any[])[0].styleLocked, true);
+    const r = resetThemeOwnedFields(baked, orig) as any;
+    assert.equal("styleLocked" in r.objects[0], false);
+  });
+  check("revert keeps a lock that existed BEFORE the apply", () => {
+    const orig = { bgColor: "#000000", objects: [t({ styleLocked: true })] };
+    const baked = bakeThemeIntoObjectsJson({ textColor: "#fff", bgColor: "#222222" }, orig);
+    const r = resetThemeOwnedFields(baked, orig) as any;
+    assert.equal(r.objects[0].styleLocked, true);
+  });
+  // No-regression 🟡 (2026-09-23): over a Background Template (overVideo) a
+  // theme-following song uses EXACTLY the Bible plain-text colour rule
+  // (themeTextStyle: theme textColor, else auto-contrast vs theme bgColor).
+  for (const th of [{ bgType: "solid", bgColor: "#f5f0e6" }, { bgType: "solid", bgColor: "#101010", textColor: "#ffe08a" }, { bgType: "solid", bgColor: "#1e40af" }]) {
+    check(`song over template matches Bible plain text colour (${JSON.stringify(th)})`, () => {
+      const colorOf = (h: string) => (h.match(/(?<![-\w])color:\s*(#[0-9a-f]{3,8}|rgb[^;"]+)/i) ?? [])[1]?.toLowerCase();
+      const song = renderToStaticMarkup(React.createElement(SlideRenderer, { slide: { kind: "text", text: "Hi", objects: [t({ color: "#ffffff", fontFamily: "Inter" })] } as never, appearance: th as never, overVideo: true }));
+      const bible = renderToStaticMarkup(React.createElement(SlideRenderer, { slide: { kind: "text", text: "Hi" } as never, appearance: th as never, overVideo: true }));
+      assert.ok(colorOf(bible), "bible colour present");
+      assert.equal(colorOf(song), colorOf(bible));
+    });
+  }
   console.log(`\nstyle-lock: ${pass} passed, ${fail} failed`); if (fail) process.exit(1);
 })();

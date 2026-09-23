@@ -33,13 +33,20 @@ function themeThumbStyle(cfg: Record<string, unknown>): React.CSSProperties {
   return { background: bg1 };
 }
 
-export function ChurchDefaultsCard({ compact = false, onSaved }: { compact?: boolean; onSaved?: () => void }) {
+/**
+ * `registerSave` (onboarding): the host's own "Continue" button saves the picks
+ * (no separate save button, nothing lost silently). The registered function
+ * resolves true when saved / nothing to save, false on error (the card then
+ * shows an inline error; pressing Continue again retries).
+ */
+export function ChurchDefaultsCard({ compact = false, onSaved, registerSave }: { compact?: boolean; onSaved?: () => void; registerSave?: (save: () => Promise<boolean>) => void }) {
   const [view, setView] = useState<View | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [translationId, setTranslationId] = useState<string>("");
   const [mainThemeId, setMainThemeId] = useState<string>("");
   const [backgroundId, setBackgroundId] = useState<string>("none");
   const [pending, startTransition] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -66,24 +73,43 @@ export function ChurchDefaultsCard({ compact = false, onSaved }: { compact?: boo
     (mainThemeId || null) !== (view.mainThemeId ?? null) ||
     (backgroundId === "none" ? null : backgroundId) !== (view.backgroundId ?? null);
 
-  function save() {
-    if (!view) return;
+  function buildPatch() {
     const patch: { translationId?: string | null; mainThemeId?: string | null; backgroundId?: string | null } = {};
+    if (!view) return patch;
     if ((translationId || null) !== (view.translationId ?? null)) patch.translationId = translationId || null;
     if (mainThemeId && mainThemeId !== view.mainThemeId) patch.mainThemeId = mainThemeId;
     const bg = backgroundId === "none" ? null : backgroundId;
     if (bg !== (view.backgroundId ?? null)) patch.backgroundId = bg;
-    startTransition(async () => {
-      const res = await setChurchDefaults(patch);
-      if (!res.ok) { toast.error(res.error || "Could not save church defaults"); return; }
-      setView({ ...view, translationId: translationId || null, mainThemeId: mainThemeId || view.mainThemeId, backgroundId: bg,
-        themes: view.themes.map((t) => ({ ...t, isDefault: t.id === (mainThemeId || view.mainThemeId) })) });
-      // Other operator surfaces refresh their theme lists (badges). Does NOT
-      // change what is live right now.
-      try { window.dispatchEvent(new CustomEvent("presentflow:themes-changed")); } catch { /* noop */ }
-      toast.success("Church defaults saved — they load every time the app starts");
-      onSaved?.();
-    });
+    return patch;
+  }
+
+  async function saveNow(): Promise<boolean> {
+    if (!view || !view.canEdit) return true;
+    const patch = buildPatch();
+    if (Object.keys(patch).length === 0) return true;
+    let res: Awaited<ReturnType<typeof setChurchDefaults>>;
+    try { res = await setChurchDefaults(patch); } catch { res = { ok: false, error: "Couldn't reach the server" }; }
+    if (!res.ok) {
+      const msg = res.error || "Could not save church defaults";
+      setSaveError(msg);
+      toast.error(msg);
+      return false;
+    }
+    setSaveError(null);
+    const bg = backgroundId === "none" ? null : backgroundId;
+    setView({ ...view, translationId: translationId || null, mainThemeId: mainThemeId || view.mainThemeId, backgroundId: bg,
+      themes: view.themes.map((t) => ({ ...t, isDefault: t.id === (mainThemeId || view.mainThemeId) })) });
+    // Other operator surfaces refresh their theme lists (badges). Does NOT
+    // change what is live right now.
+    try { window.dispatchEvent(new CustomEvent("presentflow:themes-changed")); } catch { /* noop */ }
+    toast.success("Church defaults saved");
+    onSaved?.();
+    return true;
+  }
+  registerSave?.(saveNow);
+
+  function save() {
+    startTransition(async () => { await saveNow(); });
   }
 
   const label = "mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground";
@@ -92,7 +118,7 @@ export function ChurchDefaultsCard({ compact = false, onSaved }: { compact?: boo
     <div className="space-y-5">
       {!view.canEdit && (
         <div className="rounded-lg border border-border px-3 py-2 text-[12px] text-muted-foreground">
-          Only church admins can change these. You can still switch translation, theme and background during a service — those changes last for that session only.
+          Only church admins can change these. You can still switch translation, theme and background during a service.
         </div>
       )}
 
@@ -104,12 +130,12 @@ export function ChurchDefaultsCard({ compact = false, onSaved }: { compact?: boo
           onChange={(e) => setTranslationId(e.target.value)}
           className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none disabled:opacity-60"
         >
-          <option value="">King James Version (KJV) — built-in default</option>
+          <option value="">{view.translations.some((t) => t.code.toUpperCase() === "KJV") ? "Not set (uses KJV)" : "King James Version (KJV)"}</option>
           {view.translations.map((t) => (
             <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
           ))}
         </select>
-        <div className="mt-1 text-[11px] text-muted-foreground">Scripture opens in this translation. Switching during a service only lasts for that service.</div>
+        <div className="mt-1 text-[11px] text-muted-foreground">Scripture opens in this translation.</div>
       </label>
 
       <div>
@@ -142,13 +168,13 @@ export function ChurchDefaultsCard({ compact = false, onSaved }: { compact?: boo
             })}
           </div>
         )}
-        <div className="mt-1 text-[11px] text-muted-foreground">Loads every time the app starts. Applying another theme during a service is live-only.</div>
+        <div className="mt-1 text-[11px] text-muted-foreground">Loads every time the app starts. Changing theme during a service only affects that service.</div>
       </div>
 
       <div>
         <div className={label}>Default animated background</div>
         <div className={cn("grid gap-2", compact ? "grid-cols-4" : "grid-cols-3 sm:grid-cols-4")} role="radiogroup" aria-label="Default animated background">
-          {[{ id: "none", name: "None", primary: "#111", secondary: "#222" }, ...DEFAULT_BACKGROUND_CHOICES].map((b) => {
+          {[{ id: "none", name: "None", primary: "#111", secondary: "#222", swatch: undefined as string | undefined }, ...DEFAULT_BACKGROUND_CHOICES].map((b) => {
             const selected = backgroundId === b.id;
             return (
               <button
@@ -162,7 +188,7 @@ export function ChurchDefaultsCard({ compact = false, onSaved }: { compact?: boo
                   "relative aspect-video overflow-hidden rounded-lg border disabled:cursor-not-allowed",
                   selected ? "border-[var(--color-brand)] ring-2 ring-[var(--color-brand)]/50" : "border-border",
                 )}
-                style={{ background: `linear-gradient(135deg, ${b.primary}, ${b.secondary})` }}
+                style={{ background: b.swatch ?? `linear-gradient(135deg, ${b.primary}, ${b.secondary})` }}
                 title={b.name}
               >
                 <span className="absolute inset-x-0 bottom-0 truncate bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">{b.name}</span>
@@ -170,10 +196,16 @@ export function ChurchDefaultsCard({ compact = false, onSaved }: { compact?: boo
             );
           })}
         </div>
-        <div className="mt-1 text-[11px] text-muted-foreground">Used on a computer that hasn&apos;t picked a background yet. A computer that already chose one keeps its choice.</div>
+        <div className="mt-1 text-[11px] text-muted-foreground">Used on new computers. Computers that already chose a background keep it.</div>
       </div>
 
-      {view.canEdit && (
+      {saveError && (
+        <div role="alert" className="rounded-lg border border-[var(--color-danger,#ef4444)]/50 px-3 py-2 text-[12px] text-[var(--color-danger,#ef4444)]">
+          Couldn&apos;t save: {saveError}. {registerSave ? "Press Continue to try again." : "Try saving again."}
+        </div>
+      )}
+
+      {view.canEdit && !registerSave && (
         <div className="flex items-center justify-end gap-2">
           {dirty ? <span className="text-xs text-muted-foreground">Unsaved changes</span> : null}
           <button

@@ -2740,6 +2740,7 @@ export async function setChurchDefaults(input: {
     writeTranslation: cd.writeChurchDefaultTranslation,
     writeMainTheme: cd.writeChurchMainTheme,
     writeBackground: cd.writeChurchDefaultBackground,
+    backgroundReady: cd.churchDefaultBackgroundReady,
   });
   if (!res.ok) return res;
   revalidatePath("/settings");

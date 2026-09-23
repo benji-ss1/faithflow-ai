@@ -636,6 +636,10 @@ export function SlideRenderer(props: SlideRendererProps) {
         const followTheme = themeHasBg && !transparentBg && !slide.bgImageUrl && !editable && soleText.styleLocked !== true && !bgWasChosen;
         const animated = !hosted && usesAnimatedBg(appearance, overVideo || transparentBg, followTheme ? undefined : (slideBg || slide.bgImageUrl));
         const soleBg: React.CSSProperties = followTheme ? (overVideo ? { background: "transparent" } : themeBg("#0b0b0b")) : designBg;
+        // Text colour over a Background Template (overVideo) — deliberately the
+        // SAME rule as the Bible plain-text path below: themeTextStyle (theme
+        // textColor, else auto-contrast vs the theme bgColor). Test-locked in
+        // test/style-lock.test.ts ("song over template matches Bible").
         const soleThemedTextColor = followTheme ? (overVideo ? undefined : ((themeTextStyle(appearance)?.color as string | undefined) ?? undefined)) : themedTextColor;
         // Respect the operator's colour/font/weight/alignment; AutoFitText owns
         // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.

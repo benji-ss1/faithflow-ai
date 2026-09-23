@@ -7,7 +7,17 @@ import {
   normalizeChurchDefaultsInput, isValidDefaultBackgroundId, isTranslationAccessible,
   shouldSeedDefaultBackground, DEFAULT_BACKGROUND_CHOICES, applyChurchDefaults,
 } from "../src/lib/church-defaults";
-import { resolveActiveTheme, isThemeLiveNow } from "../src/lib/live-theme";
+import { resolveActiveTheme, isThemeLiveNow, resolveMountTheme, getLiveThemeId, setLiveThemeId, LIVE_THEME_SESSION_KEY } from "../src/lib/live-theme";
+
+// Minimal browser storage shims (backgroundStore + live-theme are client modules).
+function memStorage() {
+  const m = new Map<string, string>();
+  return { getItem: (k: string) => (m.has(k) ? m.get(k)! : null), setItem: (k: string, v: string) => { m.set(k, String(v)); }, removeItem: (k: string) => { m.delete(k); }, clear: () => m.clear() };
+}
+const g = globalThis as Record<string, unknown>;
+g.localStorage = memStorage(); g.sessionStorage = memStorage();
+g.window ??= { dispatchEvent: () => true, addEventListener: () => {}, removeEventListener: () => {} };
+g.CustomEvent ??= class { type: string; detail: unknown; constructor(t: string, i?: { detail?: unknown }) { this.type = t; this.detail = i?.detail; } };
 
 let n = 0;
 const ok = (c: unknown, m: string) => { assert.ok(c, m); n++; };
@@ -27,6 +37,7 @@ const U1 = "11111111-1111-4111-8111-111111111111";
 
   // backgrounds
   ok(DEFAULT_BACKGROUND_CHOICES.length > 0 && !DEFAULT_BACKGROUND_CHOICES.some((b) => b.id === "none"), "choices exclude none");
+  ok(DEFAULT_BACKGROUND_CHOICES.every((b) => typeof b.swatch === "string" && b.swatch.length > 0), "every choice has a representative swatch");
   ok(isValidDefaultBackgroundId("gentleWaves") && !isValidDefaultBackgroundId("none"), "gentleWaves valid, none not");
   ok(shouldSeedDefaultBackground(null, "gentleWaves"), "fresh machine seeds");
   ok(!shouldSeedDefaultBackground("none", "gentleWaves"), "explicit 'none' is kept");
@@ -57,6 +68,7 @@ const U1 = "11111111-1111-4111-8111-111111111111";
     writeTranslation: async () => { writes.push("t"); },
     writeMainTheme: async () => { writes.push("m"); },
     writeBackground: async () => { writes.push("b"); return true; },
+    backgroundReady: async () => true,
   };
   const r = await applyChurchDefaults("church-a", { translationId: U1, mainThemeId: U1, backgroundId: "gentleWaves" }, deps);
   ok(!r.ok && writes.length === 0, "any failed ownership check → zero writes");
@@ -64,6 +76,43 @@ const U1 = "11111111-1111-4111-8111-111111111111";
   ok(!r2.ok, "unmigrated column surfaces a clear error");
   const r3 = await applyChurchDefaults("", { translationId: U1 }, deps);
   ok(!r3.ok, "no church → refused");
+
+  // all-or-nothing: unmigrated background column → NOTHING written
+  const w2: string[] = [];
+  const okDeps = { ...deps, themeBelongs: async () => true, writeTranslation: async () => { w2.push("t"); }, writeMainTheme: async () => { w2.push("m"); }, writeBackground: async () => { w2.push("b"); return true; } };
+  const r4 = await applyChurchDefaults("church-a", { translationId: U1, mainThemeId: U1, backgroundId: "gentleWaves" }, { ...okDeps, backgroundReady: async () => false });
+  ok(!r4.ok && w2.length === 0, "background column missing → zero writes (no half-save)");
+  const r5 = await applyChurchDefaults("church-a", { translationId: U1, mainThemeId: U1, backgroundId: "gentleWaves" }, { ...okDeps, writeBackground: async () => { w2.push("b"); return false; } });
+  ok(!r5.ok && w2.join() === "b", "background write fails → translation/theme NOT written");
+  w2.length = 0;
+  const r6 = await applyChurchDefaults("church-a", { translationId: U1 }, { ...okDeps, backgroundReady: async () => false });
+  ok(r6.ok && w2.join() === "t", "no background in the call → column state irrelevant");
+
+  // e2e #1: the seeded church default background SURVIVES the same mount's
+  // theme-bg self-heal (main theme with a bgColor, no prior picks).
+  const bs = await import("../src/backgrounds/store/backgroundStore");
+  (g.localStorage as ReturnType<typeof memStorage>).clear();
+  ok(bs.seedActiveBackgroundIfFresh("gentleWaves") === true, "fresh machine seeds");
+  ok(bs.readActiveBackgroundId() === "gentleWaves", "seeded active");
+  ok(bs.shouldKeepTemplateOverThemeBg() === true, "self-heal keeps the seeded default (it is stamped as a pick)");
+  ok(bs.seedActiveBackgroundIfFresh("holyFire") === false, "never re-seeds over a stored pick");
+  await new Promise((r) => setTimeout(r, 2));
+  bs.markThemeBackgroundPicked();
+  ok(bs.shouldKeepTemplateOverThemeBg() === false, "a later explicit theme-bg apply still wins");
+
+  // mount theme: persisted live theme (same session) wins; else main.
+  const T = [{ id: "a", isDefault: true }, { id: "b" }];
+  ok(resolveMountTheme(T, null)?.id === "a", "fresh launch → main theme");
+  ok(resolveMountTheme(T, "b")?.id === "b", "reload mid-session → the live theme stays");
+  ok(resolveMountTheme(T, "gone")?.id === "a", "deleted live theme → main");
+  ok(resolveMountTheme([{ id: "x" }], null) === null, "no main theme → nothing forced");
+  setLiveThemeId("b");
+  ok((g.sessionStorage as ReturnType<typeof memStorage>).getItem(LIVE_THEME_SESSION_KEY) === "b", "live id persisted per window session");
+  ok(getLiveThemeId() === "b", "readable back");
+  // pinned live id → starring another theme (isDefault moves) does not move "Live now"
+  ok(isThemeLiveNow({ id: "b" }, [{ id: "a" }, { id: "b", isDefault: false }, { id: "c", isDefault: true }], getLiveThemeId()), "star elsewhere keeps Live now");
+  setLiveThemeId(null);
+  ok((g.sessionStorage as ReturnType<typeof memStorage>).getItem(LIVE_THEME_SESSION_KEY) === null, "cleared");
 
   console.log(`church-defaults: ${n} assertions passed`);
 })().catch((e) => { console.error(e); process.exit(1); });

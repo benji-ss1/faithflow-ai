@@ -111,10 +111,12 @@ export function setActiveBackgroundId(id: string): void {
 /**
  * Church defaults (2026-09-23): on a FRESH machine (no background selection
  * ever stored — key absent, not merely "none") seed the church's default
- * animated background. Deliberately NOT stamped as an explicit pick, so the
- * existing theme-bg/template exclusivity still holds: if the main theme carries
- * its own background, the mount self-heal (shouldKeepTemplateOverThemeBg is
- * false with no stamps) clears this seed and the theme background wins.
+ * animated background. It IS stamped as a template pick (the church admin
+ * deliberately chose it), otherwise the same mount's self-heal — which clears a
+ * template whenever the main theme paints its own background and no pick is
+ * newer (every built-in theme has a bgColor) — wiped it straight away and the
+ * default never reached the projector (2026-09-23 e2e review). A later
+ * explicit theme-background apply still wins (it stamps a newer time).
  * Returns true when it seeded.
  */
 export function seedActiveBackgroundIfFresh(id: string | null | undefined): boolean {
@@ -124,6 +126,7 @@ export function seedActiveBackgroundIfFresh(id: string | null | undefined): bool
   if (stored !== null) return false;
   if (!findBuiltIn(id) || id === "none") return false;
   try { localStorage.setItem(ACTIVE_KEY, id); } catch { return false; }
+  try { localStorage.setItem(PICKED_AT_KEY, String(Date.now())); } catch { /* ignore */ }
   try { window.dispatchEvent(new CustomEvent(BACKGROUND_CHANGED_EVENT, { detail: { id } })); } catch { /* ignore */ }
   return true;
 }
