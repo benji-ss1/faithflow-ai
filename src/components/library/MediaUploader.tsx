@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { registerMediaAsset, createPptxImport } from "@/lib/actions";
+import { notifyMediaChanged } from "@/lib/media-sync";
 import { ElectronPickFilesButton } from "@/components/electron/ElectronFilePickers";
 
 function base64ToFile(name: string, mime: string, b64: string): File {
@@ -43,6 +44,7 @@ export function MediaUploader({ purpose }: { purpose: "media" | "pptx" }) {
         const res = await registerMediaAsset({ kind, fileName: file.name, s3Key: presign.key, mimeType: file.type, sizeBytes: file.size });
         if (!res.ok) throw new Error(res.error);
         toast.success("Uploaded");
+        notifyMediaChanged(); // open operator windows (Media / Media Bin) pick it up (page reloads next)
       } else {
         const res = await createPptxImport(file.name, presign.key);
         if (!res.ok) throw new Error(res.error);
