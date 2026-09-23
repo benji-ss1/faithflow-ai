@@ -1,5 +1,5 @@
 "use client";
-import { updateTheme, setDefaultTheme } from "@/lib/actions";
+import { updateTheme, patchThemeConfig, setDefaultTheme } from "@/lib/actions";
 import { themeConfigToAppearance } from "@/lib/theme-appearance";
 import { snapshotBackgroundState, restoreBackgroundState } from "@/backgrounds/store/backgroundStore";
 
@@ -100,7 +100,9 @@ export async function setMediaOnActiveTheme(kind: "logo" | "background", url: st
     : { bgType: "image", bgImageUrl: url };
   const nextConfig = { ...prev, ...patch };
   try {
-    const res = await updateTheme(target.id, { config: nextConfig });
+    // Patch only these fields, merged server-side — a theme editor open at the
+    // same time must not have its other edits erased by this one-tap action.
+    const res = await patchThemeConfig(target.id, patch);
     if (!res.ok) return null;
   } catch {
     return null;
@@ -126,7 +128,7 @@ export async function clearActiveThemeBackground(): Promise<QuickThemeChange | n
   const bgSnapshot = snapshotBackgroundState();
   const nextConfig = { ...prev, bgType: "solid" as const, bgImageUrl: "", bgVideoUrl: "" };
   try {
-    const res = await updateTheme(target.id, { config: nextConfig });
+    const res = await patchThemeConfig(target.id, { bgType: "solid", bgImageUrl: "", bgVideoUrl: "" });
     if (!res.ok) return null;
   } catch {
     return null;

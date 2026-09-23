@@ -15,7 +15,8 @@ import { isBuiltInStageLayout } from "../engine/stage/presets";
 import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
-import { sanitizeThemeConfig, stripBuiltinId, type ThemeConfig } from "./theme-config";
+import { sanitizeThemeConfig, stripBuiltinId, type ThemeConfig, mergeThemeConfigPatch, THEME_ALLOWED_KEYS } from "./theme-config";
+import { isBuiltinThemeId } from "./builtin-themes";
 import { getBuiltinTheme, builtinThemeConfig } from "./builtin-themes";
 import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
@@ -2537,6 +2538,69 @@ export async function updateTheme(id: string, patch: { name?: string; config?: T
   await db.update(themes).set(updates)
     .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
   return { ok: true, data: { rejected } };
+}
+
+/**
+ * Patch INDIVIDUAL theme-config fields, merging SERVER-side inside a transaction.
+ *
+ * `updateTheme` replaces the whole `config` jsonb from a snapshot the CLIENT
+ * held. Three writers do read-modify-write from their own snapshot
+ * (RightInspector.patchConfig — fire-and-forget on every control change,
+ * DesktopSlideEditorModal's save, theme-quick-apply's media set/clear), so two
+ * changes made moments apart both built from the SAME render's config and the
+ * second silently undid the first's field. There was no optimistic-concurrency
+ * check anywhere: no version, no etag, no updatedAt compare.
+ *
+ * Merging server-side makes a patch last-write-wins PER FIELD instead of per
+ * BLOB, which is what the operator actually expects, and needs no schema change.
+ * `undefined` values are ignored; pass `null` to CLEAR a field.
+ */
+export async function patchThemeConfig(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<Result<{ rejected: string[] }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  return db.transaction(async (tx): Promise<Result<{ rejected: string[] }>> => {
+    const [row] = await tx.select({ config: themes.config }).from(themes)
+      .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)))
+      .limit(1)
+      .for("update");
+    if (!row) return { ok: false, error: "Theme not found" };
+    const prev = (row.config ?? {}) as Record<string, unknown>;
+    const merged = mergeThemeConfigPatch(prev, patch);
+    // Same sanitizer every other writer uses — a patch can never smuggle a key
+    // past THEME_ALLOWED_KEYS or an out-of-range number onto the wire.
+    const clean = sanitizeThemeConfig(merged);
+    // A REJECTED key must never DELETE the good value already stored. `merged`
+    // carries prev's value for any key the patch didn't touch, so a malformed
+    // patch would otherwise make the sanitizer reject the MERGED key and the
+    // stored value would be lost — e.g. a bad scriptureBand write erasing the
+    // band the operator had already set. Restore every rejected key that prev
+    // held (generalises the original layout-only guard).
+    // Restricted to ALLOW-LISTED keys: an unknown/legacy stored key stays
+    // dropped exactly as before, so this cannot resurrect junk.
+    for (const k of clean.rejected) {
+      if ((THEME_ALLOWED_KEYS as string[]).includes(k) && Object.hasOwn(prev, k)) {
+        (clean.config as Record<string, unknown>)[k] = prev[k];
+      }
+    }
+    // Carry the STORED builtinId across. sanitizeThemeConfig strips it by
+    // design — only materializeBuiltinTheme may PERSIST one, so a user theme
+    // can never impersonate a built-in's find-or-create slot (test-locked in
+    // builtin-themes.test.ts). But dropping it on a patch would delete the
+    // marker on the FIRST control change to a materialized built-in, and a
+    // later materializeBuiltinTheme() would then fail to find the row by
+    // `config->>'builtinId'` and create a DUPLICATE theme. Restoring it from
+    // `prev` (the row we just read, never from `patch`) keeps both properties.
+    const prevBuiltinId = prev.builtinId;
+    if (typeof prevBuiltinId === "string" && isBuiltinThemeId(prevBuiltinId)) {
+      (clean.config as { builtinId?: string }).builtinId = prevBuiltinId;
+    }
+    await tx.update(themes).set({ config: clean.config, updatedAt: new Date() })
+      .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
+    return { ok: true, data: { rejected: clean.rejected } };
+  });
 }
 
 export async function duplicateTheme(id: string): Promise<Result<{ id: string }>> {
