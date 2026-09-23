@@ -278,6 +278,15 @@ COMMIT;
 -- DROP POLICY IF EXISTS church_isolation ON public.transcript_segments;
 -- COMMIT;
 --
+-- Note the rollback drops the POLICIES but deliberately does not disable RLS.
+-- On production that is correct: the 2026-08-18 lockdown turned RLS on and
+-- rolling that back is a separate decision, not a side effect of reverting
+-- these policies. On a FRESH database it means rollback leaves you where
+-- production already is -- RLS on with no policies -- which is inert for a
+-- rolbypassrls role but denies everything to a non-bypassing one. If you are
+-- rolling back on a fresh/CI database and want the pre-migration state, also
+-- run ALTER TABLE ... DISABLE ROW LEVEL SECURITY for the same 38 tables.
+--
 -- ── VERIFY ──────────────────────────────────────────────────────────────────
 -- select count(*) from pg_policies where schemaname='public' and policyname='church_isolation';
 --   expected: 38
