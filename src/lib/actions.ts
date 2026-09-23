@@ -39,6 +39,7 @@ import { getEffectiveSongLimit } from "./server/song-limits-server";
 import { bulkInsertSongs } from "./song-bulk-insert";
 import { mergeDuplicateMediaRows, countMediaUsage, type MediaUsage } from "./server/media-dedupe";
 import { reChunkSongCore, type ReChunkOutcome } from "./server/song-rechunk";
+import { resolveNewSongOptions } from "./new-song-options";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -640,9 +641,43 @@ export async function createSong(formData: FormData): Promise<Result<{ id: strin
     return { ok: false, error: `Song library limit reached (${usage}/${limit}) — buy a bundle to add more.` };
   }
   const db = getDb();
-  const [row] = await db.insert(songs).values({ churchId: user.churchId, title, artist }).returning();
+  // New-song dialog (plan A.6): optional theme + library. Validated church-
+  // scoped BEFORE the insert, so a forged/foreign id refuses the whole create.
+  // Absent fields ⇒ exactly the previous behaviour (no theme, Default library).
+  const opts = await resolveNewSongOptions(
+    { themeId: formData.get("themeId") ?? undefined, libraryId: formData.get("libraryId") ?? undefined },
+    {
+      themeInChurch: async (id) => {
+        const [t] = await db.select({ id: themes.id }).from(themes)
+          .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId))).limit(1);
+        return !!t;
+      },
+      libraryError: (id) => libraryMoveError(db, user.churchId, id),
+    },
+  );
+  if (!opts.ok) return opts;
+  const [row] = await db.insert(songs).values({
+    churchId: user.churchId, title, artist,
+    ...(opts.data.libraryId ? { libraryId: opts.data.libraryId } : {}),
+  }).returning();
   revalidatePath("/library/songs");
   return { ok: true, data: { id: row.id } };
+}
+
+/**
+ * Playlist choices for the new-song dialog: this church's MANUAL service plans
+ * (a smart playlist owns no items, so a song can't be added to it). Read-only,
+ * church-scoped, newest first, capped.
+ */
+export async function listServicePlanChoices(): Promise<Result<Array<{ id: string; title: string; scheduledFor: string | null }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select({ id: servicePlans.id, title: servicePlans.title, scheduledFor: servicePlans.scheduledFor, kind: servicePlans.kind })
+    .from(servicePlans)
+    .where(eq(servicePlans.churchId, user.churchId))
+    .orderBy(sql`${servicePlans.scheduledFor} DESC NULLS LAST`, sql`${servicePlans.createdAt} DESC`)
+    .limit(100);
+  return { ok: true, data: rows.filter((r) => r.kind !== "smart").map((r) => ({ id: r.id, title: r.title, scheduledFor: r.scheduledFor ?? null })) };
 }
 
 // Rename a song (works for imported songs too — no `source` gate). Mirrors

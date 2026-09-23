@@ -60,12 +60,17 @@ check("other callers of the dialog (ProPresenter-only) are unchanged", () => {
 });
 
 console.log("Add song dialog:");
+// 2026-09-24 (plan A.6): the dialog body moved to NewSongDialog.tsx (PP7 "New
+// Presentation"); Filename replaces "Title", the theme is a real church theme.
+const newSong = read("src/components/operator/pro/center/NewSongDialog.tsx");
 check("still collects title, artist, theme, size, and seeds a first slide", () => {
-  for (const s of ["Title", "Artist / author", "Theme", "Size", "Create a blank slide template ready to edit", "createSong(fd)", "createSongSlide(newId"]) assert.ok(addDialog.includes(s), s);
+  assert.match(addDialog, /<NewSongDialog/);
+  for (const s of ["Filename:", "Artist:", "Theme:", "Size:", "Create a blank first slide ready to edit", "deps.createSong(fd)", "deps.createSongSlide(id"]) assert.ok(newSong.includes(s), s);
 });
 check("duplicate-title warning is in-app, not a native confirm() (Windows checklist #12)", () => {
   assert.doesNotMatch(addDialog, /window\.confirm/);
-  assert.match(addDialog, /await confirm\(\{ title:/);
+  assert.doesNotMatch(newSong, /window\.confirm/);
+  assert.match(addDialog, /confirmDuplicate=\{\(t\) => confirm\(\{ title:/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

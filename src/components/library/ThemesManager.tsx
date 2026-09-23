@@ -768,6 +768,9 @@ function ThemeEditor({
             <Row label={`Opacity — ${Math.round((get(cfg, "bgOpacity", 1) as number) * 100)}%`}>
               <input type="range" min={0} max={100} value={(get(cfg, "bgOpacity", 1) as number) * 100} onChange={(e) => set({ bgOpacity: Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} />
             </Row>
+            <Row label={`See-through — ${Math.round((1 - (get(cfg, "layerOpacity", 1) as number)) * 100)}%`} hint="Lets your background media show through this theme's background. New layer order only.">
+              <input type="range" min={0} max={100} aria-label="See-through" value={Math.round((1 - (get(cfg, "layerOpacity", 1) as number)) * 100)} onChange={(e) => set({ layerOpacity: 1 - Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} />
+            </Row>
             {(get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "solid"
               || get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "gradient") && (
               <Row label="Motion" hint="Subtle looping animation behind verses & lyrics. Solid/gradient only.">

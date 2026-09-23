@@ -240,6 +240,12 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
         <Field label={`Dim — ${Math.round(get<number>(cfg, "dim", 0) * 100)}%`}>{(id) => (
           <input id={id} type="range" min={0} max={100} value={get<number>(cfg, "dim", 0) * 100} onChange={(e) => setCfg({ dim: Number(e.target.value) / 100 })} className="w-full" style={rangeStyle} />
         )}</Field>
+        {/* Layer Order V3 "See-through": real transparency of the theme background
+            so background media shows through (the Dim above stays a dark overlay).
+            Only the new layer order uses it; classic output ignores it. */}
+        <Field label={`See-through — ${Math.round((1 - get<number>(cfg, "layerOpacity", 1)) * 100)}%`}>{(id) => (
+          <input id={id} type="range" min={0} max={100} aria-label="See-through" title="Lets your background media show through the theme background (new layer order only)" value={Math.round((1 - get<number>(cfg, "layerOpacity", 1)) * 100)} onChange={(e) => setCfg({ layerOpacity: 1 - Number(e.target.value) / 100 })} className="w-full" style={rangeStyle} />
+        )}</Field>
         {(bgType === "solid" || bgType === "gradient") && (
           <Group label="Animation" className="grid grid-cols-4 gap-1">
             {(["none", "drift", "aurora", "pulse"] as const).map((m) => (
