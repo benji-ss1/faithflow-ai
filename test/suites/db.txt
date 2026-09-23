@@ -17,6 +17,10 @@ test/adversarial/desktop-api-gate.test.ts
 test/adversarial/desktop-signin.test.ts
 test/library-playlist.test.ts
 
+# Proves the church_isolation RLS policies actually isolate, under a role that
+# does NOT bypass RLS — the one thing no owner-role test can check.
+test/adversarial/rls-policies.test.ts
+
 # NOT INCLUDED, and why:
 #   song-lyric-search  — passes alone, fails inside the suite. It reads songs
 #     that other suites create and delete, so it is order-dependent. Wiring a
