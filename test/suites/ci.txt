@@ -183,6 +183,7 @@ test/song-layout.test.ts
 test/song-slides-changed.test.ts
 test/song-switch-guard.test.ts
 test/song-text.test.ts
+test/song-theme-parity.test.ts
 test/songs-toolbar.test.ts
 test/spring-load.test.ts
 test/stage-hostile.test.ts
@@ -191,6 +192,7 @@ test/stage-layout-render.test.ts
 test/stage-layout-scoping.test.ts
 test/stale-action.test.ts
 test/stress-wave6-3.test.ts
+test/style-lock.test.ts
 test/suites-complete.test.ts
 test/text-fit.test.ts
 test/text-runs.test.ts

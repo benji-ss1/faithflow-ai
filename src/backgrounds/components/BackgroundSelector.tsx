@@ -23,8 +23,8 @@ export function BackgroundSelector() {
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">Backgrounds</div>
-        <div className="text-[10px] text-[var(--color-muted-foreground)]">Behind the text · live on the projector</div>
+        <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">Animated themes</div>
+        <div className="text-[10px] text-[var(--color-muted-foreground)]">Motion themes behind the text · live on the projector</div>
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">

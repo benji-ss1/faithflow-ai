@@ -82,6 +82,8 @@ export function bakeThemeIntoObjectsJson(cfg: BakeableThemeConfig, rawObjectsJso
         fontWeight: cfg.fontWeight ?? o.fontWeight,
         color: bakeTextColor(cfg.textColor, o.color),
         align: cfg.align ?? o.align,
+        // Deliberate per-slide theme → this slide keeps its look (decision B).
+        styleLocked: true,
       };
       // PP7 "Maintaining Text Attributes": formatting that CONTRASTS with the
       // rest of its own box survives a theme apply — the one bolded word stays
@@ -115,4 +117,36 @@ export function bakeThemeIntoObjectsJson(cfg: BakeableThemeConfig, rawObjectsJso
     for (const k of ["bgType", "bgColor", "bgColor2", "bgImageUrl", "bgExplicit"]) if (out[k] === undefined) delete out[k];
   }
   return out;
+}
+
+// Decision B (2026-09-23): decide which text objects an editor save should mark
+// styleLocked. Pure + unit-tested. A text object is locked when its visual
+// style (colour/font/size/weight/align/italic/uppercase/stroke) or the slide bg
+// differs from what was stored, or when it was already locked. Text-only edits
+// and untouched slides keep their previous lock state.
+// Mirrors emptyTextObject (slide-objects.ts) — the look a legacy lyric slide
+// gets when first opened in the editor.
+const TEXT_DEFAULTS: Record<string, unknown> = { fontFamily: "Inter", fontSize: 96, fontWeight: 600, color: "#ffffff", align: "center" };
+const STYLE_KEYS = ["color", "fontFamily", "fontSize", "fontWeight", "align", "italic", "underline", "uppercase", "stroke", "strokeWidth", "shadow", "letterSpacing", "lineHeight"] as const;
+export function lockStyledTextObjects(prevObjectsJson: unknown, nextBgColor: unknown, nextObjects: unknown): unknown {
+  if (!Array.isArray(nextObjects)) return nextObjects;
+  const prev = (prevObjectsJson as { bgColor?: unknown; objects?: unknown } | null) ?? {};
+  const prevObjs = Array.isArray(prev.objects) ? (prev.objects as Record<string, unknown>[]) : [];
+  // false ≡ unset for boolean toggles, so an editor filling in `false` for an
+  // untouched italic/uppercase never counts as a style change.
+  const norm = (c: unknown) => (typeof c === "string" ? c.trim().toLowerCase() : c === false ? null : c ?? null);
+  const bgChanged = norm(prev.bgColor) !== norm(nextBgColor) && !(prev.bgColor == null && ["#000000", "#000"].includes(String(norm(nextBgColor))));
+  return nextObjects.map((o) => {
+    if (!o || typeof o !== "object" || (o as { kind?: unknown }).kind !== "text") return o;
+    const obj = o as Record<string, unknown>;
+    const before = prevObjs.find((p) => p && p.id === obj.id && p.kind === "text");
+    const wasLocked = before?.styleLocked === true || obj.styleLocked === true;
+    // No stored object to compare (plain-lyric / imported slide opened in the
+    // editor gets a fresh object from emptyTextObject): compare against those
+    // editor defaults, so a first deliberate recolour/refont still locks.
+    const base: Record<string, unknown> = before ?? TEXT_DEFAULTS;
+    const styleChanged = STYLE_KEYS.some((k) => norm(base[k]) !== norm(obj[k]));
+    const lock = wasLocked || bgChanged || styleChanged;
+    return lock ? { ...obj, styleLocked: true } : obj;
+  });
 }

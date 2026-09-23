@@ -41,6 +41,9 @@ export interface ShaderHandle {
   stop(): void;
 }
 
+// Per-window, per-preset animation phase that survives remounts.
+const PHASES = new Map<string, { phase: number; at: number }>();
+
 export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle | null {
   const fragSrc = FRAGMENT_SHADERS[opts.preset];
   if (!fragSrc) return null;
@@ -115,9 +118,33 @@ export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle 
 
   let raf = 0;
   let running = true;
-  // No Date.now()/performance.now() at module scope is fine here (runtime, not
-  // a workflow script). Use performance.now for smooth frame timing.
-  const start = performance.now();
+  // Animation phase (gate review 2026-09-23). Speed is integrated on the CPU
+  // (phase += dt * speed) and the shader gets u_speed = 1, so:
+  //  - a remount (camera on/off, transparent toggle, speed/colour change)
+  //    CONTINUES from the same phase instead of snapping back to t=0;
+  //  - dragging the speed slider changes the RATE only, never jumps position;
+  //  - there is no periodic wrap during a page's life (no mid-service teleport).
+  // Seeded once per page from the wall clock (mod 1h) × speed, so separate
+  // output windows (/live, /stage, /livestream, NDI) start in step.
+  gl.uniform1f(uSpeed, 1);
+  const phaseKey = opts.preset;
+  const nowS = () => performance.now() / 1000;
+  let phaseState = PHASES.get(phaseKey);
+  if (!phaseState) {
+    phaseState = { phase: ((Date.now() % 3_600_000) / 1000) * opts.speed, at: nowS() };
+    PHASES.set(phaseKey, phaseState);
+  }
+  const clock = () => {
+    const st = phaseState!;
+    const n = nowS();
+    // Clamp dt so a backgrounded/throttled window doesn't lurch forward.
+    st.phase += Math.min(0.25, Math.max(0, n - st.at)) * opts.speed;
+    st.at = n;
+    return st.phase;
+  };
+  // Resuming after an unmount gap: advance by the real elapsed time once.
+  phaseState.phase += Math.max(0, nowS() - phaseState.at) * opts.speed;
+  phaseState.at = nowS();
 
   const sizeCanvas = () => {
     // Offscreen (detached) canvas has no layout size — use the fixed size.
@@ -163,7 +190,7 @@ export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle 
     const loop = () => {
       if (!running) return;
       sizeCanvas();
-      draw((performance.now() - start) / 1000);
+      draw(clock());
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);

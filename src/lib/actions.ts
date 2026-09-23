@@ -5,7 +5,7 @@ import type { SQL } from "drizzle-orm";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { adHocCleanupTargets, recentChurchDayKeys } from "./operator-plan-select";
 import { getDb } from "./db/client";
-import { bakeThemeIntoObjectsJson } from "./theme-bake";
+import { bakeThemeIntoObjectsJson, lockStyledTextObjects } from "./theme-bake";
 import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide, resetThemeOwnedFields, pruneThemeBackup, reapplyFieldsForConfigs, copyThemeBackupForDuplicate, appendBakedConfig, readBakedConfigs, pickBakedConfig, type BakeableThemeConfigList } from "./theme-rebake";
 import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, stageLayouts, stageScreens, type ServiceItemType } from "./db/schema";
@@ -1141,12 +1141,18 @@ export async function saveSlideObjects(slideId: string, editable: EditableSlideI
     .map((o) => (typeof o.text === "string" ? o.text.trim() : ""))
     .filter(Boolean)
     .join("\n") || editable.lyrics || "";
+  // Decision B (2026-09-23): a deliberate STYLE edit locks the slide's look so
+  // it keeps it over the default theme. The editor saves every slide on Save,
+  // so only lock when the style actually changed vs what's stored (a text-only
+  // edit or an untouched slide keeps its current lock state).
+  const [prevRow] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
+  const nextObjects = lockStyledTextObjects(prevRow?.objectsJson, editable.bgColor, editable.objects);
   await db.update(songSlides).set({
     objectsJson: {
       bgColor: editable.bgColor,
       bgImageUrl: editable.bgImageUrl,
       ...(editable.bgExplicit === true ? { bgExplicit: true } : {}),
-      objects: editable.objects,
+      objects: nextObjects,
     },
     lyrics: derivedLyrics,
   }).where(eq(songSlides.id, slideId));
@@ -1239,6 +1245,11 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
     }
   }
 
+  // Decision B: a new slide the operator styled in the editor keeps its look
+  // (template-inherited slides already carry the sibling's lock state).
+  if (initial?.objects && initial.objects.length > 0) {
+    objects = lockStyledTextObjects(null, bgColor, objects) as typeof objects;
+  }
   const textObjects = objects.filter((o): o is { kind: string; text?: string } =>
     typeof o === "object" && o !== null && (o as { kind?: unknown }).kind === "text");
   const derivedLyrics = textObjects

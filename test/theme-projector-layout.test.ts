@@ -19,7 +19,7 @@ import {
   EMPTY_OUTPUT, THEME_LAYOUT_WIRE_MAX_BYTES, type ThemeAppearance, type SlidePayload,
 } from "../src/lib/broadcast";
 import { themeConfigToAppearance, themeLayoutFromConfig } from "../src/lib/theme-appearance";
-import { renderMatrix, renderCompositorMatrix, scriptureMatrix, SLIDES } from "./theme-pr2-fixtures";
+import { renderMatrix, renderCompositorMatrix, scriptureMatrix, SLIDES, themeWinsChangedKey } from "./theme-pr2-fixtures";
 import baseline from "./fixtures/theme-pr2-baseline.json";
 import { fontStack } from "../src/lib/fonts/registry";
 
@@ -52,11 +52,11 @@ async function main() {
   const base = baseline as { renderer: Record<string, string>; compositor: Record<string, string>; scripture: unknown };
   await check(`SlideRenderer: ${Object.keys(base.renderer).length} fixtures byte-identical`, async () => {
     const now = await renderMatrix();
-    for (const k of Object.keys(base.renderer)) assert.equal(now[k], withFontStacks(base.renderer[k]), k);
+    for (const k of Object.keys(base.renderer)) if (!themeWinsChangedKey(k)) assert.equal(now[k], withFontStacks(base.renderer[k]), k);
   });
   await check(`OutputCompositor live/stage/livestream(+transparent): ${Object.keys(base.compositor).length} fixtures byte-identical`, async () => {
     const now = await renderCompositorMatrix();
-    for (const k of Object.keys(base.compositor)) assert.equal(now[k], withFontStacks(base.compositor[k]), k);
+    for (const k of Object.keys(base.compositor)) if (!themeWinsChangedKey(k)) assert.equal(now[k], withFontStacks(base.compositor[k]), k);
   });
   await check("applyChurchLayout (no theme opts): styled payloads + identities byte-identical", async () => {
     assert.deepEqual(await scriptureMatrix(), base.scripture);
@@ -66,7 +66,7 @@ async function main() {
   await check("stage compositor with a layout-bearing appearance == baseline", async () => {
     const now = await renderCompositorMatrix(withLayout);
     for (const k of Object.keys(base.compositor)) {
-      if (k.startsWith("stage/") || k.startsWith("livestream-transparent/")) assert.equal(now[k], withFontStacks(base.compositor[k]), k);
+      if ((k.startsWith("stage/") || k.startsWith("livestream-transparent/")) && !themeWinsChangedKey(k)) assert.equal(now[k], withFontStacks(base.compositor[k]), k);
       if (k.startsWith("stage/")) assert.ok(!now[k].includes("data-theme-frame"), k);
     }
   });
