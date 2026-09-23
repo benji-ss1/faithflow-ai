@@ -4,6 +4,79 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.520",
+    "date": "2026-09-22",
+    "headline": "Fixed — scripture and lyrics in the preview could shake and look doubled up",
+    "highlights": [
+      "Text in the slide cards and the Bible preview no longer jumps between two sizes. It could flick back and forth between very small and full size, and because the words re-wrap each time it looked like two copies of the text fighting each other on top of one another.",
+      "It happened with any theme and never reached the projector, so what your congregation saw was always correct - but it made the preview hard to work from.",
+      "Text you have placed on a slide also no longer jumps back to its original size when a panel is resized. It used to lose the shrink that had been applied to make it fit."
+    ]
+  },
+  {
+    "version": "0.1.519",
+    "date": "2026-09-22",
+    "headline": "Fixed — slide cards showed a plain black background while the screen showed the theme",
+    "highlights": [
+      "The slide cards in the middle of the screen, and the stage row under them, now show your theme's background again. They could show plain black while the projector and the live preview showed the theme correctly, which made it look like the theme had not applied.",
+      "The words on those cards were already correct - it was only the background behind them that was missing, so a card could look black while the screen behind it was right.",
+      "Applying a theme to a song now also switches off an active background template, the same way applying a theme from the Themes tab always has. Until now the template kept covering the theme, so you saw \"Theme applied\" with nothing changing on screen.",
+      "A theme that only sets fonts and colours still leaves your background template alone, so you can keep layering the two.",
+      "Undo after applying a theme puts your background template back."
+    ]
+  },
+  {
+    "version": "0.1.518",
+    "date": "2026-09-22",
+    "headline": "Fixed — quick theme changes in the Theme panel no longer undo each other",
+    "highlights": [
+      "Changing two settings quickly one after another in the Theme panel now keeps both. Each control used to save the whole theme as it looked when the panel last drew, so a second change made a moment later could quietly put the first one back.",
+      "Setting or clearing a theme background from the media bin now changes only the background, so it no longer wipes other theme settings at the same time.",
+      "Undo on a background change still puts the theme back exactly as it was."
+    ]
+  },
+  {
+    "version": "0.1.517",
+    "date": "2026-09-22",
+    "headline": "Fixed — the slide editor no longer previews designed text bigger than it projects",
+    "highlights": [
+      "Above 1.60x on the projection-zone Font slider, the editor used to keep growing text boxes you had placed on a slide while the projector capped them - so a slide could look right while you designed it and come out smaller on the screen. The editor now stops where the projector stops.",
+      "Letter spacing on those text boxes now previews correctly too. It used to stay at its unscaled size in the editor while the projector scaled it with the text.",
+      "The editor preview still only reflects the projection-zone Font setting, not the separate live text-size control, so the two can still differ. Closing that gap is separate work.",
+      "Nothing about how the slide projects changes - only the editor preview."
+    ]
+  },
+  {
+    "version": "0.1.516",
+    "date": "2026-09-22",
+    "headline": "Fixed — a slide element could get stuck to the mouse in the slide editor",
+    "highlights": [
+      "Dragging or resizing an element in the slide editor no longer gets stuck if you release the mouse outside the app window - over a menu, off the edge of the screen, or on a video. The element used to keep following the pointer until you clicked again.",
+      "Right-clicking an element no longer starts a drag by accident.",
+      "The editor no longer lets you move an element before the slide has finished loading, which used to leave it in a position that was quietly thrown away when the slide was saved."
+    ]
+  },
+  {
+    "version": "0.1.515",
+    "date": "2026-09-22",
+    "headline": "Fixed — a theme's \"Third band\" scripture choice is now actually saved",
+    "highlights": [
+      "Setting a theme's Scripture layout to Third band now sticks. The choice was offered in the theme editor and looked right while you were setting it, but it was thrown away the moment the theme was saved - so reopening the theme, or going live, always fell back to Full screen.",
+      "Fine-tuning the band itself (colour, height, position, text size) still lives in Edit scripture slide, and that still applies to your whole church.",
+      "A saved church Scripture Style still overrides the theme, exactly as before, and a theme that says nothing about scripture is unchanged."
+    ]
+  },
+  {
+    "version": "0.1.514",
+    "date": "2026-09-22",
+    "headline": "Fixed — large text could snap back to normal size on the projector",
+    "highlights": [
+      "Fixed a bug that could hit you if you turned the verse text size right up AND also turned up the separate Font slider in the projection zone settings. With both near their maximum, the projector quietly jumped back to normal size in the middle of a service — while your own preview carried on showing the big text, so there was no sign anything was wrong. It affected all slide text, not only verses.",
+      "Your text size now stays large on the screen instead of resetting.",
+      "Your preview and the projector now always agree on the text size."
+    ]
+  },
+  {
     "version": "0.1.513",
     "date": "2026-09-22",
     "headline": "What's New now takes you to the feature, and Vic covers smart folders",

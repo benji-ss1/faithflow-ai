@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/lib/projection-zone";
+import { OBJECT_FONT_SCALE_MAX } from "@/lib/canvas-coords";
 import { cn } from "@/lib/utils";
 
 // The Projection Zone's bottom control strip — Size / Font / Margins / Screen +
@@ -79,6 +80,16 @@ export function ProjectionZoneControls({ className }: { className?: string }) {
             onChange={(e) => patch({ fontScale: Number(e.target.value) })} className="flex-1 accent-[#e8501a]" />
           <span className="w-10 text-right tabular-nums">{z.fontScale.toFixed(2)}×</span>
         </label>
+        {/* Auto-fitted scripture/lyric text honours the full range, but text
+            boxes PLACED on a slide are fixed-size and the projector caps them at
+            OBJECT_FONT_SCALE_MAX — so past that the slider looks like it does
+            nothing on a designed slide. Say so, rather than let a volunteer drag
+            a control that has silently stopped working. */}
+        {z.fontScale > OBJECT_FONT_SCALE_MAX && (
+          <p className="pl-[4.25rem] -mt-1 text-[11px] leading-snug text-white/40">
+            Text boxes you have placed on a slide stop growing at {OBJECT_FONT_SCALE_MAX.toFixed(2)}×.
+          </p>
+        )}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="w-14 shrink-0 text-white/50">Margins</span>
           {(["marginTop", "marginBottom", "marginLeft", "marginRight"] as const).map((m, i) => (

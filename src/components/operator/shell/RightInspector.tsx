@@ -20,9 +20,10 @@ import { EFFECTS, ensureEffectKeyframes, getEffect, type EffectId, type Effect }
 import type { AnnouncementPayload, AnnouncementPosition, AnnouncementStyle, AnnouncementLogoPosition, TransitionSpec } from "@/lib/broadcast";
 import {
   createAnnouncement, saveAnnouncementPreset, deleteAnnouncementPreset,
-  createTheme, updateTheme, duplicateTheme, deleteTheme, exportTheme, importTheme, applyThemeToSong,
+  createTheme, updateTheme, patchThemeConfig, duplicateTheme, deleteTheme, exportTheme, importTheme, applyThemeToSong,
 } from "@/lib/actions";
 import { toast } from "sonner";
+import { syncBackgroundForAppliedTheme } from "@/lib/theme-apply-client";
 import { MAX_THEME_FILE_BYTES, missingMediaMessage } from "@/lib/theme-portable";
 
 const TABS: { key: InspectorTab; label: string; icon: typeof Monitor }[] = [
@@ -1348,9 +1349,14 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
 
   const patchConfig = async (p: Record<string, unknown>) => {
     if (!current) return;
-    const cfg = { ...current.config, ...p };
-    setThemes((prev) => (prev ?? []).map((t) => t.id === current.id ? { ...t, config: cfg } : t));
-    await updateTheme(current.id, { config: cfg });
+    // Optimistic locally so the control feels instant...
+    setThemes((prev) => (prev ?? []).map((t) => t.id === current.id ? { ...t, config: { ...t.config, ...p } } : t));
+    // ...but persist ONLY the changed fields, merged server-side in a
+    // transaction. This is fired on every control change (including each
+    // keystroke in a colour/URL field), so sending the whole config from a
+    // client snapshot meant two quick changes both built from the SAME render
+    // and the second silently undid the first.
+    await patchThemeConfig(current.id, p);
   };
   const patchName = async (name: string) => {
     if (!current) return;
@@ -1373,6 +1379,11 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
     setBusy(true);
     try {
       const r = await applyThemeToSong(current.id, currentSongId);
+      // A theme with its OWN background must switch off an active Background
+      // Template, or the template keeps out-ranking it and nothing visibly
+      // changes (field report 2026-09-22). The Themes-tab path gets this via
+      // `presentflow:theme-changed`; this per-song apply did not.
+      if (r.ok) await syncBackgroundForAppliedTheme(current.config);
       if (r.ok) toast.success(`Applied to ${r.data?.slidesUpdated ?? 0} slide(s). Reload to see changes.`);
       else toast.error(r.error);
     } finally { setBusy(false); }
@@ -1507,7 +1518,11 @@ function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
 
           <Section label="Default transition">
             <SlideTransitionPicker value={cfg.transition ?? null}
-              onChange={(t) => patchConfig({ transition: t ?? undefined })} />
+              // `null`, NOT `undefined`: patchThemeConfig treats undefined as
+              // "leave this field alone" and null as "clear it". Sending
+              // undefined here made "— none —" a no-op server-side while the
+              // optimistic local state showed it cleared.
+              onChange={(t) => patchConfig({ transition: t ?? null })} />
           </Section>
 
           <Section label="Apply">
