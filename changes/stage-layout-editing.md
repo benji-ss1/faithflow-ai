@@ -1,7 +1,7 @@
 ---
 headline: Tap a stage design to use it, or build your own by dragging
 audience: operator
-version: 0.1.513
+version: 0.1.521
 date: 2026-09-22
 highlights:
   - Tap any stage layout to put it straight on your stage screen. The one that is live is marked "On stage". Before, you had to create a "stage screen" first and then find the layout in a dropdown.
