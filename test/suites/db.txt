@@ -6,6 +6,17 @@
 # These are the adversarial cross-church suites — the ones that prove one
 # church cannot see another's data. They are exactly the tests we most want
 # running and, until 2026-09-22, the ones that never ran at all.
+test/adversarial/cross-church.test.ts
+test/adversarial/sermon-pptx-cross-church.test.ts
+test/adversarial/scenes-scoping.test.ts
+test/adversarial/phase4-slide-actions-macros.test.ts
+test/adversarial/audio-setup-context.test.ts
+test/adversarial/device-link-token.test.ts
+test/adversarial/pair-code.test.ts
+test/adversarial/desktop-api-gate.test.ts
+test/adversarial/desktop-signin.test.ts
+test/library-playlist.test.ts
+
 # NOT INCLUDED, and why:
 #   song-lyric-search  — passes alone, fails inside the suite. It reads songs
 #     that other suites create and delete, so it is order-dependent. Wiring a
@@ -17,13 +28,3 @@
 #     default, so this is the test's assumption to fix, not the schema's.
 #   bible-completeness — needs the Bible corpus seeded, which is a large
 #     fixture, not a schema push.
-test/adversarial/audio-setup-context.test.ts
-test/adversarial/cross-church.test.ts
-test/adversarial/desktop-api-gate.test.ts
-test/adversarial/desktop-signin.test.ts
-test/adversarial/device-link-token.test.ts
-test/adversarial/pair-code.test.ts
-test/adversarial/phase4-slide-actions-macros.test.ts
-test/adversarial/scenes-scoping.test.ts
-test/adversarial/sermon-pptx-cross-church.test.ts
-test/library-playlist.test.ts

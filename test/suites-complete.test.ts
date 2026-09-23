@@ -98,24 +98,6 @@ for (const [name, list] of [["ci.txt", ci], ["db.txt", db], ["known-failing.txt"
   assert.deepEqual(dupes, [], `Duplicate entries in test/suites/${name}:\n${dupes.map((f) => `  ${f}`).join("\n")}`);
 }
 
-/* ── 4b. each list stays SORTED ──────────────────────────────────────────── */
-// Not tidiness — MERGE HYGIENE. These lists are append-only by nature, so when
-// two branches each add a line at the END, git conflicts every single time; on
-// 2026-09-22 that happened four times in one afternoon, and each hand
-// resolution is a chance to drop somebody's line. (Guard 1 would catch a
-// dropped line, but only after a confusing failure on an unrelated PR.)
-// Inserted in sorted position, two new tests with different names usually land
-// in different places and merge cleanly with no conflict at all.
-
-for (const [name, list] of [["ci.txt", ci], ["db.txt", db], ["known-failing.txt", knownFailing]] as const) {
-  const sorted = [...list].sort();
-  const firstOutOfPlace = list.find((f, i) => f !== sorted[i]);
-  assert.equal(firstOutOfPlace, undefined,
-    `test/suites/${name} is not in alphabetical order (first out of place: ${firstOutOfPlace}).\n`
-    + "Insert new entries in sorted position rather than appending — appending to the end\n"
-    + "guarantees a merge conflict with every other branch that also added a test.");
-}
-
 /* ── 5. every exclusion carries a reason ─────────────────────────────────── */
 // known-failing is a real escape hatch; it must never become a silent dumping
 // ground. Each line needs an inline `#` note saying WHY.

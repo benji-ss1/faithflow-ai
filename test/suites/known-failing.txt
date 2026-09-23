@@ -6,23 +6,23 @@
 # schema. The cross-church isolation suites are among them, so the tests that
 # prove one church cannot see another's data finally run on every PR.
 # Only the entries still listed below are skipped.
+test/adversarial/audio-latency.test.ts  # broken
 # Its cleanup deletes a church before that church's service_plans, and
 # service_plans.church_id has NO onDelete cascade (22 of 33 church FKs cascade,
 # 11 do not). No-cascade is arguably the SAFER default — deleting a church
 # should not silently destroy its services — so this is the TEST's assumption
 # to fix, not the schema's.
+test/adversarial/rechunk-cross-church.test.ts  # needs-db + wrong cleanup order
 # Needs the Bible corpus SEEDED, which is a large fixture, not a schema push.
+test/bible-completeness.test.ts  # needs-db + needs seed data
+test/phrase-search.test.ts  # broken
+test/propresenter-import.test.ts  # broken
 # Passes alone, fails inside the suite: it reads songs other suites create and
 # delete, so it is order-dependent. A flaky test in CI teaches people to ignore
 # red, which is worse than not running it. Fix the pollution, then add it to
 # test/suites/db.txt.
-test/adversarial/audio-latency.test.ts  # broken
-test/adversarial/rechunk-cross-church.test.ts  # needs-db + wrong cleanup order
-test/adversarial/smart-folders-cross-church.test.ts  # needs-db
-test/adversarial/smart-playlists.test.ts  # needs-db
-test/bible-completeness.test.ts  # needs-db + needs seed data
-test/phrase-search.test.ts  # broken
-test/propresenter-import.test.ts  # broken
 test/song-lyric-search.test.ts  # needs-db + order-dependent
 test/stress-wave5.test.ts  # broken
 test/swift-helper-protocol.test.ts  # broken
+test/adversarial/smart-folders-cross-church.test.ts  # needs-db
+test/adversarial/smart-playlists.test.ts  # needs-db
