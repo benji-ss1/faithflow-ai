@@ -12,6 +12,10 @@ import { cn } from "@/lib/utils";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { applyThemeLive } from "@/lib/theme-apply-client";
+import { useLiveThemeId, isThemeLiveNow } from "@/lib/live-theme";
+import { setMainTheme } from "@/lib/theme-quick-apply";
+import { toast } from "sonner";
+import { Star } from "lucide-react";
 
 type DbTheme = {
   id: string;
@@ -38,6 +42,7 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
   const [importOpen, setImportOpen] = useState(false);
   const [showExtras, setShowExtras] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
+  const liveThemeId = useLiveThemeId();
 
   const [dbThemes, setDbThemes] = useState<DbTheme[]>([]);
   const [dbLoading, setDbLoading] = useState(false);
@@ -55,12 +60,20 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
   async function applyTheme(t: DbTheme) {
     setApplying(t.id);
     try {
-      const ok = await applyThemeLive(t);
-      // Refresh local isDefault flags so the badge updates without a page reload.
-      if (ok) setDbThemes((prev) => prev.map((th) => ({ ...th, isDefault: th.id === t.id })));
+      // LIVE-ONLY (church defaults 2026-09-23) — the "Live now" badge follows
+      // useLiveThemeId; the church's main theme (isDefault) is untouched.
+      await applyThemeLive(t);
     } finally {
       setApplying(null);
     }
+  }
+
+  // Explicit "Set as main theme" — the ONLY operator path that writes is_default.
+  async function makeMain(t: DbTheme) {
+    const ok = await setMainTheme(t.id);
+    if (!ok) { toast.error("Only admins and editors can change the main theme"); return; }
+    setDbThemes((prev) => prev.map((th) => ({ ...th, isDefault: th.id === t.id })));
+    toast.success(`“${t.name}” is now the main theme — it loads every time the app starts`);
   }
 
   return (
@@ -121,20 +134,30 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
                 className={cn(
                   "relative aspect-video rounded border group overflow-hidden cursor-pointer",
                   modal && "rounded-lg",
-                  t.isDefault ? "border-[var(--color-brand)]" : "border-[var(--color-border)]",
+                  isThemeLiveNow(t, dbThemes, liveThemeId) ? "border-[var(--color-brand)]" : "border-[var(--color-border)]",
                 )}
                 style={bgStyle(cfg)}
                 title={t.name}
               >
-                {/* Default badge */}
-                {t.isDefault && (
-                  <span className={cn(
-                    "absolute uppercase tracking-wider bg-[var(--color-brand)]/80 text-white rounded",
-                    modal ? "top-2 left-2 text-[10px] px-1.5 py-0.5 font-semibold" : "top-0.5 left-0.5 text-[7px] px-1",
-                  )}>
-                    Default
-                  </span>
-                )}
+                {/* Badges: Main theme (loads on app start) + Live now (on the outputs) */}
+                <span className={cn("absolute flex gap-1 z-[1]", modal ? "top-2 left-2" : "top-0.5 left-0.5")}>
+                  {t.isDefault && (
+                    <span className={cn(
+                      "uppercase tracking-wider bg-black/70 text-white rounded",
+                      modal ? "text-[10px] px-1.5 py-0.5 font-semibold" : "text-[7px] px-1",
+                    )}>
+                      Main theme
+                    </span>
+                  )}
+                  {isThemeLiveNow(t, dbThemes, liveThemeId) && (
+                    <span className={cn(
+                      "uppercase tracking-wider bg-[var(--color-brand)]/80 text-white rounded",
+                      modal ? "text-[10px] px-1.5 py-0.5 font-semibold" : "text-[7px] px-1",
+                    )}>
+                      Live now
+                    </span>
+                  )}
+                </span>
                 {/* Theme name */}
                 <div
                   className={cn(
@@ -159,8 +182,21 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
                       modal ? "h-10 text-[14px] gap-1.5" : "h-5 text-[9px]",
                     )}
                   >
-                    {applying === t.id ? "…" : <><Check className={modal ? "w-4 h-4" : "w-2.5 h-2.5"} /> Apply{t.isDefault ? " (current)" : ""}</>}
+                    {applying === t.id ? "…" : <><Check className={modal ? "w-4 h-4" : "w-2.5 h-2.5"} /> Apply{isThemeLiveNow(t, dbThemes, liveThemeId) ? " (live)" : ""}</>}
                   </button>
+                  {!t.isDefault && (
+                    <button
+                      type="button"
+                      onClick={() => void makeMain(t)}
+                      title="Set as main theme (loads every time the app starts)"
+                      className={cn(
+                        "w-full rounded border border-white/40 text-white font-medium flex items-center justify-center gap-1",
+                        modal ? "h-9 text-[13px]" : "h-5 text-[8px]",
+                      )}
+                    >
+                      <Star className={modal ? "w-3.5 h-3.5" : "w-2.5 h-2.5"} /> Set as main
+                    </button>
+                  )}
                 </div>
               </div>
             );

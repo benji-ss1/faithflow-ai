@@ -273,9 +273,14 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
       window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));
       // Same contract as theme-apply-client.applyThemeLive: a detail-less event
       // would reset the live look to built-in defaults.
-      if (defaultNow) {
+      // Church defaults 2026-09-23: push when this theme is the one ON the
+      // outputs (the in-session live theme, else the main theme) — never
+      // because it was just starred as main.
+      const { getLiveThemeId } = await import("@/lib/live-theme");
+      const liveId = getLiveThemeId();
+      if (liveId ? liveId === themeTarget.id : defaultNow) {
         window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
-          detail: { appearance: themeConfigToAppearance(config) },
+          detail: { appearance: themeConfigToAppearance(config), themeId: themeTarget.id },
         }));
       }
       const liveOrigin = ctx.getLiveOrigin?.() ?? null;

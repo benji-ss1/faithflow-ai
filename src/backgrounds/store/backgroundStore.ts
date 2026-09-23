@@ -108,6 +108,26 @@ export function setActiveBackgroundId(id: string): void {
   }
 }
 
+/**
+ * Church defaults (2026-09-23): on a FRESH machine (no background selection
+ * ever stored — key absent, not merely "none") seed the church's default
+ * animated background. Deliberately NOT stamped as an explicit pick, so the
+ * existing theme-bg/template exclusivity still holds: if the main theme carries
+ * its own background, the mount self-heal (shouldKeepTemplateOverThemeBg is
+ * false with no stamps) clears this seed and the theme background wins.
+ * Returns true when it seeded.
+ */
+export function seedActiveBackgroundIfFresh(id: string | null | undefined): boolean {
+  if (!isBrowser() || !id) return false;
+  let stored: string | null;
+  try { stored = localStorage.getItem(ACTIVE_KEY); } catch { return false; }
+  if (stored !== null) return false;
+  if (!findBuiltIn(id) || id === "none") return false;
+  try { localStorage.setItem(ACTIVE_KEY, id); } catch { return false; }
+  try { window.dispatchEvent(new CustomEvent(BACKGROUND_CHANGED_EVENT, { detail: { id } })); } catch { /* ignore */ }
+  return true;
+}
+
 // ── "Last explicit pick wins" persistence ────────────────────────────────────
 // A Background Template and a theme's OWN background are mutually exclusive on
 // the projector (2026-08-28 invariant). Across an app restart we lose the

@@ -5,6 +5,7 @@ import { Check, Palette, RotateCcw, Trash2 } from "lucide-react";
 import { useBackgroundState } from "../hooks/useBackgroundState";
 import { listBackgrounds, readSettings, writeSettings, resetSettings, removeCustomBackground } from "../store/backgroundStore";
 import { fetchThemes, switchToTheme, type QuickTheme } from "@/lib/theme-quick-apply";
+import { useLiveThemeId, isThemeLiveNow } from "@/lib/live-theme";
 import { ShaderBackground } from "./ShaderBackground";
 import { BackgroundUploader } from "./BackgroundUploader";
 
@@ -131,6 +132,7 @@ export function BackgroundSelector() {
 function YourThemesRow() {
   const [themes, setThemes] = useState<QuickTheme[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const liveThemeId = useLiveThemeId();
 
   useEffect(() => {
     let cancelled = false;
@@ -170,14 +172,14 @@ function YourThemesRow() {
             onClick={() => void apply(t)}
             disabled={busyId != null}
             title={`Make “${t.name}” the live theme`}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 h-7 text-[11px] font-semibold transition-colors disabled:opacity-50 ${t.isDefault ? "border-2" : "hover:shadow-[var(--shadow-sm)]"}`}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 h-7 text-[11px] font-semibold transition-colors disabled:opacity-50 ${isThemeLiveNow(t, themes, liveThemeId) ? "border-2" : "hover:shadow-[var(--shadow-sm)]"}`}
             style={{
-              borderColor: t.isDefault ? "var(--color-brand)" : "var(--color-border)",
+              borderColor: isThemeLiveNow(t, themes, liveThemeId) ? "var(--color-brand)" : "var(--color-border)",
               background: "var(--color-card)",
               color: "var(--color-foreground)",
             }}
           >
-            {t.isDefault && <Check className="w-2.5 h-2.5 text-[var(--color-brand)]" />}
+            {isThemeLiveNow(t, themes, liveThemeId) && <Check className="w-2.5 h-2.5 text-[var(--color-brand)]" />}
             <span className="truncate max-w-[120px]">{busyId === t.id ? "Applying…" : t.name}</span>
           </button>
         ))}
