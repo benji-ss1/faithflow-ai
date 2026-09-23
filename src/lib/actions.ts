@@ -2741,6 +2741,7 @@ export async function setChurchDefaults(input: {
     writeMainTheme: cd.writeChurchMainTheme,
     writeBackground: cd.writeChurchDefaultBackground,
     backgroundReady: cd.churchDefaultBackgroundReady,
+    writeAll: cd.writeChurchDefaultsAtomic,
   });
   if (!res.ok) return res;
   revalidatePath("/settings");

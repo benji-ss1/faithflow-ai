@@ -108,6 +108,9 @@ export type ChurchDefaultsDeps = {
   writeBackground: (churchId: string, backgroundId: string | null) => Promise<boolean>;
   /** true when the default_background_id column exists (checked BEFORE any write) */
   backgroundReady: () => Promise<boolean>;
+  /** Optional: write every field in ONE transaction (production path). When
+   *  given, the per-field writers are not used. false ⇒ nothing was saved. */
+  writeAll?: (churchId: string, v: { backgroundId?: string | null; translationId?: string | null; mainThemeId?: string | null }) => Promise<boolean>;
 };
 
 /**
@@ -135,6 +138,15 @@ export async function applyChurchDefaults(
   // migrated yet — check BEFORE writing anything, then write the background
   // FIRST so its failure can never leave translation/theme half-saved.
   const bgPending = { ok: false as const, error: "Default background isn't available yet (database update pending). Nothing was saved." };
+  if (deps.writeAll) {
+    if (v.backgroundId !== undefined && !(await deps.backgroundReady())) return bgPending;
+    const ok = await deps.writeAll(churchId, {
+      ...(v.backgroundId !== undefined ? { backgroundId: v.backgroundId } : {}),
+      ...(v.translationId !== undefined ? { translationId: v.translationId } : {}),
+      ...(typeof v.mainThemeId === "string" ? { mainThemeId: v.mainThemeId } : {}),
+    });
+    return ok ? { ok: true } : { ok: false, error: "Couldn't save church defaults. Nothing was saved." };
+  }
   if (v.backgroundId !== undefined) {
     if (!(await deps.backgroundReady())) return bgPending;
     if (!(await deps.writeBackground(churchId, v.backgroundId))) return bgPending;

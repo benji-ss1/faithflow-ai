@@ -94,4 +94,31 @@ const r2 = planUnlock(opLocked)!;
 const r2o = objsOf(r2.slideUpdates[0].objectsJson);
 ok(r2o[0].styleLocked === true && !("styleLocked" in r2o[1]) && r2o[2].styleLocked === true, "rollback removes ONLY recorded objects");
 ok(planUnlock(song({ appliedThemeId: "th" })) === null, "rollback idempotent without key");
+// ── 2026-09-24: normalised defaults ──
+ok(handStyledTextId(oj([txt("t", { color: "#fff" })])) === null, "#fff is default");
+ok(handStyledTextId(oj([txt("t", { color: "white" })])) === null, "white is default");
+ok(handStyledTextId(oj([txt("t", { fontWeight: "600" })])) === null, "\"600\" is default");
+ok(handStyledTextId(oj([txt("t", { fontWeight: "800" })])) === "t", "\"800\" is styled");
+
+// ── 2026-09-24: theme-backup snapshots get locked + recorded, rollback exact ──
+{
+  const yellow = oj([txt("t1", { color: "#FFFF00" })]);
+  const plain = oj([txt("t9")]);
+  const s0 = song({ appliedThemeId: "th", themeBackup: { themeId: "th", slides: [{ id: "a", objectsJson: yellow }, { id: "z", objectsJson: plain }] }, slideThemeBackups: { b: { themeId: "x", objectsJson: oj([txt("t2", { bgExplicit: true })], { bgExplicit: true }) } } });
+  const p = planLock(s0, "2026-09-24T00:00:00Z")!;
+  const tb = (p.settings.themeBackup as any).slides;
+  ok(objsOf(tb[0].objectsJson)[0].styleLocked === true, "hand-styled themeBackup snapshot locked");
+  ok(!("styleLocked" in objsOf(tb[1].objectsJson)[0]), "plain snapshot untouched");
+  ok(objsOf((p.settings.slideThemeBackups as any).b.objectsJson)[0].styleLocked === true, "hand-styled per-slide snapshot locked");
+  const rec = (p.settings[BACKFILL_KEY] as any).backupLocked;
+  ok(rec["themeBackup:a"].join() === "t1" && rec["slideThemeBackups:b"].join() === "t2", "backup locks recorded");
+  const again = planLock({ ...s0, settings: p.settings, slides: s0.slides.map((sl) => p.slideUpdates.find((u) => u.id === sl.id) ?? sl) }, "later");
+  ok(again === null, "re-run idempotent incl. backups");
+  const rb = planUnlock({ ...s0, settings: p.settings })!;
+  ok(!("styleLocked" in objsOf((rb.settings.themeBackup as any).slides[0].objectsJson)[0]), "rollback unlocks themeBackup snapshot");
+  ok(!("styleLocked" in objsOf((rb.settings.slideThemeBackups as any).b.objectsJson)[0]), "rollback unlocks per-slide snapshot");
+  ok(JSON.stringify(rb.settings.themeBackup) === JSON.stringify(s0.settings!.themeBackup), "rollback restores backup exactly");
+  const onlyBackup = planLock(song({ themeBackup: { slides: [{ id: "q", objectsJson: yellow }] } }, []), "t");
+  ok(onlyBackup !== null && onlyBackup.slideUpdates.length === 0, "backup-only change still produces a plan");
+}
 console.log(`style-lock-backfill: ${n} assertions passed`);

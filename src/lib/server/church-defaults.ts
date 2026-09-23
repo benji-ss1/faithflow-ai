@@ -147,3 +147,45 @@ export async function writeChurchDefaultBackground(churchId: string, backgroundI
     return false;
   }
 }
+
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+/**
+ * All-or-nothing defaults save (2026-09-24 review): background + translation +
+ * main theme are written in ONE transaction, so a DB error on any write rolls
+ * back the others. Returns false (nothing saved) on any failure. The
+ * background column readiness is checked BEFORE the transaction opens.
+ */
+export async function writeChurchDefaultsAtomic(
+  churchId: string,
+  v: { backgroundId?: string | null; translationId?: string | null; mainThemeId?: string | null },
+): Promise<boolean> {
+  try {
+    if (v.backgroundId !== undefined && !(await churchDefaultBackgroundReady())) return false;
+    const db = getDb();
+    await db.transaction(async (tx: Tx) => {
+      const needsPrefs = v.backgroundId !== undefined || v.translationId !== undefined;
+      if (needsPrefs) {
+        const [existing] = await tx.select({ id: churchPreferences.id }).from(churchPreferences)
+          .where(eq(churchPreferences.churchId, churchId)).limit(1);
+        if (!existing) await tx.insert(churchPreferences).values({ churchId });
+      }
+      if (v.backgroundId !== undefined) {
+        await tx.execute(sql`UPDATE church_preferences SET default_background_id = ${v.backgroundId}, updated_at = now() WHERE church_id = ${churchId}`);
+      }
+      if (v.translationId !== undefined) {
+        await tx.update(churchPreferences).set({ defaultTranslationId: v.translationId, updatedAt: new Date() })
+          .where(eq(churchPreferences.churchId, churchId));
+      }
+      if (typeof v.mainThemeId === "string") {
+        await tx.update(themes).set({ isDefault: false, updatedAt: new Date() })
+          .where(and(eq(themes.churchId, churchId), eq(themes.isDefault, true)));
+        await tx.update(themes).set({ isDefault: true, updatedAt: new Date() })
+          .where(and(eq(themes.id, v.mainThemeId), eq(themes.churchId, churchId)));
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}

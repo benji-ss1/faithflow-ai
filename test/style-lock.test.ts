@@ -30,7 +30,8 @@ const t = (x: Record<string, unknown> = {}) => ({ id: "a", kind: "text", x: 0, y
   check("locked slide keeps its own look under the default theme", () => { const h = renderToStaticMarkup(React.createElement(SlideRenderer, { slide: slide(t({ styleLocked: true })), appearance: theme })); assert.match(h, /#b91c1c/i); assert.match(h, /#ffd400/i); });
   check("unlocked (imported) slide follows the default theme", () => { const h = renderToStaticMarkup(React.createElement(SlideRenderer, { slide: slide(t()), appearance: theme })); assert.match(h, /#1e40af/i); assert.doesNotMatch(h, /#ffd400/i); });
   check("revert theme removes the lock the apply added (exact restore)", () => {
-    const orig = { bgColor: "#000000", objects: [t()] };
+    // Plain original (a hand-styled pre-lock original now stays locked — 2026-09-24, see theme-rebake.test).
+    const orig = { bgColor: "#000000", objects: [t({ color: "#ffffff", fontFamily: "Inter" })] };
     const baked = bakeThemeIntoObjectsJson({ textColor: "#fff", bgColor: "#222222" }, orig);
     assert.equal((baked.objects as any[])[0].styleLocked, true);
     const r = resetThemeOwnedFields(baked, orig) as any;

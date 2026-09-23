@@ -204,5 +204,21 @@ check("baked config stored is bake-only (no layout blob) and capped", () => {
   assert.equal(list.length, 5);
 });
 
+check("revert keeps the lock on a hand-styled pre-lock original (2026-09-24)", () => {
+  const pre = { bgColor: "#000000", objects: [{ id: "a", kind: "text", text: "x", color: "#FFFF00" }] };
+  const cur = { bgColor: "#000000", objects: [{ id: "a", kind: "text", text: "x", color: "#ff0000", styleLocked: true }] };
+  const r = resetThemeOwnedFields(cur, pre) as any;
+  assert.equal(r.objects[0].color, "#FFFF00");
+  assert.equal(r.objects[0].styleLocked, true);
+  const bgPre = { bgColor: "#123456", objects: [{ id: "a", kind: "text", text: "x" }] };
+  assert.equal((resetThemeOwnedFields(cur, bgPre) as any).objects[0].styleLocked, true, "non-default bg original stays locked");
+  const expPre = { bgColor: "#000000", bgExplicit: true, objects: [{ id: "a", kind: "text", text: "x" }] };
+  assert.equal((resetThemeOwnedFields(cur, expPre) as any).objects[0].styleLocked, true, "bgExplicit original stays locked");
+});
+check("revert still drops the lock on a plain (default) original", () => {
+  const pre = { bgColor: "#000000", objects: [{ id: "a", kind: "text", text: "x", color: "#fff", fontWeight: "600" }] };
+  const cur = { bgColor: "#000000", objects: [{ id: "a", kind: "text", text: "x", color: "#ff0000", styleLocked: true }] };
+  assert.equal("styleLocked" in (resetThemeOwnedFields(cur, pre) as any).objects[0], false);
+});
 console.log(`\ntheme-rebake: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

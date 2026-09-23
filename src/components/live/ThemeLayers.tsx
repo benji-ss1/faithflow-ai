@@ -54,7 +54,11 @@ export function AnimatedThemeBg({ appearance }: { appearance?: ThemeAppearance |
   const anim = appearance?.bgAnimation;
   // Frozen at MOUNT (gate review): recomputing on every render would re-time an
   // already-running animation and make a held slide jump.
-  const [phaseMs] = useState(() => Date.now());
+  // SSR (2026-09-24): no wall clock on the server — render phase 0 there and
+  // suppress the (expected) hydration attribute mismatch on that one element.
+  // Client mounts (every slide remount) still lock to Date.now() synchronously,
+  // so there is no first-paint snap.
+  const [phaseMs] = useState(() => (typeof window !== "undefined" ? Date.now() : 0));
   if (!anim || anim === "none" || !BG_ANIM_KEYFRAME[anim]) return null;
   // Only for solid/gradient backgrounds (image/video render their own layer).
   if (appearance?.bgType === "image" || appearance?.bgType === "video") return null;
@@ -66,6 +70,7 @@ export function AnimatedThemeBg({ appearance }: { appearance?: ThemeAppearance |
     <div className="absolute inset-0 z-0 overflow-hidden" aria-hidden>
       <div
         className="pf-anim-bg absolute inset-[-20%]"
+        suppressHydrationWarning
         style={{
           background: `linear-gradient(${angle}deg, ${c1}, ${c2})`,
           animation: `${BG_ANIM_KEYFRAME[anim]} -${((phaseMs / 1000) % BG_ANIM_PERIOD_S[anim]).toFixed(3)}s`,

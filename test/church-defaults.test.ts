@@ -88,6 +88,20 @@ const U1 = "11111111-1111-4111-8111-111111111111";
   const r6 = await applyChurchDefaults("church-a", { translationId: U1 }, { ...okDeps, backgroundReady: async () => false });
   ok(r6.ok && w2.join() === "t", "no background in the call → column state irrelevant");
 
+  // 2026-09-24: writeAll (one DB transaction) is used when provided; its failure = nothing saved.
+  const calls: unknown[] = [];
+  const txDeps = { ...okDeps, writeAll: async (_c: string, v: unknown) => { calls.push(v); return true; } };
+  w2.length = 0;
+  const r7 = await applyChurchDefaults("church-a", { translationId: U1, mainThemeId: U1, backgroundId: "gentleWaves" }, txDeps);
+  ok(r7.ok && calls.length === 1 && w2.length === 0, "writeAll: one atomic call, per-field writers unused");
+  ok(JSON.stringify(calls[0]) === JSON.stringify({ backgroundId: "gentleWaves", translationId: U1, mainThemeId: U1 }), "writeAll receives every field");
+  const r8 = await applyChurchDefaults("church-a", { translationId: U1 }, { ...txDeps, writeAll: async () => false });
+  ok(!r8.ok, "writeAll failure → error (tx rolled back)");
+  const r9 = await applyChurchDefaults("church-a", { backgroundId: "gentleWaves" }, { ...txDeps, backgroundReady: async () => false });
+  ok(!r9.ok && calls.length === 1, "writeAll path still refuses when column missing, before writing");
+  const r10 = await applyChurchDefaults("church-a", { mainThemeId: U1 }, { ...txDeps, themeBelongs: async () => false });
+  ok(!r10.ok && calls.length === 1, "writeAll path still validates ownership first");
+
   // e2e #1: the seeded church default background SURVIVES the same mount's
   // theme-bg self-heal (main theme with a bgColor, no prior picks).
   const bs = await import("../src/backgrounds/store/backgroundStore");

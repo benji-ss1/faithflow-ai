@@ -52,6 +52,11 @@ async function main() {
 
   const perChurch = new Map<string, { songs: number; slides: number }>();
   let candidates = 0;
+  const count = (churchId: string, songId: string, title: string, slides: number) => {
+    const c = perChurch.get(churchId) ?? { songs: 0, slides: 0 };
+    c.songs++; c.slides += slides; perChurch.set(churchId, c);
+    if (verbose) console.log(JSON.stringify({ event: "stylelock.song", churchId, songId, title, slides }));
+  };
   let cursor: string | null = null;
   for (;;) {
     const conds = [marker];
@@ -73,13 +78,22 @@ async function main() {
     }
     for (const r of rows) {
       const song: BackfillSong = { id: r.id, churchId: r.churchId, settings: (r.settings ?? {}) as Record<string, unknown>, slides: bySong.get(r.id) ?? [] };
-      const plan = rollback ? planUnlock(song) : planLock(song, at);
-      if (!plan) continue;
-      const c = perChurch.get(r.churchId) ?? { songs: 0, slides: 0 };
-      c.songs++; c.slides += plan.slideUpdates.length; perChurch.set(r.churchId, c);
-      if (verbose) console.log(JSON.stringify({ event: "stylelock.song", churchId: r.churchId, songId: r.id, title: r.title, slides: plan.slideUpdates.length }));
-      if (dry) continue;
+      const plan0 = rollback ? planUnlock(song) : planLock(song, at);
+      if (!plan0) continue;
+      if (dry) { count(r.churchId, r.id, r.title, plan0.slideUpdates.length); continue; }
+      // Race fix (2026-09-24): an operator may save/apply a theme between the
+      // page read and this write. Re-read the song FOR UPDATE (same lock
+      // revertSongTheme takes) + its slides INSIDE the transaction and plan
+      // from those fresh rows, so we never write back stale data.
       await db.transaction(async (tx) => {
+        const [fresh] = await tx.select({ id: songs.id, churchId: songs.churchId, settings: songs.settings })
+          .from(songs).where(and(eq(songs.id, r.id), eq(songs.churchId, r.churchId))).for("update");
+        if (!fresh) return;
+        const freshSlides = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
+          .from(songSlides).where(eq(songSlides.songId, r.id));
+        const fs: BackfillSong = { id: fresh.id, churchId: fresh.churchId, settings: (fresh.settings ?? {}) as Record<string, unknown>, slides: freshSlides };
+        const plan = rollback ? planUnlock(fs) : planLock(fs, at);
+        if (!plan) return;
         for (const u of plan.slideUpdates) {
           // Scoped to THIS song's slides (and the song to its church below).
           await tx.update(songSlides).set({ objectsJson: u.objectsJson })
@@ -87,6 +101,7 @@ async function main() {
         }
         await tx.update(songs).set({ settings: plan.settings })
           .where(and(eq(songs.id, r.id), eq(songs.churchId, r.churchId)));
+        count(r.churchId, r.id, r.title, plan.slideUpdates.length);
       });
     }
   }

@@ -35,6 +35,8 @@
  * new locks are merged into the existing record, and a run that changes
  * nothing produces no plan.
  */
+import { isDefaultObjectTextColor } from "./slide-objects";
+
 export type BackfillSlide = { id: string; objectsJson: unknown };
 export type BackfillSong = { id: string; churchId: string; settings: Record<string, unknown> | null; slides: BackfillSlide[] };
 
@@ -67,6 +69,15 @@ export function targetSlideIds(song: BackfillSong): string[] {
   return per.filter((id) => own.has(id)); // stale/foreign ids are ignored
 }
 
+/** Normalised default comparison (2026-09-24): "#fff"/"white"/"600" are the
+ *  renderer's defaults, not a hand-picked style. */
+function isStyledValue(k: (typeof RENDERED_STYLE_KEYS)[number], v: unknown): boolean {
+  if (v === undefined || v === null || v === "") return false;
+  if (k === "color") return typeof v === "string" ? !isDefaultObjectTextColor(v) : true;
+  if (k === "fontWeight") { const n = Number(v); return Number.isFinite(n) ? n !== TEXT_DEFAULTS.fontWeight : norm(v) !== "normal" && norm(v) !== "600"; }
+  return norm(v) !== norm(TEXT_DEFAULTS[k]);
+}
+
 /** Id of the sole visible text object when the slide is hand-styled (rule b), else null. */
 export function handStyledTextId(objectsJson: unknown): string | null {
   const sh = readShape(objectsJson);
@@ -75,7 +86,7 @@ export function handStyledTextId(objectsJson: unknown): string | null {
   const t = visible[0];
   if (visible.length !== 1 || !isObj(t) || t.kind !== "text" || typeof t.id !== "string") return null;
   const bgChosen = sh.bgExplicit === true || (typeof sh.bgColor === "string" && !DEFAULT_BGS.has(norm(sh.bgColor) as string));
-  const styled = RENDERED_STYLE_KEYS.some((k) => t[k] !== undefined && norm(t[k]) !== norm(TEXT_DEFAULTS[k]));
+  const styled = RENDERED_STYLE_KEYS.some((k) => isStyledValue(k, t[k]));
   return bgChosen || styled ? t.id : null;
 }
 
@@ -119,6 +130,15 @@ function recordOf(s: Record<string, unknown>): Record<string, string[]> {
   return out;
 }
 
+function backupRecordOf(s: Record<string, unknown>): Record<string, string[]> {
+  const rec = s[BACKFILL_KEY];
+  const out: Record<string, string[]> = {};
+  if (isObj(rec) && isObj(rec.backupLocked)) {
+    for (const [k, v] of Object.entries(rec.backupLocked)) if (Array.isArray(v)) out[k] = v.filter((x): x is string => typeof x === "string");
+  }
+  return out;
+}
+
 /** Forward plan. Idempotent + re-runnable: only objects not yet locked are touched and recorded. */
 export function planLock(song: BackfillSong, at: string): SongPlan {
   const s = song.settings ?? {};
@@ -135,10 +155,48 @@ export function planLock(song: BackfillSong, at: string): SongPlan {
     slideUpdates.push({ id: sl.id, objectsJson: r.objectsJson });
     locked[sl.id] = [...new Set([...(locked[sl.id] ?? []), ...r.lockedIds])];
   }
-  if (slideUpdates.length === 0) return null;
+  // Theme-backup snapshots (2026-09-24): a theme applied BEFORE deploy holds
+  // the hand-styled original WITHOUT styleLocked; revert would restore it
+  // unlocked and it would follow the main theme. Lock hand-styled objects in
+  // those snapshots too, recorded for exact rollback.
+  const backupLocked = backupRecordOf(s);
+  let nextSettings: Record<string, unknown> = s;
+  let backupChanged = false;
+  const tb = s.themeBackup;
+  if (isObj(tb) && Array.isArray(tb.slides)) {
+    const nextSlides = (tb.slides as unknown[]).map((e) => {
+      if (!isObj(e) || typeof e.id !== "string") return e;
+      const h = handStyledTextId(e.objectsJson);
+      const r = h ? lockTextObjects(e.objectsJson, new Set([h])) : null;
+      if (!r) return e;
+      const key = `themeBackup:${e.id}`;
+      backupLocked[key] = [...new Set([...(backupLocked[key] ?? []), ...r.lockedIds])];
+      backupChanged = true;
+      return { ...e, objectsJson: r.objectsJson };
+    });
+    if (backupChanged) nextSettings = { ...nextSettings, themeBackup: { ...tb, slides: nextSlides } };
+  }
+  const per = s.slideThemeBackups;
+  if (isObj(per)) {
+    let perChanged = false;
+    const nextPer: Record<string, unknown> = { ...per };
+    for (const [sid, e] of Object.entries(per)) {
+      if (!isObj(e)) continue;
+      const h = handStyledTextId(e.objectsJson);
+      const r = h ? lockTextObjects(e.objectsJson, new Set([h])) : null;
+      if (!r) continue;
+      const key = `slideThemeBackups:${sid}`;
+      backupLocked[key] = [...new Set([...(backupLocked[key] ?? []), ...r.lockedIds])];
+      nextPer[sid] = { ...e, objectsJson: r.objectsJson };
+      perChanged = true;
+    }
+    if (perChanged) { nextSettings = { ...nextSettings, slideThemeBackups: nextPer }; backupChanged = true; }
+  }
+  if (slideUpdates.length === 0 && !backupChanged) return null;
   const prev = s[BACKFILL_KEY];
   const prevAt = isObj(prev) && typeof prev.at === "string" ? prev.at : undefined;
-  return { songId: song.id, slideUpdates, settings: { ...s, [BACKFILL_KEY]: { at: prevAt ?? at, ...(prevAt ? { lastRunAt: at } : {}), locked } } };
+  const record = { at: prevAt ?? at, ...(prevAt ? { lastRunAt: at } : {}), locked, ...(Object.keys(backupLocked).length ? { backupLocked } : {}) };
+  return { songId: song.id, slideUpdates, settings: { ...nextSettings, [BACKFILL_KEY]: record } };
 }
 
 /** Rollback plan: remove styleLocked from exactly the recorded objects. */
@@ -154,5 +212,26 @@ export function planUnlock(song: BackfillSong): SongPlan {
     if (next) slideUpdates.push({ id: sl.id, objectsJson: next });
   }
   const { [BACKFILL_KEY]: _gone, ...rest } = s; void _gone;
+  const bl = backupRecordOf(s);
+  const tb = rest.themeBackup;
+  if (isObj(tb) && Array.isArray(tb.slides)) {
+    rest.themeBackup = { ...tb, slides: (tb.slides as unknown[]).map((e) => {
+      if (!isObj(e) || typeof e.id !== "string") return e;
+      const ids = bl[`themeBackup:${e.id}`];
+      const next = ids?.length ? unlockTextObjects(e.objectsJson, new Set(ids)) : null;
+      return next ? { ...e, objectsJson: next } : e;
+    }) };
+  }
+  const per = rest.slideThemeBackups;
+  if (isObj(per)) {
+    const nextPer: Record<string, unknown> = { ...per };
+    for (const [sid, e] of Object.entries(per)) {
+      const ids = bl[`slideThemeBackups:${sid}`];
+      if (!isObj(e) || !ids?.length) continue;
+      const next = unlockTextObjects(e.objectsJson, new Set(ids));
+      if (next) nextPer[sid] = { ...e, objectsJson: next };
+    }
+    rest.slideThemeBackups = nextPer;
+  }
   return { songId: song.id, slideUpdates, settings: rest };
 }
