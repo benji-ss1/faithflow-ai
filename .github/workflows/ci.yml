@@ -145,6 +145,13 @@ jobs:
         # schema.ts, and push keeps the job independent of migration history.
         run: npx drizzle-kit push --force
 
+      - name: Apply the RLS policies
+        # drizzle-kit push does not carry RLS, so without this step
+        # test/adversarial/rls-policies.test.ts has nothing to test and exits 1
+        # rather than reporting a false green. ON_ERROR_STOP so a broken policy
+        # fails the job here instead of surfacing as a confusing test failure.
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f docs/migrations/2026-09-23-rls-church-isolation-policies.sql
+
       - name: Test (database)
         run: npm run test:db
 
