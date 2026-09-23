@@ -89,6 +89,12 @@ export type OperatorShellCtx = {
   onClearLiveSlide?: () => void;
   /** Drop a theme background a Slide clear kept (Clear Media / Clear All). */
   onReleaseThemeBg?: () => void;
+  /** Layer Order V3 (src/lib/layer-order-v3.ts): set only when the flag is on. */
+  layerOrderV3?: boolean;
+  /** Layer Order V3: Clear Theme — the theme layer only. */
+  onClearTheme?: () => void;
+  /** Layer Order V3: the theme layer is painting a background. */
+  themeLayerActive?: boolean;
   onClearSlide: () => void;
   onClearMedia: () => void;
   onClearLowerThird: () => void;

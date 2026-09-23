@@ -27,19 +27,21 @@ export function stripDecorAnim(decor: SlideObjectWire[]): SlideObjectWire[] {
  * hidden — the slide paints exactly what it did before, and the decor video keeps
  * its place for the next lyric/verse.
  */
-export function ThemeDecorLayer({ appearance, plan, overVideo, frozen }: {
+export function ThemeDecorLayer({ appearance, plan, overVideo, frozen, bgExternal }: {
   appearance: ThemeAppearance | null | undefined;
   plan: ThemeDecorPlan | null;
   /** A background template / video sits behind: no theme background paint. */
   overVideo?: boolean;
   frozen?: boolean;
+  /** Layer Order V3: the theme bg is its own layer below — paint decor only. */
+  bgExternal?: boolean;
 }) {
   const lastDecor = useRef<SlideObjectWire[] | null>(null);
   if (plan) lastDecor.current = plan.decor;
   const decor = plan?.decor ?? lastDecor.current;
   const visible = !!plan;
   const themedTextColor = overVideo ? undefined : ((themeTextStyle(appearance)?.color as string | undefined) ?? undefined);
-  const bg: React.CSSProperties = overVideo ? {} : themeBackgroundStyle(appearance, "#0b0b0b");
+  const bg: React.CSSProperties = overVideo || bgExternal ? {} : themeBackgroundStyle(appearance, "#0b0b0b");
   return (
     <div
       data-theme-decor-layer=""
@@ -47,7 +49,7 @@ export function ThemeDecorLayer({ appearance, plan, overVideo, frozen }: {
       style={{ ...bg, ...(visible ? {} : { visibility: "hidden" }) }}
       aria-hidden
     >
-      {!overVideo && <AnimatedThemeBg appearance={appearance} />}
+      {!overVideo && !bgExternal && <AnimatedThemeBg appearance={appearance} />}
       {decor && <SlideObjectsLayer objects={stripDecorAnim(decor)} themedTextColor={themedTextColor} decor frozen={frozen} />}
     </div>
   );

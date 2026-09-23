@@ -33,10 +33,10 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import {
-  PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, type Pp7ClearLayer,
+  PP7_CLEAR_ORDER, PP7_CLEAR_LABEL, PP7_CLEAR_THEME_LABEL, PP7_CLEAR_THEME_TOOLTIP, type Pp7ClearLayer,
 } from "@/lib/pp7-clear";
 import {
-  PP7_LAYER_AVAILABLE, pp7ClearAll, pp7ClearLayer, pp7ClearTitle, pp7LayerActive,
+  PP7_LAYER_AVAILABLE, pp7ClearAll, pp7ClearLayer, pp7ClearTitle, pp7LayerActive, pp7ClearTheme,
 } from "@/lib/pp7-layer-model";
 import { useShortcutLabel } from "@/lib/usePlatformLabel";
 import { usePp7LayerInputs, usePp7ClearEffects } from "./usePp7Layers";
@@ -218,6 +218,32 @@ export function Pp7LayersPanel({
             </div>
           );
         })}
+        {/* Layer Order V3 only: "Theme" — hide the theme background for THIS
+            slide (media + text stay; lapses on the next slide). Same control as
+            the clear rail. Absent with the flag off ⇒ the panel is unchanged. */}
+        {inputs.layerOrderV3 && (
+          <div className="flex items-center gap-1.5 px-2 py-1.5" data-layer="theme" data-active={inputs.themeLayerActive ? "true" : "false"}>
+            <span
+              aria-label={inputs.themeLayerActive ? `${PP7_CLEAR_THEME_LABEL} is live` : `${PP7_CLEAR_THEME_LABEL} is idle`}
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ background: inputs.themeLayerActive ? CELL_ACTIVE : "var(--color-border)", boxShadow: inputs.themeLayerActive ? `0 0 8px ${CELL_ACTIVE}` : "none" }}
+            />
+            <span className="flex-1 min-w-0 truncate text-[12px] text-[var(--color-foreground)]" title={PP7_CLEAR_THEME_TOOLTIP}>{PP7_CLEAR_THEME_LABEL}</span>
+            <button
+              type="button"
+              onClick={() => pp7ClearTheme(inputs, effects)}
+              title={PP7_CLEAR_THEME_TOOLTIP}
+              aria-label={`${PP7_CLEAR_THEME_LABEL}: ${PP7_CLEAR_THEME_TOOLTIP}`}
+              data-clear="theme"
+              className={cn(
+                ROW_BTN, "ml-1 rounded-full",
+                inputs.themeLayerActive ? "bg-[#7a1f1f] text-white hover:bg-[#8f2626]" : "text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-red-400",
+              )}
+            >
+              <X className="w-3.5 h-3.5" strokeWidth={3} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Clear All — PP7's circled ✕, same action as the rail's and F1. */}

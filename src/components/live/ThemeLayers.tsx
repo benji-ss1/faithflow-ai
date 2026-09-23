@@ -1,5 +1,8 @@
 "use client";
 import type { ThemeAppearance } from "@/lib/broadcast";
+import { useRef } from "react";
+import { themeBackgroundStyle } from "./theme-bg-style";
+import { usePauseCoveredVideos } from "./usePauseCoveredVideos";
 
 /**
  * Theme video background (Phase 2) — a looping, muted background video from the
@@ -108,6 +111,37 @@ export function ThemeLogoLayer({ appearance }: { appearance?: ThemeAppearance | 
     <div className={`absolute ${posClass} pointer-events-none z-10`} style={{ width, opacity }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={appearance.logoUrl} alt="" style={{ width: "100%", height: "auto", display: "block" }} />
+    </div>
+  );
+}
+
+/**
+ * Layer Order V3: the THEME BACKGROUND as its own persistent compositor layer
+ * (between the media and the slide). Real CSS transparency: a theme with no
+ * background paints NOTHING (transparent — never "black pretending"), so the
+ * media layer shows through; `opacity` (= appearance.layerOpacity) < 1 shows
+ * media partially. `dim` keeps its legacy meaning: a black overlay INSIDE this
+ * layer (part of the background style / the video overlay), never see-through.
+ * A theme video is keyed by its URL so it never restarts on slide changes; when
+ * the layer is hidden (`active` false) or fully see-through it is PAUSED (not
+ * reset, not unmounted) and resumes where it was.
+ */
+export function ThemeBackgroundLayer({ appearance, opacity = 1, frozen, active = true }: { appearance?: ThemeAppearance | null; opacity?: number; frozen?: boolean; active?: boolean }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  usePauseCoveredVideos(ref, !active || opacity <= 0);
+  const videoUrl = appearance?.bgType === "video" && appearance.bgVideoUrl ? appearance.bgVideoUrl : null;
+  const style = videoUrl ? {} : themeBackgroundStyle(appearance, "transparent", true);
+  const d = typeof appearance?.dim === "number" && appearance.dim > 0 ? Math.min(1, appearance.dim) : 0;
+  return (
+    <div ref={ref} data-theme-bg-layer="" className="absolute inset-0 overflow-hidden pointer-events-none" style={{ ...style, opacity }} aria-hidden>
+      {videoUrl ? (
+        <>
+          <video key={videoUrl} data-theme-bg-video="" src={videoUrl} autoPlay={!frozen} loop muted playsInline style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          {d > 0 && <div data-theme-dim="" className="absolute inset-0" style={{ background: `rgba(0,0,0,${d})` }} />}
+        </>
+      ) : (
+        <AnimatedThemeBg appearance={appearance} />
+      )}
     </div>
   );
 }

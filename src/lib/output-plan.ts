@@ -58,8 +58,8 @@ export type SlideRenderMode = "over-video" | "transition" | "plain";
  *  render and lets the route paint announcements on top, so neither is a layer
  *  there. `theme-decor` (theme gaps PR A) is theme chrome that belongs WITH the
  *  slide — it stays above the media and the camera and below the words. */
-export type OutputLayerId = "camera" | "background" | "theme-decor" | "slide" | "announcement" | "theme-logo";
-export type OutputLayerKind = "camera" | "background" | "theme-decor" | "slide" | "announcement" | "theme-logo";
+export type OutputLayerId = "camera" | "background" | "theme-bg" | "theme-decor" | "slide" | "announcement" | "theme-logo";
+export type OutputLayerKind = "camera" | "background" | "theme-bg" | "theme-decor" | "slide" | "announcement" | "theme-logo";
 
 interface OutputLayerBase {
   /** Stable id (z-independent) — the seam Phase 2's wire model plugs into. */
@@ -111,7 +111,23 @@ export interface SlideLayerPlan extends OutputLayerBase {
      *  `camera` plan layer owns those pixels, below the media. Absent (legacy)
      *  means OutputSlide paints the camera itself, as it always has. */
     cameraExternal?: true;
+    /** Layer Order V3 only: the theme background is painted by the separate
+     *  `theme-bg` layer, so the slide paints NO theme background of its own —
+     *  only an explicit (bgExplicit) colour or a bgImageUrl. */
+    themeBgExternal?: true;
   };
+}
+
+/**
+ * Layer Order V3 only: the theme background (solid / gradient / image / video /
+ * animated) as its own persistent layer between the media and the slide, with
+ * real CSS transparency. A theme with no background paints nothing (transparent),
+ * so the media shows through. `opacity` is the theme's layerOpacity see-through (0..1, default 1).
+ */
+export interface ThemeBgLayerPlan extends OutputLayerBase {
+  id: "theme-bg";
+  kind: "theme-bg";
+  props: { opacity: number };
 }
 
 export interface ThemeLogoLayerPlan extends OutputLayerBase {
@@ -133,7 +149,7 @@ export interface ThemeDecorLayerPlan extends OutputLayerBase {
 }
 
 export type OutputLayerPlan =
-  | CameraLayerPlan | BackgroundLayerPlan | ThemeDecorLayerPlan | SlideLayerPlan
+  | CameraLayerPlan | BackgroundLayerPlan | ThemeBgLayerPlan | ThemeDecorLayerPlan | SlideLayerPlan
   | AnnouncementLayerPlan | ThemeLogoLayerPlan;
 
 export interface CanvasPlan {
@@ -188,9 +204,86 @@ export interface PlanInput {
   showThemeLogoOverride?: boolean;
   /** Theme → Projector: full-screen, no theme boxes/decor (stage always). */
   ignoreThemeLayout?: boolean;
+  /**
+   * Layer Order V3 (src/lib/layer-order-v3.ts): fixed independent layers
+   * media(z0) → theme bg(z10) → slide(z20) → overlays(z30+). Undefined/false ⇒
+   * the existing plan, byte-identical (golden-locked). Takes precedence over
+   * pp7DrawOrder when set.
+   */
+  layerOrderV3?: boolean;
+}
+
+/** Theme-layer see-through (0..1, `layerOpacity`); anything invalid ⇒ 1.
+ *  NOT `dim` (a black overlay drawn inside the layer, legacy semantics). */
+export function themeBgOpacity(appearance?: ThemeAppearance | null): number {
+  const o = appearance?.layerOpacity;
+  return typeof o === "number" && Number.isFinite(o) ? Math.max(0, Math.min(1, o)) : 1;
+}
+
+/**
+ * Layer Order V3 plan. Independent of every legacy mutual exclusion:
+ *   - the camera never suppresses media and media never forces the slide/theme
+ *     transparent ("overVideo" is never set);
+ *   - the theme bg is its own layer, so an opaque theme COVERS media and a
+ *     transparent / partly-opaque one reveals it — the media layer stays in the
+ *     plan either way (covered ≠ gone);
+ *   - the theme bg belongs to the PRESENTATION: shown only while a slide is live
+ *     (any non-empty kind) or a keep-theme-bg retention is explicitly active. A
+ *     cleared slide / blank start hides it (still mounted) so the media shows;
+ *     the theme itself is never mutated, the next slide shows it again;
+ *   - overlays: announcement (z30) BELOW the theme logo / Props (z40) — PP7
+ *     draw order, Victor 2026-09-18;
+ *   - OBS/NDI alpha keying still suppresses media, camera, theme bg and logo;
+ *   - stage never has a camera.
+ */
+function planOutputV3(input: PlanInput): OutputPlan {
+  const { mode, appearance } = input;
+  const transparent = (mode === "livestream" || mode === "ndi") && !!input.transparent;
+  const videoInput = mode === "stage" || transparent ? null : (input.videoInput ?? null);
+  const background = input.background ?? null;
+  const bgActive = !!background && background.type !== "none";
+  const ignoreThemeLayout = mode === "stage" || !!input.ignoreThemeLayout;
+  // A live camera keeps the over-video composite ONLY for text layout (full
+  // scrim vs lower-third band); the camera pixels are the separate `camera`
+  // layer. Theme video no longer routes through it — it lives in `theme-bg`.
+  let renderMode: SlideRenderMode;
+  if (videoInput) renderMode = "over-video";
+  else if (mode === "ndi") renderMode = "plain";
+  else if (mode === "livestream") renderMode = input.transitionsEnabled ? "transition" : "plain";
+  else renderMode = "transition";
+
+  let canvasW: number | undefined;
+  let canvasH: number | undefined;
+  if (mode === "live") { canvasW = input.aspectRatio === "4:3" ? 1440 : 1920; canvasH = 1080; }
+  else if (mode === "ndi") { canvasW = 1920; canvasH = 1080; }
+
+  const layers: OutputLayerPlan[] = [];
+  if (videoInput) layers.push({ id: "camera", kind: "camera", z: -10, enabled: true, props: { videoInput } });
+  layers.push({ id: "background", kind: "background", z: 0, enabled: bgActive && !transparent, props: { background } });
+  const slidePresent = input.slide.kind !== "empty" || (input.slide as { keepThemeBg?: boolean }).keepThemeBg === true;
+  layers.push({ id: "theme-bg", kind: "theme-bg", z: 10, enabled: !transparent && slidePresent, props: { opacity: themeBgOpacity(appearance) } });
+  if (themeHasDecor(appearance)) {
+    layers.push({
+      id: "theme-decor", kind: "theme-decor", z: 15,
+      enabled: !transparent && !ignoreThemeLayout,
+      props: { overVideo: false, transparentBg: transparent, ignoreThemeLayout },
+    });
+  }
+  layers.push({
+    id: "slide", kind: "slide", z: 20, enabled: true,
+    props: {
+      renderMode, overVideo: false, transparentBg: transparent, videoInput,
+      ...(videoInput ? { cameraExternal: true as const } : {}),
+      themeBgExternal: true as const,
+    },
+  });
+  if (input.announcementLive) layers.push({ id: "announcement", kind: "announcement", z: 30, enabled: true, props: {} });
+  layers.push({ id: "theme-logo", kind: "theme-logo", z: 40, enabled: !transparent && (input.showThemeLogoOverride ?? true), props: {} });
+  return { layers, canvas: { enabled: mode !== "livestream", w: canvasW, h: canvasH } };
 }
 
 export function planOutput(input: PlanInput): OutputPlan {
+  if (input.layerOrderV3) return planOutputV3(input);
   const { mode, appearance } = input;
   // Stage never has a live camera (no video input on the confidence monitor).
   // This nulling lives ONLY here — the compositor reads the resolved camera off

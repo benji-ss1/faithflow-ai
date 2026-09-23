@@ -87,6 +87,8 @@ test/fonts-picker-value.test.ts
 test/fonts-registry.test.ts
 test/hex-color.test.ts
 test/keyboard-shortcuts.test.ts
+test/layer-order-v3-dom.test.tsx
+test/layer-order-v3.test.ts
 test/layer-store.test.ts
 test/layer-wire.test.ts
 test/live-bg-theme-decor.test.ts

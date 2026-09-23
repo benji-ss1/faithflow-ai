@@ -274,6 +274,11 @@ export type ThemeAppearance = {
   // Themes 3 — subtle GPU-composited motion for solid/gradient backgrounds
   // (behind verses/lyrics). No effect on image/video backgrounds.
   bgAnimation?: "none" | "drift" | "aurora" | "pulse";
+  /** Layer Order V3 only: SEE-THROUGH of the whole theme-background layer,
+   *  0..1 (default 1 = opaque) — media underneath shows through. NOT the theme
+   *  editor's "Opacity" slider (config `bgOpacity`), which is a DIM (black
+   *  overlay) and maps to `dim`. Additive + optional; legacy renderers ignore it. */
+  layerOpacity?: number;
   dim?: number;        // 0..1 dark overlay over the background for readability
   textColor?: string;
   fontFamily?: string;
@@ -476,6 +481,9 @@ const LAYER_KINDS = new Set<string>([
 ]);
 
 export type OutputState = {
+  /** Layer Order V3 (src/lib/layer-order-v3.ts): the operator's flag decision,
+   *  carried so receivers need no DB/localStorage. Absent/false ⇒ legacy order. */
+  layerOrderV3?: boolean;
   live: SlidePayload;                // audience/projector output
   next: SlidePayload | null;         // for stage display "Next up"
   itemTitle: string;                 // "Amazing Grace", "John 3:16"
@@ -1292,6 +1300,10 @@ export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
   if (p.logoPosition !== undefined && !LOGO_POSITIONS.has(p.logoPosition as string)) return false;
   if (p.logoSizePct !== undefined && (typeof p.logoSizePct !== "number" || !Number.isFinite(p.logoSizePct) || p.logoSizePct < 2 || p.logoSizePct > 50)) return false;
   if (p.logoOpacity !== undefined && (typeof p.logoOpacity !== "number" || !Number.isFinite(p.logoOpacity) || p.logoOpacity < 0 || p.logoOpacity > 1)) return false;
+  // Layer Order V3 see-through (and a stray `bgOpacity`, never produced by the
+  // mapper): finite 0..1 or the whole appearance is rejected.
+  if (p.layerOpacity !== undefined && (typeof p.layerOpacity !== "number" || !Number.isFinite(p.layerOpacity) || p.layerOpacity < 0 || p.layerOpacity > 1)) return false;
+  if (p.bgOpacity !== undefined && (typeof p.bgOpacity !== "number" || !Number.isFinite(p.bgOpacity) || p.bgOpacity < 0 || p.bgOpacity > 1)) return false;
   if (p.layout !== undefined && !isValidThemeLayoutWire(p.layout)) return false;
   return true;
 }

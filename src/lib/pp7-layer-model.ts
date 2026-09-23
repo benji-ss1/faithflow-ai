@@ -43,6 +43,16 @@ export type Pp7LayerInputs = {
    * Undefined/false ⇒ nothing changes.
    */
   themeBgKept?: boolean;
+  /**
+   * Layer Order V3 (src/lib/layer-order-v3.ts): media, theme background and
+   * slide are independent layers. Clear Media clears ONLY the media layer (never
+   * the slide), Clear Slide clears the slide content whatever its kind, Clear
+   * Theme clears only the theme layer, Clear All clears everything.
+   * Undefined/false ⇒ every decision below is unchanged.
+   */
+  layerOrderV3?: boolean;
+  /** Layer Order V3: the theme layer is painting a background. */
+  themeLayerActive?: boolean;
 };
 
 /** Which PP7 layers this build can actually drive. Audio has no layer yet. */
@@ -113,6 +123,9 @@ export type Pp7ClearEffects = {
    *  the church has no logo set, which is why the group is hidden in that case
    *  rather than being a button that silently does nothing. */
   showLogo?: () => void;
+  /** Layer Order V3: hide the theme background for the current slide only
+   *  (lapses on the next slide / a theme change; media + text untouched). */
+  clearTheme?: () => void;
 };
 
 /**
@@ -122,12 +135,18 @@ export type Pp7ClearEffects = {
 export function pp7ClearLayer(layer: Pp7ClearLayer, i: Pp7LayerInputs, fx: Pp7ClearEffects, fromClearAll = false): void {
   switch (layer) {
     case "slide":
+      if (i.layerOrderV3) {
+        // V3: a media item sent as a slide IS slide content — clear it too.
+        if (fromClearAll) fx.killSlide({ keepTheme: false }); else fx.killSlide();
+        return;
+      }
       if (!isMediaSlideKind(i.kind)) {
         // Clear All blanks the theme background too; a lone Slide clear keeps it.
         if (fromClearAll) fx.killSlide({ keepTheme: false }); else fx.killSlide();
       }
       return;
     case "media":
+      if (i.layerOrderV3) { pp7ClearMediaV3(i, fx); return; }
       fx.setBackgroundNone();
       // A background override can show while the base store is already none
       // (e.g. a Layers-panel swap) — clear the layer too so it really goes.
@@ -163,8 +182,28 @@ export function pp7ClearLayer(layer: Pp7ClearLayer, i: Pp7LayerInputs, fx: Pp7Cl
  * all work normally afterwards.
  */
 export function pp7ClearAll(i: Pp7LayerInputs, fx: Pp7ClearEffects): void {
+  // Layer Order V3: NO theme step — the theme belongs to the presentation and
+  // simply hides because the slide is now empty; nothing persistent is set, so
+  // the next slide shows the theme again.
   for (const layer of PP7_CLEAR_ORDER) pp7ClearLayer(layer, i, fx, true);
   fx.clearLowerThird?.();
+}
+
+/**
+ * Layer Order V3: Clear Media — the MEDIA layer only (background store AND any
+ * Layers-panel background override), never the slide, never the theme. The ONE
+ * function the rail, the Layers panel and the console's clearMedia all use.
+ * The camera is separate (Video Input clear), as in PP7.
+ */
+export function pp7ClearMediaV3(i: Pick<Pp7LayerInputs, "rowActive">, fx: Pick<Pp7ClearEffects, "setBackgroundNone" | "clearLayer">): void {
+  fx.setBackgroundNone();
+  if (i.rowActive("background")) fx.clearLayer("background");
+}
+
+/** Layer Order V3: hide the theme background for THIS slide (media + text stay). */
+export function pp7ClearTheme(i: Pp7LayerInputs, fx: Pp7ClearEffects): void {
+  if (!i.layerOrderV3) return;
+  fx.clearTheme?.();
 }
 
 /**

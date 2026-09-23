@@ -7,6 +7,7 @@
 
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
 import type { SlidePayload, BackgroundSpec, VideoInputState } from "@/lib/broadcast";
 
 export function LiveOutputThumb({
@@ -16,6 +17,11 @@ export function LiveOutputThumb({
   fontScale,
   background,
   videoInput,
+  layerOrderV3,
+  announcement,
+  zone,
+  aspectRatio,
+  layerOverrides,
 }: {
   liveSlide: SlidePayload;
   outputStatus?: string | null;
@@ -37,8 +43,19 @@ export function LiveOutputThumb({
   // overVideo AND the template layer on !videoInput). Mirror that here so the
   // thumb never shows a template shader while the projector shows the camera.
   videoInput?: VideoInputState | null;
+  /** Layer Order V3: render through the SAME compositor + plan as /live. */
+  layerOrderV3?: boolean;
+  /** Layer Order V3 only — the rest of what /live composes, so the thumb
+   *  matches it: announcement (below the logo), projection zone, aspect ratio,
+   *  and the Layers-engine overrides (logo / Props toggle etc). Ignored flag-off. */
+  announcement?: import("@/lib/broadcast").AnnouncementPayload | null;
+  zone?: import("@/lib/projection-zone").ProjectionZone | null;
+  aspectRatio?: "16:9" | "4:3" | "custom";
+  layerOverrides?: import("@/components/live/OutputCompositor").OutputCompositorProps["layerOverrides"];
 }) {
-  const isLive = liveSlide.kind !== "empty";
+  // Layer Order V3: media / theme layers are live on their own, without a slide.
+  const isLive = liveSlide.kind !== "empty"
+    || (!!layerOrderV3 && ((!!background && background.type !== "none") || !!videoInput || !!announcement));
   const status = outputStatus ?? (isLive ? "Projector · 1920×1080" : "No output configured");
   // IDENTICAL to /live's overVideo formula (background active AND no live camera).
   const templateActive = !!(background && background.type !== "none" && !videoInput);
@@ -56,6 +73,17 @@ export function LiveOutputThumb({
         }}
       >
         {isLive ? (
+          layerOrderV3 ? (
+            <div className="absolute inset-0">
+              <OutputCompositor
+                mode="live" slide={liveSlide} appearance={appearance ?? null} background={background ?? null}
+                videoInput={videoInput ?? null} transition={null} fontScale={fontScale}
+                announcement={announcement ?? null} zone={zone ?? null} {...(aspectRatio ? { aspectRatio } : {})}
+                {...(layerOverrides ? { layersEnabled: true, layerOverrides } : {})}
+                layerOrderV3 previewFrozen
+              />
+            </div>
+          ) : (
           <div className="absolute inset-0">
             {/* Template BEHIND the slide, exactly as /live composes it.
                 `frozen`: one static frame (no permanent RAF / 2nd video decode)
@@ -63,6 +91,7 @@ export function LiveOutputThumb({
             {templateActive && <BackgroundLayer background={background} frozen />}
             <SlideRenderer slide={liveSlide} appearance={appearance ?? undefined} projectorFit fontScale={fontScale} overVideo={templateActive} />
           </div>
+          )
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-[10px] uppercase tracking-[0.18em] text-zinc-600">
             Off-Air

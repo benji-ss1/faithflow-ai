@@ -15,6 +15,7 @@
  *   is added to a playlist). The local assets array is also updated optimistically
  *   so the grid reflects the new name without a full reload.
  */
+import { readLayerOrderV3Flag, useLayerOrderV3 } from "@/lib/layer-order-v3";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
@@ -78,6 +79,9 @@ export function MediaBrowser({
   ctx: OperatorShellCtx;
   onExitToSlides: () => void;
 }) {
+  // Layer Order V3 (single flag store) — hover hint + menu label; the click reads
+  // readLayerOrderV3Flag() at click time (same store, never disagrees).
+  const layerOrderV3 = useLayerOrderV3();
   // Electron-safe confirm (native window.confirm can freeze the desktop shell).
   const { confirm, dialog: confirmDialog } = useConfirm();
   // Seed from the per-church cache so re-opening the panel paints immediately.
@@ -726,13 +730,17 @@ export function MediaBrowser({
                       // single-click would project the UN-framed image live BEFORE the
                       // editor opens (flashing it on the congregation screen mid-service).
                       // Defer the project by one dblclick window; dblclick cancels it.
-                      if (a.kind.startsWith("video")) { sendLive(a); return; }
+                      // Layer Order V3: a single click sets the MEDIA LAYER (persistent
+                      // background, never copied into the slide/theme). "Send as
+                      // slide" stays in the right-click menu.
+                      const clickMedia = (x: Asset) => (readLayerOrderV3Flag() && mediaClickAction(x.kind) !== "audio-blocked" ? void setAsBackground(x) : sendLive(x));
+                      if (a.kind.startsWith("video")) { clickMedia(a); return; }
                       if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
                       // 350ms ≈ the low end of the OS double-click window, so a
                       // deliberate double-click to open the editor cancels this
                       // before it can flash the raw image live. Single-click
                       // projection is deferred by this much (imperceptible).
-                      clickTimerRef.current = window.setTimeout(() => { clickTimerRef.current = null; sendLive(a); }, 350);
+                      clickTimerRef.current = window.setTimeout(() => { clickTimerRef.current = null; clickMedia(a); }, 350);
                     }}
                     onDoubleClick={(e) => {
                       if (a.kind.startsWith("video")) return;
@@ -740,7 +748,7 @@ export function MediaBrowser({
                       if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
                       setEditingImage(a);
                     }}
-                    title="Click to project · double-click to crop/frame · drag to playlist · right-click for options"
+                    title={layerOrderV3 ? "Click: set as background · Right-click: send as slide · double-click to crop/frame" : "Click to project · double-click to crop/frame · drag to playlist · right-click for options"}
                     className={cn(
                       "relative aspect-video rounded-lg overflow-hidden bg-black text-left group transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-house)]",
                       bulkIds.has(a.id)
@@ -886,7 +894,7 @@ export function MediaBrowser({
                       onSelect={() => sendLive(a)}
                       className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
                     >
-                      Send to Live
+                      {layerOrderV3 ? "Send as slide" : "Send to Live"}
                     </ContextMenu.Item>
                     <ContextMenu.Item
                       onSelect={() => void addToPlaylist(a)}

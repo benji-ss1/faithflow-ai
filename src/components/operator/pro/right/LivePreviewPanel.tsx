@@ -201,7 +201,7 @@ export function LivePreviewPanel({ ctx, onVideoRef, hideClearButton = false, rai
             LIVE
           </div>
         )}
-        {ctx.layersEngineOn ? (
+        {ctx.layersEngineOn || ctx.layerOrderV3 ? (
           /* Layers engine ON: render the preview through the SAME
              resolveLayeredPlan/override path as /live (OutputCompositor with the
              operator's own layer overrides) so the operator monitor is WYSIWYG
@@ -223,8 +223,9 @@ export function LivePreviewPanel({ ctx, onVideoRef, hideClearButton = false, rai
             zone={ctx.zone}
             aspectRatio={ctx.aspectRatio}
             onVideoRef={onVideoRef}
-            layersEnabled
-            layerOverrides={ctx.liveLayers.overrides}
+            {...(ctx.layersEngineOn ? { layersEnabled: true, layerOverrides: ctx.liveLayers.overrides } : {})}
+            /* Layer Order V3: Preview == Live — the same compositor + plan. */
+            {...(ctx.layerOrderV3 ? { layerOrderV3: true } : {})}
             previewFrozen
             scene={ctx.activeScene}
             screen="main"
