@@ -36,6 +36,9 @@ const ThemeImportDialog = dynamic(() => import("@/components/library/ThemeImport
 import { isContentTypeEditDenied } from "@/lib/church-styles-store";
 import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
 import { useLegacyThemes } from "@/lib/legacy-themes-flag";
+import { BUILT_IN_BACKGROUNDS } from "@/backgrounds/presets/defaultTemplates";
+import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
+import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 
 /** Built-ins as client themes (constant config; never applied directly — they
  *  are materialized into a church theme first). */
@@ -382,6 +385,7 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
                           <div className="grid grid-cols-3 gap-3">{themes.map((t) => card(t, "all"))}</div>
                         </>
                       )}
+                      <AnimatedThemesSection />
                       <div className="text-[13px] font-semibold text-[var(--color-muted-foreground)] mt-4 pt-3 mb-2 border-t border-[var(--color-border)]" data-builtin-themes="">Built-in</div>
                       <div className="grid grid-cols-3 gap-3">{BUILTIN_CLIENT_THEMES.map((t) => card(t, "builtin"))}</div>
                       <ContentTypeDefaults themes={themes} />
@@ -416,6 +420,52 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
  * church-styles-store; a server refusal (no edit_library) disables the picker
  * rather than letting a volunteer set a value that never saves.
  */
+/** Animated themes (2026-09-24, user request): the motion backgrounds shown as
+ *  tiles in the main Themes panel, above Built-in. Clicking one puts it live
+ *  behind the text — the SAME action as the slide right-click "Animated
+ *  themes" menu (setActiveBackgroundId). Tiles are pre-rendered still images
+ *  (public/animated-themes/<id>.jpg) so opening the panel creates NO WebGL
+ *  contexts and does no GPU work (review gate: live thumbnail rendering could
+ *  stall the operator window or evict the live preview's context). */
+function AnimatedThemesSection() {
+  const activeId = useBackgroundState().active.id;
+  const looks = BUILT_IN_BACKGROUNDS.filter((b) => b.type === "shader" && b.shaderPreset);
+  const pick = (id: string, name: string) => {
+    setActiveBackgroundId(id);
+    toast.success(id === "none" ? "Animated theme off" : `Animated theme: ${name}`);
+  };
+  return (
+    <div data-animated-themes="">
+      <div className="flex items-center justify-between mt-4 pt-3 mb-2 border-t border-[var(--color-border)]">
+        <div className="text-[13px] font-semibold text-[var(--color-muted-foreground)]">Animated themes</div>
+        {activeId !== "none" ? (
+          <button type="button" onClick={() => pick("none", "None")} className="text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">Turn off</button>
+        ) : null}
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {looks.map((b) => (
+          <AnimatedThemeTile key={b.id} bg={b} active={activeId === b.id} onPick={() => pick(b.id, b.name)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AnimatedThemeTile({ bg, active, onPick }: { bg: (typeof BUILT_IN_BACKGROUNDS)[number]; active: boolean; onPick: () => void }) {
+  const fallback = `linear-gradient(135deg, ${bg.shaderPrimaryColor ?? "#334155"}, ${bg.shaderSecondaryColor ?? "#0f172a"})`;
+  return (
+    <button type="button" onClick={onPick} aria-pressed={active} title={`${bg.name} — put it behind the text`} className="flex flex-col items-center gap-1.5 min-w-0 group">
+      <div
+        className="relative w-full aspect-video rounded-md overflow-hidden border-2 transition-colors"
+        style={{ borderColor: active ? "var(--color-brand)" : "transparent", background: `url("/animated-themes/${bg.id}.jpg") center/cover no-repeat, ${fallback}` }}
+      >
+        {active ? <span aria-hidden className="absolute top-1 right-1 rounded px-1 text-[9px] font-semibold bg-[var(--color-brand)] text-white">ON</span> : null}
+      </div>
+      <span className="truncate max-w-full text-[12px] text-[var(--color-foreground)]">{bg.name}</span>
+    </button>
+  );
+}
+
 function ContentTypeDefaults({ themes }: { themes: ClientTheme[] }) {
   const [styles, setStyles] = useState<ContentTypeStyles>({});
   const [denied, setDenied] = useState(false);
