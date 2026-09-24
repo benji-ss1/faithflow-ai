@@ -30,9 +30,10 @@ export function SharedShaderCanvas({ spec }: { spec: SharedShaderSpec }) {
     const handle = SharedBackgroundRenderer.register(canvas, spec);
     // Cull blits for surfaces scrolled out of view (a chapter can have 150+ cards).
     let obs: IntersectionObserver | null = null;
+    let inView = true; // until the IntersectionObserver reports otherwise
     try {
       obs = new IntersectionObserver((entries) => {
-        for (const e of entries) handle.setVisible(e.isIntersecting);
+        for (const e of entries) { inView = e.isIntersecting; handle.setVisible(e.isIntersecting); }
       }, { rootMargin: "100px" });
       obs.observe(canvas);
     } catch { /* no IO support → stays visible */ }
@@ -40,7 +41,9 @@ export function SharedShaderCanvas({ spec }: { spec: SharedShaderSpec }) {
     // at mount — re-fit when it gets a real layout so it isn't a blurry 160×90.
     let ro: ResizeObserver | null = null;
     try {
-      ro = new ResizeObserver(() => { if (fit()) handle.setVisible(true); });
+      // Repaint only — never flip visibility here (review gate: forcing visible
+      // defeated scroll-culling for off-screen cards after any resize).
+      ro = new ResizeObserver(() => { if (fit() && inView) handle.setVisible(true); });
       ro.observe(canvas);
     } catch { /* noop */ }
     return () => { obs?.disconnect(); ro?.disconnect(); handle.dispose(); };

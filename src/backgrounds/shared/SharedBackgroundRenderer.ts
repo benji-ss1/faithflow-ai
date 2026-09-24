@@ -108,6 +108,9 @@ class SharedRendererImpl {
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     if (!shouldBlit(now, this.lastBlit)) return;
     this.lastBlit = now;
+    // Operator window runs with backgroundThrottling:false — skip copies while
+    // it's hidden/minimised (nothing to see).
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     for (const e of this.cards) this.blitOne(e);
   }
   /** Test hook: number of registered surfaces. */
