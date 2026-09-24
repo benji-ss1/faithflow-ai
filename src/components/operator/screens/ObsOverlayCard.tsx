@@ -222,6 +222,7 @@ function ObsPreview(props: { store: ObsEditorStore; state: OutputState | null; s
             backgroundDim={r.backgroundDim}
             videoMuted
             previewFrozen
+            {...(st?.layerOrderV3 === true ? { layerOrderV3: true, ...(st?.themeLayerHidden === true ? { themeLayerHidden: true } : {}) } : {})}
           />
           {r.mode === "full" && lt && (
             <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">

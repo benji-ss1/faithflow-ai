@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { useTransparentSlide } from "@/lib/transparent-slide";
+import { useLayerOrderV3 } from "@/lib/layer-order-v3";
 import { isBandSlide } from "@/lib/band-media";
 import type { BackgroundSpec } from "@/lib/broadcast";
 import { SharedBackgroundRenderer, type SharedShaderSpec } from "@/backgrounds/shared/SharedBackgroundRenderer";
@@ -32,6 +33,10 @@ export function ThemedSlideCard({
   ...rest
 }: React.ComponentProps<typeof SlideRenderer> & { background?: BackgroundSpec | null }) {
   const transparentSlide = useTransparentSlide();
+  // Layer Order V3 only: a slide with no background of its own is SEE-THROUGH,
+  // so its card shows PP7's transparency checkerboard at the very bottom (any
+  // theme / template / slide colour paints over it). Flag off ⇒ no extra node.
+  const layerOrderV3 = useLayerOrderV3();
   const hasBg = !!(background && background.type !== "none");
   const kind = slide.kind;
   const themeable = kind === "text" || kind === "blank";
@@ -51,7 +56,9 @@ export function ThemedSlideCard({
           opaque base a real projector surface has (/live is bg-black, /stage and
           /livestream paint #000) — otherwise the operator UI would show through the
           card. Sits BELOW the background template, exactly like the projector. */}
-      {transparentSlide && <div aria-hidden className="absolute inset-0" style={{ background: "#000" }} />}
+      {layerOrderV3 && themeable
+        ? <div aria-hidden data-slide-checkerboard="" className="absolute inset-0" style={CHECKERBOARD} />
+        : transparentSlide && <div aria-hidden className="absolute inset-0" style={{ background: "#000" }} />}
       {showBg && <CardBackground background={background!} />}
       {/* Lower-third BAND slides (verse / song / band media) size their reference +
           caption in fixed-canvas px, so like /live, the operator preview and the
@@ -65,6 +72,14 @@ export function ThemedSlideCard({
     </>
   );
 }
+
+/** PP7 transparency checkerboard (same pattern as the Themes popover swatch). */
+export const CHECKERBOARD: React.CSSProperties = {
+  backgroundColor: "#1f1f1f",
+  backgroundImage: "linear-gradient(45deg,#2a2a2a 25%,transparent 25%),linear-gradient(-45deg,#2a2a2a 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#2a2a2a 75%),linear-gradient(-45deg,transparent 75%,#2a2a2a 75%)",
+  backgroundSize: "16px 16px",
+  backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
+};
 
 const FILL: React.CSSProperties = { position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "hidden" };
 // Matches SharedBackgroundRenderer's offscreen size — the per-card cap.

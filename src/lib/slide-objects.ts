@@ -267,7 +267,57 @@ export function normalizeEditableSlide(row: {
       lyrics: row.lyrics,
     };
   }
-  return fromLegacyLyrics(row.id, row.lyrics);
+  // 2026-09-24 (theme-bg fix): a theme baked onto a blank / legacy-lyric slide
+  // stores its background on the ROOT of objectsJson with `objects: []`. The
+  // projector (services.ts projectableSongSlide) already paints that root bg,
+  // but this editor path used to ignore the whole row — so the editor showed no
+  // background and the next save wrote it away. Keep the root background +
+  // transition on the synthesized legacy slide so load → edit → save round-trips.
+  const legacy = fromLegacyLyrics(row.id, row.lyrics);
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    if (typeof raw.bgColor === "string") legacy.bgColor = raw.bgColor;
+    if (typeof raw.bgImageUrl === "string") legacy.bgImageUrl = raw.bgImageUrl;
+    if (raw.bgExplicit === true) legacy.bgExplicit = true;
+    if (raw.transition && typeof raw.transition === "object") legacy.transition = raw.transition;
+  }
+  return legacy;
+}
+
+/** Root-level objectsJson keys the slide editor does NOT own. A save must carry
+ *  them over from the stored row unless the caller supplies them explicitly —
+ *  otherwise an edit silently strips a baked theme's bgType / bgColor2 /
+ *  transition (and any future root key such as links). Pure; shared by
+ *  saveSlideObjects and its tests. */
+const EDITOR_OWNED_ROOT_KEYS = new Set(["bgColor", "bgImageUrl", "bgExplicit", "objects"]);
+export function mergeSavedSlideRoot(
+  stored: unknown,
+  input: { bgColor?: unknown; bgImageUrl?: unknown; bgExplicit?: unknown; objects: unknown[]; transition?: unknown },
+): Record<string, unknown> {
+  const prev = stored && typeof stored === "object" && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {};
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(prev)) if (!EDITOR_OWNED_ROOT_KEYS.has(k) && v !== undefined) out[k] = v;
+  if (input.transition !== undefined) out.transition = input.transition;
+  // Round 5 🟡: bgType / bgColor2 describe the STORED background. When the save
+  // CHANGES the background (a new colour / image / explicit marker), they're
+  // stale — a leftover gradient bgColor2 or bgType would outrank the new pick.
+  // An unchanged background (the editor echoes the loaded values on every save)
+  // keeps them, so a baked gradient/solid survives a plain text edit.
+  const bgChanged = !sameRootValue(input.bgColor, prev.bgColor)
+    || !sameRootValue(input.bgImageUrl, prev.bgImageUrl)
+    || (input.bgExplicit === true) !== (prev.bgExplicit === true);
+  if (bgChanged) { delete out.bgType; delete out.bgColor2; }
+  out.bgColor = input.bgColor;
+  out.bgImageUrl = input.bgImageUrl;
+  if (input.bgExplicit === true) out.bgExplicit = true;
+  // Every background cleared: a bare {bgType:"solid"} is just the default —
+  // drop it rather than leave a meaningless leftover on the row.
+  if (input.bgColor === undefined && input.bgImageUrl === undefined && input.bgExplicit !== true
+    && out.bgType === "solid" && out.bgColor2 === undefined) delete out.bgType;
+  out.objects = input.objects;
+  return out;
+}
+function sameRootValue(a: unknown, b: unknown): boolean {
+  return (a ?? undefined) === (b ?? undefined);
 }
 
 // ---------- Projector compat ------------------------------------------------

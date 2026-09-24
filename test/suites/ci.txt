@@ -16,6 +16,7 @@ test/adversarial/church-defaults-scope.test.ts
 test/adversarial/church-styles-scope.test.ts
 test/adversarial/learned-keyterms-cross-church.test.ts
 test/adversarial/media-register-scope.test.ts
+test/adversarial/new-song-theme-scope.test.ts
 test/adversarial/sermon-backfill-cross-church.test.ts
 test/adversarial/song-chunk-scope.test.ts
 test/adversarial/theme-apply-capability.test.ts
@@ -89,6 +90,8 @@ test/fonts-picker-value.test.ts
 test/fonts-registry.test.ts
 test/hex-color.test.ts
 test/keyboard-shortcuts.test.ts
+test/layer-order-v3-dom.test.tsx
+test/layer-order-v3.test.ts
 test/layer-store.test.ts
 test/layer-wire.test.ts
 test/live-bg-theme-decor.test.ts
@@ -110,6 +113,7 @@ test/multi-output.test.ts
 test/multiview.test.ts
 test/native-channel-filter.test.ts
 test/nav-clauses.test.ts
+test/new-song-dialog-dom.test.tsx
 test/no-dead-capability.test.ts
 test/obs-editor.test.ts
 test/obs-lowerthird.test.ts
@@ -209,6 +213,7 @@ test/theme-decor-designed.test.ts
 test/theme-decor-layer.test.ts
 test/theme-decor.test.ts
 test/theme-editor-model.test.ts
+test/theme-layer-opacity-config.test.tsx
 test/theme-layout-sanitize.test.ts
 test/theme-portable-ui.test.ts
 test/theme-portable.test.ts
@@ -252,3 +257,6 @@ test/wire-contract-drift.test.ts
 test/card-appearance-fallback.test.ts
 test/theme-clears-template.test.ts
 test/autofit-quiver.test.ts
+test/slide-root-bg-roundtrip.test.ts
+test/composable-round5.test.ts
+test/composable-round5b.test.ts

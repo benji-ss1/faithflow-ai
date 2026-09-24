@@ -55,6 +55,10 @@
   --color-brand:          #e8501a;
   --color-brand-muted:    #c23e0f;
   --color-brand-hi:       #ff8a52;
+  /* PP7-style selection blue (theme picker ring, primary dialog button).
+     -strong is the button fill: white text on it is 5.3:1 (WCAG AA). */
+  --color-selection:        #0a84ff;
+  --color-selection-strong: #0060df;
   --color-success:        #4fd18b;
   --color-warning:        #f0b35a;
   --color-destructive:    #ff6d6d;

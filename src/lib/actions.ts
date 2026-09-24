@@ -20,7 +20,7 @@ import { isBuiltinThemeId } from "./builtin-themes";
 import { getBuiltinTheme, builtinThemeConfig } from "./builtin-themes";
 import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
-import { OVERLAY_POSITIONS } from "./broadcast";
+import { OVERLAY_POSITIONS, isValidTransitionSpec } from "./broadcast";
 import { requireUser, requireRole, requireCap, hasCap } from "./session";
 import { deleteObject, getBuffer, putBuffer, statObject, readObjectHead, keyFromPresignedUrl, presignGet } from "./s3";
 import {
@@ -32,13 +32,16 @@ import { isAudioMediaSupported, AUDIO_NOT_READY_ERROR } from "./server/media-aud
 import { after } from "next/server";
 import { generateImageThumbnail } from "./media-thumbnail";
 import { validateReorderItemSlides } from "./reorder-validator";
-import { newObjectId } from "./slide-objects";
+import { newObjectId, mergeSavedSlideRoot } from "./slide-objects";
+import { inheritNewSlide, makeIdMapper, addNewSlideToThemeBackups, restoreNullIfEmpty } from "./slide-inherit";
+import { remapRunsForTextEdit, type TextRun } from "./text-runs";
 import { createLimiter } from "./rate-limit";
 import { getSongUsage } from "./song-limits";
 import { getEffectiveSongLimit } from "./server/song-limits-server";
 import { bulkInsertSongs } from "./song-bulk-insert";
 import { mergeDuplicateMediaRows, countMediaUsage, type MediaUsage } from "./server/media-dedupe";
 import { reChunkSongCore, type ReChunkOutcome } from "./server/song-rechunk";
+import { resolveNewSongOptions } from "./new-song-options";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -224,7 +227,6 @@ export async function addServiceItem(planId: string, type: ServiceItemType, titl
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
   if (!plan) return { ok: false, error: "Not found" };
-  if (plan.kind === "smart") return { ok: false, error: "Smart playlists fill automatically — edit their rules instead" };
   // A smart playlist has no service_items rows — writing one would create an
   // item that is invisible in the plan. This is the SECURITY boundary; the
   // drop refusal in PlaylistSection is only affordance.
@@ -629,6 +631,8 @@ export async function applyThemeToPlan(
 }
 
 // Songs ----------------------------------------------------------------------
+/** Sentinel: the theme bake refused inside createSong's transaction. */
+class ThemeNotAppliedError extends Error {}
 export async function createSong(formData: FormData): Promise<Result<{ id: string }>> {
   const user = await requireCap("edit_library");
   const title = String(formData.get("title") || "").trim().slice(0, 200);
@@ -640,9 +644,66 @@ export async function createSong(formData: FormData): Promise<Result<{ id: strin
     return { ok: false, error: `Song library limit reached (${usage}/${limit}) — buy a bundle to add more.` };
   }
   const db = getDb();
-  const [row] = await db.insert(songs).values({ churchId: user.churchId, title, artist }).returning();
+  // New-song dialog (plan A.6): optional theme + library. Validated church-
+  // scoped BEFORE the insert, so a forged/foreign id refuses the whole create.
+  // Absent fields ⇒ exactly the previous behaviour (no theme, Default library).
+  let themeCfg: ThemeConfig | null = null;
+  const opts = await resolveNewSongOptions(
+    { themeId: formData.get("themeId") ?? undefined, libraryId: formData.get("libraryId") ?? undefined },
+    {
+      themeInChurch: async (id) => {
+        const [t] = await db.select({ id: themes.id, config: themes.config }).from(themes)
+          .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId))).limit(1);
+        if (t) themeCfg = (t.config as ThemeConfig) ?? {};
+        return !!t;
+      },
+      libraryError: (id) => libraryMoveError(db, user.churchId, id),
+    },
+  );
+  if (!opts.ok) return opts;
+  // New-song dialog: "seedFirstSlide=1" creates the blank first slide in the
+  // SAME transaction, and a chosen theme is baked there too — song, slide and
+  // theme commit together or not at all (no half-themed song on a failure).
+  // Callers that send neither field get exactly the old single insert.
+  const seed = formData.get("seedFirstSlide") === "1";
+  const themeId = opts.data.themeId;
+  const cfg = themeCfg as ThemeConfig | null;
+  const res = await db.transaction(async (tx): Promise<Result<{ id: string }>> => {
+    const [row] = await tx.insert(songs).values({
+      churchId: user.churchId, title, artist,
+      ...(opts.data.libraryId ? { libraryId: opts.data.libraryId } : {}),
+    }).returning();
+    if (seed) await tx.insert(songSlides).values({ songId: row.id, order: 0, lyrics: "", objectsJson: null });
+    if (themeId && cfg) {
+      const r = await bakeThemeIntoSongTx(tx, user.churchId, themeId, cfg, row.id);
+      if (!r.ok) throw new ThemeNotAppliedError();
+    }
+    return { ok: true, data: { id: row.id } };
+  }).catch((e: unknown): Result<{ id: string }> => {
+    // Never leak raw DB/driver text to the client — log it server-side.
+    if (e instanceof ThemeNotAppliedError) return { ok: false, error: "Theme not applied" };
+    console.error("[createSong]", e instanceof Error ? e.message : String(e));
+    return { ok: false, error: "Create failed — please try again" };
+  });
+  if (!res.ok) return res;
   revalidatePath("/library/songs");
-  return { ok: true, data: { id: row.id } };
+  return res;
+}
+
+/**
+ * Playlist choices for the new-song dialog: this church's MANUAL service plans
+ * (a smart playlist owns no items, so a song can't be added to it). Read-only,
+ * church-scoped, newest first, capped.
+ */
+export async function listServicePlanChoices(): Promise<Result<Array<{ id: string; title: string; scheduledFor: string | null }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select({ id: servicePlans.id, title: servicePlans.title, scheduledFor: servicePlans.scheduledFor, kind: servicePlans.kind })
+    .from(servicePlans)
+    .where(eq(servicePlans.churchId, user.churchId))
+    .orderBy(sql`${servicePlans.scheduledFor} DESC NULLS LAST`, sql`${servicePlans.createdAt} DESC`)
+    .limit(100);
+  return { ok: true, data: rows.filter((r) => r.kind !== "smart").map((r) => ({ id: r.id, title: r.title, scheduledFor: r.scheduledFor ?? null })) };
 }
 
 // Rename a song (works for imported songs too — no `source` gate). Mirrors
@@ -1127,6 +1188,7 @@ type EditableSlideInput = {
   bgExplicit?: boolean;
   objects: unknown[];
   lyrics?: string;
+  transition?: unknown;
 };
 
 export async function saveSlideObjects(slideId: string, editable: EditableSlideInput): Promise<Result> {
@@ -1142,21 +1204,31 @@ export async function saveSlideObjects(slideId: string, editable: EditableSlideI
     .map((o) => (typeof o.text === "string" ? o.text.trim() : ""))
     .filter(Boolean)
     .join("\n") || editable.lyrics || "";
-  // Decision B (2026-09-23): a deliberate STYLE edit locks the slide's look so
-  // it keeps it over the default theme. The editor saves every slide on Save,
-  // so only lock when the style actually changed vs what's stored (a text-only
-  // edit or an untouched slide keeps its current lock state).
-  const [prevRow] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
-  const nextObjects = lockStyledTextObjects(prevRow?.objectsJson, editable.bgColor, editable.objects);
-  await db.update(songSlides).set({
-    objectsJson: {
-      bgColor: editable.bgColor,
-      bgImageUrl: editable.bgImageUrl,
-      ...(editable.bgExplicit === true ? { bgExplicit: true } : {}),
-      objects: nextObjects,
-    },
-    lyrics: derivedLyrics,
-  }).where(eq(songSlides.id, slideId));
+  // Carry over root keys the editor doesn't own (a baked theme's bgType /
+  // bgColor2 / transition …) — see mergeSavedSlideRoot. Read-then-write under a
+  // row lock so a concurrent quick edit / save can't interleave and drop keys.
+  // Only the slide row is locked (never the song), so this can't invert the
+  // song→slides lock order bakeThemeIntoSongTx uses.
+  // A transition is only persisted when it passes the wire validator the
+  // projector trusts; anything else keeps the stored value.
+  const transition = editable.transition !== undefined && isValidTransitionSpec(editable.transition) ? editable.transition : undefined;
+  await db.transaction(async (tx) => {
+    const [prevRow] = await tx.select({ objectsJson: songSlides.objectsJson }).from(songSlides)
+      .where(eq(songSlides.id, slideId)).for("update");
+    // Decision B (#114, 2026-09-23): a deliberate STYLE edit locks the slide's
+    // look so it keeps it over the default theme (text-only edits keep state).
+    const lockedObjects = lockStyledTextObjects(prevRow?.objectsJson, editable.bgColor, Array.isArray(editable.objects) ? editable.objects : []) as unknown[];
+    await tx.update(songSlides).set({
+      objectsJson: mergeSavedSlideRoot(prevRow?.objectsJson, {
+        bgColor: editable.bgColor,
+        bgImageUrl: editable.bgImageUrl,
+        bgExplicit: editable.bgExplicit,
+        objects: lockedObjects,
+        transition,
+      }),
+      lyrics: derivedLyrics,
+    }).where(eq(songSlides.id, slideId));
+  });
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true };
 }
@@ -1174,21 +1246,35 @@ export async function updateSongSlideText(slideId: string, newText: string): Pro
   if (!owned) return { ok: false, error: "Slide not found" };
   const text = typeof newText === "string" ? newText : "";
   if (text.length > 5000) return { ok: false, error: "Slide text too long (max 5000)" };
-  const [row] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
-  const oj = (row?.objectsJson ?? null) as { bgColor?: string; bgImageUrl?: string; objects?: Array<Record<string, unknown>> } | null;
-  const objects = Array.isArray(oj?.objects) ? oj!.objects : null;
-  if (objects && objects.some((o) => o && o.kind === "text")) {
-    // Designed slide: replace the first text object's text; keep everything else.
-    let replaced = false;
-    const nextObjects = objects.map((o) => {
-      if (!replaced && o && o.kind === "text") { replaced = true; return { ...o, text }; }
-      return o;
-    });
-    await db.update(songSlides).set({ objectsJson: { ...oj, objects: nextObjects }, lyrics: text }).where(eq(songSlides.id, slideId));
-  } else {
-    // Plain-lyric slide: no designed objects to preserve.
-    await db.update(songSlides).set({ lyrics: text }).where(eq(songSlides.id, slideId));
-  }
+  // Read-then-write under the slide row lock (see saveSlideObjects).
+  await db.transaction(async (tx) => {
+    const [row] = await tx.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).for("update");
+    const oj = (row?.objectsJson ?? null) as { bgColor?: string; bgImageUrl?: string; objects?: Array<Record<string, unknown>> } | null;
+    const objects = Array.isArray(oj?.objects) ? oj!.objects : null;
+    if (objects && objects.some((o) => o && o.kind === "text")) {
+      // Designed slide: replace the first text object's text; keep everything else.
+      let replaced = false;
+      const nextObjects = objects.map((o) => {
+        if (!replaced && o && o.kind === "text") {
+          replaced = true;
+          // Character-offset `runs` (imported PP7 emphasis) must follow the
+          // words, not the offsets: re-map a pure insert/delete, otherwise
+          // drop them (never bold the wrong word). See remapRunsForTextEdit.
+          const oldText = typeof o.text === "string" ? o.text : "";
+          if (!("runs" in o) || oldText === text) return { ...o, text };
+          const { runs: _old, ...rest } = o; void _old;
+          const runs = remapRunsForTextEdit(o.runs as TextRun[] | undefined, oldText, text);
+          return runs ? { ...rest, text, runs } : { ...rest, text };
+        }
+        return o;
+      });
+      await tx.update(songSlides).set({ objectsJson: { ...oj, objects: nextObjects }, lyrics: text }).where(eq(songSlides.id, slideId));
+    } else {
+      // Plain-lyric slide (or a themed blank: root bg + objects: []): only the
+      // lyrics change; objectsJson (incl. a NULL) is left exactly as stored.
+      await tx.update(songSlides).set({ lyrics: text }).where(eq(songSlides.id, slideId));
+    }
+  });
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true };
 }
@@ -1198,78 +1284,62 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
   const db = getDb();
   const song = await assertSongOwned(db, songId, user.churchId);
   if (!song) return { ok: false, error: "Song not found" };
-  const existing = await db.select({ id: songSlides.id, order: songSlides.order })
-    .from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
-  const idx = typeof atIndex === "number" ? Math.max(0, Math.min(atIndex, existing.length)) : existing.length;
-  // Shift subsequent orders up by 1 to make room.
-  for (let i = existing.length - 1; i >= idx; i--) {
-    await db.update(songSlides).set({ order: i + 1 }).where(eq(songSlides.id, existing[i].id));
-  }
-  let objects = initial?.objects ?? [];
-  let bgColor = initial?.bgColor;
-  let bgImageUrl = initial?.bgImageUrl;
-  let bgExplicit = initial?.bgExplicit;
-
-  // STYLE INHERITANCE (2026-09-06): when adding a BLANK slide (no objects
-  // supplied — both "Add slide" buttons do this), copy the styling of a sibling
-  // slide in this SAME song so the new slide matches its fonts, size, colour,
-  // alignment, decorative objects (logos/shapes) and background — instead of
-  // falling back to global defaults and looking different from the rest of the
-  // song. The editor's own save path always passes real objects, so it's
-  // unaffected. Only inherits when a styled sibling actually exists.
-  if (objects.length === 0) {
-    const templateId = existing[idx - 1]?.id ?? existing[existing.length - 1]?.id;
-    if (templateId) {
-      const [tpl] = await db.select({ objectsJson: songSlides.objectsJson })
-        .from(songSlides).where(eq(songSlides.id, templateId)).limit(1);
-      const tplJson = tpl?.objectsJson as { bgColor?: string; bgImageUrl?: string; bgExplicit?: boolean; objects?: Array<Record<string, unknown>> } | null;
-      if (tplJson?.objects?.length) {
-        const newText = (initial?.lyrics ?? "").trim();
-        let usedTextSlot = false;
-        // Keep every object's full style; regenerate ids; put the new lyrics in
-        // the FIRST text object and blank any further text objects. Decorative
-        // (shape/image/video) objects are copied verbatim so the look matches.
-        objects = tplJson.objects.map((o) => {
-          const cloned: Record<string, unknown> = { ...o, id: newObjectId() };
-          if (o.kind === "text") {
-            cloned.text = usedTextSlot ? "" : newText;
-            usedTextSlot = true;
-          }
-          return cloned;
-        });
-        bgColor = bgColor ?? tplJson.bgColor;
-        bgImageUrl = bgImageUrl ?? tplJson.bgImageUrl;
-        // Style inheritance copies the sibling's background, so it must copy
-        // "that background was chosen" too — else a black sibling's look is lost.
-        bgExplicit = bgExplicit ?? tplJson.bgExplicit;
-      }
+  // One transaction, song row locked FIRST (same lock order as
+  // bakeThemeIntoSongTx: song, then slides) — the order shift, the insert and
+  // the theme-backup update commit together.
+  const id = await db.transaction(async (tx) => {
+    const [locked] = await tx.select({ settings: songs.settings }).from(songs)
+      .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).for("update");
+    if (!locked) return null;
+    const existing = await tx.select({ id: songSlides.id, order: songSlides.order })
+      .from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
+    const idx = typeof atIndex === "number" ? Math.max(0, Math.min(atIndex, existing.length)) : existing.length;
+    // Shift subsequent orders up by 1 to make room.
+    for (let i = existing.length - 1; i >= idx; i--) {
+      await tx.update(songSlides).set({ order: i + 1 }).where(eq(songSlides.id, existing[i].id));
     }
-  }
-
-  // Decision B: a new slide the operator styled in the editor keeps its look
-  // (template-inherited slides already carry the sibling's lock state).
-  if (initial?.objects && initial.objects.length > 0) {
-    objects = lockStyledTextObjects(null, bgColor, objects) as typeof objects;
-  }
-  const textObjects = objects.filter((o): o is { kind: string; text?: string } =>
-    typeof o === "object" && o !== null && (o as { kind?: unknown }).kind === "text");
-  const derivedLyrics = textObjects
-    .map((o) => (typeof o.text === "string" ? o.text.trim() : ""))
-    .filter(Boolean)
-    .join("\n") || initial?.lyrics || "";
-  const [row] = await db.insert(songSlides).values({
-    songId,
-    order: idx,
-    lyrics: derivedLyrics,
-    objectsJson: objects.length > 0 ? {
-      bgColor,
-      bgImageUrl,
-      ...(bgExplicit === true ? { bgExplicit: true } : {}),
-      objects,
-    } : null,
-  }).returning({ id: songSlides.id });
+    // STYLE INHERITANCE (2026-09-06, extended round 5): the new slide copies a
+    // sibling in this SAME song (see slide-inherit.ts). A themed song (or a
+    // sibling with a chosen background) also passes its root background to the
+    // new slide — even a blank `objects: []` themed slide, and even when the
+    // caller supplied its own objects (the editor's Add) but no background.
+    const settings = (locked.settings as Record<string, unknown> | null) ?? {};
+    const themed = typeof settings.appliedThemeId === "string";
+    const templateId = existing[idx - 1]?.id ?? existing[existing.length - 1]?.id;
+    let tplJson: unknown = null;
+    if (templateId) {
+      const [tpl] = await tx.select({ objectsJson: songSlides.objectsJson })
+        .from(songSlides).where(eq(songSlides.id, templateId)).limit(1);
+      tplJson = tpl?.objectsJson ?? null;
+    }
+    const idFor = makeIdMapper(newObjectId);
+    // Decision B (#114): a new slide the operator styled in the editor keeps its
+    // look (styleLocked); sibling-inherited slides carry the sibling's lock state.
+    const initObjects = initial && Array.isArray(initial.objects) ? initial.objects : [];
+    const init = initial ? {
+      ...initial,
+      objects: initObjects.length > 0 ? (lockStyledTextObjects(null, initial.bgColor, initObjects) as unknown[]) : initObjects,
+    } : undefined;
+    const built = inheritNewSlide({ sibling: tplJson, initial: init, themed, idFor });
+    const [row] = await tx.insert(songSlides).values({
+      songId,
+      order: idx,
+      lyrics: built.lyrics,
+      objectsJson: built.objectsJson,
+    }).returning({ id: songSlides.id });
+    // Keep revert / re-apply valid for a slide added after a theme was applied.
+    const nextSettings = addNewSlideToThemeBackups({
+      settings, siblingId: templateId, newSlideId: row.id, newSlideObjectsJson: built.objectsJson, initial: init, idFor,
+    });
+    if (nextSettings) {
+      await tx.update(songs).set({ settings: nextSettings })
+        .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+    }
+    return row.id;
+  });
+  if (!id) return { ok: false, error: "Song not found" };
   revalidatePath(`/library/songs/${songId}`);
-  return { ok: true, data: { id: row.id } };
+  return { ok: true, data: { id } };
 }
 
 export async function deleteSongSlide(slideId: string): Promise<Result> {
@@ -3106,26 +3176,30 @@ async function writeSongSlideObjects(tx: ThemeTx, songId: string, rows: { id: st
   for (let i = 0; i < rows.length; i += 100) {
     const chunk = rows.slice(i, i + 100);
     if (chunk.length === 0) continue;
-    const values = sql.join(chunk.map((r) => sql`(${r.id}::uuid, ${JSON.stringify(r.objectsJson ?? null)}::jsonb)`), sql`, `);
+    // A null objectsJson is written as SQL NULL (not the JSON literal `null`), so a
+    // revert to a plain lyric slide restores the exact pre-theme column value.
+    const values = sql.join(chunk.map((r) => (r.objectsJson == null
+      ? sql`(${r.id}::uuid, NULL::jsonb)`
+      : sql`(${r.id}::uuid, ${JSON.stringify(r.objectsJson)}::jsonb)`)), sql`, `);
     await tx.execute(sql`UPDATE song_slides AS s SET objects_json = v.oj
       FROM (VALUES ${values}) AS v(id, oj)
       WHERE s.id = v.id AND s.song_id = ${songId}::uuid`);
   }
 }
 
-export async function applyThemeToSong(themeId: string, songId: string): Promise<Result<{ slidesUpdated: number }>> {
-  const user = await requireCap("edit_library");
-  const db = getDb();
-  const [theme] = await db.select().from(themes)
-    .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
-  if (!theme) return { ok: false, error: "Theme not found" };
-  const cfg = (theme.config as ThemeConfig) ?? {};
-  const res = await db.transaction(async (tx): Promise<Result<{ slidesUpdated: number }>> => {
+/**
+ * The whole-song theme bake, run INSIDE a caller's transaction (shared by
+ * applyThemeToSong and createSong so a new song + its theme commit together).
+ * Church-scoped: the song row is locked with church_id in the WHERE; the caller
+ * must have already resolved `cfg` from a theme of the same church.
+ */
+async function bakeThemeIntoSongTx(tx: ThemeTx, churchId: string, themeId: string, cfg: ThemeConfig, songId: string): Promise<Result<{ slidesUpdated: number }>> {
+  const user = { churchId };
     const [song] = await tx.select().from(songs)
       .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).for("update");
     if (!song) return { ok: false, error: "Song not found" };
     const slides = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
-      .from(songSlides).where(eq(songSlides.songId, songId));
+      .from(songSlides).where(eq(songSlides.songId, songId)).for("update"); // lock order: song → slides
     const prevSettings = (song.settings as Record<string, unknown>) ?? {};
     // Snapshot every slide's prior objectsJson so revertSongTheme can restore the
     // look. Revert-bug fix (Theme Editor PR 1): the FIRST snapshot is preserved
@@ -3154,7 +3228,16 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
       settings: { ...prevSettings, appliedThemeId: themeId, themeBackup: backup, slideThemeBackups: {} },
     }).where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
     return { ok: true, data: { slidesUpdated: slides.length } };
-  });
+}
+
+export async function applyThemeToSong(themeId: string, songId: string): Promise<Result<{ slidesUpdated: number }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const [theme] = await db.select().from(themes)
+    .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
+  if (!theme) return { ok: false, error: "Theme not found" };
+  const cfg = (theme.config as ThemeConfig) ?? {};
+  const res = await db.transaction((tx) => bakeThemeIntoSongTx(tx, user.churchId, themeId, cfg, songId));
   if (!res.ok) return res;
   revalidatePath("/library/songs");
   revalidatePath(`/library/songs/${songId}`);
@@ -3298,13 +3381,14 @@ export async function revertSongTheme(songId: string): Promise<Result<{ slidesRe
     const backup = settings.themeBackup as { slides?: { id: string; objectsJson: unknown }[] } | undefined;
     if (!backup?.slides?.length) return { ok: false, error: "Nothing to undo" };
     const current = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
-      .from(songSlides).where(eq(songSlides.songId, songId));
+      .from(songSlides).where(eq(songSlides.songId, songId)).for("update"); // lock order: song → slides
     const byId = new Map(current.map((c) => [c.id, c]));
     const rows: { id: string; objectsJson: unknown }[] = [];
     for (const b of backup.slides) {
       const cur = byId.get(b.id);
       if (!cur) continue; // slide deleted since the apply
-      rows.push({ id: b.id, objectsJson: resetThemeOwnedFields(cur.objectsJson, b.objectsJson) });
+      // A NULL snapshot (plain lyric slide) restores as exact NULL, not {"objects":[]}.
+      rows.push({ id: b.id, objectsJson: restoreNullIfEmpty(resetThemeOwnedFields(cur.objectsJson, b.objectsJson), b.objectsJson) });
     }
     await writeSongSlideObjects(tx, songId, rows);
     const nextSettings = { ...settings };
@@ -3401,7 +3485,7 @@ export async function reapplyThemeToSongs(
       if (!song) return false;
       const settings = (song.settings as Record<string, unknown>) ?? {};
       const slides = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
-        .from(songSlides).where(eq(songSlides.songId, songId));
+        .from(songSlides).where(eq(songSlides.songId, songId)).for("update"); // lock order: song → slides
       const additions: { id: string; objectsJson: unknown }[] = [];
       const rows: { id: string; objectsJson: unknown }[] = [];
       const perSlideRebaked: string[] = [];

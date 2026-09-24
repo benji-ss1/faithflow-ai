@@ -22,6 +22,8 @@ export function usePp7LayerInputs(ctx: OperatorShellCtx, messagesActive: boolean
   const pp7DrawOrder = usePp7DrawOrder();
   // Slide cleared but the theme's media kept (src/lib/pp7-keep-theme-bg.ts).
   const themeBgKept = isKeepThemeBgSlide(ctx.liveSlide);
+  const layerOrderV3 = !!ctx.layerOrderV3;
+  const themeLayerActive = !!ctx.themeLayerActive;
   return useMemo<Pp7LayerInputs>(() => ({
     kind,
     rowActive: (id: string) => !!rows.find((r) => r.id === id)?.active,
@@ -31,7 +33,9 @@ export function usePp7LayerInputs(ctx: OperatorShellCtx, messagesActive: boolean
     messagesActive,
     pp7DrawOrder,
     themeBgKept,
-  }), [kind, rows, announcementActive, backgroundSpecActive, videoInputActive, messagesActive, pp7DrawOrder, themeBgKept]);
+    // Layer Order V3 — only present when on, so flag-off inputs are unchanged.
+    ...(layerOrderV3 ? { layerOrderV3: true, themeLayerActive } : {}),
+  }), [kind, rows, announcementActive, backgroundSpecActive, videoInputActive, messagesActive, pp7DrawOrder, themeBgKept, layerOrderV3, themeLayerActive]);
 }
 
 export function usePp7ClearEffects(ctx: OperatorShellCtx, onClearMessages: () => void): Pp7ClearEffects {
@@ -51,6 +55,7 @@ export function usePp7ClearEffects(ctx: OperatorShellCtx, onClearMessages: () =>
     // projector, not two. Left UNDEFINED when the church has no logo, which is
     // what hides the button: a Clear to Logo that clears to nothing would look
     // like the app had crashed mid-service.
+    ...(ctx.onClearTheme ? { clearTheme: () => ctx.onClearTheme?.() } : {}),
     showLogo: ctx.plan?.logoUrl
       ? () => ctx.onSendSlideToLive({ kind: "logo", url: ctx.plan.logoUrl })
       : undefined,
