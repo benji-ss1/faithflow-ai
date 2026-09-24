@@ -27,6 +27,7 @@ test/allusion-matcher.test.ts
 test/allusion-precision.test.ts
 test/allusion-runtime-guards.test.ts
 test/allusion-wiring.test.ts
+test/animated-theme-thumbs.test.ts
 test/api-search-bible-arm.test.ts
 test/arrangement-strip.test.ts
 test/arrangements.test.ts

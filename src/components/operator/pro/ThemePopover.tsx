@@ -39,7 +39,6 @@ import { useLegacyThemes } from "@/lib/legacy-themes-flag";
 import { BUILT_IN_BACKGROUNDS } from "@/backgrounds/presets/defaultTemplates";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
-import { shaderThumbnail } from "@/backgrounds/shaders/shaderThumbnail";
 
 /** Built-ins as client themes (constant config; never applied directly — they
  *  are materialized into a church theme first). */
@@ -424,8 +423,10 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
 /** Animated themes (2026-09-24, user request): the motion backgrounds shown as
  *  tiles in the main Themes panel, above Built-in. Clicking one puts it live
  *  behind the text — the SAME action as the slide right-click "Animated
- *  themes" menu (setActiveBackgroundId). Tiles are static one-frame renders
- *  (shaderThumbnail) so the panel holds no live WebGL contexts. */
+ *  themes" menu (setActiveBackgroundId). Tiles are pre-rendered still images
+ *  (public/animated-themes/<id>.jpg) so opening the panel creates NO WebGL
+ *  contexts and does no GPU work (review gate: live thumbnail rendering could
+ *  stall the operator window or evict the live preview's context). */
 function AnimatedThemesSection() {
   const activeId = useBackgroundState().active.id;
   const looks = BUILT_IN_BACKGROUNDS.filter((b) => b.type === "shader" && b.shaderPreset);
@@ -451,21 +452,14 @@ function AnimatedThemesSection() {
 }
 
 function AnimatedThemeTile({ bg, active, onPick }: { bg: (typeof BUILT_IN_BACKGROUNDS)[number]; active: boolean; onPick: () => void }) {
-  const [src, setSrc] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    void shaderThumbnail({ preset: bg.shaderPreset!, intensity: bg.shaderIntensity, primaryColor: bg.shaderPrimaryColor || "#0A0A0E", secondaryColor: bg.shaderSecondaryColor || "#0F0F14" })
-      .then((u) => { if (alive) setSrc(u); });
-    return () => { alive = false; };
-  }, [bg]);
   const fallback = `linear-gradient(135deg, ${bg.shaderPrimaryColor ?? "#334155"}, ${bg.shaderSecondaryColor ?? "#0f172a"})`;
   return (
-    <button type="button" onClick={onPick} title={`${bg.name} — put it behind the text`} className="flex flex-col items-center gap-1.5 min-w-0 group">
+    <button type="button" onClick={onPick} aria-pressed={active} title={`${bg.name} — put it behind the text`} className="flex flex-col items-center gap-1.5 min-w-0 group">
       <div
         className="relative w-full aspect-video rounded-md overflow-hidden border-2 transition-colors"
-        style={{ borderColor: active ? "var(--color-brand)" : "transparent", background: src ? `#000 url("${src}") center/cover no-repeat` : fallback }}
+        style={{ borderColor: active ? "var(--color-brand)" : "transparent", background: `url("/animated-themes/${bg.id}.jpg") center/cover no-repeat, ${fallback}` }}
       >
-        {active ? <span className="absolute top-1 right-1 rounded px-1 text-[9px] font-semibold bg-[var(--color-brand)] text-white">ON</span> : null}
+        {active ? <span aria-hidden className="absolute top-1 right-1 rounded px-1 text-[9px] font-semibold bg-[var(--color-brand)] text-white">ON</span> : null}
       </div>
       <span className="truncate max-w-full text-[12px] text-[var(--color-foreground)]">{bg.name}</span>
     </button>
