@@ -1,13 +1,11 @@
 "use client";
-import { useEffect, useRef } from "react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { useTransparentSlide } from "@/lib/transparent-slide";
 import { useLayerOrderV3 } from "@/lib/layer-order-v3";
 import { isBandSlide } from "@/lib/band-media";
 import type { BackgroundSpec } from "@/lib/broadcast";
-import { SharedBackgroundRenderer, type SharedShaderSpec } from "@/backgrounds/shared/SharedBackgroundRenderer";
-import { FLOOR_GRADIENT, FLOOR_TINT_OPACITY, tintGradient } from "@/backgrounds/shared/shaderUtils";
+import { SharedShaderCanvas } from "@/backgrounds/components/SharedShaderCanvas";
 
 /**
  * A center-panel slide card that renders the SAME theme composite the projector
@@ -82,8 +80,6 @@ export const CHECKERBOARD: React.CSSProperties = {
 };
 
 const FILL: React.CSSProperties = { position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "hidden" };
-// Matches SharedBackgroundRenderer's offscreen size — the per-card cap.
-const OFF_W = 480, OFF_H = 270;
 
 function CardBackground({ background }: { background: BackgroundSpec }) {
   const overlayOpacity = typeof background.overlayOpacity === "number" ? Math.min(0.8, Math.max(0, background.overlayOpacity)) : 0;
@@ -109,49 +105,17 @@ function CardBackground({ background }: { background: BackgroundSpec }) {
   );
 }
 
-/**
- * One card's 2D canvas registered with the shared shader renderer. Layers:
- *   1. opaque dark base + primary→secondary tint (readable floor — shows before
- *      the first blit and if WebGL is unavailable; never white, always legible);
- *   2. the 2D canvas the shared renderer blits the real shader into each frame.
- * The opaque shader blit covers the floor once it draws — so the card shows the
- * exact live shader, and falls back to the dark tint gracefully.
- */
+/** One card's canvas on the shared shader renderer (see SharedShaderCanvas). */
 function SharedShaderCard({ background }: { background: BackgroundSpec }) {
-  const ref = useRef<HTMLCanvasElement | null>(null);
-  const spec: SharedShaderSpec = {
-    preset: background.shaderPreset || "cleanSlate",
-    speed: background.speed ?? 1,
-    intensity: background.intensity ?? 1,
-    primary: background.primaryColor || "#0A0A0E",
-    secondary: background.secondaryColor || "#0F0F14",
-  };
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const r = canvas.getBoundingClientRect();
-    const dpr = Math.min(1.5, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
-    canvas.width = Math.max(1, Math.min(OFF_W, Math.round((r.width || 160) * dpr)));
-    canvas.height = Math.max(1, Math.min(OFF_H, Math.round((r.height || 90) * dpr)));
-    const handle = SharedBackgroundRenderer.register(canvas, spec);
-    // Cull blits for cards scrolled out of view — a chapter can have 150+ cards,
-    // and blitting all of them every frame is needless GPU work on church laptops.
-    let obs: IntersectionObserver | null = null;
-    try {
-      obs = new IntersectionObserver((entries) => {
-        for (const e of entries) handle.setVisible(e.isIntersecting);
-      }, { rootMargin: "100px" });
-      obs.observe(canvas);
-    } catch { /* no IO support → all cards stay visible (fine) */ }
-    return () => { obs?.disconnect(); handle.dispose(); };
-    // Re-register when the active theme changes (one context rebuild, deduped).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spec.preset, spec.primary, spec.secondary, spec.speed, spec.intensity]);
   return (
-    <>
-      <div style={{ ...FILL, background: FLOOR_GRADIENT }} />
-      <div style={{ ...FILL, background: tintGradient(spec.primary, spec.secondary), opacity: FLOOR_TINT_OPACITY }} />
-      <canvas ref={ref} style={{ ...FILL, display: "block" }} />
-    </>
+    <SharedShaderCanvas
+      spec={{
+        preset: background.shaderPreset || "cleanSlate",
+        speed: background.speed ?? 1,
+        intensity: background.intensity ?? 1,
+        primary: background.primaryColor || "#0A0A0E",
+        secondary: background.secondaryColor || "#0F0F14",
+      }}
+    />
   );
 }

@@ -4,6 +4,15 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.526",
+    "date": "2026-09-24",
+    "headline": "Animated backgrounds now move on your Main screen monitor too",
+    "highlights": [
+      "The Main, Stage and Stream monitors on the right now show your animated background moving, in step with the slide cards and the projector.",
+      "No extra load on your computer: every preview shares the same single animation."
+    ]
+  },
+  {
     "version": "0.1.525",
     "date": "2026-09-24",
     "headline": "Animated themes now live in the Themes panel",
