@@ -23,6 +23,7 @@
  *      slide's background / Set as global background / Move to library / Delete)
  *      + DOUBLE-CLICK quick preview modal (image full view; video with controls).
  */
+import { readLayerOrderV3Flag, useLayerOrderV3 } from "@/lib/layer-order-v3";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -100,6 +101,9 @@ export function MediaBinSection({
   height?: number;
   onResize?: (px: number) => void;
 }) {
+  // Layer Order V3 (single flag store): only drives the hover hint here; the
+  // click itself reads readLayerOrderV3Flag() at click time (same store).
+  const layerOrderV3 = useLayerOrderV3();
   const [assets, setAssets] = useState<Asset[] | null>(null);
   const [hasOpened, setHasOpened] = useState(open);
   const [libs, setLibs] = useState<LibraryRow[]>([]);
@@ -639,7 +643,9 @@ export function MediaBinSection({
                             // menu items change the background behind every slide
                             // (user-directed 2026-09-17 — a click must never set a background).
                             if (!ctx) { onCenterMode?.("media"); return; }
-                            if (mediaClickAction(a.kind) === "send-live") sendAsSlide(a);
+                            // Layer Order V3: click = MEDIA LAYER (no copy into slide/theme);
+                            // "Send as slide" stays in the right-click menu.
+                            if (mediaClickAction(a.kind) === "send-live") { if (readLayerOrderV3Flag()) void setAsBackground(a); else sendAsSlide(a); }
                             else toast.error(AUDIO_NOT_PROJECTABLE);
                           }, 250);
                         }}
@@ -648,7 +654,7 @@ export function MediaBinSection({
                           if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
                           setPreview(a);
                         }}
-                        title={`${a.fileName || "Media"} — click to send live · double-click to preview · drag onto a slide · right-click for options`}
+                        title={layerOrderV3 ? `${a.fileName || "Media"} — Click: set as background · Right-click: send as slide · double-click to preview` : `${a.fileName || "Media"} — click to send live · double-click to preview · drag onto a slide · right-click for options`}
                         className="group relative aspect-video rounded-md overflow-hidden bg-black border border-[var(--color-border)] cursor-grab active:cursor-grabbing hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] transition-colors"
                       >
                         {a.url ? (

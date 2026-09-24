@@ -28,7 +28,7 @@ export function hasVideoBackground(videoInput?: VideoInputState | null, appearan
  * normally. The video layer is a sibling of the overlay (not wrapped by any
  * slide-keyed element), so slide changes never restart the video.
  */
-export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef, cameraExternal = false, ignoreThemeLayout, previewFrozen }: {
+export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef, cameraExternal = false, ignoreThemeLayout, previewFrozen, themeBgExternal = false }: {
   slide: SlidePayload;
   videoInput?: VideoInputState | null;
   appearance?: ThemeAppearance | null;
@@ -47,10 +47,14 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
   ignoreThemeLayout?: boolean;
   /** Operator mini-preview: pause persistent decor video. */
   previewFrozen?: boolean;
+  /** Layer Order V3: theme bg / video / decor are separate compositor layers
+   *  below this one; the slide paints none of them. */
+  themeBgExternal?: boolean;
 }) {
   const ign = ignoreThemeLayout ? { ignoreThemeLayout: true } : {};
+  const ext = themeBgExternal ? { themeBgExternal: true } : {};
   // Live camera takes precedence over a theme video background.
-  const themeVideoUrl = !videoInput && appearance?.bgType === "video" && appearance.bgVideoUrl ? appearance.bgVideoUrl : null;
+  const themeVideoUrl = !themeBgExternal && !videoInput && appearance?.bgType === "video" && appearance.bgVideoUrl ? appearance.bgVideoUrl : null;
 
   if (videoInput || themeVideoUrl) {
     // Only text/blank slides composite AS a transparent overlay over the video.
@@ -70,7 +74,7 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
     const verticalAlign = videoInput?.overlay === "full" ? (videoInput?.lyricsPos ?? "center") : "center";
     const fitBandFraction = videoInput && videoInput.overlay !== "full" ? 0.38 : undefined;
     const decorFlags = { overVideo: true, verticalAlign, fitBandFraction, ignoreThemeLayout } as const;
-    const decorEligible = !ignoreThemeLayout && themeHasDecor(appearance) && (!videoInput || (videoInput.overlay === "full" && verticalAlign === "center"));
+    const decorEligible = !themeBgExternal && !ignoreThemeLayout && themeHasDecor(appearance) && (!videoInput || (videoInput.overlay === "full" && verticalAlign === "center"));
     const decorPlan = decorEligible && isOverlayKind ? themeDecorPlan(slide, appearance, decorFlags) : null;
     // Full-screen camera + theme decor: the readability scrim moves to a sibling
     // BEFORE the decor so it darkens the camera only, not the theme decor. With
@@ -109,11 +113,12 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
                 fitBandFraction={fitBandFraction}
                 {...(decorEligible ? { themeChromeHosted: true } : {})}
                 {...ign}
+                {...ext}
               />
             </div>
           ) : (
             <div className="absolute inset-0">
-              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} {...ign} />
+              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} {...ign} {...ext} />
             </div>
           )
         )}
@@ -131,6 +136,7 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
       videoMuted={videoMuted}
       onVideoRef={onVideoRef}
       {...ign}
+      {...ext}
     />
   );
 }
