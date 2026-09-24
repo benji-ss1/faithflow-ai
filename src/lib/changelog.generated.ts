@@ -4,6 +4,15 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.523",
+    "date": "2026-09-24",
+    "headline": "Animated themes now live in the Themes panel",
+    "highlights": [
+      "Open Themes and you'll find a new Animated themes section above Built-in. Tap one to put it behind your lyrics and scripture.",
+      "The one that's on shows an ON badge. Tap Turn off to go back to your normal theme background."
+    ]
+  },
+  {
     "version": "0.1.522",
     "date": "2026-09-24",
     "headline": "Songs follow your theme, new animated backgrounds, and one place for your church defaults",
