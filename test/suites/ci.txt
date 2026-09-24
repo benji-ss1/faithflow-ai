@@ -252,3 +252,4 @@ test/wire-contract-drift.test.ts
 test/card-appearance-fallback.test.ts
 test/theme-clears-template.test.ts
 test/autofit-quiver.test.ts
+test/slide-root-bg-roundtrip.test.ts

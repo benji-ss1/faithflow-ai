@@ -16,6 +16,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isContentTypeEditDenied } from "@/lib/church-styles-store";
 import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
 import { BgAssetPicker } from "@/components/library/BgAssetPicker";
+import { useLayerOrderV3 } from "@/lib/layer-order-v3";
 
 // Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
 // the full sanitised shape. Everything below is optional; the preview + the
@@ -615,6 +616,7 @@ function ThemeEditor({
   onChange: (next: ThemeRow) => void;
   onSave: () => void;
 }) {
+  const v3 = useLayerOrderV3();
   const [mode, setMode] = useState<PreviewMode>("lyrics");
   const [paletteBusy, setPaletteBusy] = useState(false);
   const cfg = theme.config;
@@ -765,12 +767,16 @@ function ThemeEditor({
                 onUrl={(url) => set(url ? { bgVideoUrl: url } : { bgVideoUrl: "", bgType: "solid" })}
               />
             )}
-            <Row label={`Opacity — ${Math.round((get(cfg, "bgOpacity", 1) as number) * 100)}%`}>
-              <input type="range" min={0} max={100} value={(get(cfg, "bgOpacity", 1) as number) * 100} onChange={(e) => set({ bgOpacity: Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} />
+            {/* Stored field is still bgOpacity (1 = no dim) — the slider now shows the
+                DIM amount so it reads like the Theme Editor's "Dim". Data unchanged. */}
+            <Row label={`Darken (dim) — ${Math.round((1 - (get(cfg, "bgOpacity", 1) as number)) * 100)}%`} hint={v3 ? "Dim darkens · Transparency lets media show through" : undefined}>
+              <input type="range" min={0} max={100} aria-label="Darken (dim)" value={Math.round((1 - (get(cfg, "bgOpacity", 1) as number)) * 100)} onChange={(e) => set({ bgOpacity: 1 - Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} />
             </Row>
-            <Row label={`See-through — ${Math.round((1 - (get(cfg, "layerOpacity", 1) as number)) * 100)}%`} hint="Lets your background media show through this theme's background. New layer order only.">
-              <input type="range" min={0} max={100} aria-label="See-through" value={Math.round((1 - (get(cfg, "layerOpacity", 1) as number)) * 100)} onChange={(e) => set({ layerOpacity: 1 - Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} />
-            </Row>
+            {v3 && (
+              <Row label={`Background transparency — ${Math.round((1 - (get(cfg, "layerOpacity", 1) as number)) * 100)}%`} hint="Lets your background media show through this theme's background.">
+                <input type="range" min={0} max={100} aria-label="Background transparency" value={Math.round((1 - (get(cfg, "layerOpacity", 1) as number)) * 100)} onChange={(e) => set({ layerOpacity: 1 - Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} />
+              </Row>
+            )}
             {(get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "solid"
               || get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "gradient") && (
               <Row label="Motion" hint="Subtle looping animation behind verses & lyrics. Solid/gradient only.">

@@ -25,6 +25,7 @@ import { extractLogoPalette } from "@/lib/actions";
 import { buildColorwayFromPalette } from "@/lib/colorway";
 import { mainTextOf, typographyTargetOf, parseThemeFontSize, type ThemeSlideMeta } from "@/lib/theme-editor-model";
 import { cn } from "@/lib/utils";
+import { useLayerOrderV3 } from "@/lib/layer-order-v3";
 
 type Cfg = Record<string, unknown>;
 
@@ -95,6 +96,7 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
   setMakeDefault: (v: boolean) => void;
   isDefault: boolean;
 }) {
+  const v3 = useLayerOrderV3();
   const [paletteBusy, setPaletteBusy] = useState(false);
   // PR 2: the church's saved Scripture Style (PR B: shared per church) overrides the theme's
   // scripture boxes (decision 4) — say so, and offer to clear it.
@@ -240,12 +242,17 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
         <Field label={`Dim — ${Math.round(get<number>(cfg, "dim", 0) * 100)}%`}>{(id) => (
           <input id={id} type="range" min={0} max={100} value={get<number>(cfg, "dim", 0) * 100} onChange={(e) => setCfg({ dim: Number(e.target.value) / 100 })} className="w-full" style={rangeStyle} />
         )}</Field>
-        {/* Layer Order V3 "See-through": real transparency of the theme background
-            so background media shows through (the Dim above stays a dark overlay).
-            Only the new layer order uses it; classic output ignores it. */}
-        <Field label={`See-through — ${Math.round((1 - get<number>(cfg, "layerOpacity", 1)) * 100)}%`}>{(id) => (
-          <input id={id} type="range" min={0} max={100} aria-label="See-through" title="Lets your background media show through the theme background (new layer order only)" value={Math.round((1 - get<number>(cfg, "layerOpacity", 1)) * 100)} onChange={(e) => setCfg({ layerOpacity: 1 - Number(e.target.value) / 100 })} className="w-full" style={rangeStyle} />
-        )}</Field>
+        {/* Layer Order V3 only: real transparency of the theme background so
+            background media shows through (Dim stays a dark overlay). Classic
+            output ignores layerOpacity, so the slider is hidden there. */}
+        {v3 && (
+          <>
+            <p className="text-[10px] text-[var(--color-muted-foreground)] -mt-1">Dim darkens · Transparency lets media show through</p>
+            <Field label={`Background transparency — ${Math.round((1 - get<number>(cfg, "layerOpacity", 1)) * 100)}%`}>{(id) => (
+              <input id={id} type="range" min={0} max={100} aria-label="Background transparency" title="Lets your background media show through the theme background" value={Math.round((1 - get<number>(cfg, "layerOpacity", 1)) * 100)} onChange={(e) => setCfg({ layerOpacity: 1 - Number(e.target.value) / 100 })} className="w-full" style={rangeStyle} />
+            )}</Field>
+          </>
+        )}
         {(bgType === "solid" || bgType === "gradient") && (
           <Group label="Animation" className="grid grid-cols-4 gap-1">
             {(["none", "drift", "aurora", "pulse"] as const).map((m) => (

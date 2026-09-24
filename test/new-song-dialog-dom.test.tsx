@@ -18,7 +18,7 @@ const load = (Module as unknown as { _load: (...a: unknown[]) => unknown })._loa
 } as never;
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
-for (const k of ["window", "document", "navigator", "HTMLElement", "Element", "CustomEvent", "Event", "KeyboardEvent", "MouseEvent", "Node", "localStorage", "FormData", "HTMLButtonElement", "HTMLInputElement", "HTMLSelectElement"] as const) {
+for (const k of ["window", "document", "navigator", "HTMLElement", "Element", "CustomEvent", "Event", "KeyboardEvent", "MouseEvent", "Node", "localStorage", "FormData", "HTMLButtonElement", "HTMLInputElement", "HTMLSelectElement", "getComputedStyle", "DOMRect", "PointerEvent", "FocusEvent", "MutationObserver"] as const) {
   const v = (dom.window as unknown as Record<string, unknown>)[k];
   if (v !== undefined) Object.defineProperty(globalThis, k, { value: v, configurable: true });
 }
@@ -32,7 +32,7 @@ Object.defineProperty(globalThis, "cancelAnimationFrame", { value: (id: number) 
 let pass = 0, fail = 0;
 async function check(name: string, fn: () => void | Promise<void>) {
   try { await fn(); console.log(`  PASS  ${name}`); pass++; }
-  catch (e) { console.error(`  FAIL  ${name}\n        ${(e as Error).stack}`); fail++; }
+  catch (e) { const er = e as Error & { errors?: Error[] }; console.error(`  FAIL  ${name}\n        ${er.stack}${er.errors ? "\n" + er.errors.map((x) => x.stack).join("\n") : ""}`); fail++; }
 }
 
 const T_RED = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "Red", config: { bgType: "solid", bgColor: "#aa0000" } };
@@ -71,7 +71,11 @@ async function main() {
     const input = m.host.querySelector("#new-song-filename") as HTMLInputElement;
     assert.equal(document.activeElement, input, "filename focused");
     assert.equal(m.host.querySelector("[data-new-song-theme-thumb]")!.getAttribute("data-new-song-theme-thumb"), "transparent");
-    assert.ok(m.host.querySelector("[data-transparent-thumb]"), "checkerboard thumb");
+    // A church default theme exists ⇒ "None" is NOT truly transparent: label says so, no checkerboard.
+    assert.equal(m.host.querySelector("[data-transparent-thumb]"), null, "no checkerboard while a church theme is active");
+    assert.ok(m.host.querySelector('[data-none-thumb="church-theme"]'), "shows the church theme it falls back to");
+    assert.match(m.host.textContent!, /None — uses church theme/);
+    assert.match(m.host.textContent!, /Output size is set in Screens/);
     assert.equal((m.host.querySelector("#new-song-size") as HTMLSelectElement).value, "1920x1080");
     assert.equal((m.host.querySelector("#new-song-library") as HTMLSelectElement).value, "default");
     assert.equal((m.host.querySelector("#new-song-playlist") as HTMLSelectElement).value, "none");
@@ -85,18 +89,22 @@ async function main() {
   await check("picker: Recents (last 3 known, most-recent first) above the rule; grid = None + Current default + all themes", () => {
     const m = mount(<M.NewSongForm data={data} onSubmit={() => {}} onCancel={() => {}} />);
     click(m.host.querySelector('[aria-label="Choose theme"]'));
-    const picker = m.host.querySelector("[data-new-song-theme-picker]")!;
+    const picker = document.querySelector("[data-new-song-theme-picker]")!;
     assert.ok(picker, "popover open");
     assert.equal(picker.getAttribute("aria-label"), "Themes");
-    assert.ok(picker.querySelector('[aria-label="Manage themes"]'), "image icon button");
+    assert.ok(picker.querySelector("[data-manage-themes]"), "image icon button");
+    assert.match(picker.querySelector("[data-manage-themes]")!.getAttribute("title")!, /Manage themes/);
+    assert.ok(picker.querySelector('[role="listbox"]'), "listbox");
+    assert.ok(document.querySelector("[data-picker-arrow]"), "arrow pointing at the chevron");
     const recents = [...picker.querySelectorAll("[data-recents] [data-theme-choice]")].map((b) => b.getAttribute("data-theme-choice"));
     assert.deepEqual(recents, [T_CLEAR.id, T_RED.id, T_BLUE.id], "recents order, unknown ids skipped, capped at 3");
     assert.ok(picker.querySelector("hr"), "divider");
     const all = [...picker.querySelectorAll("[data-all-themes] [data-theme-choice]")].map((b) => b.getAttribute("data-theme-choice"));
     assert.deepEqual(all, ["none", "current-default", T_RED.id, T_BLUE.id, T_CLEAR.id]);
-    assert.equal(picker.querySelectorAll("[data-all-themes] [data-theme-thumb]").length, 4, "live thumbnails for real themes");
+    assert.equal(picker.querySelectorAll("[data-all-themes] [data-theme-thumb]").length, 5, "live thumbnails (None shows the church theme)");
     const selected = picker.querySelector('[data-all-themes] [data-theme-choice="none"]')!;
-    assert.equal(selected.getAttribute("aria-pressed"), "true", "current selection marked");
+    assert.equal(selected.getAttribute("role"), "option");
+    assert.equal(selected.getAttribute("aria-selected"), "true", "current selection marked");
     assert.match(selected.className, /ring-\[3px\]/, "thick outline on selected");
     m.unmount();
   });
@@ -105,8 +113,8 @@ async function main() {
     let got: { theme?: string } | null = null;
     const m = mount(<M.NewSongForm data={data} onSubmit={(v) => { got = v; }} onCancel={() => {}} />);
     click(m.host.querySelector('[aria-label="Choose theme"]'));
-    click(m.host.querySelector(`[data-all-themes] [data-theme-choice="${T_RED.id}"]`));
-    assert.equal(m.host.querySelector("[data-new-song-theme-picker]"), null, "closed");
+    click(document.querySelector(`[data-all-themes] [data-theme-choice="${T_RED.id}"]`));
+    assert.equal(document.querySelector("[data-new-song-theme-picker]"), null, "closed");
     assert.equal(m.host.querySelector("[data-new-song-theme-thumb]")!.getAttribute("data-new-song-theme-thumb"), T_RED.id);
     setValue(m.host.querySelector("#new-song-filename") as HTMLInputElement, "Song");
     act(() => { (m.host.querySelector("form") as HTMLFormElement).dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })); });
@@ -114,22 +122,28 @@ async function main() {
     m.unmount();
   });
 
-  await check("picker keyboard: arrows move focus, Enter selects, Esc closes without change", () => {
+  await check("picker keyboard: arrows move focus, Enter selects, Esc closes without change", async () => {
     const m = mount(<M.NewSongForm data={data} onSubmit={() => {}} onCancel={() => {}} />);
     click(m.host.querySelector('[aria-label="Choose theme"]'));
-    let picker = m.host.querySelector("[data-new-song-theme-picker]")!;
+    let picker = document.querySelector("[data-new-song-theme-picker]")!;
     assert.equal((document.activeElement as HTMLElement).getAttribute("data-theme-choice"), "none", "focus starts on the selection");
-    key(picker, "ArrowRight");
+    key(document.activeElement!, "ArrowRight");
     assert.equal((document.activeElement as HTMLElement).getAttribute("data-theme-choice"), "current-default");
-    key(picker, "ArrowRight");
-    key(picker, "Enter");
-    assert.equal(m.host.querySelector("[data-new-song-theme-picker]"), null);
+    key(document.activeElement!, "ArrowRight");
+    key(document.activeElement!, "Enter");
+    assert.equal(document.querySelector("[data-new-song-theme-picker]"), null);
     assert.equal(m.host.querySelector("[data-new-song-theme-thumb]")!.getAttribute("data-new-song-theme-thumb"), T_RED.id);
     click(m.host.querySelector('[aria-label="Choose theme"]'));
-    picker = m.host.querySelector("[data-new-song-theme-picker]")!;
-    key(picker, "ArrowDown");
-    key(picker, "Escape");
-    assert.equal(m.host.querySelector("[data-new-song-theme-picker]"), null, "Esc closes");
+    picker = document.querySelector("[data-new-song-theme-picker]")!;
+    key(document.activeElement!, "ArrowDown");
+    // Enter on the header's Manage-themes button opens theme settings, it does NOT select.
+    (picker.querySelector("[data-manage-themes]") as HTMLElement).focus();
+    key(picker.querySelector("[data-manage-themes]")!, "Enter");
+    assert.ok(document.querySelector("[data-new-song-theme-picker]"), "Enter on header button does not select/close");
+    key(document.activeElement!, "Escape");
+    assert.equal(document.querySelector("[data-new-song-theme-picker]"), null, "Esc closes");
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    assert.equal((document.activeElement as HTMLElement | null)?.getAttribute("aria-label"), "Choose theme", "focus returns to the chevron");
     assert.equal(m.host.querySelector("[data-new-song-theme-thumb]")!.getAttribute("data-new-song-theme-thumb"), T_RED.id, "unchanged");
     m.unmount();
   });
@@ -141,8 +155,6 @@ async function main() {
       calls, fds,
       deps: {
         createSong: async (fd: FormData) => { fds.push(fd); calls.push("createSong"); return { ok: true, data: { id: "song-1" } }; },
-        createSongSlide: async (id: string, _a?: number, init?: { objects: unknown[]; lyrics: string }) => { calls.push(`slide:${id}:${JSON.stringify(init)}`); return { ok: true }; },
-        applyThemeToSong: async (t: string, s: string) => { calls.push(`apply:${t}:${s}`); return { ok: true }; },
         addServiceItem: async (p: string, type: string, title: string, payload: Record<string, unknown>) => { calls.push(`plan:${p}:${type}:${title}:${JSON.stringify(payload)}`); return { ok: true }; },
         pushThemeRecent: (id: string) => { calls.push(`recent:${id}`); },
       },
@@ -150,22 +162,23 @@ async function main() {
   }
   const base = { title: " Way Maker ", artist: "", theme: "none", size: "1920x1080" as const, libraryId: "default", planId: "none", seedFirstSlide: true };
 
-  await check("create with None: transparent — no theme sent, no applyThemeToSong, blank slide with no objects", async () => {
+  await check("create with None: no theme sent; blank slide requested atomically from createSong", async () => {
     const f = fakeDeps();
     const r = await M.performCreateSong(base, THEMES, f.deps);
     assert.equal(r.ok, true);
     assert.equal(f.fds[0].get("themeId"), null);
     assert.equal(f.fds[0].get("libraryId"), null);
     assert.equal(f.fds[0].get("title"), "Way Maker");
-    assert.deepEqual(f.calls, ["createSong", 'slide:song-1:{"objects":[],"lyrics":""}'], "exactly the previous Add-song sequence");
+    assert.equal(f.fds[0].get("seedFirstSlide"), "1");
+    assert.deepEqual(f.calls, ["createSong"], "one atomic server call");
   });
-  await check("create with a theme: validated on create + persisted via applyThemeToSong + recents", async () => {
+  await check("create with a theme: sent to the atomic createSong + recents + playlist", async () => {
     const f = fakeDeps();
     const r = await M.performCreateSong({ ...base, theme: T_RED.id, libraryId: "lib-1", planId: "plan-1" }, THEMES, f.deps);
     assert.equal(r.ok, true);
     assert.equal(f.fds[0].get("themeId"), T_RED.id, "server gets the id to validate before insert");
     assert.equal(f.fds[0].get("libraryId"), "lib-1");
-    assert.deepEqual(f.calls.slice(1), ['slide:song-1:{"objects":[],"lyrics":""}', `apply:${T_RED.id}:song-1`, `recent:${T_RED.id}`, 'plan:plan-1:song:Way Maker:{"songId":"song-1"}']);
+    assert.deepEqual(f.calls.slice(1), [`recent:${T_RED.id}`, 'plan:plan-1:song:Way Maker:{"songId":"song-1"}']);
   });
   await check("Current default resolves to the church default theme; none set ⇒ transparent", async () => {
     assert.equal(M.resolveThemeChoice("current-default", THEMES), T_BLUE.id);
@@ -179,12 +192,25 @@ async function main() {
     assert.deepEqual(r, { ok: false, error: "Theme not found" });
     assert.deepEqual(f.calls, []);
   });
-  await check("theme/playlist failure after create ⇒ warnings, song kept", async () => {
+  await check("playlist failure after create ⇒ playlistError reported, song kept", async () => {
     const f = fakeDeps();
-    f.deps.applyThemeToSong = async () => ({ ok: false, error: "nope" });
     f.deps.addServiceItem = async () => ({ ok: false, error: "Not found" });
     const r = await M.performCreateSong({ ...base, theme: T_RED.id, planId: "plan-1" }, THEMES, f.deps);
-    assert.ok(r.ok && r.warnings.length === 2);
+    assert.ok(r.ok && r.playlistError === "Not found");
+  });
+  await check("no church default theme ⇒ None is truly transparent (checkerboard + label)", () => {
+    const m = mount(<M.NewSongForm data={{ ...data, themes: [T_RED, T_CLEAR] }} onSubmit={() => {}} onCancel={() => {}} />);
+    assert.ok(m.host.querySelector("[data-transparent-thumb]"));
+    assert.match(m.host.textContent!, /None \(transparent\)/);
+    m.unmount();
+  });
+  await check("recents highlight resolves Current default to the real theme", () => {
+    const m = mount(<M.NewSongForm data={data} initial={{ theme: "current-default" }} onSubmit={() => {}} onCancel={() => {}} />);
+    click(m.host.querySelector('[aria-label="Choose theme"]'));
+    const r = document.querySelector(`[data-recents] [data-theme-choice="${T_BLUE.id}"]`)!;
+    assert.equal(r.getAttribute("aria-selected"), "true");
+    key(document.activeElement!, "Escape");
+    m.unmount();
   });
   await check("recents helpers", () => {
     assert.deepEqual(O.nextRecents(["a", "b", "c"], "b"), ["b", "a", "c"]);
@@ -197,6 +223,12 @@ async function main() {
     assert.doesNotMatch(s, /presentflow\.song\.template\./);
     assert.doesNotMatch(s, /<option value="brand">Brand<\/option>/);
     assert.match(s, /Apply theme/, "apply-theme on any library song (incl. imported)");
+    // Theme-baked songs: quick lyric edit keeps objectsJson (per-slide text save),
+    // and preview/send carry the baked bg; unthemed songs keep the old paths.
+    assert.match(s, /if \(songThemed && target\?\.id && target\.objectsJson\) \{\n\s+\/\/[^\n]*\n[\s\S]*?updateSongSlideText\(target\.id, editDraft\)/);
+    assert.match(s, /const res = await updateSongSlides\(selected\.id, next\);/, "unthemed path unchanged");
+    assert.match(s, /const oj = songThemed \?/);
+    assert.match(s, /: \{ kind: "text", text: sl\.lyrics \};/, "unthemed payload unchanged");
   });
 
   await check("imports stay transparent: bulk import writes lyrics only (no bg, no theme)", () => {

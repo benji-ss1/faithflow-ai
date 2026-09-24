@@ -65,7 +65,7 @@ console.log("Add song dialog:");
 const newSong = read("src/components/operator/pro/center/NewSongDialog.tsx");
 check("still collects title, artist, theme, size, and seeds a first slide", () => {
   assert.match(addDialog, /<NewSongDialog/);
-  for (const s of ["Filename:", "Artist:", "Theme:", "Size:", "Create a blank first slide ready to edit", "deps.createSong(fd)", "deps.createSongSlide(id"]) assert.ok(newSong.includes(s), s);
+  for (const s of ["Filename:", "Artist:", "Theme:", "Size:", "Create a blank first slide ready to edit", "deps.createSong(fd)", 'fd.set("seedFirstSlide", "1")']) assert.ok(newSong.includes(s), s);
 });
 check("duplicate-title warning is in-app, not a native confirm() (Windows checklist #12)", () => {
   assert.doesNotMatch(addDialog, /window\.confirm/);

@@ -32,7 +32,7 @@ import { isAudioMediaSupported, AUDIO_NOT_READY_ERROR } from "./server/media-aud
 import { after } from "next/server";
 import { generateImageThumbnail } from "./media-thumbnail";
 import { validateReorderItemSlides } from "./reorder-validator";
-import { newObjectId } from "./slide-objects";
+import { newObjectId, mergeSavedSlideRoot } from "./slide-objects";
 import { createLimiter } from "./rate-limit";
 import { getSongUsage } from "./song-limits";
 import { getEffectiveSongLimit } from "./server/song-limits-server";
@@ -225,7 +225,6 @@ export async function addServiceItem(planId: string, type: ServiceItemType, titl
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
   if (!plan) return { ok: false, error: "Not found" };
-  if (plan.kind === "smart") return { ok: false, error: "Smart playlists fill automatically — edit their rules instead" };
   // A smart playlist has no service_items rows — writing one would create an
   // item that is invisible in the plan. This is the SECURITY boundary; the
   // drop refusal in PlaylistSection is only affordance.
@@ -644,24 +643,42 @@ export async function createSong(formData: FormData): Promise<Result<{ id: strin
   // New-song dialog (plan A.6): optional theme + library. Validated church-
   // scoped BEFORE the insert, so a forged/foreign id refuses the whole create.
   // Absent fields ⇒ exactly the previous behaviour (no theme, Default library).
+  let themeCfg: ThemeConfig | null = null;
   const opts = await resolveNewSongOptions(
     { themeId: formData.get("themeId") ?? undefined, libraryId: formData.get("libraryId") ?? undefined },
     {
       themeInChurch: async (id) => {
-        const [t] = await db.select({ id: themes.id }).from(themes)
+        const [t] = await db.select({ id: themes.id, config: themes.config }).from(themes)
           .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId))).limit(1);
+        if (t) themeCfg = (t.config as ThemeConfig) ?? {};
         return !!t;
       },
       libraryError: (id) => libraryMoveError(db, user.churchId, id),
     },
   );
   if (!opts.ok) return opts;
-  const [row] = await db.insert(songs).values({
-    churchId: user.churchId, title, artist,
-    ...(opts.data.libraryId ? { libraryId: opts.data.libraryId } : {}),
-  }).returning();
+  // New-song dialog: "seedFirstSlide=1" creates the blank first slide in the
+  // SAME transaction, and a chosen theme is baked there too — song, slide and
+  // theme commit together or not at all (no half-themed song on a failure).
+  // Callers that send neither field get exactly the old single insert.
+  const seed = formData.get("seedFirstSlide") === "1";
+  const themeId = opts.data.themeId;
+  const cfg = themeCfg as ThemeConfig | null;
+  const res = await db.transaction(async (tx): Promise<Result<{ id: string }>> => {
+    const [row] = await tx.insert(songs).values({
+      churchId: user.churchId, title, artist,
+      ...(opts.data.libraryId ? { libraryId: opts.data.libraryId } : {}),
+    }).returning();
+    if (seed) await tx.insert(songSlides).values({ songId: row.id, order: 0, lyrics: "", objectsJson: null });
+    if (themeId && cfg) {
+      const r = await bakeThemeIntoSongTx(tx, user.churchId, themeId, cfg, row.id);
+      if (!r.ok) throw new Error(r.error || "Theme not applied");
+    }
+    return { ok: true, data: { id: row.id } };
+  }).catch((e: unknown): Result<{ id: string }> => ({ ok: false, error: e instanceof Error ? e.message : "Create failed" }));
+  if (!res.ok) return res;
   revalidatePath("/library/songs");
-  return { ok: true, data: { id: row.id } };
+  return res;
 }
 
 /**
@@ -1162,6 +1179,7 @@ type EditableSlideInput = {
   bgExplicit?: boolean;
   objects: unknown[];
   lyrics?: string;
+  transition?: unknown;
 };
 
 export async function saveSlideObjects(slideId: string, editable: EditableSlideInput): Promise<Result> {
@@ -1177,13 +1195,18 @@ export async function saveSlideObjects(slideId: string, editable: EditableSlideI
     .map((o) => (typeof o.text === "string" ? o.text.trim() : ""))
     .filter(Boolean)
     .join("\n") || editable.lyrics || "";
+  // Carry over root keys the editor doesn't own (a baked theme's bgType /
+  // bgColor2 / transition …) — see mergeSavedSlideRoot.
+  const [prevRow] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides)
+    .where(eq(songSlides.id, slideId)).limit(1);
   await db.update(songSlides).set({
-    objectsJson: {
+    objectsJson: mergeSavedSlideRoot(prevRow?.objectsJson, {
       bgColor: editable.bgColor,
       bgImageUrl: editable.bgImageUrl,
-      ...(editable.bgExplicit === true ? { bgExplicit: true } : {}),
-      objects: editable.objects,
-    },
+      bgExplicit: editable.bgExplicit,
+      objects: Array.isArray(editable.objects) ? editable.objects : [],
+      transition: editable.transition,
+    }),
     lyrics: derivedLyrics,
   }).where(eq(songSlides.id, slideId));
   revalidatePath(`/library/songs/${owned.songId}`);
@@ -3072,14 +3095,14 @@ async function writeSongSlideObjects(tx: ThemeTx, songId: string, rows: { id: st
   }
 }
 
-export async function applyThemeToSong(themeId: string, songId: string): Promise<Result<{ slidesUpdated: number }>> {
-  const user = await requireCap("edit_library");
-  const db = getDb();
-  const [theme] = await db.select().from(themes)
-    .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
-  if (!theme) return { ok: false, error: "Theme not found" };
-  const cfg = (theme.config as ThemeConfig) ?? {};
-  const res = await db.transaction(async (tx): Promise<Result<{ slidesUpdated: number }>> => {
+/**
+ * The whole-song theme bake, run INSIDE a caller's transaction (shared by
+ * applyThemeToSong and createSong so a new song + its theme commit together).
+ * Church-scoped: the song row is locked with church_id in the WHERE; the caller
+ * must have already resolved `cfg` from a theme of the same church.
+ */
+async function bakeThemeIntoSongTx(tx: ThemeTx, churchId: string, themeId: string, cfg: ThemeConfig, songId: string): Promise<Result<{ slidesUpdated: number }>> {
+  const user = { churchId };
     const [song] = await tx.select().from(songs)
       .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).for("update");
     if (!song) return { ok: false, error: "Song not found" };
@@ -3113,7 +3136,16 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
       settings: { ...prevSettings, appliedThemeId: themeId, themeBackup: backup, slideThemeBackups: {} },
     }).where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
     return { ok: true, data: { slidesUpdated: slides.length } };
-  });
+}
+
+export async function applyThemeToSong(themeId: string, songId: string): Promise<Result<{ slidesUpdated: number }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const [theme] = await db.select().from(themes)
+    .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
+  if (!theme) return { ok: false, error: "Theme not found" };
+  const cfg = (theme.config as ThemeConfig) ?? {};
+  const res = await db.transaction((tx) => bakeThemeIntoSongTx(tx, user.churchId, themeId, cfg, songId));
   if (!res.ok) return res;
   revalidatePath("/library/songs");
   revalidatePath(`/library/songs/${songId}`);

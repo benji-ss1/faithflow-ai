@@ -10,8 +10,10 @@
  * no objectsJson, no appliedThemeId) — so existing projector behaviour for such a
  * song is unchanged; under Layer Order V3 the slide is see-through and media
  * shows. A chosen theme is persisted through the existing, church-scoped
- * `applyThemeToSong` (bakes the look + stores settings.appliedThemeId), after
- * `createSong` has already refused any theme id that isn't this church's.
+ * `createSong` itself: it refuses any theme id that isn't this church's, then
+ * inserts the song, its blank first slide and bakes the theme (same bake as
+ * applyThemeToSong, incl. settings.appliedThemeId) in ONE transaction — so the
+ * song and its theme succeed or fail together.
  *
  * Replaces the old hardcoded Default/Dark/Light/Brand select, whose value went to
  * a localStorage key (`presentflow.song.template.<id>`) that nothing ever read.
@@ -22,6 +24,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as Popover from "@radix-ui/react-popover";
 import { ChevronDown, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { ThemeThumb } from "../ThemePopover";
@@ -49,8 +52,6 @@ export type NewSongValues = {
 
 export type NewSongDeps = {
   createSong: (fd: FormData) => Promise<{ ok: boolean; error?: string; data?: { id: string } }>;
-  createSongSlide: (songId: string, atIndex?: number, initial?: { objects: unknown[]; lyrics: string }) => Promise<{ ok: boolean; error?: string }>;
-  applyThemeToSong: (themeId: string, songId: string) => Promise<{ ok: boolean; error?: string }>;
   addServiceItem: (planId: string, type: "song", title: string, payload: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>;
   pushThemeRecent?: (id: string) => void;
 };
@@ -64,12 +65,12 @@ export function resolveThemeChoice(choice: string, themes: ClientTheme[]): strin
 
 /**
  * The create sequence (pure over injected deps → unit-testable):
- * createSong (validates theme + library church-scoped) → optional blank slide →
- * applyThemeToSong (only when a theme was chosen) → optional playlist add.
- * Steps after the create are best-effort: the song exists, so a later failure
- * is reported as a warning rather than losing it.
+ * createSong — ATOMIC server side: validates theme + library church-scoped, then
+ * song + optional blank first slide + theme bake in one transaction. The only
+ * best-effort step left is the playlist add (the song exists by then, so that
+ * failure is reported separately via `playlistError`, never loses the song).
  */
-export async function performCreateSong(v: NewSongValues, themes: ClientTheme[], deps: NewSongDeps): Promise<{ ok: true; id: string; themeId: string | null; warnings: string[] } | { ok: false; error: string }> {
+export async function performCreateSong(v: NewSongValues, themes: ClientTheme[], deps: NewSongDeps): Promise<{ ok: true; id: string; themeId: string | null; playlistError: string | null } | { ok: false; error: string }> {
   const title = v.title.trim();
   const themeId = resolveThemeChoice(v.theme, themes);
   const fd = new FormData();
@@ -77,27 +78,19 @@ export async function performCreateSong(v: NewSongValues, themes: ClientTheme[],
   if (v.artist.trim()) fd.set("artist", v.artist.trim().slice(0, 120));
   if (themeId) fd.set("themeId", themeId);
   if (v.libraryId && v.libraryId !== NEW_SONG_LIBRARY_DEFAULT) fd.set("libraryId", v.libraryId);
+  if (v.seedFirstSlide) fd.set("seedFirstSlide", "1");
   const res = await deps.createSong(fd);
   if (!res.ok || !res.data) return { ok: false, error: res.error || "Create failed" };
   const id = res.data.id;
-  const warnings: string[] = [];
-  if (v.seedFirstSlide) {
-    try { await deps.createSongSlide(id, undefined, { objects: [], lyrics: "" }); } catch { /* non-fatal — user can add manually */ }
-  }
-  if (themeId) {
-    try {
-      const r = await deps.applyThemeToSong(themeId, id);
-      if (!r.ok) warnings.push(`Theme not applied: ${r.error || "unknown error"}`);
-      else deps.pushThemeRecent?.(themeId);
-    } catch { warnings.push("Theme not applied"); }
-  }
+  if (themeId) deps.pushThemeRecent?.(themeId);
+  let playlistError: string | null = null;
   if (v.planId && v.planId !== NEW_SONG_PLAYLIST_NONE) {
     try {
       const r = await deps.addServiceItem(v.planId, "song", title, { songId: id });
-      if (!r.ok) warnings.push(`Not added to playlist: ${r.error || "unknown error"}`);
-    } catch { warnings.push("Not added to playlist"); }
+      if (!r.ok) playlistError = r.error || "unknown error";
+    } catch (e) { playlistError = e instanceof Error ? e.message : "unknown error"; }
   }
-  return { ok: true, id, themeId, warnings };
+  return { ok: true, id, themeId, playlistError };
 }
 
 const CHECKER: React.CSSProperties = {
@@ -112,6 +105,37 @@ export function TransparentThumb() {
   return <div className="relative aspect-video w-full rounded-[3px] overflow-hidden" style={CHECKER} data-transparent-thumb="" />;
 }
 
+/** "None" label: with a church default theme active, an unthemed song still
+ *  renders over that theme — only with no default is it truly transparent. */
+export function noneLabel(themes: ClientTheme[]): string {
+  return themes.some((t) => t.isDefault) ? "None — uses church theme" : "None (transparent)";
+}
+
+/** Thumbnail for the "None" choice: the church theme it falls back to, or the
+ *  checkerboard only when there is no church theme (truly transparent). */
+function NoneThumb({ themes }: { themes: ClientTheme[] }) {
+  const def = themes.find((t) => t.isDefault);
+  return def ? <div data-none-thumb="church-theme"><ThemeThumb theme={def} /></div> : <TransparentThumb />;
+}
+
+/** Lazy thumbnail: a cheap placeholder until the card scrolls into view, so
+ *  opening the picker with hundreds of themes doesn't mount hundreds of
+ *  SlideRenderers at once. No IntersectionObserver (tests / old engines) ⇒
+ *  renders immediately. */
+function LazyThumb({ children, root }: { children: React.ReactNode; root: React.RefObject<HTMLElement | null> }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
+  useEffect(() => {
+    if (visible || !ref.current) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { setVisible(true); io.disconnect(); }
+    }, { root: root.current, rootMargin: "120px" });
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, [visible, root]);
+  return visible ? <>{children}</> : <div ref={ref} className="aspect-video w-full rounded-[3px] bg-white/[0.04]" data-thumb-placeholder="" />;
+}
+
 function dotColor(t: ClientTheme | null): string {
   const c = t?.config?.bgColor;
   return typeof c === "string" && c ? c : "transparent";
@@ -120,9 +144,11 @@ function dotColor(t: ClientTheme | null): string {
 type PickerItem = { id: string; name: string; theme: ClientTheme | null };
 
 /**
- * Themes popover (A.7): header "Themes" + image button; Recents (last 3) above a
- * rule; then a 3-column grid of every church theme as live-rendered 16:9
- * thumbnails. Click / Enter selects and closes; arrows move; Esc closes.
+ * Themes list (A.7): header "Themes" + Manage-themes button; Recents (last 3)
+ * above a rule; then a 3-column listbox of every church theme as lazily
+ * rendered 16:9 thumbnails. Click / Enter on an option selects and closes;
+ * arrows move between options. Positioning, Esc, outside-click and focus return
+ * are owned by the Radix Popover that hosts it (see ThemePickerPopover).
  */
 export function NewSongThemePicker({
   themes, recentIds, value, onSelect, onClose, onManageThemes,
@@ -134,21 +160,22 @@ export function NewSongThemePicker({
   onClose: () => void;
   onManageThemes?: () => void;
 }) {
-  const items: PickerItem[] = useMemo(() => {
-    const def = themes.find((t) => t.isDefault) ?? null;
-    return [
-      { id: NEW_SONG_THEME_NONE, name: "None (transparent)", theme: null },
-      ...(def ? [{ id: NEW_SONG_THEME_DEFAULT, name: `Current default (${def.name})`, theme: def }] : []),
-      ...themes.map((t) => ({ id: t.id, name: t.name, theme: t })),
-    ];
-  }, [themes]);
+  const def = useMemo(() => themes.find((t) => t.isDefault) ?? null, [themes]);
+  const items: PickerItem[] = useMemo(() => [
+    { id: NEW_SONG_THEME_NONE, name: noneLabel(themes), theme: null },
+    ...(def ? [{ id: NEW_SONG_THEME_DEFAULT, name: `Current default (${def.name})`, theme: def }] : []),
+    ...themes.map((t) => ({ id: t.id, name: t.name, theme: t })),
+  ], [themes, def]);
   const recents: PickerItem[] = useMemo(
     () => pickRecentThemes(recentIds, themes).map((t) => ({ id: t.id, name: t.name, theme: t })),
     [recentIds, themes],
   );
+  // Recents highlight the REAL theme a "Current default" choice resolves to.
+  const resolvedValue = value === NEW_SONG_THEME_DEFAULT ? (def?.id ?? value) : value;
   // One flat focus order: recents first, then the full grid.
   const flat = useMemo(() => [...recents.map((r) => ({ ...r, key: `r:${r.id}` })), ...items.map((i) => ({ ...i, key: `a:${i.id}` }))], [recents, items]);
   const btns = useRef<(HTMLButtonElement | null)[]>([]);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const [focusIdx, setFocusIdx] = useState(() => {
     const i = flat.findIndex((f) => f.key === `a:${value}`);
     return i >= 0 ? i : 0;
@@ -156,8 +183,12 @@ export function NewSongThemePicker({
   useEffect(() => { btns.current[focusIdx]?.focus(); }, [focusIdx]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // Only option keys: Enter on the header's Manage-themes button must activate
+    // THAT button, never select the focused theme.
+    const onOption = (e.target as HTMLElement | null)?.getAttribute?.("role") === "option";
+    if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
+    if (!onOption) return;
     const n = flat.length;
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); return; }
     const move = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "ArrowDown" ? 3 : e.key === "ArrowUp" ? -3 : 0;
     if (move) { e.preventDefault(); setFocusIdx((i) => Math.max(0, Math.min(n - 1, i + move))); return; }
     if (e.key === "Enter" || e.key === " ") {
@@ -167,25 +198,28 @@ export function NewSongThemePicker({
     }
   };
 
-  const card = (it: PickerItem & { key: string }, idx: number) => {
-    const selected = it.id === value;
+  const card = (it: PickerItem & { key: string }, idx: number, isRecent: boolean) => {
+    const selected = isRecent ? it.id === resolvedValue : it.id === value;
     return (
-      <div key={it.key} role="gridcell" className="flex flex-col items-center gap-1 min-w-0">
+      <div key={it.key} className="flex flex-col items-center gap-1 min-w-0">
         <button
           ref={(el) => { btns.current[idx] = el; }}
           type="button"
+          role="option"
           tabIndex={idx === focusIdx ? 0 : -1}
-          aria-label={`${it.name}${selected ? " (selected)" : ""}`}
-          aria-pressed={selected}
+          aria-label={it.name}
+          aria-selected={selected}
           data-theme-choice={it.id}
           onClick={() => { onSelect(it.id); onClose(); }}
           onFocus={() => setFocusIdx(idx)}
           className={
             "block w-full rounded-[4px] focus-visible:outline-none " +
-            (selected ? "ring-[3px] ring-[#0a84ff]" : "ring-1 ring-white/10 hover:ring-2 hover:ring-[var(--color-brand)] focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]")
+            (selected ? "ring-[3px] ring-[var(--color-selection)]" : "ring-1 ring-white/10 hover:ring-2 hover:ring-[var(--color-brand)] focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]")
           }
         >
-          {it.theme ? <ThemeThumb theme={it.theme} /> : <TransparentThumb />}
+          <LazyThumb root={scrollRef}>
+            {it.theme ? <ThemeThumb theme={it.theme} /> : <NoneThumb themes={themes} />}
+          </LazyThumb>
         </button>
         <span className="flex w-full items-center justify-center gap-1 text-[11px] text-[var(--color-foreground)]">
           <span aria-hidden className="h-2 w-2 shrink-0 rounded-full border border-white/30" style={{ background: dotColor(it.theme) }} />
@@ -201,29 +235,28 @@ export function NewSongThemePicker({
       aria-label="Themes"
       data-new-song-theme-picker=""
       onKeyDown={onKeyDown}
-      className="relative w-[420px] max-w-[90vw] rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] shadow-2xl"
+      className="w-[420px] max-w-[90vw] rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] shadow-2xl"
     >
-      {/* arrow pointing up at the ▾ */}
-      <span aria-hidden className="absolute -top-[7px] left-6 h-3 w-3 rotate-45 border-l border-t border-[var(--color-border)] bg-[var(--color-panel)]" />
       <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
         <span className="text-[13px] font-semibold">Themes</span>
-        <button type="button" aria-label="Manage themes" title="Manage themes" onClick={onManageThemes}
+        <button type="button" aria-label="Manage themes (opens theme settings)" title="Manage themes — opens theme settings" onClick={onManageThemes}
+          data-manage-themes=""
           className="grid h-7 w-7 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:bg-white/[0.08] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">
           <ImageIcon className="h-4 w-4" />
         </button>
       </div>
-      <div className="max-h-[360px] overflow-y-auto px-3 pb-3" role="grid" aria-label="Theme choices">
+      <div ref={scrollRef} className="max-h-[min(360px,50vh)] overflow-y-auto px-3 pb-3" role="listbox" aria-label="Theme choices">
         {recents.length > 0 && (
-          <>
-            <div className="py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Recents</div>
-            <div role="row" className="grid grid-cols-3 gap-2" data-recents="">
-              {flat.slice(0, recents.length).map((it, i) => card(it, i))}
+          <div role="group" aria-label="Recents">
+            <div className="py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]" aria-hidden>Recents</div>
+            <div className="grid grid-cols-3 gap-2" data-recents="">
+              {flat.slice(0, recents.length).map((it, i) => card(it, i, true))}
             </div>
             <hr className="my-2 border-[var(--color-border)]" />
-          </>
+          </div>
         )}
-        <div role="row" className="grid grid-cols-3 gap-2" data-all-themes="">
-          {flat.slice(recents.length).map((it, i) => card(it, i + recents.length))}
+        <div role="group" aria-label="All themes" className="grid grid-cols-3 gap-2" data-all-themes="">
+          {flat.slice(recents.length).map((it, i) => card(it, i + recents.length, false))}
         </div>
       </div>
     </div>
@@ -237,7 +270,7 @@ export type NewSongFormData = {
   recentIds: string[];
 };
 
-/** The dialog body (no Radix wrapper) — rendered directly by DOM tests. */
+/** The dialog body (no Radix Dialog wrapper) — rendered directly by DOM tests. */
 export function NewSongForm({
   data, initial, busy, onSubmit, onCancel, onManageThemes,
 }: {
@@ -258,7 +291,8 @@ export function NewSongForm({
   const chosen = v.theme === NEW_SONG_THEME_DEFAULT
     ? data.themes.find((t) => t.isDefault) ?? null
     : data.themes.find((t) => t.id === v.theme) ?? null;
-  const themeLabel = v.theme === NEW_SONG_THEME_NONE || !chosen ? "None (transparent)" : v.theme === NEW_SONG_THEME_DEFAULT ? `Current default (${chosen.name})` : chosen.name;
+  const isNone = v.theme === NEW_SONG_THEME_NONE || !chosen;
+  const themeLabel = isNone ? noneLabel(data.themes) : v.theme === NEW_SONG_THEME_DEFAULT ? `Current default (${chosen!.name})` : chosen!.name;
   const submit = () => { if (!busy && v.title.trim()) onSubmit(v); };
   const field = "h-8 px-2 rounded border border-[var(--color-border)] bg-[var(--color-elevated)] text-[12px]";
   const label = "text-[11px] text-right text-[var(--color-muted-foreground)] self-center";
@@ -281,38 +315,54 @@ export function NewSongForm({
       />
       <span className={label + " self-start pt-1"}>Theme:</span>
       <div className="relative flex items-end gap-1">
-        <div className="w-[168px]" data-new-song-theme-thumb={v.theme === NEW_SONG_THEME_NONE || !chosen ? "transparent" : chosen.id}>
-          {v.theme === NEW_SONG_THEME_NONE || !chosen ? <TransparentThumb /> : <ThemeThumb theme={chosen} />}
+        <div className="w-[168px]" data-new-song-theme-thumb={isNone ? "transparent" : chosen!.id}>
+          {isNone ? <NoneThumb themes={data.themes} /> : <ThemeThumb theme={chosen!} />}
           <div className="mt-0.5 truncate text-[10px] text-[var(--color-muted-foreground)]">{themeLabel}</div>
         </div>
-        <button
-          type="button"
-          aria-label="Choose theme"
-          aria-haspopup="dialog"
-          aria-expanded={pickerOpen}
-          onClick={() => setPickerOpen((o) => !o)}
-          className="mb-4 grid h-6 w-6 place-items-center rounded border border-[var(--color-border)] hover:bg-white/[0.08]"
-        >
-          <ChevronDown className="h-3.5 w-3.5" />
-        </button>
-        {pickerOpen && (
-          <div className="absolute left-0 top-full z-[60] mt-2">
-            <NewSongThemePicker
-              themes={data.themes}
-              recentIds={data.recentIds}
-              value={v.theme}
-              onSelect={(id) => set({ theme: id })}
-              onClose={() => setPickerOpen(false)}
-              onManageThemes={onManageThemes}
-            />
-          </div>
-        )}
+        <Popover.Root open={pickerOpen} onOpenChange={setPickerOpen} modal>
+          <Popover.Trigger asChild>
+            <button
+              type="button"
+              aria-label="Choose theme"
+              data-choose-theme=""
+              className="mb-4 grid h-6 w-6 place-items-center rounded border border-[var(--color-border)] hover:bg-white/[0.08]"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              side="bottom"
+              align="start"
+              alignOffset={-12}
+              sideOffset={6}
+              collisionPadding={12}
+              className="z-[60] outline-none"
+              // Focus goes to the selected option (the picker does it), not the
+              // first tabbable (the Manage-themes button).
+              onOpenAutoFocus={(e) => e.preventDefault()}
+            >
+              <NewSongThemePicker
+                themes={data.themes}
+                recentIds={data.recentIds}
+                value={v.theme}
+                onSelect={(id) => set({ theme: id })}
+                onClose={() => setPickerOpen(false)}
+                onManageThemes={onManageThemes}
+              />
+              <Popover.Arrow width={14} height={7} className="fill-[var(--color-panel)] stroke-[var(--color-border)]" data-picker-arrow="" />
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       </div>
       <label htmlFor="new-song-size" className={label}>Size:</label>
-      <select id="new-song-size" value={v.size} onChange={(e) => set({ size: e.target.value as NewSongSize })} className={field}
-        title="Display only — the output size is set per screen in Screens">
-        {NEW_SONG_SIZES.map((s) => <option key={s} value={s}>{s.replace("x", " x ")}</option>)}
-      </select>
+      <div className="flex flex-col gap-0.5">
+        <select id="new-song-size" value={v.size} onChange={(e) => set({ size: e.target.value as NewSongSize })} className={field}
+          aria-describedby="new-song-size-hint">
+          {NEW_SONG_SIZES.map((s) => <option key={s} value={s}>{s.replace("x", " x ")}</option>)}
+        </select>
+        <span id="new-song-size-hint" className="text-[10px] text-[var(--color-muted-foreground)]">Output size is set in Screens</span>
+      </div>
       <label htmlFor="new-song-library" className={label}>Library:</label>
       <select id="new-song-library" value={v.libraryId} onChange={(e) => set({ libraryId: e.target.value })} className={field}>
         <option value={NEW_SONG_LIBRARY_DEFAULT}>Default</option>
@@ -333,7 +383,7 @@ export function NewSongForm({
       <div className="col-span-2 mt-2 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="h-8 px-3 rounded border border-[var(--color-border)] text-[12px]">Cancel</button>
         <button type="submit" disabled={busy || !v.title.trim()} data-new-song-submit=""
-          className="h-8 px-4 rounded bg-[#0a84ff] text-white text-[12px] font-semibold disabled:opacity-50">
+          className="h-8 px-4 rounded bg-[var(--color-selection-strong)] text-white text-[12px] font-semibold disabled:opacity-50">
           {busy ? "Creating…" : "New"}
         </button>
       </div>
@@ -358,15 +408,23 @@ export function NewSongDialog({
 }) {
   const [data, setData] = useState<NewSongFormData | null>(null);
   const [busy, setBusy] = useState(false);
+  // Synchronous re-entry guard: a fast double Enter fires twice before the
+  // `busy` state re-renders, so the guard must be a ref.
+  const busyRef = useRef(false);
   const [formKey, setFormKey] = useState(0);
+  // Sequence guard: a slow load from a previous open must never overwrite the
+  // data of the current one (close + reopen quickly).
+  const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     const [themesRes, libs, plans, recents] = await Promise.all([
       fetch("/api/themes").then((r) => (r.ok ? r.json() : { themes: [] })).catch(() => ({ themes: [] })),
       import("@/lib/actions").then((m) => m.listLibraries()).catch(() => null),
       import("@/lib/actions").then((m) => m.listServicePlanChoices()).catch(() => null),
       import("@/lib/theme-apply-client").then((m) => m.readThemeRecents()).catch(() => [] as string[]),
     ]);
+    if (seq !== loadSeq.current) return;
     const themes = ((themesRes as { themes?: ClientTheme[] }).themes ?? []).map((t) => ({ ...t, config: (t.config as Record<string, unknown>) ?? {} }));
     setData({
       themes,
@@ -375,38 +433,44 @@ export function NewSongDialog({
       recentIds: recents,
     });
   }, []);
-  useEffect(() => { if (open) { setData(null); setFormKey((k) => k + 1); void load(); } }, [open, load]);
+  useEffect(() => {
+    if (open) { setData(null); setFormKey((k) => k + 1); void load(); }
+    else loadSeq.current++; // invalidate any in-flight load on close
+  }, [open, load]);
 
   const submit = async (v: NewSongValues) => {
-    if (busy) return;
+    if (busyRef.current) return;
     const t = v.title.trim();
     if (!t) { toast.error("Song title required"); return; }
     if (t.length > 200) { toast.error("Title too long (max 200 chars)"); return; }
     if (!/[\p{L}\p{N}]/u.test(t)) { toast.error("Song title needs letters or numbers"); return; }
-    const dup = existingTitles.some((x) => x.trim().toLowerCase() === t.toLowerCase());
-    if (dup && confirmDuplicate && !(await confirmDuplicate(t))) return;
-    setBusy(true);
+    busyRef.current = true;
     try {
+      const dup = existingTitles.some((x) => x.trim().toLowerCase() === t.toLowerCase());
+      if (dup && confirmDuplicate && !(await confirmDuplicate(t))) return;
+      setBusy(true);
       const a = await import("@/lib/actions");
       const { pushThemeRecent } = await import("@/lib/theme-apply-client");
       const res = await performCreateSong(v, data?.themes ?? [], {
         createSong: a.createSong,
-        createSongSlide: (id, at, init) => a.createSongSlide(id, at, init as never),
-        applyThemeToSong: a.applyThemeToSong,
         addServiceItem: (planId, type, title, payload) => a.addServiceItem(planId, type, title, payload),
         pushThemeRecent,
       });
       if (!res.ok) { toast.error(res.error); return; }
-      for (const w of res.warnings) toast.warning(w);
       const libraryId = v.libraryId !== NEW_SONG_LIBRARY_DEFAULT ? v.libraryId : null;
-      const planId = v.planId !== NEW_SONG_PLAYLIST_NONE ? v.planId : null;
+      const planId = v.planId !== NEW_SONG_PLAYLIST_NONE && !res.playlistError ? v.planId : null;
       onCreated({ id: res.id, title: t, artist: v.artist.trim() || null, libraryId, planId });
       toast.success(`"${t}" created${v.seedFirstSlide ? " with blank slide" : ""} — edit lyrics on the right`);
+      if (res.playlistError) {
+        const planTitle = data?.plans.find((p) => p.id === v.planId)?.title ?? "the playlist";
+        toast.error(`"${t}" was created but NOT added to ${planTitle}: ${res.playlistError}. Drag it in from the library.`);
+      }
       try { window.dispatchEvent(new Event("presentflow:songs-changed")); } catch { /* ignore */ }
       onOpenChange(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Create failed");
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };

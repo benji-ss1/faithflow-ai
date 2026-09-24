@@ -17,7 +17,9 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { DotGridBackground } from "../DotGridBackground";
 import type { SlidePayload } from "@/lib/broadcast";
-import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, deleteSong, reChunkSong, importParsedSongs } from "@/lib/actions";
+import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, updateSongSlideText, deleteSong, reChunkSong, importParsedSongs } from "@/lib/actions";
+import { projectableTextSlide } from "@/lib/broadcast";
+import { cleanRenderUrl } from "@/lib/render-url";
 import { parseVpagd } from "@/lib/import/videopsalm";
 import { parseSongText } from "@/lib/import/song-text";
 import { isInternalEvent } from "@/lib/internal-events";
@@ -30,7 +32,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useSongLyricSearch } from "@/lib/song-lyric-search-store";
 
 type SongRow = { id: string; title: string; artist: string | null };
-type SlideRow = { id?: string; order?: number; lyrics: string };
+type SlideRow = { id?: string; order?: number; lyrics: string; objectsJson?: unknown };
 
 export function SongsBrowser({
   ctx,
@@ -56,6 +58,10 @@ export function SongsBrowser({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [slides, setSlides] = useState<SlideRow[] | null>(null);
+  // Theme-baked song (settings.appliedThemeId): preview + send use the slide's
+  // stored background/objects exactly like the playlist path (services.ts
+  // projectableSongSlide). Unthemed songs keep the plain-text payload.
+  const [songThemed, setSongThemed] = useState(false);
   // Which song `slides` belongs to — the lyric-hit scroll must never run against
   // the PREVIOUS song's slides while the newly clicked song is still loading.
   const [slidesForId, setSlidesForId] = useState<string | null>(null);
@@ -339,7 +345,7 @@ export function SongsBrowser({
     setSlidesLoading(true);
     fetch(`/api/songs/${selected.id}/slides`)
       .then((r) => r.json())
-      .then((data) => { if (!cancelled) { setSlides(data.slides || []); setSlidesForId(selected.id); } })
+      .then((data) => { if (!cancelled) { setSlides(data.slides || []); setSongThemed(data.themed === true); setSlidesForId(selected.id); } })
       .catch(() => { if (!cancelled) toast.error("Failed to load slides"); })
       .finally(() => { if (!cancelled) setSlidesLoading(false); });
     return () => { cancelled = true; };
@@ -415,7 +421,7 @@ export function SongsBrowser({
   const refreshSlides = (songId: string) => {
     fetch(`/api/songs/${songId}/slides`)
       .then((r) => r.json())
-      .then((data) => setSlides(data.slides || []))
+      .then((data) => { setSlides(data.slides || []); setSongThemed(data.themed === true); })
       .catch(() => { /* silent — retry on next select */ });
     // Signal the live detector to refetch its song library — a slide (lyric)
     // change here must become detectable in-session, not after a reload.
@@ -426,6 +432,19 @@ export function SongsBrowser({
     if (!selected || !slides || savingEdit) return;
     setSavingEdit(true);
     try {
+      const target = slides[idx];
+      if (songThemed && target?.id && target.objectsJson) {
+        // Theme-baked slide: edit ONLY this slide's text and keep its objectsJson
+        // (the baked background). The rewrite-all path below drops objectsJson,
+        // which is how a chosen theme used to vanish on the first lyric edit.
+        const res = await updateSongSlideText(target.id, editDraft);
+        if (!res.ok) { toast.error(res.error || "Save failed"); return; }
+        refreshSlides(selected.id);
+        setSlides(slides.map((sl, i) => (i === idx ? { ...sl, lyrics: editDraft } : sl)));
+        setEditingIdx(null);
+        toast.success("Slide updated");
+        return;
+      }
       const next = slides.map((sl, i) => (i === idx ? { lyrics: editDraft } : { lyrics: sl.lyrics }));
       const res = await updateSongSlides(selected.id, next);
       if (!res.ok) { toast.error(res.error || "Save failed"); return; }
@@ -777,7 +796,10 @@ export function SongsBrowser({
             // larger gap so lyrics don't feel cramped next to Bible cards.
             <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }}>
               {slides.map((sl, idx) => {
-                const payload: SlidePayload = { kind: "text", text: sl.lyrics };
+                const oj = songThemed ? (sl.objectsJson as { bgColor?: unknown; bgExplicit?: unknown; bgImageUrl?: unknown; objects?: unknown } | null | undefined) : null;
+                const payload: SlidePayload = oj
+                  ? projectableTextSlide(sl.lyrics, oj.bgColor, cleanRenderUrl(oj.bgImageUrl) ?? undefined, oj.objects, oj.bgExplicit)
+                  : { kind: "text", text: sl.lyrics };
                 const isEditing = editingIdx === idx;
                 if (isEditing) {
                   return (
@@ -855,7 +877,11 @@ export function SongsBrowser({
                       className="absolute inset-0 w-full h-full"
                       title="Click to send lyric slide to live"
                     >
-                      <ThemedSlideCard slide={payload} appearance={ctx.appearance ?? undefined} background={ctx.background} />
+                      <ThemedSlideCard slide={payload} appearance={ctx.appearance ?? undefined} background={ctx.background}
+                        // Theme-baked song: the slide's own background must paint ABOVE the
+                        // card's absolute screen-colour base (a static renderer root paints
+                        // under it, so the baked colour was hidden). Unthemed cards unchanged.
+                        {...(oj ? { className: "relative" } : {})} />
                       {!sl.lyrics.trim() && (
                         <div className="absolute inset-0 flex items-center justify-center text-[11px] text-[var(--color-muted-foreground)]">
                           Empty slide — click pencil to add lyrics

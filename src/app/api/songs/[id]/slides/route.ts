@@ -19,5 +19,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // The desktop slide editor needs it so opening a Songs-Library song for edit
   // hydrates its real design — and so a save never overwrites objects with
   // lyrics-only. The SongsBrowser preview ignores the extra field harmlessly.
-  return NextResponse.json({ title: song.title, slides: slides.map((s) => ({ id: s.id, order: s.order, lyrics: sanitizeLyrics(s.lyrics), objectsJson: s.objectsJson })) });
+  // `themed`: the song carries a baked theme (settings.appliedThemeId) — the
+  // Songs browser then previews/projects the slide's stored background.
+  const themed = typeof ((song.settings as Record<string, unknown> | null) ?? {}).appliedThemeId === "string";
+  return NextResponse.json({ title: song.title, themed, slides: slides.map((s) => ({ id: s.id, order: s.order, lyrics: sanitizeLyrics(s.lyrics), objectsJson: s.objectsJson })) });
 }

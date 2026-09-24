@@ -80,13 +80,20 @@ async function main() {
     const v3 = renderToStaticMarkup(<OutputCompositor mode="live" slide={slide} appearance={seeThrough} background={bg} layerOrderV3 />);
     assert.match(v3, /opacity:\s*0\.3/);
   });
-  await check("both live theme editors expose the See-through slider (distinct from Dim/Opacity)", async () => {
+  await check("both live theme editors expose Background transparency (V3 only), distinct from Darken/Dim", async () => {
     const { readFileSync } = await import("node:fs");
     for (const f of ["src/components/operator/pro/ThemeEditorTab.tsx", "src/components/library/ThemesManager.tsx"]) {
       const s = readFileSync(f, "utf8");
-      assert.match(s, /See-through/, f);
+      assert.match(s, /Background transparency/, f);
+      assert.match(s, /Dim darkens · Transparency lets media show through/, f);
+      assert.match(s, /const v3 = useLayerOrderV3\(\);/, `${f} gates on the V3 flag`);
+      assert.match(s, /\{v3 && \(/, `${f} renders the slider only under V3`);
+      assert.doesNotMatch(s, /See-through/, `${f} old label gone`);
       assert.match(s, /layerOpacity: 1 - Number\(e\.target\.value\) \/ 100/, `${f} writes layerOpacity`);
     }
+    const tm = readFileSync("src/components/library/ThemesManager.tsx", "utf8");
+    assert.match(tm, /Darken \(dim\)/);
+    assert.match(tm, /bgOpacity: 1 - Number\(e\.target\.value\) \/ 100/, "still stores bgOpacity (data unchanged)");
   });
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);

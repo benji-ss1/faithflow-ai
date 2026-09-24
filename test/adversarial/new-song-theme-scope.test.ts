@@ -48,13 +48,18 @@ async function main() {
   const src = readFileSync("src/lib/actions.ts", "utf8");
   const fn = src.slice(src.indexOf("export async function createSong("), src.indexOf("export async function listServicePlanChoices("));
   const iResolve = fn.indexOf("resolveNewSongOptions(");
-  const iInsert = fn.indexOf("db.insert(songs)");
+  const iInsert = fn.indexOf("tx.insert(songs)");
   assert.ok(iResolve > 0 && iInsert > iResolve, "options resolved before the insert");
   assert.match(fn, /if \(!opts\.ok\) return opts;/, "refusal returns before insert");
   assert.match(fn, /eq\(themes\.churchId, user\.churchId\)/, "theme lookup is church-scoped");
   assert.match(fn, /libraryMoveError\(db, user\.churchId, id\)/, "library lookup is church-scoped");
   const plans = src.slice(src.indexOf("export async function listServicePlanChoices("));
   assert.match(plans.slice(0, 900), /eq\(servicePlans\.churchId, user\.churchId\)/, "playlist choices church-scoped");
+  // Atomic create: song + blank slide + theme bake in ONE transaction, the bake
+  // runs with the SESSION church and a failed bake throws (rolls back the song).
+  assert.match(fn, /db\.transaction\(async \(tx\)/, "create is transactional");
+  assert.match(fn, /bakeThemeIntoSongTx\(tx, user\.churchId, themeId, cfg, row\.id\)/, "bake uses session church, same tx");
+  assert.match(fn, /if \(!r\.ok\) throw new Error/, "bake failure rolls the create back");
   const apply = src.slice(src.indexOf("export async function applyThemeToSong("), src.indexOf("export async function applyThemeToSong(") + 700);
   assert.match(apply, /eq\(themes\.churchId, user\.churchId\)/, "applyThemeToSong still church-scoped");
   console.log("new-song-theme-scope: all passed");
