@@ -225,8 +225,9 @@ async function main() {
     assert.match(s, /Apply theme/, "apply-theme on any library song (incl. imported)");
     // Theme-baked songs: quick lyric edit keeps objectsJson (per-slide text save),
     // and preview/send carry the baked bg; unthemed songs keep the old paths.
-    assert.match(s, /if \(songThemed && target\?\.id && target\.objectsJson\) \{\n\s+\/\/[^\n]*\n[\s\S]*?updateSongSlideText\(target\.id, editDraft\)/);
-    assert.match(s, /const res = await updateSongSlides\(selected\.id, next\);/, "unthemed path unchanged");
+    // Round 5: a themed song ALWAYS edits in place (see quickEditInPlace).
+    assert.match(s, /if \(target\?\.id && quickEditInPlace\(songThemed, target\.objectsJson\)\) \{[\s\S]*?updateSongSlideText\(target\.id, editDraft\)/);
+    assert.match(s, /const res = await updateSongSlides\(selected\.id, next\);/, "rewrite-all kept for multi-box / media-only unthemed slides");
     assert.match(s, /const oj = songThemed \?/);
     assert.match(s, /: \{ kind: "text", text: sl\.lyrics \};/, "unthemed payload unchanged");
   });

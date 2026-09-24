@@ -19,6 +19,7 @@ import { DotGridBackground } from "../DotGridBackground";
 import type { SlidePayload } from "@/lib/broadcast";
 import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, updateSongSlideText, deleteSong, reChunkSong, importParsedSongs } from "@/lib/actions";
 import { projectableTextSlide } from "@/lib/broadcast";
+import { quickEditInPlace } from "@/lib/slide-inherit";
 import { cleanRenderUrl } from "@/lib/render-url";
 import { parseVpagd } from "@/lib/import/videopsalm";
 import { parseSongText } from "@/lib/import/song-text";
@@ -433,10 +434,14 @@ export function SongsBrowser({
     setSavingEdit(true);
     try {
       const target = slides[idx];
-      if (songThemed && target?.id && target.objectsJson) {
-        // Theme-baked slide: edit ONLY this slide's text and keep its objectsJson
-        // (the baked background). The rewrite-all path below drops objectsJson,
-        // which is how a chosen theme used to vanish on the first lyric edit.
+      if (target?.id && quickEditInPlace(songThemed, target.objectsJson)) {
+        // Edit ONLY this slide's text, in place (same slide id, objectsJson kept).
+        // A themed song ALWAYS takes this path — even a slide with a NULL
+        // objectsJson (a verse added before round 5) — because the rewrite-all
+        // path below deletes + re-inserts every row, which drops each slide's
+        // baked background and rewrites the slide ids the theme undo snapshot is
+        // keyed by. Unthemed plain / single-text-box slides take it too (same
+        // pixels, ids + design kept); see quickEditInPlace.
         const res = await updateSongSlideText(target.id, editDraft);
         if (!res.ok) { toast.error(res.error || "Save failed"); return; }
         refreshSlides(selected.id);

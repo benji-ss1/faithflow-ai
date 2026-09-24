@@ -59,7 +59,7 @@ async function main() {
   // runs with the SESSION church and a failed bake throws (rolls back the song).
   assert.match(fn, /db\.transaction\(async \(tx\)/, "create is transactional");
   assert.match(fn, /bakeThemeIntoSongTx\(tx, user\.churchId, themeId, cfg, row\.id\)/, "bake uses session church, same tx");
-  assert.match(fn, /if \(!r\.ok\) throw new Error/, "bake failure rolls the create back");
+  assert.match(fn, /if \(!r\.ok\) throw new ThemeNotAppliedError\(\)/, "bake failure rolls the create back");
   const apply = src.slice(src.indexOf("export async function applyThemeToSong("), src.indexOf("export async function applyThemeToSong(") + 700);
   assert.match(apply, /eq\(themes\.churchId, user\.churchId\)/, "applyThemeToSong still church-scoped");
   console.log("new-song-theme-scope: all passed");

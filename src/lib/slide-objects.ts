@@ -292,11 +292,27 @@ export function mergeSavedSlideRoot(
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(prev)) if (!EDITOR_OWNED_ROOT_KEYS.has(k) && v !== undefined) out[k] = v;
   if (input.transition !== undefined) out.transition = input.transition;
+  // Round 5 🟡: bgType / bgColor2 describe the STORED background. When the save
+  // CHANGES the background (a new colour / image / explicit marker), they're
+  // stale — a leftover gradient bgColor2 or bgType would outrank the new pick.
+  // An unchanged background (the editor echoes the loaded values on every save)
+  // keeps them, so a baked gradient/solid survives a plain text edit.
+  const bgChanged = !sameRootValue(input.bgColor, prev.bgColor)
+    || !sameRootValue(input.bgImageUrl, prev.bgImageUrl)
+    || (input.bgExplicit === true) !== (prev.bgExplicit === true);
+  if (bgChanged) { delete out.bgType; delete out.bgColor2; }
   out.bgColor = input.bgColor;
   out.bgImageUrl = input.bgImageUrl;
   if (input.bgExplicit === true) out.bgExplicit = true;
+  // Every background cleared: a bare {bgType:"solid"} is just the default —
+  // drop it rather than leave a meaningless leftover on the row.
+  if (input.bgColor === undefined && input.bgImageUrl === undefined && input.bgExplicit !== true
+    && out.bgType === "solid" && out.bgColor2 === undefined) delete out.bgType;
   out.objects = input.objects;
   return out;
+}
+function sameRootValue(a: unknown, b: unknown): boolean {
+  return (a ?? undefined) === (b ?? undefined);
 }
 
 // ---------- Projector compat ------------------------------------------------
