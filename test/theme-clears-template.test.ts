@@ -56,7 +56,8 @@ check("the Themes-tab path still uses the theme-changed event (unchanged)", () =
     "applyThemeLive stopped dispatching theme-changed — that event is what clears the template for the Themes tab");
 });
 check("the apply-theme-to-song LISTENER is not double-clearing", () => {
-  // It is dispatched BY applyThemeLive, which already cleared the template.
+  // Historically dispatched BY applyThemeLive (visual-only since 2026-09-23),
+  // whose theme-changed event already clears the template.
   // Clearing again there would be redundant and would fight the Undo snapshot.
   const src = read("../src/components/operator/pro/left/PlaylistSection.tsx");
   const i = src.indexOf("const onApplyThemeToSong");

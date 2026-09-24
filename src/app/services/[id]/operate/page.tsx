@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { requireUser, hasCap } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
+import { getChurchDefaultBackgroundId } from "@/lib/server/church-defaults";
 import { churchPreferences, bibleTranslations } from "@/lib/db/schema";
 import { getExpandedServicePlan } from "@/lib/server/services";
 import { OperatorConsole } from "@/components/operator/OperatorConsole";
@@ -47,6 +48,10 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       }
     | null = null;
   let translationCode = "KJV";
+  // Church defaults (2026-09-23): true only when the preferences read above
+  // succeeded — otherwise the console restores the church default from its
+  // offline cache instead of silently running on KJV.
+  let translationFromServer = false;
   try {
     const [p] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
     prefs = p ?? null;
@@ -54,6 +59,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       const [t] = await db.select().from(bibleTranslations).where(eq(bibleTranslations.id, prefs.defaultTranslationId)).limit(1);
       if (t) translationCode = t.code;
     }
+    translationFromServer = true;
   } catch (e) {
     console.error("[operate] church-preferences read failed — falling back to safe defaults:", e instanceof Error ? e.message : String(e));
   }
@@ -75,6 +81,8 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       plan={plan}
       churchId={user.churchId}
       defaultTranslationCode={translationCode}
+      translationFromServer={translationFromServer}
+      defaultBackgroundId={await getChurchDefaultBackgroundId(user.churchId)}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
       scenesEnabled={prefs?.scenesEnabled ?? false}

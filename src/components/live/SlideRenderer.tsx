@@ -617,10 +617,38 @@ export function SlideRenderer(props: SlideRendererProps) {
       // operator can type straight onto it. Gated on `editable`, so every
       // non-edit render (projector/stage/livestream/thumbnails) is unchanged.
       if (soleText && (soleText.text.trim() || editable)) {
-        const animated = !hosted && usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
+        // 2026-09-23 (user-directed "the theme always wins"): a plain lyric slide
+        // (ONE visible text object, no per-slide image) follows the ACTIVE theme
+        // exactly like a Bible plain-text slide — theme bg, colour, font, weight,
+        // alignment. Previously the song's stored bgColor (incl. the #010101
+        // written by applyThemeToSong) and baked object colour/font beat the
+        // theme, so songs ignored every later theme change. Only when the theme
+        // actually PAINTS a background (a font-only theme must not black out a
+        // coloured announcement slide), never while editing inline, never in the
+        // OBS transparent overlay, and never on a deliberately styled slide
+        // (`styleLocked` — editor save / per-song or per-slide theme apply, user
+        // decision B), and never over a background the operator explicitly
+        // CHOSE for this slide (`bgExplicit`, the 2026-09-21 song-background
+        // feature). Everything else in this branch (theme lyrics frame,
+        // decor, scripture band reserve, hosted chrome) is kept — only the
+        // container bg and the per-object style overrides change.
+        const themeHasBg = !!appearance && (!!appearance.bgColor || !!appearance.bgImageUrl || appearance.bgType === "image" || appearance.bgType === "video");
+        const followTheme = themeHasBg && !transparentBg && !slide.bgImageUrl && !editable && soleText.styleLocked !== true && !bgWasChosen;
+        const animated = !hosted && usesAnimatedBg(appearance, overVideo || transparentBg, followTheme ? undefined : (slideBg || slide.bgImageUrl));
+        const soleBg: React.CSSProperties = followTheme ? (overVideo ? { background: "transparent" } : themeBg("#0b0b0b")) : designBg;
+        // Text colour over a Background Template (overVideo) — deliberately the
+        // SAME rule as the Bible plain-text path below: themeTextStyle (theme
+        // textColor, else auto-contrast vs the theme bgColor). Test-locked in
+        // test/style-lock.test.ts ("song over template matches Bible").
+        const soleThemedTextColor = followTheme ? (overVideo ? undefined : ((themeTextStyle(appearance)?.color as string | undefined) ?? undefined)) : themedTextColor;
         // Respect the operator's colour/font/weight/alignment; AutoFitText owns
         // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.
-        const objStyle: React.CSSProperties = {
+        const objStyle: React.CSSProperties = followTheme ? {
+          // Exactly the Bible plain-text styling: theme text style only (stored
+          // object colour/font/weight/align ignored); italic + uppercase toggle kept.
+          ...(soleText.italic ? { fontStyle: "italic" } : {}),
+          ...(soleText.uppercase === false ? { textTransform: "none" } : soleText.uppercase === true ? { textTransform: "uppercase" } : {}),
+        } : {
           // Default-white inherits the theme textColor when the theme bg is
           // showing; an explicit colour still wins (themedObjectTextColor).
           ...(soleText.color ? { color: themedObjectTextColor(soleText.color, themedTextColor) } : (themedTextColor ? { color: themedTextColor } : {})),
@@ -644,9 +672,9 @@ export function SlideRenderer(props: SlideRendererProps) {
         const soleDecor = !slide.reference ? decorFor(false) : undefined;
         if (lyricFrame) {
           return (
-            <div className={`${base} relative ${className || ""}`} style={designBg}>
+            <div className={`${base} relative ${className || ""}`} style={soleBg}>
               {animated && <AnimatedThemeBg appearance={appearance} />}
-              {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} decor />}
+              {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={soleThemedTextColor} decor />}
               <ThemeFramedText frame={lyricFrame} text={soleText.text} fontScale={fontScale} textMinPx={textMinPx}
                 className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
                 textStyle={{ ...themeTextStyle(appearance), ...themeFrameTextStyle(lyricFrame), ...objStyle }}
@@ -655,9 +683,9 @@ export function SlideRenderer(props: SlideRendererProps) {
           );
         }
         return (
-          <div className={`${base} ${animated || soleDecor ? "relative" : ""} ${className || ""}`} style={designBg}>
+          <div className={`${base} ${animated || soleDecor ? "relative" : ""} ${className || ""}`} style={soleBg}>
             {animated && <AnimatedThemeBg appearance={appearance} />}
-            {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} decor />}
+            {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={soleThemedTextColor} decor />}
             <AutoFitText
               text={soleText.text}
               maxPx={120}

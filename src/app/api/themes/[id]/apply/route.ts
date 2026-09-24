@@ -21,7 +21,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const user = await requireUser();
-  if (!hasCap(user.role, "operate_services")) {
+  // 2026-09-23: writes the church's MAIN theme → admin-only (church defaults).
+  // The operator console no longer calls this (apply is live-only); kept for compatibility.
+  if (!hasCap(user.role, "manage_church")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const { id } = await params;

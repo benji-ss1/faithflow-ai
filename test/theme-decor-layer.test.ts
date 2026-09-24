@@ -11,7 +11,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SlidePayload, ThemeAppearance } from "../src/lib/broadcast";
 import { planOutput } from "../src/lib/output-plan";
-import { renderMatrix, renderCompositorMatrix, SLIDES, APPEARANCES } from "./theme-pr2-fixtures";
+import { renderMatrix, renderCompositorMatrix, SLIDES, APPEARANCES, themeWinsChangedKey } from "./theme-pr2-fixtures";
 import baseline from "./fixtures/theme-gaps-baseline.json";
 import { fontStack } from "../src/lib/fonts/registry";
 
@@ -42,14 +42,14 @@ async function main() {
     const now = await renderMatrix();
     const base = (baseline as { renderer: Record<string, string> }).renderer;
     assert.equal(Object.keys(now).length, Object.keys(base).length);
-    const diff = Object.keys(base).filter((k) => now[k] !== withFontStacks(base[k]));
+    const diff = Object.keys(base).filter((k) => !themeWinsChangedKey(k) && now[k] !== withFontStacks(base[k]));
     assert.deepEqual(diff, []);
   });
   await check("renderCompositorMatrix byte-identical to base", async () => {
     const now = await renderCompositorMatrix();
     const base = (baseline as { compositor: Record<string, string> }).compositor;
     assert.equal(Object.keys(now).length, Object.keys(base).length);
-    const diff = Object.keys(base).filter((k) => now[k] !== withFontStacks(base[k]));
+    const diff = Object.keys(base).filter((k) => !themeWinsChangedKey(k) && now[k] !== withFontStacks(base[k]));
     assert.deepEqual(diff, []);
   });
 

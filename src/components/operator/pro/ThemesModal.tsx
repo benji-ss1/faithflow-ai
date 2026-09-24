@@ -52,11 +52,12 @@ export function ThemesModal({ open, onClose }: { open: boolean; onClose: () => v
     return () => { alive = false; };
   }, [open]);
 
-  const onThemeActivated = useCallback(async (config: Record<string, unknown>) => {
+  const onThemeActivated = useCallback(async (config: Record<string, unknown>, themeId?: string) => {
     try {
       const { themeConfigToAppearance } = await import("@/lib/theme-appearance");
+      if (themeId) { const { setLiveThemeId } = await import("@/lib/live-theme"); setLiveThemeId(themeId); }
       window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
-        detail: { appearance: themeConfigToAppearance(config) },
+        detail: { appearance: themeConfigToAppearance(config), ...(themeId ? { themeId } : {}) },
       }));
       // Keep the top-bar quick switcher's list/selection in sync.
       window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));

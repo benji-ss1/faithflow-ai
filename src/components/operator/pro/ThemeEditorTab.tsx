@@ -18,6 +18,7 @@ import type { UseSlideEditorReturn } from "../editor/useSlideEditor";
 import type { TextObject } from "@/lib/slide-objects";
 import { BgAssetPicker } from "@/components/library/BgAssetPicker";
 import { TRANSITIONS } from "./BottomBar/TransitionChooser";
+import { useCanManageChurch } from "@/lib/live-theme";
 import { TRANSITION_NAME_TO_EFFECT_ID } from "@/lib/transition-names";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { hasSavedScriptureStyle, clearScriptureStyle } from "@/components/operator/scripture/scriptureStyle";
@@ -95,6 +96,7 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
   setMakeDefault: (v: boolean) => void;
   isDefault: boolean;
 }) {
+  const canManage = useCanManageChurch();
   const [paletteBusy, setPaletteBusy] = useState(false);
   // PR 2: the church's saved Scripture Style (PR B: shared per church) overrides the theme's
   // scripture boxes (decision 4) — say so, and offer to clear it.
@@ -332,13 +334,15 @@ export function ThemeEditorTab({ editor, churchId, cfg, setCfg, meta, setMeta, m
       </Section>
 
       {confirmDialog}
-      <Section title="Default">
+      <Section title="Main theme">
         {isDefault ? (
-          <p className="text-[11px] text-[var(--color-muted-foreground)]">This is your default theme.</p>
-        ) : (
+          <p className="text-[11px] text-[var(--color-muted-foreground)]">This is your main theme.</p>
+        ) : canManage ? (
           <div className="flex gap-1">
-            <Seg on={makeDefault} label="Set as default on save" onClick={() => setMakeDefault(!makeDefault)} />
+            <Seg on={makeDefault} label="Make this our main theme on save" onClick={() => setMakeDefault(!makeDefault)} />
           </div>
+        ) : (
+          <p className="text-[11px] text-[var(--color-muted-foreground)]">Only admins can change the main theme.</p>
         )}
       </Section>
     </div>

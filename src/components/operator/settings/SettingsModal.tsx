@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Monitor, Volume2, Languages, BarChart3, BookOpen, KeyRound, HelpCircle, MessageSquare, Shield, Cast } from "lucide-react";
+import { X, Monitor, Volume2, Languages, BarChart3, BookOpen, KeyRound, HelpCircle, MessageSquare, Shield, Cast, Star } from "lucide-react";
 import { DisplayTab } from "./tabs/DisplayTab";
+import { ChurchDefaultsTab } from "./tabs/ChurchDefaultsTab";
 import { NdiTab } from "./tabs/NdiTab";
 import { AudioTab } from "./tabs/AudioTab";
 import { LanguageTab } from "./tabs/LanguageTab";
@@ -22,10 +23,11 @@ const TAB_KEY = "presentflow.pro.settings.tab.v1";
 const SAFE_MODE_KEY = "presentflow.operator.safeMode";
 const LEGACY_SAFE_MODE_KEY = "presentflow.safeMode";
 
-type TabId = "display" | "audio" | "ndi" | "language" | "usage" | "bible" | "license" | "help" | "feedback";
+type TabId = "display" | "churchDefaults" | "audio" | "ndi" | "language" | "usage" | "bible" | "license" | "help" | "feedback";
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "display", label: "Display", icon: Monitor },
+  { id: "churchDefaults", label: "Church defaults", icon: Star },
   { id: "audio", label: "Audio", icon: Volume2 },
   { id: "ndi", label: "NDI Output", icon: Cast },
   { id: "language", label: "Language", icon: Languages },
@@ -135,6 +137,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
 
             <div className="flex-1 min-w-0 overflow-y-auto p-6">
               {tab === "display" && <DisplayTab />}
+              {tab === "churchDefaults" && <ChurchDefaultsTab />}
               {tab === "audio" && <AudioTab />}
               {tab === "ndi" && <NdiTab />}
               {tab === "language" && <LanguageTab />}

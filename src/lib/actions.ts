@@ -5,7 +5,7 @@ import type { SQL } from "drizzle-orm";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { adHocCleanupTargets, recentChurchDayKeys } from "./operator-plan-select";
 import { getDb } from "./db/client";
-import { bakeThemeIntoObjectsJson } from "./theme-bake";
+import { bakeThemeIntoObjectsJson, lockStyledTextObjects } from "./theme-bake";
 import { mergeThemeBackup, rebakeThemeFromOriginal, reapplySourceForSlide, resetThemeOwnedFields, pruneThemeBackup, reapplyFieldsForConfigs, copyThemeBackupForDuplicate, appendBakedConfig, readBakedConfigs, pickBakedConfig, type BakeableThemeConfigList } from "./theme-rebake";
 import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, scenes, stageLayouts, stageScreens, type ServiceItemType } from "./db/schema";
@@ -1142,12 +1142,18 @@ export async function saveSlideObjects(slideId: string, editable: EditableSlideI
     .map((o) => (typeof o.text === "string" ? o.text.trim() : ""))
     .filter(Boolean)
     .join("\n") || editable.lyrics || "";
+  // Decision B (2026-09-23): a deliberate STYLE edit locks the slide's look so
+  // it keeps it over the default theme. The editor saves every slide on Save,
+  // so only lock when the style actually changed vs what's stored (a text-only
+  // edit or an untouched slide keeps its current lock state).
+  const [prevRow] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
+  const nextObjects = lockStyledTextObjects(prevRow?.objectsJson, editable.bgColor, editable.objects);
   await db.update(songSlides).set({
     objectsJson: {
       bgColor: editable.bgColor,
       bgImageUrl: editable.bgImageUrl,
       ...(editable.bgExplicit === true ? { bgExplicit: true } : {}),
-      objects: editable.objects,
+      objects: nextObjects,
     },
     lyrics: derivedLyrics,
   }).where(eq(songSlides.id, slideId));
@@ -1240,6 +1246,11 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
     }
   }
 
+  // Decision B: a new slide the operator styled in the editor keeps its look
+  // (template-inherited slides already carry the sibling's lock state).
+  if (initial?.objects && initial.objects.length > 0) {
+    objects = lockStyledTextObjects(null, bgColor, objects) as typeof objects;
+  }
   const textObjects = objects.filter((o): o is { kind: string; text?: string } =>
     typeof o === "object" && o !== null && (o as { kind?: unknown }).kind === "text");
   const derivedLyrics = textObjects
@@ -2073,7 +2084,22 @@ export async function updatePreferences(data: {
   // `setScenesEnabled` — never through this general settings action) can never
   // reach a column. Only keys present in `data` are copied through.
   const patch: Partial<typeof churchPreferences.$inferInsert> = {};
-  if ("defaultTranslationId" in data) patch.defaultTranslationId = data.defaultTranslationId;
+  const [existing] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+  // Church defaults (2026-09-23): the church-wide default translation is an
+  // ADMIN setting. This general action is also saved by non-admin settings
+  // forms that always resend the current value — so only a CHANGE is gated
+  // (unchanged value passes, keeping those forms working), and a new value must
+  // be a translation this church can actually use.
+  if ("defaultTranslationId" in data && (data.defaultTranslationId ?? null) !== (existing?.defaultTranslationId ?? null)) {
+    if (!hasCap(user.role, "manage_church")) return { ok: false, error: "Only church admins can change the default translation" };
+    if (data.defaultTranslationId) {
+      const { translationAccessibleToChurch } = await import("@/lib/server/church-defaults");
+      if (!(await translationAccessibleToChurch(user.churchId, data.defaultTranslationId))) {
+        return { ok: false, error: "That translation isn't available to your church" };
+      }
+    }
+    patch.defaultTranslationId = data.defaultTranslationId;
+  }
   if ("aiListeningDefault" in data) patch.aiListeningDefault = data.aiListeningDefault;
   if ("audioInputDeviceLabel" in data) patch.audioInputDeviceLabel = data.audioInputDeviceLabel;
   if ("detectionConfidenceThreshold" in data) patch.detectionConfidenceThreshold = data.detectionConfidenceThreshold;
@@ -2084,7 +2110,6 @@ export async function updatePreferences(data: {
   if ("autoApproveThreshold" in data) patch.autoApproveThreshold = data.autoApproveThreshold;
   if ("autoSendToLive" in data) patch.autoSendToLive = data.autoSendToLive;
 
-  const [existing] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
   if (existing) {
     await db.update(churchPreferences).set({ ...patch, updatedAt: new Date() }).where(eq(churchPreferences.id, existing.id));
   } else {
@@ -2701,7 +2726,12 @@ export async function reorderThemes(orderedIds: string[]): Promise<Result> {
 // steps leaves at most zero defaults, never two, which is the safer state
 // than a partially-mutated pair. A dedicated tx wrapper can come later.
 export async function setDefaultTheme(id: string): Promise<Result> {
-  const user = await requireCap("edit_library");
+  // Church defaults 2026-09-23: the operator's "Set as main theme" star calls
+  // this from the live console, where a redirect (requireCap) would navigate a
+  // volunteer away mid-service — return an error instead. Same capability.
+  const user = await requireUser();
+  // 2026-09-23 decision: church defaults are ADMIN-only (same gate as the card).
+  if (!hasCap(user.role, "manage_church")) return { ok: false, error: "Only admins can change the main theme" };
   const db = getDb();
   // Confirm target belongs to this church BEFORE we clear the current
   // default — otherwise a caller sending a foreign id could leave the
@@ -2713,6 +2743,52 @@ export async function setDefaultTheme(id: string): Promise<Result> {
     .where(and(eq(themes.churchId, user.churchId), eq(themes.isDefault, true)));
   await db.update(themes).set({ isDefault: true, updatedAt: new Date() })
     .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
+  revalidatePath("/library/themes");
+  return { ok: true };
+}
+
+// ── Church defaults (2026-09-23, user-approved) ─────────────────────────────
+// ONE place an admin sets the church's default translation, main theme and
+// default animated background. Admin-only (manage_church); returns an error
+// instead of redirecting so a non-admin in the operator console is never
+// navigated away. Everything validated church-scoped BEFORE any write
+// (src/lib/church-defaults.ts applyChurchDefaults). In-service switches stay
+// session-only and never call this.
+/** Cheap capability probe so the UI can hide admin-only default controls. */
+export async function canManageChurchDefaults(): Promise<boolean> {
+  const user = await requireUser();
+  return hasCap(user.role, "manage_church");
+}
+
+export async function getChurchDefaults(): Promise<Result<import("@/lib/server/church-defaults").ChurchDefaultsView & { canEdit: boolean }>> {
+  const user = await requireUser();
+  if (!hasCap(user.role, "view_library") && !hasCap(user.role, "operate_services")) return { ok: false, error: "Not allowed" };
+  const { getChurchDefaultsView } = await import("@/lib/server/church-defaults");
+  const view = await getChurchDefaultsView(user.churchId);
+  return { ok: true, data: { ...view, canEdit: hasCap(user.role, "manage_church") } };
+}
+
+export async function setChurchDefaults(input: {
+  translationId?: string | null;
+  mainThemeId?: string | null;
+  backgroundId?: string | null;
+}): Promise<Result> {
+  const user = await requireUser();
+  if (!hasCap(user.role, "manage_church")) return { ok: false, error: "Only church admins can change church defaults" };
+  const cd = await import("@/lib/server/church-defaults");
+  const { applyChurchDefaults } = await import("@/lib/church-defaults");
+  const res = await applyChurchDefaults(user.churchId, input, {
+    translationAccessible: cd.translationAccessibleToChurch,
+    themeBelongs: cd.themeBelongsToChurch,
+    writeTranslation: cd.writeChurchDefaultTranslation,
+    writeMainTheme: cd.writeChurchMainTheme,
+    writeBackground: cd.writeChurchDefaultBackground,
+    backgroundReady: cd.churchDefaultBackgroundReady,
+    writeAll: cd.writeChurchDefaultsAtomic,
+  });
+  if (!res.ok) return res;
+  revalidatePath("/settings");
+  revalidatePath("/organization");
   revalidatePath("/library/themes");
   return { ok: true };
 }

@@ -1840,7 +1840,7 @@ function SlideCard({
               </ContextMenu.SubTrigger>
               <ContextMenu.Portal>
                 <ContextMenu.SubContent collisionPadding={8} className="min-w-[210px] max-h-[min(380px,var(--radix-context-menu-content-available-height))] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
-                  <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Looks · projector</div>
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Animated themes</div>
                   {themeMenu.looks.map((l) => (
                     <ContextMenu.Item
                       key={l.id}

@@ -808,8 +808,10 @@ export function PlaylistSection({
   };
 
   // Apply a theme to the WHOLE current song (every slide/preview), reversibly.
-  // The Themes tab fires this; we resolve the current song, restyle all its
-  // slides server-side, refresh so the previews update, and offer Undo.
+  // Resolves the current song, restyles all its slides server-side, refreshes
+  // so the previews update, and offers Undo. NOTE (2026-09-23): the Themes tab
+  // no longer fires this (a mid-service apply is visual only); kept for any
+  // explicit "apply to this song" dispatcher.
   useEffect(() => {
     const onApplyThemeToSong = (e: Event) => {
       const themeId = (e as CustomEvent<{ themeId?: string; themeName?: string }>).detail?.themeId;

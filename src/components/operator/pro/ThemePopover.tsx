@@ -23,6 +23,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import { ChevronLeft, ChevronRight, Palette, Pencil, Plus, SlidersHorizontal, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { applyThemeLive, readThemeRecents, type ClientTheme } from "@/lib/theme-apply-client";
+import { useLiveThemeId, isThemeLiveNow } from "@/lib/live-theme";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { themeConfigToAppearance } from "@/lib/theme-appearance";
@@ -124,6 +125,7 @@ export function ThemeThumb({ theme, large = false }: { theme: ClientTheme; large
 
 export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boolean; onOpenChange: (v: boolean) => void; /** CSS selector of the toolbar button the popover points at. */ anchorSelector: string }) {
   const [themes, setThemes] = useState<ClientTheme[] | null>(null);
+  const liveThemeId = useLiveThemeId();
   const [error, setError] = useState(false);
   const [recents, setRecents] = useState<string[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -180,7 +182,6 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
     const ok = await applyThemeLive(t);
     setApplying(null);
     if (ok) {
-      setThemes((prev) => prev?.map((x) => ({ ...x, isDefault: x.id === t.id })) ?? prev);
       setRecents(readThemeRecents());
     }
   };
@@ -284,7 +285,8 @@ export function ThemePopover({ open, onOpenChange, anchorSelector }: { open: boo
             />
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 max-w-full">
-              {t.isDefault ? <span role="img" aria-label="In use" title="In use" className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#0a84ff]" /> : null}
+              {isThemeLiveNow(t, themes ?? [], liveThemeId) ? <span role="img" aria-label="Live now" title="Live now" className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#0a84ff]" /> : null}
+              {t.isDefault ? <span role="img" aria-label="Main theme" title="Main theme (loads on every app start)" className="text-[10px] leading-none text-[var(--color-brand)]">★</span> : null}
               <span className="truncate text-[12px] text-[var(--color-foreground)]">{t.name}</span>
               {builtin ? <span className="shrink-0 rounded px-1 text-[9px] uppercase tracking-wide bg-white/10 text-[var(--color-muted-foreground)]">Built-in</span> : null}
             </div>
