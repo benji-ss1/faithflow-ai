@@ -171,3 +171,33 @@ export function shiftRuns(runs: readonly TextRun[] | undefined, at: number, delt
   });
   return normalizeRuns(moved, newLength);
 }
+
+/**
+ * Re-map runs for a whole-text replacement (quick edit swaps a box's text).
+ * Diff old vs new by common prefix/suffix. If the change is a PURE insertion
+ * or deletion, shift the runs with shiftRuns (same words stay formatted). Any
+ * other change (a replacement) is ambiguous → runs are DROPPED (conservative:
+ * losing emphasis is recoverable, bolding the wrong word on a projector is not).
+ * Returns undefined when there are no runs left to keep.
+ */
+export function remapRunsForTextEdit(runs: readonly TextRun[] | undefined, oldText: string, newText: string): TextRun[] | undefined {
+  if (!Array.isArray(runs) || runs.length === 0) return undefined;
+  if (oldText === newText) return normalizeRuns(runs, newText.length);
+  let p = 0;
+  const max = Math.min(oldText.length, newText.length);
+  while (p < max && oldText[p] === newText[p]) p++;
+  let s = 0;
+  while (s < max - p && oldText[oldText.length - 1 - s] === newText[newText.length - 1 - s]) s++;
+  const removed = oldText.length - p - s;
+  const inserted = newText.length - p - s;
+  if (removed > 0 && inserted > 0) return undefined;
+  let out: TextRun[];
+  if (inserted > 0) {
+    out = shiftRuns(runs, p, inserted, newText.length);
+  } else {
+    // Pure deletion of [p, p+removed): a run touching the deleted span loses
+    // characters; shiftRuns clamps offsets into the collapsed span.
+    out = shiftRuns(runs, p, -removed, newText.length);
+  }
+  return out.length ? out : undefined;
+}

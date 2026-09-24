@@ -17,6 +17,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "In Themes, the Opacity slider is now called \"Darken (dim)\" and counts up as it gets darker. It works the same as before. Testers with the new layer order switched on also get a \"Background transparency\" slider, which lets your background image or video show through the theme's background. Slide cards without a background also show a checkerboard. With the new layer order off, the transparency slider is hidden.",
       "New slides on a themed song now get the theme too, whether you use + Add slide or Add in Edit slide. Editing the words of a new slide with the pencil keeps the theme. Undo theme also puts slides you added after the theme back to plain.",
       "Editing one slide's words with the pencil now changes only that slide, so a designed slide with one text box keeps its design.",
+      "Quick edit now updates only the slide you edited — designs on other slides are no longer reset.",
       "Songs with a theme still show as the church lower-third band when the church's scripture layout is lower third."
     ]
   },

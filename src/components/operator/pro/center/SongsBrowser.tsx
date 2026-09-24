@@ -444,6 +444,11 @@ export function SongsBrowser({
         // pixels, ids + design kept); see quickEditInPlace.
         const res = await updateSongSlideText(target.id, editDraft);
         if (!res.ok) { toast.error(res.error || "Save failed"); return; }
+        // Note: the refresh reads /api/songs/[id]/slides, which runs
+        // sanitizeLyrics — so 3+ blank lines collapse to one stanza break
+        // ("\n\n\n" → "\n\n") on this refresh rather than on the next reload
+        // as on main. Words and stanza breaks are unchanged (pinned in
+        // test/composable-round5b.test.ts); accepted, sanitizeLyrics untouched.
         refreshSlides(selected.id);
         setSlides(slides.map((sl, i) => (i === idx ? { ...sl, lyrics: editDraft } : sl)));
         setEditingIdx(null);

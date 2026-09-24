@@ -34,6 +34,7 @@ import { generateImageThumbnail } from "./media-thumbnail";
 import { validateReorderItemSlides } from "./reorder-validator";
 import { newObjectId, mergeSavedSlideRoot } from "./slide-objects";
 import { inheritNewSlide, makeIdMapper, addNewSlideToThemeBackups, restoreNullIfEmpty } from "./slide-inherit";
+import { remapRunsForTextEdit, type TextRun } from "./text-runs";
 import { createLimiter } from "./rate-limit";
 import { getSongUsage } from "./song-limits";
 import { getEffectiveSongLimit } from "./server/song-limits-server";
@@ -1251,7 +1252,17 @@ export async function updateSongSlideText(slideId: string, newText: string): Pro
       // Designed slide: replace the first text object's text; keep everything else.
       let replaced = false;
       const nextObjects = objects.map((o) => {
-        if (!replaced && o && o.kind === "text") { replaced = true; return { ...o, text }; }
+        if (!replaced && o && o.kind === "text") {
+          replaced = true;
+          // Character-offset `runs` (imported PP7 emphasis) must follow the
+          // words, not the offsets: re-map a pure insert/delete, otherwise
+          // drop them (never bold the wrong word). See remapRunsForTextEdit.
+          const oldText = typeof o.text === "string" ? o.text : "";
+          if (!("runs" in o) || oldText === text) return { ...o, text };
+          const { runs: _old, ...rest } = o; void _old;
+          const runs = remapRunsForTextEdit(o.runs as TextRun[] | undefined, oldText, text);
+          return runs ? { ...rest, text, runs } : { ...rest, text };
+        }
         return o;
       });
       await tx.update(songSlides).set({ objectsJson: { ...oj, objects: nextObjects }, lyrics: text }).where(eq(songSlides.id, slideId));
@@ -3114,7 +3125,7 @@ async function bakeThemeIntoSongTx(tx: ThemeTx, churchId: string, themeId: strin
       .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).for("update");
     if (!song) return { ok: false, error: "Song not found" };
     const slides = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
-      .from(songSlides).where(eq(songSlides.songId, songId));
+      .from(songSlides).where(eq(songSlides.songId, songId)).for("update"); // lock order: song → slides
     const prevSettings = (song.settings as Record<string, unknown>) ?? {};
     // Snapshot every slide's prior objectsJson so revertSongTheme can restore the
     // look. Revert-bug fix (Theme Editor PR 1): the FIRST snapshot is preserved
@@ -3296,7 +3307,7 @@ export async function revertSongTheme(songId: string): Promise<Result<{ slidesRe
     const backup = settings.themeBackup as { slides?: { id: string; objectsJson: unknown }[] } | undefined;
     if (!backup?.slides?.length) return { ok: false, error: "Nothing to undo" };
     const current = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
-      .from(songSlides).where(eq(songSlides.songId, songId));
+      .from(songSlides).where(eq(songSlides.songId, songId)).for("update"); // lock order: song → slides
     const byId = new Map(current.map((c) => [c.id, c]));
     const rows: { id: string; objectsJson: unknown }[] = [];
     for (const b of backup.slides) {
@@ -3400,7 +3411,7 @@ export async function reapplyThemeToSongs(
       if (!song) return false;
       const settings = (song.settings as Record<string, unknown>) ?? {};
       const slides = await tx.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
-        .from(songSlides).where(eq(songSlides.songId, songId));
+        .from(songSlides).where(eq(songSlides.songId, songId)).for("update"); // lock order: song → slides
       const additions: { id: string; objectsJson: unknown }[] = [];
       const rows: { id: string; objectsJson: unknown }[] = [];
       const perSlideRebaked: string[] = [];
