@@ -12,6 +12,7 @@ test/adversarial/audio-reconnect.test.ts
 test/adversarial/audio-sessions-cross-church.test.ts
 test/adversarial/auto-approve-safeguards.test.ts
 test/adversarial/auto-approve-shell-rules.test.ts
+test/adversarial/church-defaults-scope.test.ts
 test/adversarial/church-styles-scope.test.ts
 test/adversarial/learned-keyterms-cross-church.test.ts
 test/adversarial/media-register-scope.test.ts
@@ -60,6 +61,7 @@ test/bible-verse-range.test.ts
 test/builtin-themes.test.ts
 test/changelog-generator.test.ts
 test/changelog-try-it.test.ts
+test/church-defaults.test.ts
 test/church-styles-store.test.ts
 test/colorway.test.ts
 test/context-parser-nav.test.ts
@@ -188,6 +190,7 @@ test/song-layout.test.ts
 test/song-slides-changed.test.ts
 test/song-switch-guard.test.ts
 test/song-text.test.ts
+test/song-theme-parity.test.ts
 test/songs-toolbar.test.ts
 test/spring-load.test.ts
 test/stage-hostile.test.ts
@@ -196,6 +199,8 @@ test/stage-layout-render.test.ts
 test/stage-layout-scoping.test.ts
 test/stale-action.test.ts
 test/stress-wave6-3.test.ts
+test/style-lock-backfill.test.ts
+test/style-lock.test.ts
 test/suites-complete.test.ts
 test/text-fit.test.ts
 test/text-runs.test.ts

@@ -6,8 +6,10 @@ import { updatePreferences, updateSettings } from "@/lib/actions";
 type Translation = { id: string; code: string; name: string };
 type Initial = { defaultTranslationId: string | null; blankBgColor: string };
 
-export function WorshipDefaultsForm({ translations, initial }: {
+export function WorshipDefaultsForm({ translations, initial, showTranslation = true }: {
   translations: Translation[]; initial: Initial;
+  /** false when the Church defaults card owns the translation (2026-09-23). */
+  showTranslation?: boolean;
 }) {
   const [translationId, setTranslationId] = useState(initial.defaultTranslationId ?? "");
   const [blankColor, setBlankColor] = useState(initial.blankBgColor);
@@ -36,7 +38,7 @@ export function WorshipDefaultsForm({ translations, initial }: {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block">
+        {showTranslation && <label className="block">
           <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Default Bible translation</div>
           <select
             value={translationId}
@@ -49,7 +51,7 @@ export function WorshipDefaultsForm({ translations, initial }: {
             ))}
           </select>
           <div className="mt-1 text-[11px] text-muted-foreground">Used when scripture is projected without an explicit translation.</div>
-        </label>
+        </label>}
 
         <label className="block">
           <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Blank screen color</div>

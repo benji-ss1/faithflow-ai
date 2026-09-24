@@ -7,6 +7,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type D
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
+import { useLiveThemeId, isThemeLiveNow, useCanManageChurch } from "@/lib/live-theme";
 import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes, extractLogoPalette, exportTheme, importTheme } from "@/lib/actions";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { buildColorwayFromPalette } from "@/lib/colorway";
@@ -74,13 +75,17 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
   // Optional: called with a theme's config when it becomes the active look
   // (set-as-default, or saving edits to the current default). The desktop
   // operator uses this to push the theme to the LIVE projector immediately.
-  onThemeActivated?: (config: ThemeConfig) => void;
+  // Church defaults 2026-09-23: operator activation is LIVE-ONLY (themeId is
+  // passed so the console tracks the live theme); only the star writes default.
+  onThemeActivated?: (config: ThemeConfig, themeId?: string) => void;
   // Operator variant: compact ProPresenter-style grid where clicking a card
   // makes that theme go LIVE (not open the editor), each card has an explicit
   // Edit button (→ full-screen editor), and creating a theme applies it live.
   operatorMode?: boolean;
 }) {
   const [themes, setThemes] = useState(initial);
+  const liveThemeId = useLiveThemeId();
+  const canSetMain = useCanManageChurch();
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<ThemeRow | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -171,14 +176,24 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
   function onSetDefault(id: string) {
     startTransition(async () => {
       const res = await setDefaultTheme(id);
-      if (!res.ok) { toast.error(res.error || "Could not set default"); return; }
+      if (!res.ok) { toast.error(res.error || "Could not set the main theme"); return; }
       // Mirror the server transaction locally: unset any current default,
       // then set the target. Avoids a full refetch.
       setThemes((prev) => prev.map((t) => ({ ...t, isDefault: t.id === id })));
-      // Drive the live output immediately (operator only — no-op on web).
-      onThemeActivated?.(themes.find((t) => t.id === id)?.config ?? {});
-      toast.success("Set as default");
+      // Web library: the default IS what the next service loads; nothing live
+      // to drive. Operator: starring is NOT going live (church defaults
+      // 2026-09-23) — the outputs keep whatever is live now.
+      if (!operatorMode) onThemeActivated?.(themes.find((t) => t.id === id)?.config ?? {});
+      toast.success("Set as main theme — loads every time the app starts");
     });
+  }
+
+  // Operator: put a theme on the outputs for THIS session only (no DB write).
+  function onGoLive(id: string) {
+    const t = themes.find((x) => x.id === id);
+    if (!t) return;
+    onThemeActivated?.(t.config, t.id);
+    toast.success(`“${t.name}” is live`);
   }
 
   function onSaveEdit() {
@@ -194,9 +209,9 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
         const newId = res.data.id;
         // Operator: a freshly-created theme goes LIVE immediately.
         if (operatorMode) {
-          await setDefaultTheme(newId);
-          setThemes((prev) => [...prev.map((t) => ({ ...t, isDefault: false })), { id: newId, name, config: target.config, isDefault: true }].sort((a, b) => a.name.localeCompare(b.name)));
-          onThemeActivated?.(target.config);
+          // Live-only (church defaults 2026-09-23) — the main theme is unchanged.
+          setThemes((prev) => [...prev, { id: newId, name, config: target.config, isDefault: false }].sort((a, b) => a.name.localeCompare(b.name)));
+          onThemeActivated?.(target.config, newId);
         } else {
           refresh([...themes, { id: newId, name, config: target.config }]);
         }
@@ -209,11 +224,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
         // Operator: saving edits applies them live (make the edited theme the
         // live look). Web admin: only re-push if it was already the default.
         if (operatorMode) {
-          if (!themes.find((t) => t.id === target.id)?.isDefault) {
-            await setDefaultTheme(target.id);
-            setThemes((prev) => prev.map((t) => ({ ...t, isDefault: t.id === target.id })));
-          }
-          onThemeActivated?.(target.config);
+          // Live-only (church defaults 2026-09-23) — the main theme is unchanged.
+          onThemeActivated?.(target.config, target.id);
         } else if (themes.find((t) => t.id === target.id)?.isDefault) {
           onThemeActivated?.(target.config);
         }
@@ -340,7 +352,10 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
               theme={t}
               pending={pending}
               churchLogoUrl={churchLogoUrl}
-              onGoLive={() => onSetDefault(t.id)}
+              liveNow={isThemeLiveNow(t, themes, liveThemeId)}
+              onGoLive={() => onGoLive(t.id)}
+              onSetMain={() => onSetDefault(t.id)}
+              canSetMain={canSetMain}
               onEdit={() => setEditing(t)}
               onDuplicate={() => onDuplicate(t.id)}
               onDelete={() => onDelete(t.id, t.name)}
@@ -359,6 +374,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
                   churchLogoUrl={churchLogoUrl}
                   onEdit={() => setEditing(t)}
                   onSetDefault={() => onSetDefault(t.id)}
+                  canSetMain={canSetMain}
                   onDuplicate={() => onDuplicate(t.id)}
                   onExport={() => onExport(t.id, t.name)}
                   onDelete={() => onDelete(t.id, t.name)}
@@ -969,8 +985,9 @@ function ThemeEditor({
 // handle so admins can reorder cards; the parent's onDragEnd (which
 // calls the reorderThemes server action) persists the order.
 function SortableThemeCard({
-  theme, pending, churchLogoUrl, onEdit, onSetDefault, onDuplicate, onExport, onDelete,
+  theme, pending, churchLogoUrl, onEdit, onSetDefault, canSetMain, onDuplicate, onExport, onDelete,
 }: {
+  canSetMain: boolean;
   theme: ThemeRow;
   pending: boolean;
   churchLogoUrl?: string | null;
@@ -1030,8 +1047,8 @@ function SortableThemeCard({
             <button
               type="button"
               onClick={onSetDefault}
-              title="Set as default"
-              disabled={pending}
+              title={canSetMain ? "Set as main theme (loads every time the app starts)" : "Only admins can change the main theme"}
+              disabled={pending || !canSetMain}
               className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-brand)] disabled:opacity-50"
             >
               <Star className="h-3.5 w-3.5" />
@@ -1126,12 +1143,15 @@ function ContentTypeStyleBar({ themes }: { themes: ThemeRow[] }) {
 // preview makes the theme LIVE (the primary action — easy go-live); the active
 // theme carries a red "● LIVE" badge; Edit opens the full-screen editor.
 function OperatorThemeCard({
-  theme, pending, churchLogoUrl, onGoLive, onEdit, onDuplicate, onDelete,
+  theme, pending, churchLogoUrl, liveNow, onGoLive, onSetMain, canSetMain, onEdit, onDuplicate, onDelete,
 }: {
+  canSetMain: boolean;
   theme: ThemeRow;
   pending: boolean;
   churchLogoUrl?: string | null;
+  liveNow: boolean;
   onGoLive: () => void;
+  onSetMain: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -1139,22 +1159,29 @@ function OperatorThemeCard({
   return (
     <li className={cn(
       "group relative overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)]",
-      theme.isDefault ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]/40" : "border-[var(--color-border)]",
+      liveNow ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]/40" : "border-[var(--color-border)]",
     )}>
-      {theme.isDefault && (
-        <span className="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-[image:var(--grad-ember)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-black shadow-[var(--edge-top),var(--shadow-ember)]">
-          <span className="h-1.5 w-1.5 rounded-full bg-current" /> Live
-        </span>
-      )}
+      <span className="absolute left-2 top-2 z-10 flex gap-1">
+        {liveNow && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-[image:var(--grad-ember)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-black shadow-[var(--edge-top),var(--shadow-ember)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-current" /> Live now
+          </span>
+        )}
+        {theme.isDefault && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-white">
+            <Star className="h-2.5 w-2.5 fill-current" /> Main theme
+          </span>
+        )}
+      </span>
       <button
         type="button"
         onClick={onGoLive}
         disabled={pending}
-        title={theme.isDefault ? "This theme is live" : "Click to make this theme live"}
+        title={liveNow ? "This theme is live" : "Click to make this theme live (this service only)"}
         className="relative block w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] disabled:cursor-wait"
       >
         <SlidePreview config={theme.config} mode="lyrics" churchLogoUrl={churchLogoUrl} />
-        {!theme.isDefault && (
+        {!liveNow && (
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
             <span className="rounded-full bg-[image:var(--grad-ember)] px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-black shadow-[var(--edge-top),var(--shadow-ember)]">Go live</span>
           </span>
@@ -1162,6 +1189,18 @@ function OperatorThemeCard({
       </button>
       <div className="flex items-center gap-1 p-2">
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground" title={theme.name}>{theme.name}</span>
+        {!theme.isDefault && (
+          <button
+            type="button"
+            onClick={onSetMain}
+            disabled={pending || !canSetMain}
+            title={canSetMain ? "Set as main theme (loads every time the app starts)" : "Only admins can change the main theme"}
+            aria-label={`Set ${theme.name} as main theme`}
+            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-brand)] disabled:opacity-50"
+          >
+            <Star className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onEdit}

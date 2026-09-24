@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import type { ThemeAppearance } from "@/lib/broadcast";
 import { useRef } from "react";
 import { themeBackgroundStyle } from "./theme-bg-style";
@@ -48,10 +49,19 @@ const BG_ANIM_KEYFRAME: Record<string, string> = {
   pulse: "pf-bg-pulse 10s ease-in-out infinite",
 };
 // aurora rotates, so it needs the most oversize to keep corners covered.
+// Period (s) of each keyframe, for wall-clock phase locking below.
+const BG_ANIM_PERIOD_S: Record<string, number> = { drift: 26, aurora: 48, pulse: 10 };
 const BG_ANIM_SCALE: Record<string, string> = { drift: "scale(1.2)", aurora: "scale(1.6)", pulse: "scale(1.1)" };
 
 export function AnimatedThemeBg({ appearance }: { appearance?: ThemeAppearance | null }) {
   const anim = appearance?.bgAnimation;
+  // Frozen at MOUNT (gate review): recomputing on every render would re-time an
+  // already-running animation and make a held slide jump.
+  // SSR (2026-09-24): no wall clock on the server — render phase 0 there and
+  // suppress the (expected) hydration attribute mismatch on that one element.
+  // Client mounts (every slide remount) still lock to Date.now() synchronously,
+  // so there is no first-paint snap.
+  const [phaseMs] = useState(() => (typeof window !== "undefined" ? Date.now() : 0));
   if (!anim || anim === "none" || !BG_ANIM_KEYFRAME[anim]) return null;
   // Only for solid/gradient backgrounds (image/video render their own layer).
   if (appearance?.bgType === "image" || appearance?.bgType === "video") return null;
@@ -63,9 +73,15 @@ export function AnimatedThemeBg({ appearance }: { appearance?: ThemeAppearance |
     <div className="absolute inset-0 z-0 overflow-hidden" aria-hidden>
       <div
         className="pf-anim-bg absolute inset-[-20%]"
+        suppressHydrationWarning
         style={{
           background: `linear-gradient(${angle}deg, ${c1}, ${c2})`,
-          animation: BG_ANIM_KEYFRAME[anim],
+          animation: `${BG_ANIM_KEYFRAME[anim]} -${((phaseMs / 1000) % BG_ANIM_PERIOD_S[anim]).toFixed(3)}s`,
+          // Phase-lock to the wall clock: this layer remounts on every slide
+          // change (it lives inside the keyed TransitionWrapper), which used to
+          // restart the keyframe at 0% — a visible snap on each new lyric/verse.
+          // A negative delay resumes at the same point every remount and keeps
+          // /live, /stage, /livestream and NDI in sync (2026-09-23 glitch fix).
           transform: BG_ANIM_SCALE[anim],
           willChange: "transform",
         }}

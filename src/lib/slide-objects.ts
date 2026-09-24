@@ -76,6 +76,11 @@ export type TextObject = {
   // Theme Editor (PR 1): which content a THEME text box holds — main
   // (lyrics/text), verse (scripture body) or reference. Ignored on songs.
   role?: "main" | "verse" | "reference";
+  // 2026-09-23 (user decision B): set when the operator deliberately styled
+  // this slide (slide editor save, apply-theme-to-song/slide). A locked lyric
+  // keeps its own look; an unlocked one (imports, untouched songs) follows the
+  // default theme exactly like a Bible verse.
+  styleLocked?: boolean;
 };
 
 export type ShapeObject = {

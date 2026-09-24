@@ -9,6 +9,7 @@
 // objects) always comes from the CURRENT slide, so edits made since the first
 // apply are kept.
 import { bakeThemeIntoObjectsJson, type BakeableThemeConfig } from "./theme-bake";
+import { handStyledTextId } from "./style-lock-backfill";
 export type { BakeableThemeConfig };
 
 // `bgExplicit` is theme-owned too: a bake sets it alongside bgColor/bgImageUrl,
@@ -124,6 +125,10 @@ export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjec
   const origObjects = Array.isArray(orig.objects) ? (orig.objects as Obj[]) : [];
   const byId = new Map<string, Obj>();
   for (const o of origObjects) if (o && typeof o.id === "string") byId.set(o.id, o);
+  // 2026-09-24: a snapshot taken BEFORE styleLocked existed has no lock on a
+  // hand-styled original (same rule the backfill uses). Restoring it unlocked
+  // would make it follow the main theme and lose the hand styling — keep it locked.
+  const handStyledId = handStyledTextId(originalObjectsJson);
   const curObjects = Array.isArray(cur.objects) ? (cur.objects as Obj[]) : [];
   out.objects = curObjects.map((o) => {
     if (!o || o.kind !== "text") return o;
@@ -131,6 +136,11 @@ export function resetThemeOwnedFields(currentObjectsJson: unknown, originalObjec
     if (!src) return o; // object added after the first apply — no snapshot to restore from
     const next: Obj = { ...o };
     for (const k of fields.text) copyField(next, src, k);
+    // 2026-09-23: the lock the theme apply added goes too — a reverted slide
+    // gets back EXACTLY its pre-apply lock state (unlocked → follows the
+    // theme again; a slide that was already hand-styled/locked stays locked).
+    copyField(next, src, "styleLocked");
+    if (next.styleLocked !== true && handStyledId !== null && src.id === handStyledId) next.styleLocked = true;
     return next;
   });
   return out;

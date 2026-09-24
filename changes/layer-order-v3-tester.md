@@ -1,7 +1,7 @@
 ---
 headline: Testers only - a new ProPresenter-style layer order you can switch on (off for everyone else)
 audience: operator
-version: 0.1.522
+version: 0.1.523
 date: 2026-09-24
 highlights:
   - Off by default. Nothing changes on your screens unless your church has been asked to test the new layer order and has switched it on.

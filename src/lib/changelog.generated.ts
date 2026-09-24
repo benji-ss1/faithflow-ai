@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.523",
+    "version": "0.1.524",
     "date": "2026-09-24",
     "headline": "New song window works like ProPresenter, with real themes and see-through slides",
     "highlights": [
@@ -22,7 +22,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     ]
   },
   {
-    "version": "0.1.522",
+    "version": "0.1.523",
     "date": "2026-09-24",
     "headline": "Testers only - a new ProPresenter-style layer order you can switch on (off for everyone else)",
     "highlights": [
@@ -33,6 +33,17 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Hide theme hides the theme for the slide that is on screen now. A theme video pauses and carries on from the same point when the theme comes back on the next slide.",
       "Blank now shows solid black over everything, including the background and the theme.",
       "Esc and the X on the live panel clear everything, including the camera. Saying \"clear screen\" only clears the slide."
+    ]
+  },
+  {
+    "version": "0.1.522",
+    "date": "2026-09-24",
+    "headline": "Songs follow your theme, new animated backgrounds, and one place for your church defaults",
+    "highlights": [
+      "Songs now follow your church theme. A song you styled yourself keeps its own look.",
+      "New animated backgrounds, and smoother switching between them.",
+      "Set your church's default translation, main theme and background once, in Settings.",
+      "Changing theme during a service only affects that service. The starred main theme loads every time the app starts."
     ]
   },
   {

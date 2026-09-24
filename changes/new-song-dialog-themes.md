@@ -1,7 +1,7 @@
 ---
 headline: New song window works like ProPresenter, with real themes and see-through slides
 audience: operator
-version: 0.1.523
+version: 0.1.524
 date: 2026-09-24
 highlights:
   - This change is for everyone, not only testers. Add song now opens a New Presentation window like ProPresenter's. Type the filename, then pick a theme, library and playlist.

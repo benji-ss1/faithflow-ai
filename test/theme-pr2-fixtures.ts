@@ -48,6 +48,26 @@ export const PROP_SETS: Record<string, Record<string, unknown>> = {
   band: { projectorFit: true, overVideo: true, fitBandFraction: 0.38 },
 };
 
+// 2026-09-23 AnimatedThemeBg phase-locks its keyframe to the wall clock via a
+// negative delay in the animation shorthand ("... infinite -15.809s"). That
+// value is time-dependent, so strip it to keep every matrix deterministic and
+// comparable to the pre-change baselines (which have no delay).
+export const stripAnimPhase = (html: string) => html.replace(/(animation:[^;"]*infinite) -\d+(?:\.\d+)?s/g, "$1");
+
+// 2026-09-23 "theme always wins" (user-directed): a lone, unlocked text object
+// on a slide with no per-slide image now renders exactly like a plain Bible
+// slide whenever the theme PAINTS a background — theme font/colour/alignment
+// replace the object's stored style. Those fixture keys intentionally differ
+// from the pre-change baselines (covered positively by
+// test/song-theme-parity.test.ts). Everything else must stay byte-identical.
+const BG_PAINTING_APPEARANCES = new Set(["basic", "gradient", "image", "video", "animated", "dimSolid"]);
+export function themeWinsChangedKey(k: string): boolean {
+  const parts = k.split("/");
+  if (parts.some((p) => p === "transparent" || p === "editable" || p.endsWith("-transparent"))) return false;
+  const si = parts.findIndex((p) => p === "soleText" || p === "soleTextRef");
+  return si >= 0 && BG_PAINTING_APPEARANCES.has(parts[si + 1] ?? "");
+}
+
 export async function renderMatrix(extraAppearance?: (a: ThemeAppearance | null) => ThemeAppearance | null, extraProps: Record<string, unknown> = {}): Promise<Record<string, string>> {
   const { SlideRenderer } = await import("../src/components/live/SlideRenderer");
   const out: Record<string, string> = {};
@@ -55,7 +75,7 @@ export async function renderMatrix(extraAppearance?: (a: ThemeAppearance | null)
     for (const [ak, app] of Object.entries(APPEARANCES)) {
       for (const [pk, props] of Object.entries(PROP_SETS)) {
         const appearance = extraAppearance ? extraAppearance(app) : app;
-        out[`${sk}/${ak}/${pk}`] = renderToStaticMarkup(React.createElement(SlideRenderer, { slide, appearance, ...props, ...extraProps }));
+        out[`${sk}/${ak}/${pk}`] = stripAnimPhase(renderToStaticMarkup(React.createElement(SlideRenderer, { slide, appearance, ...props, ...extraProps })));
       }
     }
   }
@@ -70,9 +90,9 @@ export async function renderCompositorMatrix(extraAppearance?: (a: ThemeAppearan
       for (const [ak, app] of Object.entries(APPEARANCES)) {
         const appearance = extraAppearance ? extraAppearance(app) : app;
         const props: Record<string, unknown> = { mode, slide, appearance, fontScale: 1 };
-        out[`${mode}/${sk}/${ak}`] = renderToStaticMarkup(React.createElement(OutputCompositor, props as never));
+        out[`${mode}/${sk}/${ak}`] = stripAnimPhase(renderToStaticMarkup(React.createElement(OutputCompositor, props as never)));
         if (mode === "livestream") {
-          out[`${mode}-transparent/${sk}/${ak}`] = renderToStaticMarkup(React.createElement(OutputCompositor, { ...props, transparent: true } as never));
+          out[`${mode}-transparent/${sk}/${ak}`] = stripAnimPhase(renderToStaticMarkup(React.createElement(OutputCompositor, { ...props, transparent: true } as never)));
         }
       }
     }
