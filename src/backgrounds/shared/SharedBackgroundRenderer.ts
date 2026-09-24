@@ -30,6 +30,16 @@ export type SharedCardHandle = {
 };
 
 const OFF_W = 480, OFF_H = 270; // 16:9; downscaled into ≤~320px cards = crisp
+export const SHARED_OFF_W = OFF_W, SHARED_OFF_H = OFF_H;
+/** Blit cadence cap: the shader animates at rAF rate on ONE context, but copying
+ *  into N card/monitor canvases is capped at ~30fps (smooth for slow ambient
+ *  backgrounds, halves the 2D compositing cost on church laptops). */
+export const BLIT_MIN_INTERVAL_MS = 1000 / 30 - 2;
+
+/** Pure throttle decision (unit-tested). */
+export function shouldBlit(now: number, last: number, minInterval = BLIT_MIN_INTERVAL_MS): boolean {
+  return now - last >= minInterval || now < last;
+}
 
 function keyOf(s: SharedShaderSpec) { return `${s.preset}|${s.speed}|${s.intensity}|${s.primary}|${s.secondary}`; }
 
@@ -93,7 +103,15 @@ class SharedRendererImpl {
     return c;
   }
 
-  private blitAll() { for (const e of this.cards) this.blitOne(e); }
+  private lastBlit = -Infinity;
+  private blitAll() {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (!shouldBlit(now, this.lastBlit)) return;
+    this.lastBlit = now;
+    for (const e of this.cards) this.blitOne(e);
+  }
+  /** Test hook: number of registered surfaces. */
+  get size() { return this.cards.size; }
   private blitOne(e: Card) {
     if (!this.off || !e.ctx || !e.visible) return; // skip offscreen-culled cards
     try { e.ctx.drawImage(this.off, 0, 0, e.canvas.width, e.canvas.height); } catch { /* card detached mid-frame */ }

@@ -261,3 +261,4 @@ test/autofit-quiver.test.ts
 test/slide-root-bg-roundtrip.test.ts
 test/composable-round5.test.ts
 test/composable-round5b.test.ts
+test/animated-bg-mirrors.test.ts
