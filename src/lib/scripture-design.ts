@@ -42,7 +42,21 @@ export type BandStyle = {
 export type ScriptureDesign = {
   layout: ScriptureLayout;
   verse: TextStyle;
-  reference: TextStyle & { show: boolean; showTranslation: boolean };
+  reference: TextStyle & {
+    show: boolean;
+    showTranslation: boolean;
+    /**
+     * ProPresenter "Reference: With Verse" — render the reference at the SAME
+     * size as the verse instead of its own smaller size.
+     *
+     * OPT-IN, and deliberately DEFAULT OFF (user directive 2026-09-25): on a
+     * full projector screen most churches do NOT want a reference as large as
+     * the verse — it is mainly wanted on the lower-third band, and it is a
+     * matter of taste either way. Off ⇒ every existing church renders exactly as
+     * before, byte-identical.
+     */
+    matchVerseSize?: boolean;
+  };
   band: BandStyle;
 };
 
@@ -54,12 +68,15 @@ const VERSE_DEFAULT: TextStyle = {
   italic: false, uppercase: false, shadow: true, stroke: "#000000", strokeWidth: 0,
   lineHeight: 1.15, letterSpacing: 0,
 };
-const REF_DEFAULT: TextStyle & { show: boolean; showTranslation: boolean } = {
+const REF_DEFAULT: ScriptureDesign["reference"] = {
   x: 80, y: CANVAS_H - 150, w: CANVAS_W - 160, h: 110,
   fontFamily: "Sora", fontSize: 44, fontWeight: 500, color: "#ffffff", align: "center",
   italic: false, uppercase: false, shadow: true, stroke: "#000000", strokeWidth: 0,
   lineHeight: 1.1, letterSpacing: 1,
   show: true, showTranslation: true,
+  // Default OFF — see the field's doc comment. mergeTextStyle only preserves
+  // keys present on the DEFAULT, so it must live here to survive a save/load.
+  matchVerseSize: false,
 };
 
 // Soft charcoal band by default (BAND_DEFAULT_COLOR, PR #56) — legible over ANY content the church runs underneath.
