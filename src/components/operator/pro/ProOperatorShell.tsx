@@ -4922,11 +4922,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         return;
       }
       switch (action) {
+        // presentflow:hotkey-next / -prev had NO LISTENER ANYWHERE. A custom
+        // voice command mapped to "Next verse" fired a dead event and then the
+        // handler's unconditional success toast told the operator it had
+        // worked. A control that lies, in production, on the voice path.
+        // These route to the same internal events the built-in voice nav uses,
+        // with { live: true } per the voice-nav contract (CLAUDE.md rule 7,
+        // 2026-08-18: voice nav projects immediately).
         case "next_verse":
-          if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("presentflow:hotkey-next"));
+          dispatchInternal("presentflow:bible-next", { live: true });
           break;
         case "prev_verse":
-          if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("presentflow:hotkey-prev"));
+          dispatchInternal("presentflow:bible-prev", { live: true });
           break;
         case "give_me_niv":
           // Route through applyTranslationSwitch (same as switch_translation:NIV)
@@ -4938,7 +4945,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           ctx.onBlank();
           break;
         case "kill_live":
-          ctx.onKill();
+          // NOT ctx.onKill(). killOutput releases the stage layouts, and this
+          // is reachable from a misheard word: AudioTab offers "Kill live" as a
+          // custom voice-command action, dispatched straight from an ASR final.
+          // An ASR false positive must never wipe the band's and preacher's
+          // confidence monitor mid-sermon. Clear the slide; leave the
+          // instrument panel alone. Escape and the clear rails remain the
+          // explicit "everything off", on deliberate physical intent.
+          (ctx.onClearLiveSlide ?? ctx.onKill)();
           break;
         default:
           break;

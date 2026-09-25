@@ -137,7 +137,12 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
         // otherwise the dashboard confidently shows something that is not on
         // the monitor at all, which is worse than showing nothing.
         <div className="absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${scale})` }}>
-          <StageLayoutRenderer layout={view.stageLayout} screen="stage" scene={null} />
+          <StageLayoutRenderer
+            layout={view.stageLayout}
+            screen="stage"
+            scene={view.stageScene ?? null}
+            wireTimers={view.stageTimers ?? []}
+          />
         </div>
       )}
       {scale > 0 && !view.stageLayout && (
@@ -223,7 +228,7 @@ export function MultiViewGrid({ layerOverrides, onZoom }: { layerOverrides: Tile
         ))}
       </div>
       <p className="text-[10px] leading-snug text-[var(--color-muted-foreground)]">
-        Click a screen to see it full size. A stage screen showing a designed layout is drawn as it really is; elsewhere, timers, pop-up messages and stage countdowns aren&apos;t shown, and videos and cameras show a label instead of playing.
+        Click a screen to see it full size. A stage screen showing a designed layout is drawn as it really is, timers included. On the other screens, timers, pop-up messages and stage countdowns aren&apos;t shown, and videos and cameras show a label instead of playing.
       </p>
     </div>
   );

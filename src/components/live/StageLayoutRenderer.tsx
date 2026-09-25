@@ -75,12 +75,32 @@ export function StageLayoutRenderer({
         // A layout does not get to override the operator's Scene. AND-compose,
         // exactly as the timer overlay does — a scene can hide, never force-show.
         if (w.kind === "timer" && sceneHidesLayer(scene, screen, "timer")) return false;
-        if (w.kind === "message" && sceneHidesLayer(scene, screen, "announcement")) return false;
+        // The WORDS. The legacy stage path blanks the slide when a scene hides
+        // the "slide" layer (resolveLayeredInput), but this early-returns above
+        // it — so the built-in "Pre-Service" scene, which hides slide on stage,
+        // still put live lyrics on a confidence monitor that had explicitly
+        // been told not to show them. Same bug as the timer one, one layer over.
+        // next_text is deliberately NOT masked, for PARITY: /stage's legacy
+        // "Next" strip sits outside OutputCompositor and is masked by nothing,
+        // so under the built-in Pre-Service scene the default stage screen
+        // blanks Current and still shows Next. Masking it here would make the
+        // same scene behave differently depending on whether the screen has a
+        // layout, which is exactly the "wrong thing on the wrong screen"
+        // confusion this work exists to remove. If the Next strip should be
+        // masked, both paths change together, with sign-off.
+        if ((w.kind === "current_text" || w.kind === "slide_preview")
+            && sceneHidesLayer(scene, screen, "slide")) return false;
+        // NO message branch. `message` here is OutputState.operatorMessage —
+        // the operator's note to the platform — which is a DIFFERENT field from
+        // `announcement`, is masked by nothing anywhere else in the app, and has
+        // no layer of its own in SceneLayerId. Masking it by "announcement"
+        // invented a rule the rest of the system does not have, on the wrong
+        // field. Parity with the legacy stage path is to leave it alone.
         // Per-timer screen routing applies to a timer WIDGET too. Without
         // this, a timer the operator explicitly unticked for this screen still
         // arrives here through a layout — the setting would mean nothing.
         if (w.kind === "timer" && w.timerId) {
-          const t = wireTimers.find((x) => x.id === w.timerId);
+          const t = byId.get(w.timerId);
           if (t && !timerShowsOn(t.screens, screen as TimerScreenId)) return false;
         }
         return true;

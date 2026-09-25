@@ -553,22 +553,11 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   // (where we have access to the loaded cards + selection) by firing the
   // currently selected verse to live. Falls back to card 0 if no
   // selection yet, and shows a toast if nothing is loaded.
-  useEffect(() => {
-    const handler = (ev: Event) => {
-      if (!isInternalEvent(ev)) return;
-      const idx = selectedIdx ?? 0;
-      const card = cards[idx];
-      if (!card) {
-        toast.info("No Bible verse loaded — type a reference and press Lookup first.");
-        return;
-      }
-      try { console.log("[bible-play-current] firing", { idx, label: card.label }); } catch { /* ignore */ }
-      ctx.onSendSlideToLive(cardToSlideRef.current(card, idx, cards.length), undefined, { instant: true });
-      toast.success(`${card.label} → LIVE`, { duration: 1500 });
-    };
-    window.addEventListener("presentflow:bible-play-current", handler);
-    return () => window.removeEventListener("presentflow:bible-play-current", handler);
-  }, [cards, selectedIdx, ctx]);
+  // The "presentflow:bible-play-current" listener lived here until 2026-09-25. Its only
+  // trigger — the ▶ Play button in CenterHeader — was removed on
+  // 2026-09-10 per an operator request, so nothing has dispatched it
+  // since. Found by test/event-bus-connected.test.ts, which requires
+  // every presentflow:* event to have both ends.
   // Keep cardToSlide stable across renders for the play-current handler
   // (which reads it via a ref to avoid re-binding the listener when opts
   // change — the useCallback below already handles that upstream).
