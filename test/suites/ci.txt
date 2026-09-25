@@ -204,6 +204,7 @@ test/song-text.test.ts
 test/song-theme-parity.test.ts
 test/songs-toolbar.test.ts
 test/spring-load.test.ts
+test/stage-editor-safety.test.ts
 test/stage-editor.test.ts
 test/stage-hostile.test.ts
 test/stage-layout-engine.test.ts

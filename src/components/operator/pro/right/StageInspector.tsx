@@ -45,7 +45,11 @@ export const PLACEMENTS: Array<{ id: string; label: string; rect: { x: number; y
 ];
 
 /** A few colours an operator actually picks, so the common case is one tap. */
-const SWATCHES = ["#ffffff", "#fbbf24", "#ef4444", "#4ade80", "#38bdf8", "#a1a1aa"];
+const SWATCHES: Array<{ hex: string; name: string }> = [
+  { hex: "#ffffff", name: "White" }, { hex: "#fbbf24", name: "Amber" },
+  { hex: "#ef4444", name: "Red" }, { hex: "#4ade80", name: "Green" },
+  { hex: "#38bdf8", name: "Blue" }, { hex: "#a1a1aa", name: "Grey" },
+];
 
 /**
  * Position/size fields, shown as WHOLE PERCENTAGES of the screen.
@@ -64,6 +68,10 @@ const SWATCHES = ["#ffffff", "#fbbf24", "#ef4444", "#4ade80", "#38bdf8", "#a1a1a
 function RectFields({ w, onRect }: { w: StageWidget; onRect: (r: StageWidget["rect"]) => void }) {
   const pct = (n: number) => Math.round(n * 100);
   const set = (k: "x" | "y" | "w" | "h", raw: string) => {
+    // An EMPTY field is a half-typed number, not zero. Number("") is 0, which
+    // is finite, so backspacing to retype used to collapse the box to a 1%
+    // sliver and rewrite the field to "1" under the operator's cursor.
+    if (raw.trim() === "") return;
     const n = Number(raw);
     if (!Number.isFinite(n)) return;
     onRect(clampRect({ ...w.rect, [k]: n / 100 }));
@@ -73,8 +81,11 @@ function RectFields({ w, onRect }: { w: StageWidget; onRect: (r: StageWidget["re
       {(["x", "y", "w", "h"] as const).map((k) => (
         <label key={k} className="flex items-center gap-1">
           <span className="w-4 text-[10px] uppercase text-[var(--color-muted-foreground)]">{k}</span>
-          <input type="number" min={0} max={100} step={1} value={pct(w.rect[k])}
+          <input type="number" inputMode="numeric" min={0} max={100} step={1} value={pct(w.rect[k])}
             onChange={(e) => set(k, e.target.value)}
+            // Escape in a number field bubbled to the Dialog and popped
+            // "Discard your changes?" over someone mid-edit.
+            onKeyDown={(e) => { if (e.key === "Escape") e.stopPropagation(); }}
             aria-label={`${k} position, percent`}
             className="h-7 px-1 w-full bg-[var(--color-elevated)] border border-[var(--color-border)] rounded text-[12px] tabular-nums" />
           <span className="text-[10px] text-[var(--color-muted-foreground)]">%</span>
@@ -100,7 +111,7 @@ export function StageInspector({
       {w.kind === "timer" && (
         <div>
           <div className={label}>Which timer</div>
-          <select value={w.timerId ?? ""} onChange={(e) => onPatch({ timerId: e.target.value || null })} className={field}>
+          <select onKeyDown={(e) => { if (e.key === "Escape") e.stopPropagation(); }} value={w.timerId ?? ""} onChange={(e) => onPatch({ timerId: e.target.value || null })} className={field}>
             <option value="">Not chosen</option>
             {timers.slots.map((s) => <option key={s.def.id} value={s.def.id}>{s.def.name}</option>)}
           </select>
@@ -111,7 +122,7 @@ export function StageInspector({
           <div className={label}>Preview which screen</div>
           {/* All four, not two: the model and the wire have always accepted
               livestream and ndi while the picker offered only main/stage. */}
-          <select value={w.previewScreen ?? "main"}
+          <select onKeyDown={(e) => { if (e.key === "Escape") e.stopPropagation(); }} value={w.previewScreen ?? "main"}
             onChange={(e) => onPatch({ previewScreen: e.target.value as StageWidget["previewScreen"] })} className={field}>
             <option value="main">Projector</option>
             <option value="stage">Stage</option>
@@ -150,9 +161,12 @@ export function StageInspector({
         <div className={label}>Colour</div>
         <div className="flex items-center gap-1">
           {SWATCHES.map((c) => (
-            <button key={c} onClick={() => onPatch({ color: c })} aria-label={`Colour ${c}`}
-              className={`w-6 h-6 rounded border ${w.color === c ? "border-[var(--color-brand)] border-2" : "border-[var(--color-border)]"}`}
-              style={{ background: c }} />
+            // aria-pressed, and a NAME not a hex code: "Colour pound f b b f
+            // two four" tells a screen-reader user nothing.
+            <button key={c.hex} onClick={() => onPatch({ color: c.hex })}
+              aria-label={`Colour: ${c.name}`} aria-pressed={w.color === c.hex} title={c.name}
+              className={`w-7 h-7 rounded border ${w.color === c.hex ? "border-[var(--color-brand)] border-2" : "border-[var(--color-border)]"}`}
+              style={{ background: c.hex }} />
           ))}
           <input type="color" value={w.color ?? "#ffffff"} onChange={(e) => onPatch({ color: e.target.value })}
             aria-label="Custom colour" className="w-6 h-6 bg-transparent border border-[var(--color-border)] rounded" />

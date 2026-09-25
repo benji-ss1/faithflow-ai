@@ -22,7 +22,7 @@
  *  - every api capability stays reachable; the designs grid is demoted to a
  *    sub-view, not removed.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Copy, Trash2, Pencil, X, Monitor, ChevronLeft, MonitorPlay } from "lucide-react";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { StageLayoutsApi, StageLayoutEntry } from "./useStageLayouts";
@@ -57,11 +57,34 @@ function Thumb({ layout, className = "" }: { layout: StageLayout; className?: st
 
 type SubView = null | "choose" | "manage";
 
+/** A screen name that only reaches the server when the operator has finished
+ *  typing. */
+function ScreenNameInput({ name, onCommit }: { name: string; onCommit: (v: string) => void }) {
+  const [v, setV] = useState(name);
+  useEffect(() => { setV(name); }, [name]);
+  const commit = () => { const t = v.trim(); if (t && t !== name) onCommit(t); else setV(name); };
+  return (
+    <input value={v} onChange={(e) => setV(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.stopPropagation(); setV(name); } }}
+      aria-label="Screen name" className={field} />
+  );
+}
+
 export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers: TimersApi }) {
   const { confirm, dialog } = useConfirm();
   const [selectedScreenId, setSelectedScreenId] = useState<string | null>(null);
   const [subView, setSubView] = useState<SubView>(null);
-  const [editing, setEditing] = useState<{ layout: StageLayout; screenName: string | null; wasBuiltIn: boolean } | null>(null);
+  const [editing, setEditing] = useState<{
+    layout: StageLayout;
+    screenName: string | null;
+    wasBuiltIn: boolean;
+    /** Assign this layout to this screen ONLY once it has saved. Assigning up
+     *  front is what blanked a live monitor the moment the pencil was tapped. */
+    assignTo: string | null;
+    /** Whether that screen is showing something right now, so the editor can
+     *  say so — an operator cannot otherwise tell from inside the modal. */
+    screenIsLive: boolean;
+  } | null>(null);
 
   const screenId = selectedScreenId ?? api.screens[0]?.id ?? null;
   const screen = api.screens.find((s) => s.id === screenId) ?? null;
@@ -77,29 +100,53 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
    *  - own layout     → straight in.
    */
   const openEditor = async (sc: { id: string; name: string; layoutId: string | null }) => {
-    let id = sc.layoutId;
-    let wasBuiltIn = false;
+    // NEVER read back through `api.byId` after an await. `api` is the object
+    // from THIS render and `byId` closes over that render's `layouts`, so a
+    // row created moments ago is not in it — `byId(newId)` returns null and
+    // the pencil silently does nothing. That killed the blank and built-in
+    // branches outright and made "New design" unreachable. Build the draft
+    // from what we already hold instead.
+    const source = sc.layoutId ? api.byId(sc.layoutId) : null;
+    const blank = (id: string): StageLayout => ({ id, name: `${sc.name} layout`, background: "#000000", widgets: [] });
 
-    if (!id) {
+    if (!sc.layoutId) {
       const made = await api.createBlank(`${sc.name} layout`);
       if (!made) return;
-      await api.assign(sc.id, made);
-      id = made;
-    } else if (api.byId(id)?.builtIn) {
-      const copy = await api.duplicate(id);
-      if (!copy) return;
-      await api.assign(sc.id, copy);
-      id = copy;
-      wasBuiltIn = true;
+      // DO NOT ASSIGN YET. This screen is on "Default", which is a real,
+      // working stage display. An empty layout renders black, and /stage
+      // REPLACES the default screen the instant one is assigned — so
+      // assigning here turned the monitor black the moment the operator
+      // tapped the pencil to look, and discarding did not put it back.
+      setEditing({ layout: blank(made), screenName: sc.name, wasBuiltIn: false, assignTo: sc.id, screenIsLive: false });
+      return;
     }
 
-    await api.refresh();
-    const l = api.byId(id);
-    if (!l) return;
+    if (source?.builtIn) {
+      const copy = await api.duplicate(sc.layoutId);
+      if (!copy) return;
+      // The copy is the built-in's content under a new id. Naming it "X (yours)"
+      // matters: without it the screen row and the design grid both read
+      // "Current + Next" and the operator cannot tell which one is theirs.
+      setEditing({
+        layout: {
+          id: copy, name: `${source.name} (yours)`, background: source.background,
+          widgets: source.widgets.map((w) => ({ ...w, rect: { ...w.rect } })),
+        },
+        screenName: sc.name,
+        wasBuiltIn: true,
+        assignTo: sc.id,
+        screenIsLive: true,
+      });
+      return;
+    }
+
+    if (!source) return;
     setEditing({
-      layout: { id: l.id, name: l.name, background: l.background, widgets: l.widgets.map((w) => ({ ...w, rect: { ...w.rect } })) },
+      layout: { id: source.id, name: source.name, background: source.background, widgets: source.widgets.map((w) => ({ ...w, rect: { ...w.rect } })) },
       screenName: sc.name,
-      wasBuiltIn,
+      wasBuiltIn: false,
+      assignTo: null, // already assigned; nothing to do on save
+      screenIsLive: true,
     });
   };
 
@@ -111,8 +158,17 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
       timers={timers}
       screenName={editing.screenName}
       isCopyOfBuiltIn={editing.wasBuiltIn}
+      screenIsLive={editing.screenIsLive}
       onClose={() => setEditing(null)}
-      onSave={async (l) => { await api.save(l.id, l); setEditing(null); }}
+      // Only close when it actually saved. Closing regardless threw away every
+      // widget the operator had just placed whenever the action refused. The
+      // screen is pointed at the layout HERE, after a successful save, so a
+      // discarded design never reaches a monitor.
+      onSave={async (l) => {
+        if (!(await api.save(l.id, l))) return;
+        if (editing.assignTo) await api.assign(editing.assignTo, l.id);
+        setEditing(null);
+      }}
     />
   );
 
@@ -130,11 +186,15 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
             </button>
             <div className="eyebrow flex-1">{manage ? "Manage designs" : `Design for ${screen?.name ?? "the stage"}`}</div>
             <button onClick={async () => {
+              // Same stale-closure trap as openEditor — build the draft from
+              // the id we just got, never by reading back through `api`.
               const id = await api.createBlank();
               if (!id) return;
-              await api.refresh();
-              const l = api.byId(id);
-              if (l) setEditing({ layout: { id: l.id, name: l.name, background: l.background, widgets: [] }, screenName: screen?.name ?? null, wasBuiltIn: false });
+              setEditing({
+                layout: { id, name: "My layout", background: "#000000", widgets: [] },
+                screenName: screen?.name ?? null, wasBuiltIn: false,
+                assignTo: null, screenIsLive: false,
+              });
             }} className="flex items-center gap-1 text-[11px] text-[var(--color-brand)] hover:underline">
               <Plus className="w-3 h-3" /> New
             </button>
@@ -226,7 +286,10 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
             <div className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
               No stage screens set up. Your stage display keeps working exactly as it does now — add one only if you want to design what it shows.
             </div>
-            <button onClick={() => api.addScreen("Stage 1")}
+            {/* Straight to the designs. The old CTA made a screen with NO
+                layout, which dropped a first-time operator into a blank canvas
+                — the opposite of fast for the exact person this copy is for. */}
+            <button onClick={() => setSubView("choose")}
               className="h-8 rounded bg-[var(--color-brand)] text-black font-semibold text-[11px]">
               Set up a stage screen
             </button>
@@ -236,11 +299,19 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
             {api.screens.map((sc) => {
               const l = sc.layoutId ? api.byId(sc.layoutId) : null;
               const isSel = sc.id === screenId;
-              const live = api.activeLayoutId === sc.layoutId && !!sc.layoutId;
+              // A screen with a layout IS showing it. Comparing against
+              // activeLayoutId (= screens[0]) made the badge mean "same layout
+              // as screen 1", so screen 2 never lit up.
+              const live = !!sc.layoutId;
               return (
                 <div key={sc.id}
                   className={`rounded border p-2 flex flex-col gap-2 ${isSel ? "border-[var(--color-brand)]" : "border-[var(--color-border)]"}`}>
-                  <button onClick={() => setSelectedScreenId(sc.id)} className="flex items-center gap-2 text-left">
+                  {/* A DIV, not a button. This row used to be a <button> with
+                      the pencil <button> INSIDE it — invalid HTML, and its
+                      activation depended on React's synthetic bubbling rather
+                      than the DOM. Safari's accessibility tree also collapses
+                      nested interactive elements. */}
+                  <div className="flex items-center gap-2 text-left">
                     <div className="w-16 shrink-0">
                       {l ? <Thumb layout={l} /> : (
                         <div className="rounded border border-dashed border-[var(--color-border)] aspect-video flex items-center justify-center">
@@ -248,7 +319,9 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
                         </div>
                       )}
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <button onClick={() => setSelectedScreenId(sc.id)}
+                      aria-pressed={isSel} aria-label={`Select ${sc.name}`}
+                      className="min-w-0 flex-1 text-left">
                       <div className="text-[12px] font-medium truncate flex items-center gap-1">
                         {sc.name}
                         {live && (
@@ -260,18 +333,22 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
                       <div className="text-[11px] text-[var(--color-muted-foreground)] truncate">
                         {l ? l.name : "Default — as it is today"}
                       </div>
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); void openEditor({ id: sc.id, name: sc.name, layoutId: sc.layoutId }); }}
-                      aria-label={`Edit the layout on ${sc.name}`} title="Edit layout"
-                      className="w-7 h-7 rounded border border-[var(--color-border)] flex items-center justify-center shrink-0">
-                      <Pencil className="w-3.5 h-3.5" />
                     </button>
-                  </button>
+                    <button onClick={() => { void openEditor({ id: sc.id, name: sc.name, layoutId: sc.layoutId }); }}
+                      aria-label={`Edit the layout on ${sc.name}`} title="Edit layout"
+                      className="w-9 h-9 rounded border border-[var(--color-border)] flex items-center justify-center shrink-0">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  </div>
 
                   {isSel && (
                     <div className="flex items-center gap-1">
-                      <input value={sc.name} onChange={(e) => api.renameScreen(sc.id, e.target.value)}
-                        aria-label="Screen name" className={field} />
+                      {/* Local buffer, written on blur/Enter. This used to fire
+                          a server action AND a full refresh on every keystroke
+                          — 15 mutations and 30 fetches to type "Drummer
+                          monitor", with out-of-order responses able to rewrite
+                          the field mid-typing. */}
+                      <ScreenNameInput name={sc.name} onCommit={(v) => api.renameScreen(sc.id, v)} />
                       <button onClick={async () => {
                         if (await confirm({ title: `Remove "${sc.name}"?`, confirmLabel: "Remove", danger: true })) api.removeScreen(sc.id);
                       }} aria-label={`Remove ${sc.name}`}
@@ -288,7 +365,7 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
 
         <button onClick={() => setSubView("choose")}
           className="h-8 rounded border border-[var(--color-border)] text-[11px] font-medium">
-          Choose a different design ▸
+          {api.screens.some((s2) => s2.layoutId) ? "Choose a different design ▸" : "Choose a design ▸"}
         </button>
       </div>
     </>

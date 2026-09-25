@@ -135,10 +135,28 @@ export function StageCanvas({
             <span className="font-mono truncate leading-none px-1 pointer-events-none">{preview(w)}</span>
             {sel && (
               // One handle, bottom-right, sized for a finger.
-              <span
+              <button
+                type="button"
                 onPointerDown={(e) => begin(e, w, "resize")}
-                aria-label="Resize"
-                className="absolute -right-0.5 -bottom-0.5 w-4 h-4 rounded-sm bg-[var(--color-brand)] cursor-nwse-resize"
+                onKeyDown={(e) => {
+                  // Keyboard resize. Without this a keyboard-only operator can
+                  // MOVE a widget with the arrows but has no way at all to
+                  // resize it — the handle was a bare span with no role, no
+                  // tab stop and an aria-label a screen reader would not even
+                  // surface.
+                  const step = e.shiftKey ? 0.1 : 0.01;
+                  const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+                  if (!d) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onChange(w.id, clampRect({
+                    ...w.rect,
+                    w: Math.max(MIN_SIZE, w.rect.w + d[0]),
+                    h: Math.max(MIN_SIZE, w.rect.h + d[1]),
+                  }));
+                }}
+                aria-label={`Resize ${STAGE_WIDGET_LABELS[w.kind]} — arrow keys`}
+                className="absolute -right-1 -bottom-1 w-5 h-5 rounded-sm bg-[var(--color-brand)] cursor-nwse-resize"
               />
             )}
           </div>
