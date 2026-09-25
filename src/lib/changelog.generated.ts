@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.531",
+    "version": "0.1.532",
     "date": "2026-09-25",
     "headline": "Verses stay in order, and the band's size hint now tells the truth",
     "highlights": [
@@ -12,6 +12,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "The verse you just moved to stays selected wherever it lands in the list, so the next \"next verse\" carries on from the right place.",
       "If you have deliberately re-ordered the cards yourself with the up and down buttons, that arrangement is left alone.",
       "In the scripture band settings, the hint under the sliders said to set the verse to 100% to match the reference line. That was wrong. The verse starts at twice the reference, so they match at Verse size 50% - or, to keep the verse big, Reference size 200%."
+    ]
+  },
+  {
+    "version": "0.1.531",
+    "date": "2026-09-25",
+    "headline": "Our Story page no longer ends with \"Let the church go first\"",
+    "highlights": [
+      "The closing heading \"Let the church go first.\" has been removed from the Our Story page on presentflow.org. The rest of the page is unchanged."
     ]
   },
   {
