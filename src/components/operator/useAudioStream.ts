@@ -268,6 +268,7 @@ export type CanonicalCorrection = {
   dismissed?: boolean;
 };
 
+import { spanWordConfidence, referenceConfidence, WEAK_WORD } from "@/lib/ai-detection/word-confidence";
 import { allusionV1Enabled, runAllusionOnFinal, sharedAllusionRuntime, warmAllusionIndex } from "@/lib/ai-detection/allusion-runtime";
 
 /**
@@ -406,7 +407,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       .finally(() => { inFlightSlideFetchRef.current.delete(songId); });
   }, []);
 
-  const runDetectAll = useCallback(async (segmentId: string, text: string, opts?: { dgConfidence?: number; fromInterim?: boolean }) => {
+  const runDetectAll = useCallback(async (segmentId: string, text: string, opts?: { dgConfidence?: number; fromInterim?: boolean; words?: { w: string; c: number }[] }) => {
     const provider = getCtxRef.current;
     const base = provider ? provider() : { churchId: "", hasVerseContext: false, hasSlideContext: false, hasSongContext: false };
     // Service mode (Worship / Preacher / Auto). "worship" holds DETECTED
@@ -535,8 +536,20 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // already blocks ambiguous single-digit verse numbers from auto-firing;
       // the utterance-confidence penalty adds no additional safety here.
       const isAdequateInterim = opts?.fromInterim && (typeof dg !== "number" || dg >= CONFIDENCE_THRESHOLD);
-      const dgConf = isAdequateInterim ? 1.0 : (typeof dg === "number" && dg > 0 && dg <= 1 ? dg : 1);
-      const wellFormed = /\d+\s*:\s*\d+/.test(r.matchedText);
+      // 2026-09-24 field bug: the utterance confidence describes the WHOLE sentence, so
+      // a reference heard perfectly inside a long sentence was dragged under the 75
+      // auto-fire bar and never projected ("longer sentences which have verses within
+      // them do not project"). Score the reference by ITS OWN words when Deepgram gave
+      // us them. referenceConfidence only ever raises the value, and refuses entirely if
+      // any word inside the reference was weakly heard — so this cannot launder a bad
+      // detection, only stop penalising a good one for its neighbours.
+      const scoped = spanWordConfidence(text, opts?.words, spanFor(r.matchedText));
+      const refDg = referenceConfidence(dg, scoped);
+      const dgConf = isAdequateInterim ? 1.0 : (typeof refDg === "number" && refDg > 0 && refDg <= 1 ? refDg : 1);
+      // "John 3 verse 16" is the SPOKEN form of "John 3:16" and is, if anything, more
+      // explicit — it was getting no well-formed boost purely because it has no colon,
+      // which is why the written form projected and the spoken one didn't.
+      const wellFormed = /\d+\s*:\s*\d+/.test(r.matchedText) || /\d+\s+verses?\s+\d+/.test(r.matchedText);
       // Y2: cap the boost so a garbage range ("John 3:16-99") can never leap
       // past parserConf by more than 10. Combined with Y6 chapter validation
       // in bible-parser, this keeps false positives well below auto-fire.
@@ -544,14 +557,20 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // canonical CONFIDENCE_THRESHOLD, drop the boost entirely — a shaky
       // transcript shouldn't ride the well-formed pattern into auto-approve.
       // (For adequate interims dgConf=1.0, so belowFloor is always false there.)
-      const belowFloor = !isAdequateInterim && typeof dg === "number" && dg < CONFIDENCE_THRESHOLD;
+      // A word INSIDE the reference that was weakly heard also forfeits the boost: the
+      // boost rewards an obvious, well-formed reference, and a garbled token means it
+      // isn't obvious. Without this, the spoken-form boost alone lifted a reference whose
+      // own words scored 0.35-0.42 over the 75 bar — exactly the "verses we never said
+      // popping onto the screen" the field sign-off raised that bar to stop.
+      const refWeak = !!scoped && scoped.floor < WEAK_WORD;
+      const belowFloor = !isAdequateInterim && (refWeak || (typeof refDg === "number" && refDg < CONFIDENCE_THRESHOLD));
       const rawBoost = belowFloor ? 0 : ((wellFormed ? 10 : 0) + (r.verseEnd > r.verseStart ? 5 : 0));
       const boost = Math.min(rawBoost, 10);
       const base = Math.round(parserConf * dgConf);
       const final = Math.max(1, Math.min(100, Math.min(base + boost, parserConf + 10)));
       // R1: gate behind PF_AI_TRACE — leaks pastoral content in prod otherwise.
       if (isDevOrTraceOn()) {
-        console.log("[detection-confidence]", r.matchedText, { parserConf, dgConf, boost, final, isAdequateInterim });
+        console.log("[detection-confidence]", r.matchedText, { parserConf, dg, scoped, dgConf, boost, final, isAdequateInterim });
       }
       return final;
     };
@@ -1801,7 +1820,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           // R11: skip if we already ran detection on this text within 800ms
           // (e.g. from a preceding interim_final_candidate).
           if (!shouldSkipRedetect(msg.text)) {
-            runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence });
+            runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence, words });
           } else {
             // The final text matches a recent interim_final_candidate.
             // 1) Mark the normalized text as confirmed so any still-in-flight

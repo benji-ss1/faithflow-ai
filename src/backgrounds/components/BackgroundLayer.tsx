@@ -1,6 +1,7 @@
 "use client";
 import type { BackgroundSpec } from "@/lib/broadcast";
 import { ShaderBackground } from "./ShaderBackground";
+import { SharedShaderCanvas } from "./SharedShaderCanvas";
 
 /**
  * BackgroundLayer — renders the active background on the projector, BETWEEN the
@@ -24,14 +25,29 @@ export function BackgroundLayer({ background, frozen = false }: { background: Ba
     // Live WebGL shader (Phase 4). Falls back to a CSS gradient inside
     // ShaderBackground if WebGL is unavailable. Static presets (Clean Slate)
     // render one frame; the rest animate.
-    content = (
+    // frozen = an operator-side MIRROR (Main/Stage/Stream monitors, output
+    // thumbs, MultiView). It used to draw one static frame (ad979b09, to avoid a
+    // 2nd WebGL context + rAF loop) — which read as "the live screen isn't
+    // animating" next to the moving slide cards. Mirrors now blit from the ONE
+    // shared shader context the cards use, so they animate in step at no extra
+    // WebGL context. The real projector (/live etc., frozen=false) is unchanged.
+    content = frozen ? (
+      <SharedShaderCanvas
+        spec={{
+          preset: background.shaderPreset || "cleanSlate",
+          speed: background.speed ?? 1,
+          intensity: background.intensity ?? 1,
+          primary: background.primaryColor || "#0A0A0E",
+          secondary: background.secondaryColor || "#0F0F14",
+        }}
+      />
+    ) : (
       <ShaderBackground
         preset={background.shaderPreset || "cleanSlate"}
         speed={background.speed ?? 1}
         intensity={background.intensity ?? 1}
         primaryColor={background.primaryColor || "#0A0A0E"}
         secondaryColor={background.secondaryColor || "#0F0F14"}
-        frozen={frozen}
       />
     );
   } else if (background.type === "image" && background.imageUrl) {

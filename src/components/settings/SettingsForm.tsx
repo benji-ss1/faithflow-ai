@@ -3,6 +3,7 @@ import { useState, useTransition, useEffect } from "react";
 import { toast } from "sonner";
 import { Moon, Sun, Palette, BookOpen, Sparkles } from "lucide-react";
 import { updateSettings, updatePreferences } from "@/lib/actions";
+import { useCanManageChurch } from "@/lib/live-theme";
 
 type Display = { blankBgColor: string };
 type Prefs = {
@@ -32,6 +33,7 @@ export function SettingsForm({ display, prefs, translations, previewTheme = true
   const [systemSources, setSystemSources] = useState<{ id: string; name: string }[]>([]);
   const [systemSourcesError, setSystemSourcesError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const canManageDefaults = useCanManageChurch();
 
   useEffect(() => {
     // Apply production mode client-side immediately so the toggle previews before save
@@ -136,9 +138,10 @@ export function SettingsForm({ display, prefs, translations, previewTheme = true
 
       {/* Bible */}
       <Section icon={<BookOpen className="w-4 h-4" />} title="Bible" description="Default translation for scripture staging and detection results.">
-        <Row label="Default translation" hint="Used when approving AI-detected references and when the Bible browser opens.">
+        <Row label="Default translation" hint={canManageDefaults ? "Used when approving AI-detected references and when the Bible browser opens." : "Only church admins can change the default translation."}>
           <select value={p.defaultTranslationId || ""} onChange={(e) => setP({ ...p, defaultTranslationId: e.target.value || null })}
-            className="h-9 w-64 px-3 border border-border rounded-md bg-background text-sm">
+            disabled={!canManageDefaults}
+            className="h-9 w-64 px-3 border border-border rounded-md bg-background text-sm disabled:opacity-60">
             <option value="">— none —</option>
             {translations.map((t) => <option key={t.id} value={t.id}>{t.code} · {t.name}</option>)}
           </select>

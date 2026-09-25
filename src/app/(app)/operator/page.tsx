@@ -3,6 +3,7 @@ import { isUuid } from "@/lib/operator-plan-select";
 import { cookies, headers } from "next/headers";
 import { requireUser, hasCap } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
+import { getChurchDefaultBackgroundId } from "@/lib/server/church-defaults";
 import { churches, servicePlans, churchPreferences, bibleTranslations, settings as churchSettings } from "@/lib/db/schema";
 import { getTodayInChurchTz } from "@/lib/dates";
 import { getExpandedServicePlan, type ExpandedPlan } from "@/lib/server/services";
@@ -50,6 +51,10 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
     contentTypeStylesUpdatedAt?: Date | null;
   } | null = null;
   let translationCode = "KJV";
+  // Church defaults (2026-09-23): true only when the preferences read above
+  // succeeded — otherwise the console restores the church default from its
+  // offline cache instead of silently running on KJV.
+  let translationFromServer = false;
   let logoUrl: string | undefined;
   let blankBgColor = "#000000";
   try {
@@ -87,6 +92,7 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
       const [t] = await db.select().from(bibleTranslations).where(eq(bibleTranslations.id, prefs.defaultTranslationId)).limit(1);
       if (t) translationCode = t.code;
     }
+    translationFromServer = true;
     const [s] = await db.select().from(churchSettings).where(eq(churchSettings.churchId, user.churchId)).limit(1);
     if (s?.logoS3Key) logoUrl = await presignGet(s.logoS3Key);
     if (s?.blankBgColor) blankBgColor = s.blankBgColor;
@@ -148,6 +154,8 @@ export default async function OperatorLandingPage({ searchParams }: { searchPara
       pinnedPlanMissing={pinnedPlanMissing}
       churchId={user.churchId}
       defaultTranslationCode={translationCode}
+      translationFromServer={translationFromServer}
+      defaultBackgroundId={await getChurchDefaultBackgroundId(user.churchId)}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
       layersV2={prefs?.layersV2 ?? true}

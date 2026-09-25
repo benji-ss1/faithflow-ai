@@ -67,7 +67,7 @@ export function SlideVideo({
       if (!pastOut(el.currentTime, t)) return;
       switch (endAction) {
         case "loop":
-          try { el.currentTime = t.start; void el.play(); } catch { /* ignore */ }
+          try { el.currentTime = t.start; const r = el.play(); if (r && typeof r.catch === "function") r.catch(() => { /* AbortError / autoplay blocked: ignore */ }); } catch { /* ignore */ }
           return;
         case "freeze":
           // Hold the last frame: pause exactly at the out-point.

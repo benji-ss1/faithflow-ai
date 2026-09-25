@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { BookOpen, ShieldCheck, Lock } from "lucide-react";
 import { updatePreferences } from "@/lib/actions";
+import { useCanManageChurch } from "@/lib/live-theme";
 
 type Card = {
   id: string;
@@ -23,6 +24,7 @@ export function BibleTranslationsSimple({
 }) {
   const [selected, setSelected] = useState(defaultTranslationId);
   const [pending, startTransition] = useTransition();
+  const canManage = useCanManageChurch();
 
   function onChange(id: string) {
     const prev = selected;
@@ -47,9 +49,9 @@ export function BibleTranslationsSimple({
         <select
           id="default-translation"
           value={selected}
-          disabled={pending}
+          disabled={pending || !canManage}
           onChange={(e) => onChange(e.target.value)}
-          className="h-10 w-full max-w-sm rounded-xl border border-border bg-background px-3 text-sm"
+          className="h-10 w-full max-w-sm rounded-xl border border-border bg-background px-3 text-sm disabled:opacity-60"
         >
           {selectableTranslations.map((t) => (
             <option key={t.id} value={t.id}>
@@ -58,7 +60,7 @@ export function BibleTranslationsSimple({
           ))}
         </select>
         <p className="mt-2 text-xs text-muted-foreground">
-          Used when scripture is projected without an explicit translation.
+          {canManage ? "Used when scripture is projected without an explicit translation." : "Only church admins can change the default translation."}
         </p>
       </div>
 

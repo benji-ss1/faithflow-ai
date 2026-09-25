@@ -68,6 +68,11 @@ export type ThemeConfig = {
   bgAngle?: number;                        // gradient angle 0..360
   dim?: number;                            // background dim 0..1
   logoOpacity?: number;                    // 0..1
+  /** Layer Order V3 "See-through" (0..1, default 1 = opaque). REAL CSS
+   *  transparency of the whole theme-background layer so media underneath
+   *  shows. Distinct from `bgOpacity`/`dim` (a black readability overlay).
+   *  Legacy (flag-off) output ignores it. */
+  layerOpacity?: number;
   // Built-in themes — the "builtin:<slug>" this church theme was materialized
   // from (dedupe key). Validated against the built-in list.
   builtinId?: string;
@@ -84,6 +89,7 @@ export const THEME_ALLOWED_KEYS: (keyof ThemeConfig)[] = [
   "transition", "transitionType", "transitionDurationMs",
   "safeArea",
   "layout", "bgAngle", "dim", "logoOpacity",
+  "layerOpacity",
   "builtinId",
 ];
 

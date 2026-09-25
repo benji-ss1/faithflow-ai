@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { onMediaChanged } from "@/lib/media-sync";
 import { Image as ImageIcon, Video, Sun, Layers, Upload, AlertTriangle, Send, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SlidePayload } from "@/lib/broadcast";
@@ -26,13 +27,21 @@ export function MediaBinMode({
   const [loading, setLoading] = useState(true);
   const [missingCount, setMissingCount] = useState(0);
 
+  // 2026-09-23: re-pull whenever the media library changes anywhere (Media,
+  // Media Bin dock, library page, another window) — one library, one truth.
+  const [reloadTick, setReloadTick] = useState(0);
+  useEffect(() => onMediaChanged(() => setReloadTick((n) => n + 1)), []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch("/api/media/list").then((r) => r.json()).catch(() => ({ assets: [] }));
-        if (cancelled) return;
-        const list = (r.assets || []) as MediaAsset[];
+        const res = await fetch("/api/media/list").catch(() => null);
+        // Failed refresh (e.g. 429) keeps what's on screen instead of blanking it.
+        if (!res || !res.ok) return;
+        const r = await res.json().catch(() => ({ assets: undefined }));
+        if (cancelled || !Array.isArray(r.assets)) return;
+        const list = r.assets as MediaAsset[];
         setAssets(list);
         // Missing detection: assets whose url is empty (S3 not configured
         // or presign expired). Real HEAD probing added in a later phase.
@@ -40,7 +49,7 @@ export function MediaBinMode({
       } finally { setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadTick]);
 
   const filtered = assets.filter((a) => {
     if (tab === "images") return a.kind === "image";

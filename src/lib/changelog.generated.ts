@@ -4,10 +4,89 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.521",
-    "date": "2026-09-22",
-    "headline": "Tap a stage design to use it, or build your own by dragging",
+    "version": "0.1.527",
+    "date": "2026-09-24",
+    "headline": "\"Psalm a 100 verse 5\" now works, and verses said inside a longer sentence project again",
     "highlights": [
+      "When someone says \"Psalm 100 verse 5\", the transcript sometimes comes back as \"Psalm a 100 verse 5\" with an extra word in the middle. That used to be missed completely. It now finds the verse, and so does \"Psalm 100 a 5\".",
+      "A verse said in the middle of a longer sentence now goes to the screen. Saying \"the bible says in Psalm 100 verse 5 that the Lord is good\" would show the verse in the panel but never project it, because a longer sentence scored lower overall even when the verse itself was heard perfectly clearly.",
+      "Verses are now judged on how clearly the verse words themselves were heard, instead of how clearly the whole sentence was heard.",
+      "Saying a verse out loud (\"John 3 verse 16\") now counts the same as the written form (\"John 3:16\"). The spoken way was being treated as less certain even though it is clearer.",
+      "Nothing has been made easier to trigger: if any word in the verse itself was heard poorly, it still will not go to the screen on its own."
+    ]
+  },
+  {
+    "version": "0.1.526",
+    "date": "2026-09-24",
+    "headline": "Animated backgrounds now move on your Main screen monitor too",
+    "highlights": [
+      "The Main, Stage and Stream monitors on the right now show your animated background moving, in step with the slide cards and the projector.",
+      "No extra load on your computer: every preview shares the same single animation."
+    ]
+  },
+  {
+    "version": "0.1.525",
+    "date": "2026-09-24",
+    "headline": "Animated themes now live in the Themes panel",
+    "highlights": [
+      "Open Themes and you'll find a new Animated themes section above Built-in. Tap one to put it behind your lyrics and scripture.",
+      "The one that's on shows an ON badge. Tap Turn off to go back to your normal theme background."
+    ]
+  },
+  {
+    "version": "0.1.524",
+    "date": "2026-09-24",
+    "headline": "New song window works like ProPresenter, with real themes and see-through slides",
+    "highlights": [
+      "This change is for everyone, not only testers. Add song now opens a New Presentation window like ProPresenter's. Type the filename, then pick a theme, library and playlist.",
+      "The theme starts as None. Leave it like that and your new song has no theme, which is how Add song worked before. If your church has a default theme it says \"None — uses church theme\"; with no church theme it says \"None (transparent)\" and shows a grey checkerboard. Click the small arrow to open a grid of your church's themes, with the ones you used most recently at the top. Esc or a click outside closes only the grid.",
+      "The song and its theme are now saved together, so you never get a song with half a theme. If adding it to the playlist fails, you get a clear message and the song is still created.",
+      "The theme you pick is saved on the song and shows on the slide preview and on the projector. It stays when you type lyrics into the slide (pencil or Edit slide). This also fixes older themed slides losing their background colour the first time they were edited. You can pick a playlist and the song is added to it straight away. Artist and \"Create a blank first slide\" are still there.",
+      "Right-click any song in the Songs library and choose Apply theme to change its theme. This works on imported songs too. Imported songs still come in without a theme.",
+      "Library → Songs on the web has a New song… button that opens the same window.",
+      "In Themes, the Opacity slider is now called \"Darken (dim)\" and counts up as it gets darker. It works the same as before. Testers with the new layer order switched on also get a \"Background transparency\" slider, which lets your background image or video show through the theme's background. Slide cards without a background also show a checkerboard. With the new layer order off, the transparency slider is hidden.",
+      "New slides on a themed song now get the theme too, whether you use + Add slide or Add in Edit slide. Editing the words of a new slide with the pencil keeps the theme. Undo theme also puts slides you added after the theme back to plain.",
+      "Editing one slide's words with the pencil now changes only that slide, so a designed slide with one text box keeps its design.",
+      "Quick edit now updates only the slide you edited — designs on other slides are no longer reset.",
+      "Songs with a theme still show as the church lower-third band when the church's scripture layout is lower third."
+    ]
+  },
+  {
+    "version": "0.1.523",
+    "date": "2026-09-24",
+    "headline": "Testers only - a new ProPresenter-style layer order you can switch on (off for everyone else)",
+    "highlights": [
+      "Off by default. Nothing changes on your screens unless your church has been asked to test the new layer order and has switched it on.",
+      "When it is on, your background media, your theme and your words are separate layers. Changing the theme or clearing a slide no longer removes your background image or video.",
+      "Clicking media in the Media Bin or the Media library sets it as the background. Right-click it and choose Send as slide to send it as a slide instead.",
+      "Clear Slide removes the words. The theme hides with them and comes back on the next slide. Your background stays on screen.",
+      "Hide theme hides the theme for the slide that is on screen now. A theme video pauses and carries on from the same point when the theme comes back on the next slide.",
+      "Blank now shows solid black over everything, including the background and the theme.",
+      "Esc and the X on the live panel clear everything, including the camera. Saying \"clear screen\" only clears the slide."
+    ]
+  },
+  {
+    "version": "0.1.522",
+    "date": "2026-09-24",
+    "headline": "Songs follow your theme, new animated backgrounds, and one place for your church defaults",
+    "highlights": [
+      "Songs now follow your church theme. A song you styled yourself keeps its own look.",
+      "New animated backgrounds, and smoother switching between them.",
+      "Set your church's default translation, main theme and background once, in Settings.",
+      "Changing theme during a service only affects that service. The starred main theme loads every time the app starts."
+    ]
+  },
+  {
+    "version": "0.1.521",
+    "date": "2026-09-23",
+    "headline": "Media and the Media Bin are now one library — and duplicates are flagged",
+    "highlights": [
+      "Anything you add in Media now shows up in the Media Bin straight away, and anything you add in the Media Bin shows up in Media. Delete it from either place and it disappears from both.",
+      "Duplicates get a small yellow warning badge showing how many copies you have. Tap it to see every copy side by side and choose which to keep and which to delete.",
+      "Deleting a duplicate never removes anything from your playlists, songs, slides or themes — they switch over to the copy you keep. Anything on the projector right now, or set as your background, is always kept.",
+      "Files that are already in your media are skipped when you import them again, so you don't get duplicates. Tick Import anyway if you really want a second copy.",
+      "You can now delete straight from the Media Bin with the bin icon on each item, and the delete confirmation tells you where the file is still used.",
+      "Uploading media from the web app (Library, Media) works again.",
       "Tap any stage layout to put it straight on your stage screen. The one that is live is marked \"On stage\". Before, you had to create a \"stage screen\" first and then find the layout in a dropdown.",
       "New layout starts you from a blank screen. Previously the only way to make your own was to copy one of the built-in ones.",
       "Designing is now drag-and-drop: move a box with your finger or mouse, drag the orange corner to resize, or nudge with the arrow keys. It is the screen itself, not a list of numbers.",

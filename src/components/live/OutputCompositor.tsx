@@ -27,12 +27,15 @@
  * the golden record of the precedence rules.
  */
 import { useRef, type ReactNode } from "react";
+import { themeLayerCovers } from "@/lib/theme-layer-v3";
+import { usePauseCoveredVideos } from "./usePauseCoveredVideos";
 import { usePp7DrawOrder } from "@/lib/pp7-draw-order";
+import { useLayerOrderV3 } from "@/lib/layer-order-v3";
 import { usePp7KeepThemeBg, isKeepThemeBgSlide } from "@/lib/pp7-keep-theme-bg";
 import { SlideRenderer } from "./SlideRenderer";
 import { OutputSlide } from "./OutputSlide";
 import { TransitionWrapper } from "./TransitionWrapper";
-import { ThemeLogoLayer, themeLogoPaints } from "./ThemeLayers";
+import { ThemeLogoLayer, themeLogoPaints, ThemeBackgroundLayer } from "./ThemeLayers";
 import { ThemeDecorLayer } from "./ThemeDecorLayer";
 import { themeDecorPlan } from "@/lib/theme-decor-plan";
 import { PresentationCanvas } from "./PresentationCanvas";
@@ -138,6 +141,21 @@ export interface OutputCompositorProps {
    * and remount the stack. A church without Scenes never sets it ⇒ legacy DOM.
    */
   scenesPossible?: boolean;
+  /**
+   * Layer Order V3 (src/lib/layer-order-v3.ts), as carried on
+   * OutputState.layerOrderV3 by the operator. Receivers (/live, /stage,
+   * /livestream, /ndi, MultiView) trust ONLY this wire value. Undefined/false ⇒
+   * the existing plan + DOM, byte-identical.
+   */
+  layerOrderV3?: boolean;
+  /**
+   * Operator/preview contexts only (LivePreviewPanel, LiveOutputThumb): also
+   * honour THIS machine's localStorage/env flag. Never set on a receiver route,
+   * so a projector machine's stale local flag can't diverge from the wire.
+   */
+  trustLocalFlag?: boolean;
+  /** V3: OutputState.themeLayerHidden ("Hide theme" for this send). */
+  themeLayerHidden?: boolean;
 }
 
 /**
@@ -196,8 +214,11 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // Deliberately INDEPENDENT of `layersEnabled`: the stack order is an output
   // rule, not a layer-override feature, so it must not depend on NEXT_PUBLIC_LAYERS_V2.
   const pp7Order = usePp7DrawOrder();
+  const v3Local = useLayerOrderV3();
+  const v3 = !!props.layerOrderV3 || (!!props.trustLocalFlag && v3Local);
   const plan = planOutput(
-    pp7Order ? { ...resolvedInput, pp7DrawOrder: true, announcementLive: !!announcement } : resolvedInput,
+    v3 ? { ...resolvedInput, layerOrderV3: true, announcementLive: !!announcement, ...(props.themeLayerHidden ? { themeLayerHidden: true } : {}) }
+      : pp7Order ? { ...resolvedInput, pp7DrawOrder: true, announcementLive: !!announcement } : resolvedInput,
   );
   // PP7 "Clear Slide keeps the theme's media" (src/lib/pp7-keep-theme-bg.ts).
   // Receiver-side half of the kill switch: with it off, a slide carrying the
@@ -215,15 +236,41 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // slide stops painting its own theme bg/decor (only for slides the shared
   // themeDecorPlan says carry decor). Absent layer ⇒ nothing changes.
   const decorLayer = plan.layers.find((l) => l.id === "theme-decor" && l.enabled);
-  const decorPlan = decorLayer && decorLayer.id === "theme-decor"
+  const decorPlan = v3
+    ? (decorLayer ? themeDecorPlan(effectiveSlide, appearance, { transparentBg: false, ignoreThemeLayout: ignoreLayout }) : null)
+    : decorLayer && decorLayer.id === "theme-decor"
     ? themeDecorPlan(effectiveSlide, appearance, { overVideo: decorLayer.props.overVideo, transparentBg: decorLayer.props.transparentBg, ignoreThemeLayout: decorLayer.props.ignoreThemeLayout })
     : null;
   const chromeHosted = !!decorLayer;
+  // Layer Order V3 only (unused otherwise).
+  const keyedTransparent = (props.mode === "livestream" || props.mode === "ndi") && !!props.transparent;
+  const themeBgPlan = v3 ? plan.layers.find((l) => l.id === "theme-bg") : undefined;
+  const mediaCovered = (!!themeBgPlan?.enabled && (opacities["theme-bg"] ?? 1) >= 1 && themeLayerCovers(appearance))
+    // A V3 blank is opaque (SlideRenderer) ⇒ the media underneath is covered too.
+    || (v3 && slide.kind === "blank" && !keyedTransparent);
 
   // Render one plan layer by its stable id. The z-ordering + enable/disable is
   // owned by planOutput; the compositor just paints enabled layers in order.
   // (Same DOM as the pre-reshape switch — this is a repackaging, not a change.)
   function renderLayer(layer: OutputLayerPlan): ReactNode {
+    if (v3) {
+      // Layer Order V3: EVERY plan layer keeps a stable keyed wrapper; a disabled
+      // (or covered) layer is hidden with `visibility`, never re-keyed. For the
+      // MEDIA and THEME-BG layers the inner node also STAYS MOUNTED while
+      // disabled (its <video> is paused by the layer, not destroyed), so a hide /
+      // show — clear slide, next slide, theme hide — never restarts a clip or
+      // replays a transition (rule 7). Other layers (slide, logo, decor, camera)
+      // drop their inner node when disabled, exactly like the legacy path.
+      // Exception: OBS/NDI alpha keying (`transparent`) disables media + theme-bg
+      // for the whole session, so there they DO unmount (no hidden decode).
+      const op = opacities[layer.id] ?? (layer.id === "theme-decor" ? opacities.slide : undefined) ?? 1;
+      const keepMounted = !keyedTransparent && (layer.id === "background" || layer.id === "theme-bg");
+      return (
+        <div key={`v3-${layer.id}`} data-layer={layer.id} data-z={layer.z} className="absolute inset-0" style={{ opacity: op, ...(layer.enabled ? {} : { visibility: "hidden" as const }) }}>
+          {layer.enabled || keepMounted ? renderLayerInner(layer) : null}
+        </div>
+      );
+    }
     if (!layer.enabled) return null;
     const node = renderLayerInner(layer);
     if (!node) return null;
@@ -248,7 +295,15 @@ export function OutputCompositor(props: OutputCompositorProps) {
     switch (layer.id) {
       case "background": {
         if (!layer.props.background) return null;
-        const bgNode = <BackgroundLayer key={layer.props.background.shaderPreset ?? layer.props.background.type} background={layer.props.background} frozen={previewFrozen} />;
+        const b = layer.props.background;
+        // V3: keyed by the media URL so only a genuinely different media remounts.
+        const bgKey = v3 ? (b.videoUrl ?? b.imageUrl ?? b.shaderPreset ?? b.type) : (b.shaderPreset ?? b.type);
+        const bgNode = <BackgroundLayer key={bgKey} background={b} frozen={previewFrozen} />;
+        if (v3) {
+          // Covered by an opaque theme (or hidden) ⇒ pause the media video (kept
+          // mounted, currentTime kept); uncovered ⇒ it resumes where it was.
+          return <V3MediaPause key="v3-media" paused={!layer.enabled || mediaCovered}>{bgNode}</V3MediaPause>;
+        }
         if (!(typeof backgroundDim === "number" && backgroundDim > 0)) return bgNode;
         // OBS editor full-look dim: a black veil over the template, under the words.
         return (
@@ -266,12 +321,15 @@ export function OutputCompositor(props: OutputCompositorProps) {
       case "announcement":
         // PP7 draw order: Announcements draw BELOW Props (the theme logo).
         return <AnnouncementLayer key="announcement" ann={announcement} />;
+      case "theme-bg":
+        return <ThemeBackgroundLayer key="theme-bg" appearance={appearance} opacity={layer.props.opacity} frozen={previewFrozen} active={layer.enabled} />;
       case "theme-decor":
+        if (v3) return <ThemeDecorLayer key="theme-decor" appearance={appearance} plan={decorPlan} bgExternal frozen={previewFrozen} />;
         // Theme chrome, drawn with the slide: above the media AND above the PP7
         // camera layer (both are below it in the plan), below the words.
         return <ThemeDecorLayer key="theme-decor" appearance={appearance} plan={decorPlan} overVideo={layer.props.overVideo} frozen={previewFrozen} />;
       case "slide": {
-        const { renderMode, overVideo, transparentBg, videoInput, cameraExternal } = layer.props;
+        const { renderMode, overVideo, transparentBg, videoInput, cameraExternal, themeBgExternal } = layer.props;
         if (renderMode === "over-video") {
           return (
             <OutputSlide
@@ -286,6 +344,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
               projectorFit
               previewFrozen={previewFrozen}
               {...(ignoreLayout ? { ignoreThemeLayout: true } : {})}
+              {...(themeBgExternal ? { themeBgExternal: true } : {})}
             />
           );
         }
@@ -303,6 +362,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
             videoMuted={videoMuted}
             onVideoRef={onVideoRef}
             {...(chromeHosted ? { themeChromeHosted: true } : {})}
+            {...(themeBgExternal ? { themeBgExternal: true } : {})}
             {...(obsOverlay ? { obsOverlay } : {})}
             {...(ignoreLayout ? { ignoreThemeLayout: true } : {})}
           />
@@ -325,6 +385,27 @@ export function OutputCompositor(props: OutputCompositorProps) {
   }
 
   const nodes = plan.layers.map((l) => ({ id: l.id, node: renderLayer(l) }));
+  if (v3) {
+    // Layer Order V3 overlays: announcement (z30) BELOW the theme logo / Props
+    // (z40) — PP7 draw order (Victor 2026-09-18). The announcement keeps its
+    // original WINDOW-relative box (never rescaled into the canvas), so the logo
+    // is painted AFTER it in a second, identical canvas on top. That top canvas
+    // is ALWAYS present under V3 (not only while an announcement is live), so an
+    // announcement going on/off never remounts the logo or the layers below.
+    const below = nodes.filter((n) => n.id !== "announcement" && n.id !== "theme-logo").map((n) => n.node);
+    const logo = nodes.find((n) => n.id === "theme-logo")?.node ?? null;
+    const ann = announcement ? <AnnouncementLayer key="announcement" ann={announcement} /> : null;
+    if (!plan.canvas.enabled) return <>{below}{ann}{logo}</>;
+    return (
+      <>
+        <PresentationCanvas key="canvas-v3" canvasW={plan.canvas.w} canvasH={plan.canvas.h} zone={zone}>{below}</PresentationCanvas>
+        {ann}
+        <div key="canvas-v3-top-wrap" className="absolute inset-0 pointer-events-none">
+          <PresentationCanvas key="canvas-v3-top" canvasW={plan.canvas.w} canvasH={plan.canvas.h} zone={zone}>{logo}</PresentationCanvas>
+        </div>
+      </>
+    );
+  }
   // Where the announcement sits in the stack. PP7 draw order puts it in the plan
   // (below the props); legacy has no announcement layer, so it is painted LAST —
   // byte-identical to the routes painting it themselves, which is what they did
@@ -371,4 +452,11 @@ export function OutputCompositor(props: OutputCompositorProps) {
       </div>
     </>
   );
+}
+
+/** Layer Order V3: the media layer's pause-when-covered host (see usePauseCoveredVideos). */
+function V3MediaPause({ paused, children }: { paused: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  usePauseCoveredVideos(ref, paused);
+  return <div ref={ref} data-v3-media="" className="absolute inset-0">{children}</div>;
 }

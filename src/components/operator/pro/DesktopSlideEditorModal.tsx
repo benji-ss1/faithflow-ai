@@ -261,10 +261,9 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
       }
       const previousConfig = lastSavedCfgRef.current;
       lastSavedCfgRef.current = config;
-      let defaultNow = isDefaultNow;
       if (makeDefault && !isDefaultNow) {
         const d = await setDefaultTheme(themeTarget.id);
-        if (d.ok) { defaultNow = true; setIsDefaultNow(true); setMakeDefault(false); } else toast.error(d.error || "Couldn't set as default");
+        if (d.ok) { setIsDefaultNow(true); setMakeDefault(false); } else toast.error(d.error || "Couldn't set as main theme");
       }
       // The theme itself is saved → clean. Song restyle has its own retry state.
       editor.resetDirty();
@@ -273,9 +272,16 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
       window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));
       // Same contract as theme-apply-client.applyThemeLive: a detail-less event
       // would reset the live look to built-in defaults.
-      if (defaultNow) {
+      // Church defaults 2026-09-23: push when this theme is the one ON the
+      // outputs (the in-session live theme, else the main theme) — never
+      // because it was just starred as main.
+      const { getLiveThemeId } = await import("@/lib/live-theme");
+      const liveId = getLiveThemeId();
+      // `isDefaultNow` is the PRE-star value: ticking "make default" must never
+      // push a theme that wasn't already on the outputs.
+      if (liveId ? liveId === themeTarget.id : isDefaultNow) {
         window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
-          detail: { appearance: themeConfigToAppearance(config) },
+          detail: { appearance: themeConfigToAppearance(config), themeId: themeTarget.id },
         }));
       }
       const liveOrigin = ctx.getLiveOrigin?.() ?? null;

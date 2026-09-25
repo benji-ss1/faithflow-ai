@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -10,6 +10,7 @@ import { inviteTeammate } from "@/lib/invitation-actions";
 import { addBuiltInHymnsToMyChurch } from "@/lib/actions";
 import { ChurchBrandingUploader } from "@/components/organization/ChurchBrandingUploader";
 import { OnboardingSplash } from "@/components/onboarding/OnboardingSplash";
+import { ChurchDefaultsCard } from "@/components/settings/ChurchDefaultsCard";
 import {
   authInputCls,
   authInputStyle,
@@ -21,16 +22,17 @@ import {
 import { PfAuthScene } from "@/components/auth/PfAuthScene";
 
 /**
- * PresentFlow onboarding wizard — six steps, dark-themed AuthShell.
+ * PresentFlow onboarding wizard — seven steps (0–6), dark-themed AuthShell.
  *
  *  0. Welcome hero      — brand-forward "get started" screen
  *  1. Church profile    — creates the church row + attaches user as admin
  *  2. Branding          — optional logo upload (reuses ChurchBrandingUploader)
- *  3. Songs             — three-way pick: import wizard, built-in hymns, skip
- *  4. Team              — optional multi-email invite (via Resend)
- *  5. Download desktop  — final CTA + "Go to dashboard" finish
+ *  3. Church defaults  — translation, main theme, animated background (skippable; 2026-09-23)
+ *  4. Songs             — three-way pick: import wizard, built-in hymns, skip
+ *  5. Team              — optional multi-email invite (via Resend)
+ *  6. Download desktop  — final CTA + "Go to dashboard" finish
  *
- * Steps 2–5 are all skippable. Only step 1 is required (it's the
+ * Steps 2–6 are all skippable. Only step 1 is required (it's the
  * gate that creates the church_id row). Every step after 1 uses
  * server actions that re-read the user by email via requireUser(),
  * so the freshly-attached churchId is visible immediately without
@@ -40,11 +42,12 @@ import { PfAuthScene } from "@/components/auth/PfAuthScene";
 type Invite = { email: string; role: "admin" | "operator" | "volunteer" | "pastor" | "viewer" };
 type ImportChoice = "wizard" | "hymns" | "skip" | null;
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 7;
 const STEP_TITLES = [
   "Welcome to PresentFlow",
   "Tell us about your church",
   "Add your church logo",
+  "Pick your church defaults",
   "Bring in your songs",
   "Invite your team",
   "Get the desktop app",
@@ -53,6 +56,7 @@ const STEP_SUBS = [
   "Let's get your church set up in a few minutes.",
   "Basic identity — you can polish everything else later from Settings.",
   "Appears in your sidebar, on the desktop splash, and as a Logo slide.",
+  "Bible translation, main theme and animated background every service starts with. Skip to keep KJV and the standard look.",
   "Import from another tool, start with our built-in hymns, or add later.",
   "Presenting is a team sport. Add the operators who help run services.",
   "The desktop app is where you actually present on Sundays.",
@@ -106,11 +110,16 @@ export function OnboardingWizard({
   const detectedTz =
     typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" : "UTC";
 
-  // Step 3 — song import choice + result
+  // Step 3 — church defaults: saved by the Continue button
+  const saveDefaultsRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [savingDefaults, setSavingDefaults] = useState(false);
+  const [defaultsFailed, setDefaultsFailed] = useState(false);
+
+  // Step 4 — song import choice + result
   const [importChoice, setImportChoice] = useState<ImportChoice>(null);
   const [hymnResult, setHymnResult] = useState<{ added: number; skipped: number } | null>(null);
 
-  // Step 4 — invites
+  // Step 5 — invites
   const [inviteInput, setInviteInput] = useState("");
   const [invites, setInvites] = useState<Invite[]>([]);
 
@@ -173,7 +182,7 @@ export function OnboardingWizard({
 
   function submitInvites() {
     startTransition(async () => {
-      if (invites.length === 0) { setStep(5); return; }
+      if (invites.length === 0) { setStep(6); return; }
       // Reviewer 🟡 (Phase 3B): consolidate partial failures into a single
       // summary toast instead of one toast per failed email. If the user
       // pasted 15 emails and 3 belong to another church, the previous
@@ -192,7 +201,7 @@ export function OnboardingWizard({
       } else {
         toast.success(`Invited ${sent}. ${failed.length} skipped: ${failed.map((f) => f.email).join(", ")}`);
       }
-      setStep(5);
+      setStep(6);
     });
   }
 
@@ -210,7 +219,7 @@ export function OnboardingWizard({
   // the entry step itself. Fresh users start at 0 and can back through
   // Welcome; returning users start at 2 and can't back below Branding.
   const backFloor = hasChurch ? 2 : 0;
-  const canBack = step > backFloor && step < 5;
+  const canBack = step > backFloor && step < 6;
   const stepNum = step + 1;
 
   if (showSplash) return <OnboardingSplash />;
@@ -354,8 +363,17 @@ export function OnboardingWizard({
           </div>
         )}
 
-        {/* Step 3 — Songs */}
+        {/* Step 3 — Church defaults (2026-09-23; skippable) */}
         {step === 3 && (
+          <div className="mb-5">
+            <div className="pf-admin-scope">
+              <ChurchDefaultsCard compact registerSave={(fn) => { saveDefaultsRef.current = fn; }} />
+            </div>
+          </div>
+        )}
+
+        {/* Step 4 — Songs */}
+        {step === 4 && (
           <div className="mb-5 space-y-3">
             <ImportOptionCard
               icon={<FolderInput className="h-5 w-5" />}
@@ -407,8 +425,8 @@ export function OnboardingWizard({
           </div>
         )}
 
-        {/* Step 4 — Team */}
-        {step === 4 && (
+        {/* Step 5 — Team */}
+        {step === 5 && (
           <div className="mb-5">
             <div className="mb-3.5 flex gap-2.5">
               <input
@@ -482,8 +500,8 @@ export function OnboardingWizard({
           </div>
         )}
 
-        {/* Step 5 — Download */}
-        {step === 5 && (
+        {/* Step 6 — Download */}
+        {step === 6 && (
           <div className="mb-5 space-y-3">
             <Link
               href="/onboarding/download"
@@ -550,9 +568,31 @@ export function OnboardingWizard({
             </button>
           )}
           {step === 3 && (
+            <>
+              {defaultsFailed && (
+                <button type="button" onClick={() => { setDefaultsFailed(false); setStep(4); }}
+                  className="flex-none cursor-pointer rounded-xl px-4 py-3.5 font-display text-[14px] font-semibold"
+                  style={{ border: "1px solid rgba(255,255,255,0.14)", background: "transparent", color: "#c4bcaf" }}>
+                  Skip for now
+                </button>
+              )}
+              <button type="button" disabled={savingDefaults} className={authCtaCls} style={authCtaStyle}
+                onClick={async () => {
+                  // The picks are SAVED on Continue (never lost silently); an
+                  // error keeps the admin here with an inline message + retry.
+                  setSavingDefaults(true);
+                  const ok = saveDefaultsRef.current ? await saveDefaultsRef.current() : true;
+                  setSavingDefaults(false);
+                  if (ok) { setDefaultsFailed(false); setStep(4); } else setDefaultsFailed(true);
+                }}>
+                {savingDefaults ? "Saving…" : defaultsFailed ? "Try again" : "Continue"}
+              </button>
+            </>
+          )}
+          {step === 4 && (
             <button
               type="button"
-              onClick={() => setStep(4)}
+              onClick={() => setStep(5)}
               disabled={!importChoice}
               className={authCtaCls}
               style={authCtaStyle}
@@ -560,7 +600,7 @@ export function OnboardingWizard({
               Continue
             </button>
           )}
-          {step === 4 && (
+          {step === 5 && (
             <button
               type="button"
               onClick={submitInvites}
@@ -575,7 +615,7 @@ export function OnboardingWizard({
                   : "Skip for now"}
             </button>
           )}
-          {step === 5 && (
+          {step === 6 && (
             <button
               type="button"
               onClick={finish}

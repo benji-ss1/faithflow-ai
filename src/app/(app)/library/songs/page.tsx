@@ -10,6 +10,7 @@ import { TidyAllSongsButton } from "@/components/library/TidyAllSongsButton";
 import { getSongUsage } from "@/lib/song-limits";
 import { getEffectiveSongLimit } from "@/lib/server/song-limits-server";
 import { createSong } from "@/lib/actions";
+import { NewSongButton } from "@/components/library/NewSongButton";
 
 async function create(formData: FormData) {
   "use server";
@@ -40,7 +41,10 @@ export default async function SongsPage() {
         <div className="text-sm text-muted-foreground">
           {songs.length} song{songs.length === 1 ? "" : "s"} in library
         </div>
-        <TidyAllSongsButton count={songs.length} />
+        <div className="flex items-center gap-2">
+          <NewSongButton existingTitles={songs.map((s) => s.title)} />
+          <TidyAllSongsButton count={songs.length} />
+        </div>
       </div>
 
       <form action={create} className="flex flex-wrap gap-2 rounded-2xl border border-border bg-card/80 p-4">

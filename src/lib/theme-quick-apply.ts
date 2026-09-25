@@ -2,6 +2,7 @@
 import { updateTheme, patchThemeConfig, setDefaultTheme } from "@/lib/actions";
 import { themeConfigToAppearance } from "@/lib/theme-appearance";
 import { snapshotBackgroundState, restoreBackgroundState } from "@/backgrounds/store/backgroundStore";
+import { getLiveThemeId, setLiveThemeId, resolveActiveTheme } from "@/lib/live-theme";
 
 export type QuickTheme = { id: string; name: string; config: Record<string, unknown>; isDefault?: boolean };
 
@@ -26,10 +27,10 @@ export async function fetchThemes(): Promise<QuickTheme[]> {
 }
 
 // Drive the live output with a theme config (mirrors ThemesTab/ThemesModal).
-export function pushThemeLive(config: Record<string, unknown>): void {
+export function pushThemeLive(config: Record<string, unknown>, themeId?: string): void {
   try {
     window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
-      detail: { appearance: themeConfigToAppearance(config) },
+      detail: { appearance: themeConfigToAppearance(config), ...(themeId ? { themeId } : {}) },
     }));
   } catch { /* mapping unavailable — DB default still applies on next load */ }
 }
@@ -40,13 +41,27 @@ export function announceThemesChanged(): void {
   try { window.dispatchEvent(new CustomEvent("presentflow:themes-changed")); } catch { /* noop */ }
 }
 
-// Make `id` the default/active theme and push it live.
+// Push `t` LIVE (session-only). Church defaults 2026-09-23: this no longer
+// writes the church's main theme — use setMainTheme for that.
 export async function switchToTheme(t: QuickTheme): Promise<boolean> {
-  const res = await setDefaultTheme(t.id);
+  setLiveThemeId(t.id);
+  pushThemeLive(t.config, t.id);
+  return true;
+}
+
+// Explicit "Set as main theme" (star): writes themes.is_default only. Does NOT
+// change what is on the outputs right now.
+export async function setMainTheme(id: string): Promise<boolean> {
+  const res = await setDefaultTheme(id);
   if (!res.ok) return false;
-  pushThemeLive(t.config);
   announceThemesChanged();
   return true;
+}
+
+// The theme a quick tweak edits = the theme LIVE right now (main theme before
+// any in-session apply). Its edits are pushed live because it IS the live one.
+function activeTarget(themes: QuickTheme[]): QuickTheme | null {
+  return resolveActiveTheme(themes, getLiveThemeId());
 }
 
 // Result of a quick theme mutation: the theme name (for a toast) plus a
@@ -63,7 +78,10 @@ async function applyConfig(target: QuickTheme, config: Record<string, unknown>):
   try {
     const res = await updateTheme(target.id, { config });
     if (!res.ok) return false;
-    if (target.isDefault) { pushThemeLive(config); }
+    // Undo may land after the operator switched to another theme — only
+    // re-push when this theme is still the one on the outputs.
+    const liveId = getLiveThemeId();
+    if (liveId ? liveId === target.id : target.isDefault) pushThemeLive(config, target.id);
     announceThemesChanged();
     return true;
   } catch {
@@ -92,7 +110,8 @@ function makeRevert(
 export async function setMediaOnActiveTheme(kind: "logo" | "background", url: string): Promise<QuickThemeChange | null> {
   const themes = await fetchThemes();
   if (themes.length === 0) return null;
-  const target = themes.find((t) => t.isDefault) ?? themes[0];
+  const target = activeTarget(themes);
+  if (!target) return null;
   const prev = target.config;
   const bgSnapshot = snapshotBackgroundState(); // capture BEFORE the change clears any template
   const patch: Record<string, unknown> = kind === "logo"
@@ -107,7 +126,7 @@ export async function setMediaOnActiveTheme(kind: "logo" | "background", url: st
   } catch {
     return null;
   }
-  if (target.isDefault) { pushThemeLive(nextConfig); }
+  pushThemeLive(nextConfig, target.id);
   announceThemesChanged();
   return { name: target.name, revert: makeRevert(target, prev, bgSnapshot) };
 }
@@ -119,7 +138,8 @@ export async function setMediaOnActiveTheme(kind: "logo" | "background", url: st
 export async function clearActiveThemeBackground(): Promise<QuickThemeChange | null> {
   const themes = await fetchThemes();
   if (themes.length === 0) return null;
-  const target = themes.find((t) => t.isDefault) ?? themes[0];
+  const target = activeTarget(themes);
+  if (!target) return null;
   const prev = target.config;
   const bgType = (prev.bgType as string) ?? "solid";
   const hasImageOrVideoBg = (bgType === "image" || bgType === "video")
@@ -133,7 +153,7 @@ export async function clearActiveThemeBackground(): Promise<QuickThemeChange | n
   } catch {
     return null;
   }
-  if (target.isDefault) { pushThemeLive(nextConfig); }
+  pushThemeLive(nextConfig, target.id);
   announceThemesChanged();
   return { name: target.name, revert: makeRevert(target, prev, bgSnapshot) };
 }

@@ -15,6 +15,18 @@ function body(name: string): string {
   const next = src.indexOf("\nexport async function ", start + 10);
   return src.slice(start, next < 0 ? undefined : next);
 }
+// 2026-09-24: the whole-song bake body moved into bakeThemeIntoSongTx (shared
+// with the atomic createSong). applyThemeToSong's checks run over wrapper+core,
+// and the wrapper must pass the SESSION church id into the core.
+const CORE = src.slice(src.indexOf("async function bakeThemeIntoSongTx("), src.indexOf("export async function applyThemeToSong("));
+assert.ok(CORE.length > 100, "bakeThemeIntoSongTx exists");
+assert.match(CORE, /const user = \{ churchId \};/);
+function bodyWithCore(name: string): string {
+  const b = body(name);
+  if (name !== "applyThemeToSong") return b;
+  assert.match(b, /bakeThemeIntoSongTx\(tx, user\.churchId, themeId, cfg, songId\)/, "applyThemeToSong passes the session church to the core");
+  return b + CORE;
+}
 let n = 0;
 const ok = (cond: boolean | RegExpMatchArray | null, msg: string) => { assert.ok(cond, msg); n++; };
 
@@ -46,12 +58,12 @@ const count = body("countSongsUsingTheme");
 ok(/songsUsingThemeWhere\(user\.churchId, themeId\)/.test(count), "count is church-filtered");
 
 for (const name of ["applyThemeToSong", "applyThemeToSongSlides", "removeThemeFromSongSlides", "revertSongTheme"]) {
-  const b = body(name);
+  const b = bodyWithCore(name);
   ok(/db\.transaction\(/.test(b), `${name} runs in a transaction`);
   ok(/eq\(songs\.id, songId\), eq\(songs\.churchId, user\.churchId\)\)\)\.for\("update"\)/.test(b), `${name} row-locks the church-verified song`);
   ok(/tx\.update\(songs\)[\s\S]*?eq\(songs\.churchId, user\.churchId\)/.test(b), `${name} song write church-filtered`);
 }
-const apply = body("applyThemeToSong");
+const apply = bodyWithCore("applyThemeToSong");
 ok(/writeSongSlideObjects\(tx, songId,/.test(apply), "whole-song apply slide writes song-scoped");
 ok(/mergeThemeBackup\(prevSettings\.themeBackup/.test(apply), "whole-song apply preserves the first backup");
 ok(/bakeThemeIntoObjectsJson\(cfg, s\.objectsJson\)/.test(apply), "whole-song apply uses the shared bake");

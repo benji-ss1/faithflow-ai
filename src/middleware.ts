@@ -195,6 +195,17 @@ const UNIVERSAL_ALLOWED_API_EXACT = new Set<string>([
   "/api/media/capabilities",          // audio-enabled check before uploading
 ]);
 
+// 2026-09-23: media APIs the WEB app needs too (Library → Media upload,
+// theme editor "choose from library"). They live in the desktop allowlist,
+// which doubles as the "browser may NOT reach" list, so web uploads 403'd.
+// Library actions, not live-show pushes; each route stays auth-gated and
+// church-scoped.
+const WEB_SHARED_API = new Set<string>([
+  "/api/media/list",
+  "/api/media/presign",
+  "/api/media/url",
+]);
+
 function isUniversalAllowedPath(pathname: string): boolean {
   if (UNIVERSAL_ALLOWED_API_EXACT.has(pathname)) return true;
   return UNIVERSAL_ALLOWED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
@@ -405,7 +416,7 @@ export async function middleware(req: NextRequest) {
   // windows (screens.ts openOutputForRole) share the main session, so they
   // still carry the x-pf-shell header via the session-level webRequest hook
   // in electron/main.ts and aren't affected by this.
-  if (!desktop && desktopPathAllowed(pathname)) {
+  if (!desktop && desktopPathAllowed(pathname) && !WEB_SHARED_API.has(pathname)) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "This action is only available in the Present Flow desktop app." }, { status: 403 });
     }

@@ -23,7 +23,8 @@
  *      slide's background / Set as global background / Move to library / Delete)
  *      + DOUBLE-CLICK quick preview modal (image full view; video with controls).
  */
-import { useEffect, useRef, useState, useCallback } from "react";
+import { readLayerOrderV3Flag, useLayerOrderV3 } from "@/lib/layer-order-v3";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
@@ -37,7 +38,7 @@ import type { CenterMode } from "../ProOperatorShell";
 import type { OperatorShellCtx } from "../../shell/types";
 import { setMediaAsBackground, normalizeMediaKind } from "@/backgrounds/mediaAsBackground";
 import { snapshotBackgroundState, restoreBackgroundState, removeCustomBackground } from "@/backgrounds/store/backgroundStore";
-import { deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
+import { deleteMediaAsset, getMediaUsage, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { isImageAsset } from "@/lib/media-drop";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
@@ -51,6 +52,8 @@ import { isRealDragLeave } from "@/lib/spring-load";
 import { MediaBinUploadQueue, type MediaBinUploadQueueHandle } from "./MediaBinUploadQueue";
 import { MediaImageEditor } from "../center/MediaImageEditor";
 import { Pencil } from "lucide-react";
+import { notifyMediaChanged, onMediaChanged, findMediaDuplicates, dupCopyCount, describeMediaUsage, withTimeout } from "@/lib/media-sync";
+import { DuplicateBadge, DuplicatesBanner, MediaDuplicatesDialog, isAssetLive, type DupAsset } from "../center/MediaDuplicates";
 
 type Asset = {
   id: string;
@@ -59,6 +62,8 @@ type Asset = {
   url?: string | null;
   thumbUrl?: string | null;
   mediaKey?: string | null;
+  sizeBytes?: number | null;
+  createdAt?: string | null;
 };
 
 /** Audio has no output path yet (no audio slide kind) — it must never be sent
@@ -96,6 +101,9 @@ export function MediaBinSection({
   height?: number;
   onResize?: (px: number) => void;
 }) {
+  // Layer Order V3 (single flag store): only drives the hover hint here; the
+  // click itself reads readLayerOrderV3Flag() at click time (same store).
+  const layerOrderV3 = useLayerOrderV3();
   const [assets, setAssets] = useState<Asset[] | null>(null);
   const [hasOpened, setHasOpened] = useState(open);
   const [libs, setLibs] = useState<LibraryRow[]>([]);
@@ -129,21 +137,44 @@ export function MediaBinSection({
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/media/list?audio=1", { cache: "no-store" });
-      if (!res.ok) { setAssets([]); return; }
+      // A failed refresh (e.g. 429 after a burst) KEEPS the current strip;
+      // only a first load with nothing to show falls back to empty.
+      if (!res.ok) { setAssets((prev) => prev ?? []); return; }
       const json = await res.json();
-      setAssets(Array.isArray(json?.assets) ? json.assets : []);
+      if (Array.isArray(json?.assets)) setAssets(json.assets);
+      else setAssets((prev) => prev ?? []);
     } catch {
-      setAssets([]);
+      setAssets((prev) => prev ?? []);
     }
   }, []);
 
   useEffect(() => {
     if (!hasOpened) return;
     void load();
-    const h = () => void load();
+    // 2026-09-23: one library — re-pull on any media change (main Media
+    // section, library page, other window) as well as library moves. Both
+    // signals share ONE debounced reload so a delete (which fires both) costs
+    // a single list fetch (the list route is rate-limited).
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const h = () => { if (t) clearTimeout(t); t = setTimeout(() => { t = null; void load(); }, 150); };
     window.addEventListener("presentflow:libraries-changed", h);
-    return () => { window.removeEventListener("presentflow:libraries-changed", h); };
+    const off = onMediaChanged(h);
+    return () => { if (t) clearTimeout(t); window.removeEventListener("presentflow:libraries-changed", h); off(); };
   }, [hasOpened, load]);
+
+  // Duplicates over the WHOLE list (not just the 60 shown tiles).
+  const { dupGroups, dupIdx } = useMemo(() => {
+    const dupAssets: DupAsset[] = (assets ?? []).map((a) => ({
+      id: a.id, fileName: a.fileName ?? "", kind: a.kind ?? "", sizeBytes: Number(a.sizeBytes ?? 0),
+      createdAt: a.createdAt ?? undefined, url: a.url ?? "", thumbUrl: a.thumbUrl ?? undefined,
+      mediaKey: a.mediaKey ?? undefined,
+    }));
+    const groups = findMediaDuplicates(dupAssets);
+    const idx = new Map<string, DupAsset[]>();
+    for (const g of groups) for (const d of g) idx.set(d.id, g);
+    return { dupGroups: groups, dupIdx: idx };
+  }, [assets]);
+  const [dupDialogGroups, setDupDialogGroups] = useState<DupAsset[][] | null>(null);
 
   // Libraries for the "Move to library" submenu — cheap, church-scoped list.
   useEffect(() => {
@@ -235,7 +266,9 @@ export function MediaBinSection({
   };
 
   const deleteAsset = async (a: Asset) => {
-    if (!(await confirm({ title: `Delete "${a.fileName || "this asset"}"?`, description: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
+    const usage = await withTimeout(getMediaUsage(a.id).then((r) => (r.ok ? r.data ?? null : null)), 1500, null);
+    const used = describeMediaUsage(usage);
+    if (!(await confirm({ title: `Delete "${a.fileName || "this asset"}"?`, description: `${used ? used + " " : ""}This removes it from Media and the Media Bin. This cannot be undone.`, confirmLabel: "Delete", danger: true }))) return;
     const result = await deleteMediaAsset(a.id);
     if (!result?.ok) { toast.error((result as { error?: string } | undefined)?.error ?? "Delete failed"); return; }
     if (ctx) clearMediaFrame(ctx.churchId, a.id);
@@ -243,6 +276,7 @@ export function MediaBinSection({
     setAssets((prev) => (prev ? prev.filter((x) => x.id !== a.id) : prev));
     toast.success(`"${a.fileName || "Asset"}" deleted`);
     window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
+    notifyMediaChanged(); // main Media section + other lists drop it too
   };
 
   // ── Upload (item 3) — reuse the MediaImportWizard, pre-queued with the pick ──
@@ -426,6 +460,14 @@ export function MediaBinSection({
         {uploadingCount > 0 ? `Uploading ${uploadingCount} file${uploadingCount === 1 ? "" : "s"}` : ""}
       </span>
       {confirmDialog}
+      <MediaDuplicatesDialog
+        open={dupDialogGroups !== null}
+        onClose={() => setDupDialogGroups(null)}
+        groups={dupDialogGroups ?? []}
+        churchId={ctx?.churchId}
+        liveIds={new Set((dupDialogGroups ?? []).flat().filter((a) => isAssetLive(ctx?.liveSlide, a)).map((a) => a.id))}
+        onResolved={(removed) => { const gone = new Set(removed); setAssets((prev) => (prev ? prev.filter((x) => !gone.has(x.id)) : prev)); }}
+      />
       {/* Resize handle — only meaningful when the bin is open. A thin grab strip
           on the TOP edge; pull up to enlarge, down to shrink. */}
       {open && onResize && (
@@ -455,6 +497,7 @@ export function MediaBinSection({
           )}
         </button>
         <span className="h-px flex-1 mx-2" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
+        {open && <DuplicatesBanner compact extra={dupCopyCount(dupGroups)} onReview={() => setDupDialogGroups(dupGroups)} />}
         {/* Upload image / video (item 3) — only when the bin is open. */}
         {open && (
           <>
@@ -600,7 +643,9 @@ export function MediaBinSection({
                             // menu items change the background behind every slide
                             // (user-directed 2026-09-17 — a click must never set a background).
                             if (!ctx) { onCenterMode?.("media"); return; }
-                            if (mediaClickAction(a.kind) === "send-live") sendAsSlide(a);
+                            // Layer Order V3: click = MEDIA LAYER (no copy into slide/theme);
+                            // "Send as slide" stays in the right-click menu.
+                            if (mediaClickAction(a.kind) === "send-live") { if (readLayerOrderV3Flag()) void setAsBackground(a); else sendAsSlide(a); }
                             else toast.error(AUDIO_NOT_PROJECTABLE);
                           }, 250);
                         }}
@@ -609,7 +654,7 @@ export function MediaBinSection({
                           if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
                           setPreview(a);
                         }}
-                        title={`${a.fileName || "Media"} — click to send live · double-click to preview · drag onto a slide · right-click for options`}
+                        title={layerOrderV3 ? `${a.fileName || "Media"} — Click: set as background · Right-click: send as slide · double-click to preview` : `${a.fileName || "Media"} — click to send live · double-click to preview · drag onto a slide · right-click for options`}
                         className="group relative aspect-video rounded-md overflow-hidden bg-black border border-[var(--color-border)] cursor-grab active:cursor-grabbing hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] transition-colors"
                       >
                         {a.url ? (
@@ -622,6 +667,34 @@ export function MediaBinSection({
                         ) : (
                           <div className="w-full h-full grid place-items-center text-[9px] text-[var(--color-muted-foreground)] px-1 text-center">{a.fileName || a.kind || "Asset"}</div>
                         )}
+                        {/* Duplicate caution (top-left). */}
+                        {dupIdx.has(a.id) && (
+                          <DuplicateBadge
+                            className="absolute left-0.5 top-0.5"
+                            copies={dupIdx.get(a.id)!.length}
+                            onClick={() => {
+                              if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                              setDupDialogGroups([dupIdx.get(a.id)!]);
+                            }}
+                          />
+                        )}
+                        {/* Hover delete (top-right) — delete straight from the bin
+                            (also on right-click). Confirmed; removes it everywhere. */}
+                        <button
+                          type="button"
+                          aria-label="Delete"
+                          title="Delete — removes it from Media and the Media Bin"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                            void deleteAsset(a);
+                          }}
+                          className="absolute right-1 top-1 z-10 grid h-5 w-5 place-items-center rounded bg-black/65 text-white/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--color-destructive)] hover:text-white"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
                         {/* Hover Bg pill — kept as a quick affordance (item 4 keeps it). */}
                         <button
                           type="button"
@@ -693,7 +766,7 @@ export function MediaBinSection({
       <MediaImportWizard
         open={wizardOpen}
         onClose={() => { setWizardOpen(false); setWizardFiles(undefined); }}
-        onImported={() => { void load(); window.dispatchEvent(new CustomEvent("presentflow:libraries-changed")); }}
+        onImported={() => { window.dispatchEvent(new CustomEvent("presentflow:libraries-changed")); notifyMediaChanged(); /* one debounced re-pull */ }}
         initialFiles={wizardFiles}
         autoStartDecks={wizardFromDrop}
       />
@@ -707,7 +780,7 @@ export function MediaBinSection({
           asset={editAsset}
           ctx={ctx}
           onClose={() => setEditAsset(null)}
-          onAssetReplaced={(a) => { setEditAsset(a); void load(); }}
+          onAssetReplaced={(a) => { setEditAsset(a); notifyMediaChanged(); }}
         />
       )}
     </section>

@@ -115,6 +115,7 @@ export const THEME_NUMBER_RANGES: Record<string, [number, number]> = {
   bgAngle: [0, 360],
   dim: [0, 1],
   logoOpacity: [0, 1],
+  layerOpacity: [0, 1],
   fontSizePx: [12, 400],
   fontSizeScripturePx: [12, 400],
   fontWeight: [100, 900],

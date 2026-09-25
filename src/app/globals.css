@@ -55,6 +55,10 @@
   --color-brand:          #e8501a;
   --color-brand-muted:    #c23e0f;
   --color-brand-hi:       #ff8a52;
+  /* PP7-style selection blue (theme picker ring, primary dialog button).
+     -strong is the button fill: white text on it is 5.3:1 (WCAG AA). */
+  --color-selection:        #0a84ff;
+  --color-selection-strong: #0060df;
   --color-success:        #4fd18b;
   --color-warning:        #f0b35a;
   --color-destructive:    #ff6d6d;
@@ -191,6 +195,8 @@ h1:not(.pf-site *) { letter-spacing: -0.028em; }
  */
 html.light {
   color-scheme: light;
+  /* 2026-09-23: darker amber so warning text (duplicate notices) passes AA on light panels. */
+  --color-warning:       #9a6300;
 
   --color-app-bg:        #faf8f5;
   --color-panel:         #ffffff;
