@@ -4,6 +4,26 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.530",
+    "date": "2026-09-25",
+    "headline": "Beta sign-up now uses plain, simple wording",
+    "highlights": [
+      "The beta sign-up on presentflow.org no longer talks about \"sealing the covenant\". The buttons now say \"Finish the sign-up\" and \"Confirm sign-up\".",
+      "The last page just says \"You're almost done. Confirm your sign-up and we will be in touch.\"",
+      "The thank-you page and the confirmation email now say wave one invites go out first come, first served."
+    ]
+  },
+  {
+    "version": "0.1.529",
+    "date": "2026-09-22",
+    "headline": "Releases no longer fail because of an outside font server",
+    "highlights": [
+      "Three releases failed in one afternoon because the build downloads typefaces from Google while it runs, and Google answered oddly. The fonts now ship inside PresentFlow, so a release cannot fail for that reason again.",
+      "No visual change is intended. Same typefaces, same weights — they now come from files we control instead of being fetched during every build.",
+      "Pages also load their text slightly sooner, because the typefaces are served from the same place as the rest of the app."
+    ]
+  },
+  {
     "version": "0.1.528",
     "date": "2026-09-22",
     "headline": "Tap a stage design to use it, or build your own by dragging",
