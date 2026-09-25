@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   clampRect,
-  sanitizeStageLayout, STAGE_MAX_WIDGETS, STAGE_MAX_TRIGGERS,
+  sanitizeStageLayout, STAGE_MAX_WIDGETS,
   STAGE_SCALE_MIN, STAGE_SCALE_MAX, STAGE_WIDGET_KINDS, STAGE_WIDGET_LABELS,
   type StageWidget,
 } from "../src/engine/stage";
@@ -47,15 +47,24 @@ test("sanitize drops unknown widget kinds but keeps the rest", () => {
   assert.equal(l.widgets[0].kind, "clock");
 });
 
-test("sanitize bounds widget count, scale and trigger count", () => {
+test("sanitize bounds widget count and scale", () => {
   const many = Array.from({ length: 100 }, () => ({ kind: "clock", rect: { x: 0, y: 0, w: 0.1, h: 0.1 } }));
   assert.equal(sanitizeStageLayout({ widgets: many }).widgets.length, STAGE_MAX_WIDGETS);
   const s = sanitizeStageLayout({ widgets: [{ kind: "clock", scale: 999, rect: {} }] }).widgets[0];
   assert.ok(s.scale <= STAGE_SCALE_MAX && s.scale >= STAGE_SCALE_MIN);
-  const t = sanitizeStageLayout({
-    widgets: [{ kind: "timer", rect: {}, colorTriggers: Array.from({ length: 50 }, () => ({ atSec: 5, color: "red" })) }],
-  }).widgets[0];
-  assert.ok((t.colorTriggers ?? []).length <= STAGE_MAX_TRIGGERS);
+});
+
+test("a widget cannot carry its own colour triggers — the TIMER owns them", () => {
+  // 2026-09-25: widget-level colorTriggers/overrunColor were sanitised,
+  // persisted, and set by four of five built-in presets, while the renderer
+  // read the TIMER's. Two sources for one answer is how the stage screen and
+  // the operator panel drift apart, so the widget copy is gone. If it ever
+  // comes back, this fails.
+  const w = sanitizeStageLayout({
+    widgets: [{ kind: "timer", rect: {}, colorTriggers: [{ atSec: 5, color: "#ff0000" }], overrunColor: "#ff0000" }],
+  }).widgets[0] as unknown as Record<string, unknown>;
+  assert.equal(w.colorTriggers, undefined);
+  assert.equal(w.overrunColor, undefined);
 });
 
 test("sanitize de-duplicates widget ids (React keys must be unique)", () => {
@@ -123,15 +132,15 @@ test("every timer widget in a built-in is explicitly unbound, not bound to a fak
 });
 
 test("duplicate produces an independent, editable copy", () => {
-  const src = BUILT_IN_STAGE_LAYOUTS.find((l) => l.widgets.some((w) => w.colorTriggers))!;
+  const src = BUILT_IN_STAGE_LAYOUTS.find((l) => l.widgets.some((w) => w.kind === "timer"))!;
   const copy = duplicateStageLayout(src, "church-1", "My layout");
   assert.equal(copy.id, "church-1");
   assert.equal(copy.name, "My layout");
   assert.equal(isBuiltInStageLayout(copy.id), false, "a copy must not be a built-in");
   copy.widgets[0].rect.x = 0.42;
-  copy.widgets.find((w) => w.colorTriggers)!.colorTriggers![0].atSec = 999;
+  copy.widgets.find((w) => w.kind === "timer")!.rect.h = 0.31;
   assert.notEqual(src.widgets[0].rect.x, 0.42, "editing a copy must not mutate the built-in");
-  assert.notEqual(src.widgets.find((w) => w.colorTriggers)!.colorTriggers![0].atSec, 999, "triggers must deep-copy");
+  assert.notEqual(src.widgets.find((w) => w.kind === "timer")!.rect.h, 0.31, "nested rects must deep-copy");
 });
 
 test("every widget kind has a label (the editor palette needs one)", () => {

@@ -22,7 +22,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { StageLayoutsApi, StageLayoutEntry } from "./useStageLayouts";
 import type { TimersApi } from "../hooks";
 import {
-  STAGE_WIDGET_KINDS, STAGE_WIDGET_LABELS, STAGE_MAX_WIDGETS, clampRect,
+  STAGE_WIDGET_KINDS, STAGE_WIDGET_LABELS, STAGE_MAX_WIDGETS, clampRect, stageTextCss,
   type StageLayout, type StageWidget, type StageWidgetKind,
 } from "@/engine/stage";
 
@@ -62,14 +62,14 @@ function sampleText(w: StageWidget): string {
 function Thumb({ layout, className = "" }: { layout: StageLayout; className?: string }) {
   return (
     <div className={`relative overflow-hidden rounded border border-[var(--color-border)] ${className}`}
-      style={{ background: layout.background, aspectRatio: "16 / 9" }}>
+      style={{ background: layout.background, aspectRatio: "16 / 9", containerType: "size" }}>
       {layout.widgets.map((w) => (
         <div key={w.id} className="absolute flex items-center justify-center overflow-hidden"
           style={{
             left: `${w.rect.x * 100}%`, top: `${w.rect.y * 100}%`,
             width: `${w.rect.w * 100}%`, height: `${w.rect.h * 100}%`,
             color: w.color ?? "#ffffff",
-            fontSize: `${Math.max(4, w.rect.h * 46)}px`,
+            fontSize: stageTextCss(w),
             justifyContent: w.align === "left" ? "flex-start" : w.align === "right" ? "flex-end" : "center",
           }}>
           <span className="font-mono truncate leading-none opacity-90">{sampleText(w)}</span>

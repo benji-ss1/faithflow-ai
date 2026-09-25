@@ -22,6 +22,7 @@ import {
   type TimerDefinition, type TimerRuntime,
 } from "@/engine/timers";
 import { senderNow, type ClockSync } from "@/lib/timer-clock";
+import { stageTextCss } from "@/engine/stage";
 
 /** A binding that no longer resolves renders as a dash rather than vanishing,
  *  so a broken layout is VISIBLE to the operator instead of silently empty. */
@@ -56,10 +57,17 @@ export function StageLayoutRenderer({
   const byId = new Map(wireTimers.map((t) => [t.id, t]));
 
   return (
-    <div className="absolute inset-0 overflow-hidden" style={{ background: layout.background }}>
+    <div className="absolute inset-0 overflow-hidden" style={{ background: layout.background, containerType: "size" }}>
       {[...layout.widgets].sort((a, b) => a.zIndex - b.zIndex).map((w) => {
         let text: string | null = null;
         let color = w.color ?? "#ffffff";
+        // The caption shown above the value when `showLabel` is on. A timer
+        // uses its own name; a clock says "Clock"; anything else is already
+        // self-describing, so it gets none.
+        const label = !w.showLabel ? null
+          : w.kind === "timer" ? (w.timerId ? byId.get(w.timerId)?.name ?? null : null)
+          : w.kind === "clock" ? "Clock"
+          : null;
 
         if (w.kind === "timer") {
           const t = w.timerId ? byId.get(w.timerId) : undefined;
@@ -117,7 +125,7 @@ export function StageLayoutRenderer({
               </div>
               <div className="w-full h-full flex items-center justify-center p-2">
                 <span className="font-semibold text-center leading-tight"
-                  style={{ color: w.color ?? "#ffffff", fontSize: `${Math.max(1, w.rect.h * 26 * w.scale)}px` }}>
+                  style={{ color: w.color ?? "#ffffff", fontSize: stageTextCss({ rect: { h: w.rect.h * 0.43 }, scale: w.scale }) }}>
                   {previewText}
                 </span>
               </div>
@@ -138,13 +146,28 @@ export function StageLayoutRenderer({
               alignItems: "center",
               justifyContent: w.align === "left" ? "flex-start" : w.align === "right" ? "flex-end" : "center",
             }}>
+            {/* The widget's NAME above the value — a bare "0:00" on a
+                confidence monitor with three timers is unreadable. `showLabel`
+                was on the model and set by a built-in preset since 2026-09-21
+                and never rendered until 2026-09-25. */}
+            {label && (
+              <span className="absolute left-0 right-0 top-0 uppercase tracking-[0.15em] font-semibold opacity-70 truncate"
+                style={{
+                  color,
+                  fontSize: stageTextCss({ rect: { h: w.rect.h * 0.23 }, scale: w.scale }),
+                  textAlign: w.align,
+                }}>
+                {label}
+              </span>
+            )}
             <span
               className={w.kind === "timer" || w.kind === "clock" ? "font-mono tabular-nums font-semibold" : "font-semibold"}
               style={{
                 color,
+                ...(w.uppercase ? { textTransform: "uppercase" as const } : {}),
                 // Sized off the box height so a layout reads the same on a
                 // 720p confidence monitor and a 4K LED wall.
-                fontSize: `${Math.max(1, w.rect.h * 60 * w.scale)}px`,
+                fontSize: stageTextCss(w),
                 lineHeight: 1.1,
                 textAlign: w.align,
                 textShadow: "0 2px 12px rgba(0,0,0,0.5)",

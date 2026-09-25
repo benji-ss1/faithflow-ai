@@ -28,6 +28,7 @@ test/allusion-matcher.test.ts
 test/allusion-precision.test.ts
 test/allusion-runtime-guards.test.ts
 test/allusion-wiring.test.ts
+test/animated-bg-mirrors.test.ts
 test/animated-theme-thumbs.test.ts
 test/api-search-bible-arm.test.ts
 test/arrangement-strip.test.ts
@@ -36,7 +37,9 @@ test/audio-application-match.test.ts
 test/audio-hardening.test.ts
 test/audio-lockin-devices.test.ts
 test/audio-setup-diagnostics.test.ts
+test/audio-verse-in-sentence.test.ts
 test/autofit-font-cache-key.test.ts
+test/autofit-quiver.test.ts
 test/background-persistence.test.ts
 test/band-media.test.ts
 test/band-size-persistence.test.ts
@@ -60,11 +63,15 @@ test/bible-stutter-combine.test.ts
 test/bible-verse-enum-phonetic.test.ts
 test/bible-verse-range.test.ts
 test/builtin-themes.test.ts
+test/canvas-coords.test.ts
+test/card-appearance-fallback.test.ts
 test/changelog-generator.test.ts
 test/changelog-try-it.test.ts
 test/church-defaults.test.ts
 test/church-styles-store.test.ts
 test/colorway.test.ts
+test/composable-round5.test.ts
+test/composable-round5b.test.ts
 test/context-parser-nav.test.ts
 test/deepgram-keyterms.test.ts
 test/desktop-auth-core.test.ts
@@ -85,6 +92,7 @@ test/engine-timers.stress.test.ts
 test/engine-timers.test.ts
 test/environment-banner.test.ts
 test/feedback-validation.test.ts
+test/font-scale-clamp.test.ts
 test/fonts-files.test.ts
 test/fonts-no-cdn.test.ts
 test/fonts-picker-value.test.ts
@@ -180,6 +188,7 @@ test/slide-identity-fonts.test.ts
 test/slide-paste.test.ts
 test/slide-renderer-empty.test.ts
 test/slide-renderer-quick-edit-blank.test.ts
+test/slide-root-bg-roundtrip.test.ts
 test/slide-selection.test.ts
 test/smart-folders.test.ts
 test/song-background-affordance.test.ts
@@ -199,6 +208,7 @@ test/stage-hostile.test.ts
 test/stage-layout-engine.test.ts
 test/stage-layout-render.test.ts
 test/stage-layout-scoping.test.ts
+test/stage-sizing-and-fields.test.ts
 test/stale-action.test.ts
 test/stress-wave6-3.test.ts
 test/style-lock-backfill.test.ts
@@ -207,10 +217,12 @@ test/suites-complete.test.ts
 test/text-fit.test.ts
 test/text-runs.test.ts
 test/text-size-freedom.test.ts
-test/font-scale-clamp.test.ts
 test/theme-appearance.test.ts
 test/theme-bake.test.ts
+test/theme-band-persist.test.ts
 test/theme-carries-band.test.ts
+test/theme-clears-template.test.ts
+test/theme-config-patch.test.ts
 test/theme-decor-designed.test.ts
 test/theme-decor-layer.test.ts
 test/theme-decor.test.ts
@@ -252,15 +264,4 @@ test/voice-commands.test.ts
 test/whats-new.test.ts
 test/windows-media.test.ts
 test/windows-responsive.test.ts
-test/theme-band-persist.test.ts
-test/canvas-coords.test.ts
-test/theme-config-patch.test.ts
 test/wire-contract-drift.test.ts
-test/card-appearance-fallback.test.ts
-test/theme-clears-template.test.ts
-test/autofit-quiver.test.ts
-test/slide-root-bg-roundtrip.test.ts
-test/composable-round5.test.ts
-test/composable-round5b.test.ts
-test/animated-bg-mirrors.test.ts
-test/audio-verse-in-sentence.test.ts

@@ -4,6 +4,21 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.1.528",
+    "date": "2026-09-22",
+    "headline": "Tap a stage design to use it, or build your own by dragging",
+    "highlights": [
+      "Fix: the text Size slider now changes what you see while designing. It only ever changed the real stage screen, so you set a size, saw nothing move, and found out on the confidence monitor.",
+      "Fix: the built-in timer layouts advertised an amber-to-red countdown that never actually happened. Timer colours come from the timer itself, set in the Timers panel, and now every screen agrees.",
+      "\"Show the name\" above a timer or clock on a stage layout now works, and so does CAPITALS. Both were switchable in the data and reached no screen.",
+      "Tap any stage layout to put it straight on your stage screen. The one that is live is marked \"On stage\". Before, you had to create a \"stage screen\" first and then find the layout in a dropdown.",
+      "New layout starts you from a blank screen. Previously the only way to make your own was to copy one of the built-in ones.",
+      "Designing is now drag-and-drop: move a box with your finger or mouse, drag the orange corner to resize, or nudge with the arrow keys. It is the screen itself, not a list of numbers.",
+      "Timers and stage layouts now talk to each other. A timer tells you which stage layouts it appears in, and says when one of them is live. Tap it to jump straight there.",
+      "If a layout has a timer box but you have not made any timers yet, it now tells you, instead of quietly showing a dash on the stage screen."
+    ]
+  },
+  {
     "version": "0.1.527",
     "date": "2026-09-24",
     "headline": "\"Psalm a 100 verse 5\" now works, and verses said inside a longer sentence project again",
@@ -86,12 +101,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Deleting a duplicate never removes anything from your playlists, songs, slides or themes — they switch over to the copy you keep. Anything on the projector right now, or set as your background, is always kept.",
       "Files that are already in your media are skipped when you import them again, so you don't get duplicates. Tick Import anyway if you really want a second copy.",
       "You can now delete straight from the Media Bin with the bin icon on each item, and the delete confirmation tells you where the file is still used.",
-      "Uploading media from the web app (Library, Media) works again.",
-      "Tap any stage layout to put it straight on your stage screen. The one that is live is marked \"On stage\". Before, you had to create a \"stage screen\" first and then find the layout in a dropdown.",
-      "New layout starts you from a blank screen. Previously the only way to make your own was to copy one of the built-in ones.",
-      "Designing is now drag-and-drop: move a box with your finger or mouse, drag the orange corner to resize, or nudge with the arrow keys. It is the screen itself, not a list of numbers.",
-      "Timers and stage layouts now talk to each other. A timer tells you which stage layouts it appears in, and says when one of them is live. Tap it to jump straight there.",
-      "If a layout has a timer box but you have not made any timers yet, it now tells you, instead of quietly showing a dash on the stage screen."
+      "Uploading media from the web app (Library, Media) works again."
     ]
   },
   {

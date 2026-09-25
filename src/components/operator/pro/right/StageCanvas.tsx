@@ -25,7 +25,7 @@
  * small panel renders identically on a 720p monitor and a 4K LED wall.
  */
 import { useRef, useState } from "react";
-import { clampRect, STAGE_WIDGET_LABELS, type StageLayout, type StageWidget } from "@/engine/stage";
+import { clampRect, stageTextCss, STAGE_WIDGET_LABELS, type StageLayout, type StageWidget } from "@/engine/stage";
 
 /** Below this the grab handle is bigger than the box it belongs to. */
 const MIN_SIZE = 0.06;
@@ -98,7 +98,7 @@ export function StageCanvas({
       onPointerUp={end}
       onPointerCancel={end}
       className="relative w-full overflow-hidden rounded border border-[var(--color-border)] select-none"
-      style={{ background: layout.background, aspectRatio: "16 / 9", touchAction: "none" }}
+      style={{ background: layout.background, aspectRatio: "16 / 9", touchAction: "none", containerType: "size" }}
     >
       {layout.widgets.map((w) => {
         const sel = w.id === selectedId;
@@ -125,7 +125,10 @@ export function StageCanvas({
               left: `${w.rect.x * 100}%`, top: `${w.rect.y * 100}%`,
               width: `${w.rect.w * 100}%`, height: `${w.rect.h * 100}%`,
               color: w.color ?? "#ffffff",
-              fontSize: `${Math.max(5, w.rect.h * 58)}px`,
+              // SHARED with the renderer and the thumbnails — this used to
+              // be its own formula that ignored `scale`, so the Size slider
+              // changed nothing an operator could see while designing.
+              fontSize: stageTextCss(w),
               justifyContent: w.align === "left" ? "flex-start" : w.align === "right" ? "flex-end" : "center",
             }}
           >
