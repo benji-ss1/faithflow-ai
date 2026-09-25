@@ -183,6 +183,7 @@ test/scripture-chunk.test.ts
 test/scripture-design-sanitize.test.ts
 test/scripture-live-parity.test.ts
 test/scripture-lowerthird.test.ts
+test/scripture-ref-match-verse.test.ts
 test/scripture-size-width.test.ts
 test/service-mode.test.ts
 test/settings-tidy.test.ts
@@ -207,6 +208,7 @@ test/song-text.test.ts
 test/song-theme-parity.test.ts
 test/songs-toolbar.test.ts
 test/spring-load.test.ts
+test/stage-editor-safety.test.ts
 test/stage-editor.test.ts
 test/stage-hostile.test.ts
 test/stage-layout-engine.test.ts

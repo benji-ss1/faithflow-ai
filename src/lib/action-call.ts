@@ -49,7 +49,15 @@ export async function callAction<T>(
   onError?: (message: string) => void,
 ): Promise<ActionResult<T>> {
   try {
-    return await fn();
+    const res = await fn();
+    // A RETURNED {ok:false} used to pass through untoasted, because only the
+    // catch below called onError. Every caller then branched on `res.ok` and
+    // showed nothing — so an action that politely refused ("Give the layout a
+    // name", "That layout is too large") failed in total silence, and in the
+    // stage editor that meant the modal closed and the operator's whole design
+    // was gone with no message. A refusal is not a success; say so.
+    if (!res.ok && res.error) onError?.(res.error);
+    return res;
   } catch (err) {
     const digest = actionDigest(err);
     // The digest is the ONLY part of a production server error that can be

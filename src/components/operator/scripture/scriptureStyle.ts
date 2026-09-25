@@ -40,7 +40,14 @@ export function bandWireFromDesign(d: ScriptureDesign): ScriptureBandWire | unde
   const wire: ScriptureBandWire = { topPct: bandTopPct(b), heightPct: b.heightPct, fontScale: b.fontScale };
   // Only when changed from the default, so an untouched church's wire (and output
   // identity) is byte-identical to before these controls existed.
-  if (b.refScale !== BAND_DEFAULT.refScale) wire.refScale = b.refScale;
+  // "Same size as the verse" on the band. The renderer sizes the verse with
+  // factor 0.22 and the reference with 0.11, so they are equal when
+  // refScale = 2 x fontScale. Clamped to the band's own refScale range, so a
+  // large verse scale saturates rather than emitting an invalid wire value.
+  const refScale = d.reference.matchVerseSize === true
+    ? clampNum(b.fontScale * 2, 0.5, 3)
+    : b.refScale;
+  if (refScale !== BAND_DEFAULT.refScale) wire.refScale = refScale;
   if (b.widthPct !== BAND_DEFAULT.widthPct) wire.widthPct = b.widthPct;
   if (b.mode !== "none") {
     wire.color = b.color;
@@ -90,7 +97,13 @@ function textObjectFrom(s: TextStyle, text: string): TextObject {
 function scriptureObjects(verseText: string, reference: string, translation: string | undefined, d: ScriptureDesign): SlideObject[] {
   const objects: SlideObject[] = [textObjectFrom(d.verse, verseText)];
   if (d.reference.show && reference) {
-    objects.push(textObjectFrom(d.reference, referenceLabel(reference, translation, d.reference.showTranslation)));
+    // "Same size as the verse" (ProPresenter's "Reference: With Verse").
+    // OPT-IN, default off: when off this is the untouched reference style, so
+    // an existing church's slide is byte-identical to before the option existed.
+    const refStyle = d.reference.matchVerseSize === true
+      ? { ...d.reference, fontSize: d.verse.fontSize }
+      : d.reference;
+    objects.push(textObjectFrom(refStyle, referenceLabel(reference, translation, d.reference.showTranslation)));
   }
   return objects;
 }

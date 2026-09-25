@@ -53,6 +53,11 @@ export function ScriptureSlideEditor({
     return v ? [v.id] : [];
   });
   const [showTranslation, setShowTranslation] = useState(baseDesign.reference.showTranslation);
+  // ProPresenter "Reference: With Verse". OPT-IN and default OFF — on a full
+  // projector screen most churches do not want the reference as big as the
+  // verse; it is mainly wanted on the third band, and it is a preference either
+  // way (user directive 2026-09-25: "it shouldn't be the default thing").
+  const [matchVerseSize, setMatchVerseSize] = useState<boolean>(baseDesign.reference.matchVerseSize === true);
   // Lower-third: layout + band are preset state (not draggable objects).
   const [layout, setLayout] = useState<ScriptureLayout>(baseDesign.layout ?? "fullscreen");
   const [band, setBand] = useState<BandStyle>(baseDesign.band ?? BAND_DEFAULT);
@@ -127,6 +132,7 @@ export function ScriptureSlideEditor({
     const d = designFromSlide(slide, baseDesign);
     d.reference.showTranslation = showTranslation;
     d.reference.show = refObj ? !refObj.hidden : false;
+    d.reference.matchVerseSize = matchVerseSize;
     d.layout = layout;
     d.band = band;
     return d;
@@ -138,9 +144,9 @@ export function ScriptureSlideEditor({
   const lowerThirdDesign = useMemo<ScriptureDesign>(() => ({
     layout: "lowerThird",
     verse: baseDesign.verse,
-    reference: { ...baseDesign.reference, showTranslation, show: showRef },
+    reference: { ...baseDesign.reference, showTranslation, show: showRef, matchVerseSize },
     band,
-  }), [baseDesign, showTranslation, band, showRef]);
+  }), [baseDesign, showTranslation, band, showRef, matchVerseSize]);
   // WYSIWYG lower-third preview payload — the SAME payload/renderer the projector
   // uses, so the preview is one-to-one with the live output.
   const lowerThirdPreview = useMemo<SlidePayload>(
@@ -249,6 +255,24 @@ export function ScriptureSlideEditor({
 
           {/* Controls */}
           <div className="w-[320px] shrink-0 border-l overflow-y-auto" style={{ borderColor: "var(--color-border)", background: "var(--color-panel)" }}>
+            <Section label="Reference size">
+              <button
+                onClick={() => setMatchVerseSize((v) => !v)}
+                className={cn(btn, "w-full font-semibold")}
+                style={toggle(matchVerseSize)}
+              >
+                {matchVerseSize ? "Same size as the verse" : "Smaller than the verse"}
+              </button>
+              <div className="flex items-start gap-1.5 text-[10px] text-zinc-500 mt-2">
+                <BookOpen className="w-3 h-3 mt-0.5 shrink-0" />
+                <span>
+                  {matchVerseSize
+                    ? "The reference is drawn at the verse's own size, the way ProPresenter does it with “Reference: With Verse”. Saved with this Scripture Style."
+                    : "Off by default. The reference sits smaller than the verse — usually what you want full screen. Turn it on if you want them matched, which most churches prefer on the third band."}
+                </span>
+              </div>
+            </Section>
+
             <Section label="Layout">
               <div className={SEG_WRAP}>
                 <button onClick={() => setLayout("fullscreen")} className={cn(segBase, "flex-1 gap-1.5")} style={seg(!isLowerThird)}><Maximize2 className="w-3.5 h-3.5" /> Full screen</button>

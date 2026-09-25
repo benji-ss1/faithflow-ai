@@ -1,0 +1,201 @@
+/**
+ * The findings from the 2026-09-25 six-agent attack pass on the stage editor.
+ * Run: npx tsx --test test/stage-editor-safety.test.ts
+ *
+ * Every test here is a bug that was actually found by trying to destroy the
+ * feature, not a hypothetical. The comments say what went wrong, because a
+ * guard whose reason is forgotten is a guard that gets deleted.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { callAction } from "../src/lib/action-call";
+
+const panel = readFileSync("src/components/operator/pro/right/StageLayoutPanel.tsx", "utf8");
+const modal = readFileSync("src/components/operator/pro/right/StageLayoutEditorModal.tsx", "utf8");
+const inspector = readFileSync("src/components/operator/pro/right/StageInspector.tsx", "utf8");
+const canvas = readFileSync("src/components/operator/pro/right/StageCanvas.tsx", "utf8");
+const hook = readFileSync("src/components/operator/pro/right/useStageLayouts.ts", "utf8");
+
+test("a refused action is reported, not swallowed", async () => {
+  // callAction only fired onError from its CATCH, so an action that politely
+  // returned {ok:false} ("Give the layout a name") failed in total silence —
+  // and the stage editor then closed and threw away the whole design.
+  let shown = "";
+  const res = await callAction("save it", async () => ({ ok: false as const, error: "Give the layout a name" }), (m) => { shown = m; });
+  assert.equal(res.ok, false);
+  assert.equal(shown, "Give the layout a name", "a returned refusal must reach the operator");
+});
+
+test("the editor only closes when the save actually succeeded", () => {
+  // `await api.save(...); setEditing(null)` closed regardless, so a rejected
+  // name or an offline laptop destroyed five minutes of work with no way back.
+  assert.match(hook, /save: \(id: string, layout: StageLayout\) => Promise<boolean>/,
+    "save must report whether it saved");
+  assert.match(panel, /if \(!\(await api\.save\(l\.id, l\)\)\) return;/,
+    "the panel must not close the editor on a failed save");
+});
+
+test("tapping the pencil cannot blank a live stage screen", () => {
+  // A screen on "Default" is a WORKING display. Creating a blank layout and
+  // assigning it before the editor opened turned the monitor black the instant
+  // the operator tapped the pencil to look — and discarding did not undo it,
+  // because the assignment was already written.
+  assert.match(panel, /assignTo/, "assignment must be deferred to a successful save");
+  assert.match(panel, /if \(editing\.assignTo\) await api\.assign/,
+    "the screen must be pointed at the layout only AFTER it saves");
+  const open = panel.slice(panel.indexOf("const openEditor"), panel.indexOf("// ── the editor is a modal"));
+  const blankBranch = open.slice(0, open.indexOf("if (source?.builtIn)"));
+  assert.doesNotMatch(blankBranch, /await api\.assign\(/,
+    "the blank branch must not assign before the operator has designed anything");
+});
+
+test("assignment failure never leaves the operator editing an unattached layout", () => {
+  assert.match(hook, /assign: \(screenId: string, layoutId: string \| null\) => Promise<boolean>/);
+});
+
+test("the screen row is not a button inside a button", () => {
+  // Invalid HTML: the server parser closes the outer <button> at the inner
+  // one, so the SSR and client trees differ, and Safari collapses nested
+  // interactive elements in its accessibility tree. The old code's
+  // `e.stopPropagation()` on the pencil is the tell — it only exists because
+  // the click was bubbling to an enclosing button.
+  assert.match(panel, /<div className="flex items-center gap-2 text-left">/,
+    "the screen row wrapper must be a div");
+  assert.doesNotMatch(panel, /e\.stopPropagation\(\); void openEditor/,
+    "the pencil should not need to stop propagation — that means it is nested");
+  assert.match(panel, /aria-label=\{`Edit the layout on \$\{sc\.name\}`\}/,
+    "the pencil must still be its own labelled button");
+});
+
+test("Escape inside a field does not pop the discard dialog", () => {
+  // Radix listens at the document, so Escape to clear a half-typed number
+  // bubbled up and asked to discard everything.
+  assert.match(inspector, /if \(e\.key === "Escape"\) e\.stopPropagation\(\)/,
+    "number fields must not let Escape reach the dialog");
+  assert.ok((modal.match(/Escape"\) e\.stopPropagation/g) ?? []).length >= 1,
+    "selects must not let Escape reach the dialog either");
+});
+
+test("a half-typed coordinate does not collapse the widget", () => {
+  // Number("") is 0 and finite, so backspacing to retype snapped the box to a
+  // 1% sliver and rewrote the field under the cursor.
+  assert.match(inspector, /if \(raw\.trim\(\) === ""\) return;/);
+});
+
+test("a widget can be resized without a mouse", () => {
+  // The handle was a bare <span>: no role, no tab stop, and an aria-label a
+  // screen reader would not surface. Keyboard users could move but never size.
+  const handle = canvas.slice(canvas.indexOf("begin(e, w, \"resize\")"));
+  assert.match(handle.slice(0, 900), /onKeyDown/, "the resize handle needs a keyboard path");
+  assert.match(canvas, /<button\s+type="button"\s+onPointerDown={\(e\) => begin\(e, w, "resize"\)}/,
+    "the handle must be a real button, not a span");
+});
+
+test("colour swatches announce what they are and whether they are chosen", () => {
+  assert.match(inspector, /aria-pressed=\{w\.color === c\.hex\}/);
+  assert.match(inspector, /aria-label=\{`Colour: \$\{c\.name\}`\}/,
+    "a hex code is not a usable accessible name");
+});
+
+test("widget ids cannot collide", () => {
+  // Date.now() alone collided on two duplicates in the same millisecond, and a
+  // collision meant the inspector edited BOTH boxes and delete removed both.
+  assert.match(modal, /function nextWidgetId/);
+  assert.match(modal, /widgetSeq/);
+  assert.doesNotMatch(modal, /id: `w\$\{Date\.now\(\)\.toString\(36\)\}`/);
+});
+
+test("hitting the widget limit says so", () => {
+  assert.match(modal, /That is the limit of \$\{STAGE_MAX_WIDGETS\}/);
+});
+
+test("a deleted timer reads differently from one never chosen", () => {
+  assert.match(modal, /that timer was deleted/);
+});
+
+test("the editor says when it is editing something that is on stage", () => {
+  assert.match(modal, /screenIsLive/);
+  assert.match(modal, /on stage now/);
+});
+
+test("renaming a screen does not write on every keystroke", () => {
+  // 15 characters was 15 server actions and 30 fetches, each re-posting
+  // OutputState to the projector and the stage screen.
+  assert.match(panel, /function ScreenNameInput/);
+  assert.match(panel, /onBlur=\{commit\}/);
+  assert.doesNotMatch(panel, /onChange=\{\(e\) => api\.renameScreen/);
+});
+
+test("a paired stage screen gets the layout too", () => {
+  // The cross-device (pair-code) subscriber folded thirteen fields and
+  // silently dropped the stage LAYOUT, the timer wire and the scene — so a
+  // church running its confidence monitor on an iPad or a second machine got
+  // the legacy hardcoded screen no matter what the operator had designed, with
+  // nothing anywhere to explain why. The feature simply did not exist for them.
+  const page = readFileSync("src/app/stage/page.tsx", "utf8");
+  const sub = page.slice(page.indexOf("realtime.subscribe((state)"), page.indexOf("if (firstMsg)"));
+  for (const f of ["setStageLayout(state.stageLayout", "setStageLayoutList(state.stageLayouts", "foldTimersWire(state.timersWire", "setScene(state.scene"]) {
+    assert.ok(sub.includes(f), `the pair-code path drops ${f.split("(")[0]} — a paired screen would not show it`);
+  }
+});
+
+// ── the four pre-existing 🔴 the pessimist found, all fixed ────────────────
+
+test("a Scene can still hide a layer once a layout is assigned", () => {
+  // /stage early-returns into the layout renderer ABOVE every sceneHidesLayer
+  // call on the route, so a Scene that hid the Timer layer went silently inert
+  // the moment a layout was assigned — the operator turned timers off for that
+  // screen and they came back, with nothing to explain it.
+  const r = readFileSync("src/components/live/StageLayoutRenderer.tsx", "utf8");
+  assert.match(r, /sceneHidesLayer\(scene, screen, "timer"\)/);
+  assert.match(r, /sceneHidesLayer\(scene, screen, "announcement"\)/);
+  const stage = readFileSync("src/app/stage/page.tsx", "utf8");
+  assert.match(stage, /scene=\{scene\}/, "/stage must pass the scene to the layout renderer");
+});
+
+test("the renderer cannot be used without saying which screen it is on", () => {
+  // Both the scene mask and per-timer routing are per-screen. A surface that
+  // forgot to declare itself would silently ignore both, so the prop is
+  // REQUIRED and the compiler enforces it.
+  const r = readFileSync("src/components/live/StageLayoutRenderer.tsx", "utf8");
+  assert.match(r, /\n  screen: SceneScreen;/, "screen must be a required prop, not optional");
+});
+
+test("per-timer screen routing applies to a timer inside a layout", () => {
+  // timerShowsOn was only applied in TimerOverlayLayer, so a timer the
+  // operator explicitly unticked for a screen still arrived there through a
+  // layout widget — the setting meant nothing on that path.
+  assert.match(readFileSync("src/components/live/StageLayoutRenderer.tsx", "utf8"),
+    /timerShowsOn\(t\.screens, screen as TimerScreenId\)/);
+});
+
+test("clear-all releases the stage layouts", () => {
+  // Escape, Blank and the hold-to-clear-all rail cleared slide, media, video
+  // and announcement and did NOTHING to a stage layout — so the one thing
+  // covering the entire confidence monitor was the one thing an operator could
+  // not clear under pressure.
+  const c = readFileSync("src/components/operator/OperatorConsole.tsx", "utf8");
+  const kill = c.slice(c.indexOf("const killOutput"), c.indexOf("const voiceClear"));
+  assert.match(kill, /setStageLayoutsCleared\(true\)/, "killOutput must release the layouts");
+  assert.match(c, /!stageLayoutsCleared \? \{ stageLayout \}/, "and the published state must honour it");
+  // And it must un-clear on the next assignment, or the operator is latched out.
+  const listener = c.slice(c.indexOf("setStageLayoutList(d?.list"), c.indexOf("setStageLayoutList(d?.list") + 300);
+  assert.match(listener, /setStageLayoutsCleared\(false\)/,
+    "assigning a layout again must un-clear, or there is no way back");
+});
+
+test("MultiView shows a stage layout as it really is", () => {
+  // MultiView mirrored only the LEGACY stage screen, so the operator's single
+  // "what is on my screens" dashboard was blind to the thing covering the
+  // entire monitor. Worse than showing nothing: it confidently showed a
+  // current/next split that was not on the screen at all.
+  const mv = readFileSync("src/components/operator/pro/right/MultiView.tsx", "utf8");
+  const resolver = readFileSync("src/lib/multiview.ts", "utf8");
+  assert.match(resolver, /stageLayout\?: StageLayoutWire \| null;/, "the resolver must carry the layout");
+  assert.match(resolver, /s\?\.stageLayouts\?\.\[0\]\?\.layout \?\? s\?\.stageLayout/,
+    "and resolve it the same way /stage does");
+  assert.match(mv, /<StageLayoutRenderer layout=\{view\.stageLayout\}/, "the tile must render it");
+  assert.doesNotMatch(mv, /stage countdowns aren&apos;t shown here/,
+    "the footnote must no longer claim layouts are invisible here");
+});
