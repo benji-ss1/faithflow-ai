@@ -54,6 +54,10 @@ export async function GET(req: Request) {
       // Church-scoped keys; the /api/media/url re-mint endpoint re-checks the
       // caller's churchId against the key's first segment (IDOR guard).
       mediaKey: m.s3Key,
+      // Watched folders: where this file came from, relative to the watched
+      // folder. The reconcile identity — the sync diffs on this, not on the
+      // display name (which the operator may rename in-app).
+      sourceRelPath: m.sourceRelPath ?? null,
     };
   }));
   return NextResponse.json({ assets: withUrls });

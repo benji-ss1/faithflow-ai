@@ -178,6 +178,11 @@ export const libraries = pgTable("libraries", {
   // SmartRules json ({match, rules[]}) — see src/lib/smart-folders.ts.
   // Always `{}` for a manual library.
   rules: jsonb("rules").notNull().default({}),
+  // Watched folders (2026-09-25): when kind='watched', the folder on the
+  // operator's computer that this library mirrors. NULL for every other kind.
+  // Its own column rather than smuggled into `rules`, which is typed and
+  // validated as SmartRules.
+  watchPath: text("watch_path"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_libraries_church").on(t.churchId, t.order),
@@ -316,9 +321,15 @@ export const mediaAssets = pgTable("media_assets", {
   durationMs: integer("duration_ms"),
   // ProPresenter parity (Phase 3.6): optional library membership (see songs).
   libraryId: uuid("library_id").references(() => libraries.id, { onDelete: "set null" }),
+  // Watched folders (2026-09-25): path relative to the watched folder this
+  // file was synced from ("backgrounds/sunrise.jpg"). The reconcile IDENTITY —
+  // it survives an in-app rename and distinguishes two files that share a
+  // basename in different sub-folders. NULL for anything not synced.
+  sourceRelPath: text("source_rel_path"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_media_assets_library").on(t.libraryId),
+  index("idx_media_assets_library_source").on(t.libraryId, t.sourceRelPath),
   // 2026-08-31 media-library speed: listMedia does
   // where(church_id).orderBy(created_at) on every panel open — this composite
   // index turns the seq-scan + sort into an index range scan (matches the

@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { validateRules, compileRules, type SmartRules, type SmartTarget } from "./smart-folders";
 import type { SQL } from "drizzle-orm";
-import { eq, and, asc, sql, inArray } from "drizzle-orm";
+import { eq, and, asc, sql, inArray, isNull } from "drizzle-orm";
 import { adHocCleanupTargets, recentChurchDayKeys } from "./operator-plan-select";
 import { getDb } from "./db/client";
 import { bakeThemeIntoObjectsJson, lockStyledTextObjects } from "./theme-bake";
@@ -765,10 +765,15 @@ export async function renameServiceItem(itemId: string, newTitle: string): Promi
 export type LibraryRow = {
   id: string; name: string; order: number; color: string | null;
   songCount: number; mediaCount: number;
-  /** 'manual' = drag-and-drop membership; 'smart' = rule-derived. */
-  kind: "manual" | "smart";
-  /** Rule set for a smart folder; always empty for a manual library. */
+  /**
+   * 'manual' = drag-and-drop membership; 'smart' = rule-derived;
+   * 'watched'  = mirrors a folder on the operator's computer.
+   */
+  kind: "manual" | "smart" | "watched";
+  /** Rule set for a smart folder; always empty for the other kinds. */
   rules: SmartRules;
+  /** The mirrored folder, for kind 'watched'; null otherwise. */
+  watchPath: string | null;
 };
 
 export async function listLibraries(): Promise<Result<{ libraries: LibraryRow[]; defaultSongCount: number; defaultMediaCount: number }>> {
@@ -790,19 +795,23 @@ export async function listLibraries(): Promise<Result<{ libraries: LibraryRow[];
         // on every rail render. Now every smart folder is counted in ONE query.
         const smartRows = rows.filter((r) => r.kind === "smart");
         const smartCounts = await countSmartBatch(db, user.churchId, smartRows);
-        return rows.map((r) => {
-          const kind = r.kind === "smart" ? ("smart" as const) : ("manual" as const);
-          if (kind === "manual") {
+        return rows.map((r): LibraryRow => {
+          const kind: LibraryRow["kind"] =
+            r.kind === "smart" ? "smart" : r.kind === "watched" ? "watched" : "manual";
+          if (kind === "smart") {
+            // Smart folders are SONGS-only, so mediaCount is always 0 — counting
+            // media by a shared field like created_at would put media the
+            // operator never asked for behind a rule they can't see.
             return { id: r.id, name: r.name, order: r.order, color: r.color ?? null,
-              songCount: sc.get(r.id) ?? 0, mediaCount: mc.get(r.id) ?? 0,
-              kind, rules: { match: "all" as const, rules: [] } };
+              songCount: smartCounts.get(r.id) ?? 0, mediaCount: 0,
+              kind, rules: validateRules(r.rules, "songs"), watchPath: null };
           }
-          // Smart folders are SONGS-only, so mediaCount is always 0 — counting
-          // media by a shared field like created_at would put media the
-          // operator never asked for behind a rule they can't see.
+          // Manual AND watched both hold real rows carrying library_id, so the
+          // ordinary GROUP BY counts are correct for each.
           return { id: r.id, name: r.name, order: r.order, color: r.color ?? null,
-            songCount: smartCounts.get(r.id) ?? 0, mediaCount: 0,
-            kind, rules: validateRules(r.rules, "songs") };
+            songCount: sc.get(r.id) ?? 0, mediaCount: mc.get(r.id) ?? 0,
+            kind, rules: { match: "all" as const, rules: [] },
+            watchPath: kind === "watched" ? (r.watchPath ?? null) : null };
         });
       })(),
       defaultSongCount: sc.get(null) ?? 0,
@@ -957,7 +966,127 @@ async function libraryMoveError(db: ReturnType<typeof getDb>, churchId: string, 
   const [row] = await db.select({ id: libraries.id, kind: libraries.kind }).from(libraries).where(and(eq(libraries.id, libraryId), eq(libraries.churchId, churchId))).limit(1);
   if (!row) return "Library not found in your church";
   if (row.kind === "smart") return "Smart folders fill automatically — edit its rules instead";
+  // A WATCHED folder mirrors a folder on disk. Filing something into it by
+  // hand would be undone by the very next reconcile (the file is not on disk,
+  // so it would be un-filed again) — so refuse it here rather than let the
+  // operator watch their item silently jump back out.
+  if (row.kind === "watched") return "This folder mirrors a folder on your computer — add the file there instead";
   return null;
+}
+
+/**
+ * Create a library that mirrors a folder on the operator's computer
+ * (ProPresenter's "Smart Playlist"). The path is validated only for shape
+ * here — whether it exists is a question for the machine doing the sync, and
+ * the same church may open this on a machine where it does not.
+ */
+export async function createWatchedLibrary(name: string, watchPath: string): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const trimmedName = name.trim().slice(0, 100);
+  if (!trimmedName) return { ok: false, error: "Folder name required" };
+  const trimmedPath = watchPath.trim();
+  if (!trimmedPath) return { ok: false, error: "Pick a folder to watch" };
+  if (trimmedPath.length > 1024) return { ok: false, error: "That path is too long" };
+
+  const db = getDb();
+  const existing = await db.select({ order: libraries.order }).from(libraries).where(eq(libraries.churchId, user.churchId));
+  const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.order)) + 1 : 0;
+  const [row] = await db.insert(libraries)
+    .values({ churchId: user.churchId, name: trimmedName, order: nextOrder, kind: "watched", watchPath: trimmedPath })
+    .returning({ id: libraries.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+/**
+ * Re-file assets that have reappeared in a watched folder.
+ *
+ * The other half of un-filing. An un-filed asset keeps its `sourceRelPath`, so
+ * when the drive is plugged back in we can recognise the same file and return
+ * it to the folder instead of uploading a duplicate.
+ *
+ * Scoped to assets that are currently UNFILED (library_id IS NULL) in this
+ * church. Known limit: two watched folders containing the same relative path
+ * could claim each other's orphan. Rare, and the outcome is a file appearing
+ * in a folder that does contain it — not data loss.
+ */
+export async function refileReturnedWatchedAssets(libraryId: string, relPaths: string[]): Promise<Result<{ refiled: number }>> {
+  const user = await requireCap("edit_library");
+  if (relPaths.length === 0) return { ok: true, data: { refiled: 0 } };
+  if (relPaths.length > 2000) return { ok: false, error: "Too many files in one pass" };
+  const db = getDb();
+  const [lib] = await db.select({ kind: libraries.kind }).from(libraries)
+    .where(and(eq(libraries.id, libraryId), eq(libraries.churchId, user.churchId))).limit(1);
+  if (!lib) return { ok: false, error: "Folder not found in your church" };
+  if (lib.kind !== "watched") return { ok: false, error: "That library is not a watched folder" };
+
+  const res = await db.update(mediaAssets)
+    .set({ libraryId })
+    .where(and(
+      eq(mediaAssets.churchId, user.churchId),
+      isNull(mediaAssets.libraryId),
+      inArray(mediaAssets.sourceRelPath, relPaths),
+    ));
+  return { ok: true, data: { refiled: (res as { rowCount?: number }).rowCount ?? 0 } };
+}
+
+/**
+ * Re-point a watched library at a folder.
+ *
+ * The Electron path grant is session-scoped, so after a restart the folder
+ * cannot be read until the operator picks it again. Without this the sync's
+ * own error message ("re-pick it from the Library list") would be advice the
+ * UI could not act on.
+ */
+export async function setWatchedLibraryPath(libraryId: string, watchPath: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const trimmed = watchPath.trim();
+  if (!trimmed) return { ok: false, error: "Pick a folder to watch" };
+  if (trimmed.length > 1024) return { ok: false, error: "That path is too long" };
+  const db = getDb();
+  const [row] = await db.select({ kind: libraries.kind }).from(libraries)
+    .where(and(eq(libraries.id, libraryId), eq(libraries.churchId, user.churchId))).limit(1);
+  if (!row) return { ok: false, error: "Folder not found in your church" };
+  if (row.kind !== "watched") return { ok: false, error: "That library is not a watched folder" };
+  await db.update(libraries).set({ watchPath: trimmed })
+    .where(and(eq(libraries.id, libraryId), eq(libraries.churchId, user.churchId)));
+  return { ok: true };
+}
+
+/**
+ * Un-file assets whose source file has left the watched folder.
+ *
+ * Sets library_id = NULL so they drop out of the folder and fall back to the
+ * Default bucket. It is DELIBERATELY not a delete: `deleteMediaAsset` also
+ * removes service-plan items, nulls song backgrounds, and leaves dead key
+ * references in themes and slide objects that nothing repairs. A USB drive
+ * unmounted mid-service must never destroy a service plan.
+ */
+export async function unfileMissingWatchedAssets(libraryId: string, assetIds: string[]): Promise<Result<{ unfiled: number }>> {
+  const user = await requireCap("edit_library");
+  if (assetIds.length === 0) return { ok: true, data: { unfiled: 0 } };
+  if (assetIds.length > 2000) return { ok: false, error: "Too many files in one pass" };
+
+  const db = getDb();
+  const [lib] = await db.select({ kind: libraries.kind }).from(libraries)
+    .where(and(eq(libraries.id, libraryId), eq(libraries.churchId, user.churchId))).limit(1);
+  if (!lib) return { ok: false, error: "Folder not found in your church" };
+  if (lib.kind !== "watched") return { ok: false, error: "That library is not a watched folder" };
+
+  // Church-scoped AND library-scoped: a caller cannot un-file another
+  // church's media, nor media that is not actually in this folder.
+  // sourceRelPath is deliberately KEPT. Clearing it erased the reconcile
+  // identity, so replugging a drive re-uploaded every byte as brand-new assets
+  // while the originals sat stranded in Default — and any service item still
+  // pointed at the old asset. Keeping it lets refileReturnedWatchedAssets
+  // recognise the file when it comes back, which is what "self-healing" means.
+  const res = await db.update(mediaAssets)
+    .set({ libraryId: null })
+    .where(and(
+      eq(mediaAssets.churchId, user.churchId),
+      eq(mediaAssets.libraryId, libraryId),
+      inArray(mediaAssets.id, assetIds),
+    ));
+  return { ok: true, data: { unfiled: (res as { rowCount?: number }).rowCount ?? 0 } };
 }
 
 export async function setSongLibrary(songId: string, libraryId: string | null): Promise<Result> {
@@ -1798,7 +1927,7 @@ export async function deleteSong(id: string): Promise<Result> {
 }
 
 // Media ----------------------------------------------------------------------
-export async function registerMediaAsset(data: { kind: "image" | "video" | "audio"; fileName: string; s3Key: string; mimeType: string; sizeBytes: number; libraryId?: string | null }): Promise<Result<{ id: string }>> {
+export async function registerMediaAsset(data: { kind: "image" | "video" | "audio"; fileName: string; s3Key: string; mimeType: string; sizeBytes: number; libraryId?: string | null; /** Watched folders: path relative to the watched folder, the reconcile identity. */ sourceRelPath?: string | null }): Promise<Result<{ id: string }>> {
   const user = await requireCap("edit_library");
   // SECURITY (media-upload hardening): never trust the client's s3Key / mimeType
   // / kind. The key must be one THIS church was issued (`${churchId}/media/<uuid>.<ext>`),
@@ -1833,13 +1962,35 @@ export async function registerMediaAsset(data: { kind: "image" | "video" | "audi
   const { kind, fileName, s3Key } = check;
   const mimeType = verified.mimeType; // SNIFFED type when known (e.g. a PNG saved as .jpg)
   const sizeBytes = verified.sizeBytes; // the REAL stored size, not the client's claim
-  const resolvedLibraryId = libraryId && (await libraryMoveError(db, user.churchId, libraryId)) === null ? libraryId : null;
+
+  // A WATCHED folder refuses hand-filing (libraryMoveError), but the folder
+  // SYNC must be able to write into it — that is the whole feature. The sync
+  // is distinguished by carrying a sourceRelPath, and we still verify the
+  // library really is a watched one OWNED BY THIS CHURCH before honouring it.
+  // Without this carve-out the guard would silently send every synced file to
+  // Default and the folder would always look empty.
+  const wantsWatchedSync = typeof data.sourceRelPath === "string" && data.sourceRelPath.trim().length > 0;
+  let resolvedLibraryId: string | null = null;
+  let resolvedSourceRelPath: string | null = null;
+  if (libraryId) {
+    if (wantsWatchedSync) {
+      const [lib] = await db.select({ kind: libraries.kind }).from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.churchId, user.churchId))).limit(1);
+      if (lib?.kind === "watched") {
+        resolvedLibraryId = libraryId;
+        resolvedSourceRelPath = data.sourceRelPath!.trim().slice(0, 1024);
+      }
+    } else if ((await libraryMoveError(db, user.churchId, libraryId)) === null) {
+      resolvedLibraryId = libraryId;
+    }
+  }
   // Explicit whitelist of the columns we persist — never spread caller input
   // into the insert, so a future extra field on `data` can't silently write an
   // unintended column.
   const [row] = await db.insert(mediaAssets).values({
     kind, fileName, s3Key, mimeType, sizeBytes,
-    libraryId: resolvedLibraryId, churchId: user.churchId,
+    libraryId: resolvedLibraryId, sourceRelPath: resolvedSourceRelPath,
+    churchId: user.churchId,
   }).returning();
   revalidatePath("/library/media");
 
