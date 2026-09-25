@@ -44,6 +44,7 @@ test/background-persistence.test.ts
 test/band-media.test.ts
 test/band-size-persistence.test.ts
 test/band-slide-card.test.ts
+test/band-verse-ref-ratio.test.ts
 test/bible-add-verse.test.ts
 test/bible-allusion.test.ts
 test/bible-antireplay.test.ts
@@ -67,6 +68,7 @@ test/canvas-coords.test.ts
 test/card-appearance-fallback.test.ts
 test/changelog-generator.test.ts
 test/changelog-try-it.test.ts
+test/changelog-version-collision.test.ts
 test/church-defaults.test.ts
 test/church-styles-store.test.ts
 test/colorway.test.ts
@@ -256,6 +258,7 @@ test/translation-commands.test.ts
 test/transparent-slide.test.tsx
 test/update-banner-arch.test.ts
 test/verse-nav-commands.test.ts
+test/verse-order.test.ts
 test/verse-v2-mishears.test.ts
 test/video-fit-band-hint.test.ts
 test/video-playback.test.ts
@@ -266,5 +269,3 @@ test/whats-new.test.ts
 test/windows-media.test.ts
 test/windows-responsive.test.ts
 test/wire-contract-drift.test.ts
-test/band-verse-ref-ratio.test.ts
-test/verse-order.test.ts

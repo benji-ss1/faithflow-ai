@@ -66,7 +66,10 @@ const baseNewest = maxVersion(baseVersions.filter(Boolean));
 for (const f of added) {
   const c = parsed.get(f);
   if (c && cmpVersion(c.version, baseNewest) <= 0) {
-    errors.push(`${f}: version ${c.version} must be above ${baseNewest} (the newest version on ${baseRef}) — a new note needs a new version. Re-create it with \`npm run changes:new -- ${slugOf(f)}\`.`);
+    // Point at the one-command fix. "Re-create it" meant deleting and
+    // rewriting the note by hand — and with several notes on a branch that is
+    // several edits, every time main ships anything.
+    errors.push(`${f}: version ${c.version} must be above ${baseNewest} (the newest version on ${baseRef}). This happens when ${baseRef} ships a note after yours was written — run \`npm run changes:bump\` to renumber your unreleased notes, then \`node scripts/build-changelog.mjs\`.`);
   }
 }
 // A note that already exists on the base is released: its version/date are frozen.

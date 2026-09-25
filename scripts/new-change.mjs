@@ -8,7 +8,8 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readHistory, nextChangeVersion, sniffVersion, classifyChangeFiles, isValidVersion } from "./changelog-lib.mjs";
+import { execFileSync } from "node:child_process";
+import { readHistory, nextChangeVersion, sniffVersion, classifyChangeFiles, isValidVersion, versionsOnRef } from "./changelog-lib.mjs";
 
 const root = process.env.PF_ROOT || join(dirname(fileURLToPath(import.meta.url)), "..");
 const slug = process.argv[2];
@@ -35,6 +36,25 @@ try {
   const pkgVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
   if (isValidVersion(pkgVersion)) versions.push(pkgVersion);
 } catch { /* no package.json (tests) */ }
+// ALSO consult the base branch, not just this working tree.
+//
+// Reading only local files meant a branch that was behind main — or two
+// branches open at the same time — minted a number main had already used. The
+// loser's note then merged under the winner's headline and disappeared from
+// What's New. Checking the remote makes a fresh note start correct; if main
+// moves AFTER this, `npm run changes:bump` fixes it in one command.
+const gitq = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+const baseRef = process.env.CHANGES_BASE || "origin/main";
+try {
+  // Best-effort refresh so a stale local ref does not defeat the point.
+  try { execFileSync("git", ["fetch", "--quiet", "origin", "main"], { cwd: root, stdio: "ignore" }); } catch { /* offline */ }
+  const remote = versionsOnRef(gitq, baseRef);
+  if (remote.length > 0) versions.push(...remote);
+  else console.warn(`[changes] could not read ${baseRef} — version is based on local files only`);
+} catch {
+  console.warn(`[changes] could not read ${baseRef} (offline or no remote) — version is based on local files only`);
+}
+
 const version = nextChangeVersion(history, versions);
 const d = new Date();
 const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

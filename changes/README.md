@@ -40,6 +40,25 @@ extension must be lowercase `.md`, and values may not contain U+2028/U+2029.
 
 - **`version` and `date` are required.** A file without them (or with an
   impossible date like `2026-13-45`, or a duplicated key) fails the build.
+### When CI says your version must be above something
+
+This happens when `main` ships a note *after* yours was written — your branch is
+not wrong, the world moved. Fix it in one command:
+
+```sh
+npm run changes:bump          # renumber this branch's UNRELEASED notes
+node scripts/build-changelog.mjs
+```
+
+`changes:bump` only touches notes that are **not** on the base (a released
+note's version is frozen), only moves ones at or below the base's newest, and
+keeps their relative order. `--dry-run` shows the plan without writing.
+
+`changes:new` also reads the base branch now, so a fresh note starts above
+whatever `main` has — it no longer guesses from local files alone. That is what
+used to mint a number `main` had already used, so the note merged under someone
+else's headline and disappeared from What's New.
+
 - **Never edit a released note's version**, and never add a new note to a
   version that has already shipped. Operators who dismissed What's New for that
   version would never see it. Always use `changes:new` for a new note.

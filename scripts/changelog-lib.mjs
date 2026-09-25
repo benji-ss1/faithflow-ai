@@ -230,6 +230,59 @@ export function historyWarnings(changes, history) {
 }
 
 /** The version a brand-new change note gets: one patch above everything known. */
+/**
+ * Every version that exists on a git ref (curated history + change files).
+ *
+ * WHY THIS EXISTS: `changes:new` used to read only the LOCAL working tree, so
+ * a branch that was behind — or two branches open at once — happily minted the
+ * same number. The loser's note then merged under the winner's headline and
+ * vanished from What's New entirely. That happened four times in one day.
+ *
+ * `git` is injected (a function taking git args, returning stdout) so this
+ * module stays free of child_process and remains unit-testable.
+ */
+export function versionsOnRef(git, ref) {
+  const out = [];
+  try {
+    for (const h of readHistory(git("show", `${ref}:src/lib/changelog.ts`))) out.push(h.version);
+  } catch { /* history file absent on that ref */ }
+  let files = [];
+  try {
+    files = git("ls-tree", "--name-only", "-r", ref, "changes/").split("\n").filter(Boolean);
+  } catch { /* no changes/ on that ref */ }
+  for (const f of files) {
+    if (!/^changes\/[^/]+\.md$/.test(f)) continue;
+    try {
+      const v = sniffVersion(git("show", `${ref}:${f}`));
+      if (v) out.push(v);
+    } catch { /* unreadable entry */ }
+  }
+  return out;
+}
+
+/**
+ * Re-number unreleased notes so they sit above `floor`, preserving their
+ * relative order. Returns [{ file, from, to }] for the ones that must move.
+ * Notes already above the floor are left alone (their version is not churned).
+ */
+export function renumberAbove(notes, floor) {
+  const moving = notes
+    .filter((n) => cmpVersion(n.version, floor) <= 0)
+    .sort((a, b) => cmpVersion(a.version, b.version) || a.file.localeCompare(b.file));
+  // Versions already claimed by notes that do NOT need to move. A moved note
+  // must not land on one of them — that would just trade one collision for
+  // another.
+  const taken = new Set(notes.filter((n) => cmpVersion(n.version, floor) > 0).map((n) => n.version));
+  let next = floor;
+  const out = [];
+  for (const n of moving) {
+    do { next = bumpPatch(next); } while (taken.has(next));
+    taken.add(next);
+    out.push({ file: n.file, from: n.version, to: next });
+  }
+  return out;
+}
+
 export function nextChangeVersion(history, changeVersions) {
   return bumpPatch(maxVersion([...history.map((h) => h.version), ...changeVersions]));
 }
