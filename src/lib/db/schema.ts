@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, uniqueIndex, numeric, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, uniqueIndex, numeric, check, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo", "header"]);
@@ -186,6 +186,12 @@ export const libraries = pgTable("libraries", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_libraries_church").on(t.churchId, t.order),
+  // Declared HERE, not only in the hand-written migration, so the constraint
+  // exists in every environment. CI builds its schema with `drizzle-kit push`,
+  // which never sees docs/migrations/*.sql — so the adversarial test asserting
+  // the DB rejects an unknown kind passed locally and failed in CI. The schema
+  // is the source of truth; the migration mirrors it for production.
+  check("libraries_kind_check", sql`${t.kind} in ('manual', 'smart', 'watched')`),
 ]);
 
 export const servicePlans = pgTable("service_plans", {

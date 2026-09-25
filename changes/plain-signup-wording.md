@@ -1,7 +1,7 @@
 ---
 headline: Beta sign-up now uses plain, simple wording
 audience: admin
-version: 0.1.533
+version: 0.1.530
 date: 2026-09-25
 highlights:
   - The beta sign-up on presentflow.org no longer talks about "sealing the covenant". The buttons now say "Finish the sign-up" and "Confirm sign-up".
