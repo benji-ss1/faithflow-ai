@@ -68,6 +68,8 @@ test/canvas-coords.test.ts
 test/card-appearance-fallback.test.ts
 test/changelog-generator.test.ts
 test/changelog-try-it.test.ts
+test/changelog-version-collision.test.ts
+test/changes-bump-integration.test.ts
 test/church-defaults.test.ts
 test/church-styles-store.test.ts
 test/colorway.test.ts

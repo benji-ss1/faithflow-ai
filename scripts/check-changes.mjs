@@ -11,7 +11,7 @@
 // Strict (exit 1) when CI=true or --strict; otherwise it only warns.
 import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
-import { parseChangeFile, readHistory, maxVersion, cmpVersion, sniffVersion, sniffField, badExtMessage } from "./changelog-lib.mjs";
+import { parseChangeFile, maxVersion, cmpVersion, sniffVersion, sniffField, badExtMessage, versionsOnRef } from "./changelog-lib.mjs";
 
 const strict = process.env.CI === "true" || process.argv.includes("--strict");
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
@@ -50,23 +50,28 @@ for (const f of addedOrModified) {
   }
 }
 
-// Highest version known on the merge base.
-let baseVersions = [];
-try {
-  baseVersions = readHistory(git("show", `${base}:src/lib/changelog.ts`)).map((h) => h.version);
-} catch { /* file absent on base */ }
-let baseChangeFiles = [];
-try {
-  baseChangeFiles = git("ls-tree", "--name-only", base, "changes/").split("\n").filter(isChangeFile);
-} catch { /* dir absent on base */ }
-for (const f of baseChangeFiles) {
-  try { baseVersions.push(sniffVersion(git("show", `${base}:${f}`))); } catch { /* ignore */ }
-}
-const baseNewest = maxVersion(baseVersions.filter(Boolean));
+// Highest version known on the merge base AND on the base TIP.
+//
+// The TIP is the load-bearing half, and measuring only the merge base is what
+// let the reported bug keep happening:
+//   - two branches mint the same number; after the first merges, the second's
+//     MERGE BASE still predates it, so the gate stayed green and the note
+//     merged under the winner's headline and vanished from What's New;
+//   - a branch that never merges main in never sees the base move at all.
+// The tip is what this branch actually merges into, so that is what a new note
+// must be above. (bump-changes.mjs already used both; the gate did not, and
+// that inconsistency WAS the hole.)
+const baseNewest = maxVersion([
+  ...versionsOnRef(git, base),
+  ...versionsOnRef(git, baseRef),
+].filter(Boolean));
 for (const f of added) {
   const c = parsed.get(f);
   if (c && cmpVersion(c.version, baseNewest) <= 0) {
-    errors.push(`${f}: version ${c.version} must be above ${baseNewest} (the newest version on ${baseRef}) — a new note needs a new version. Re-create it with \`npm run changes:new -- ${slugOf(f)}\`.`);
+    // Point at the one-command fix. "Re-create it" meant deleting and
+    // rewriting the note by hand — and with several notes on a branch that is
+    // several edits, every time main ships anything.
+    errors.push(`${f}: version ${c.version} must be above ${baseNewest} (the newest version on ${baseRef}). This happens when ${baseRef} ships a note after yours was written — run \`npm run changes:bump\` to renumber your unreleased notes, then \`node scripts/build-changelog.mjs\`.`);
   }
 }
 // A note that already exists on the base is released: its version/date are frozen.
