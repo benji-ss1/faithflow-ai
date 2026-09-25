@@ -30,6 +30,7 @@ import type { TimersApi } from "../hooks";
 import { StageLayoutEditorModal } from "./StageLayoutEditorModal";
 import { sampleText } from "./stageSample";
 import { stageTextCss, type StageLayout } from "@/engine/stage";
+import { dispatchInternal } from "@/lib/internal-events";
 
 const field = "h-7 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded text-[12px] w-full";
 
@@ -167,6 +168,11 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
       onSave={async (l) => {
         if (!(await api.save(l.id, l))) return;
         if (editing.assignTo) await api.assign(editing.assignTo, l.id);
+        // Saving a layout that is ALREADY on its screen takes the assign
+        // branch above, so without this an operator who cleared everything and
+        // then simply edited and saved stayed latched with no visible cause.
+        // Saving IS an intent to show it.
+        else dispatchInternal("presentflow:stage-layout-assigned");
         setEditing(null);
       }}
     />

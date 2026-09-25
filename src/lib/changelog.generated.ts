@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.536",
+    "version": "0.1.538",
     "date": "2026-09-25",
     "headline": "Mirror a folder from your computer into your media",
     "highlights": [
@@ -19,6 +19,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Removing a file from the folder never deletes it from PresentFlow. It simply moves back to your main media, so a service plan that still uses it keeps working — even if the drive was unplugged by accident.",
       "The folder mirrors one way. You add and remove files in the folder on your computer, not in PresentFlow, so the two can never disagree.",
       "This needs the desktop app, because only it can see your computer's folders. Your media is still uploaded as normal, so the projector, stage screen and livestream all show it exactly as they do today."
+    ]
+  },
+  {
+    "version": "0.1.537",
+    "date": "2026-09-25",
+    "headline": "Custom voice commands for Next and Previous verse actually work now",
+    "highlights": [
+      "If you set up a custom voice phrase for \"Next verse\" or \"Previous verse\", it did nothing — and then told you it had worked. The phrase was firing into thin air while a confirmation appeared on screen. Both now move the verse.",
+      "A custom voice phrase set to \"Kill live\" no longer clears your stage screens. It clears the words. A misheard word should never take the band's timer and next lines off their monitor mid-sermon — Escape and the clear buttons are still the deliberate \"everything off\".",
+      "Blank (B) deliberately leaves stage screens alone. Blanking the congregation's screen during prayer should not take the drummer's monitor with it."
+    ]
+  },
+  {
+    "version": "0.1.536",
+    "date": "2026-09-25",
+    "headline": "Stage layouts now actually reach the stage screen",
+    "highlights": [
+      "Designed stage layouts never reached the screen at all. The operator app was sending them and the stage screen was listening, but the two were passing different shapes, so every layout silently became nothing. If you designed one and saw no change, that was why — it was not you.",
+      "The networked timer feed had exactly the same fault, so timers never left the operator's machine either.",
+      "Turning off Words for a screen in a Scene now works with a layout assigned. The built-in Pre-Service scene hides the words on stage, and a layout showed them anyway.",
+      "The screens dashboard now shows a stage tile exactly as the monitor shows it, with live timers, and hiding what your Scene hides. It was showing timers you had switched off.",
+      "When several stage screens have layouts, the dashboard says so instead of quietly showing only the first."
     ]
   },
   {

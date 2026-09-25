@@ -272,7 +272,18 @@ check("Esc / live X route to the V3 blackout (camera included); voice/AI clear i
   assert.match(src, /e\.key === "Escape"\) \{ e\.preventDefault\(\); killOutput\(\); \}/);
   assert.match(src, /cmd\.verb === "clear_screen"\) \{ voiceClear\(\);/);
   assert.match(src, /case "clear_live": voiceClear\(\); break;/);
-  assert.match(src, /const voiceClear = useCallback\(\(\) => \{ if \(layerOrderV3On\) clearLive\(\); else killOutput\(\); \}/, "V3 voice = clearLive only; flag off = killOutput (unchanged)");
+  // 2026-09-25: voice is now slide-only on BOTH sides of the flag, and must
+  // NOT route through killOutput. The old assertion allowed `else killOutput()`
+  // because flag-off killOutput WAS exactly clearLive — that premise died when
+  // killOutput started releasing the stage layout. Routing voice through it
+  // would mean an ASR false positive wipes the band's confidence monitor
+  // mid-sermon, with no feedback on the operator's screen. That is the very
+  // thing this test's own name ("voice/AI clear is slide-only") forbids, so
+  // the assertion is updated to enforce the intent rather than the old shape.
+  assert.match(src, /const voiceClear = useCallback\(\(\) => \{ clearLive\(\); \}/,
+    "voice clear must be slide-only on both sides of the flag");
+  const vc = src.slice(src.indexOf("const voiceClear = useCallback("), src.indexOf("const voiceClear = useCallback(") + 200);
+  assert.ok(!vc.includes("killOutput"), "voice must never reach killOutput — it releases the stage layout");
   assert.match(src, /onKill: killOutput,/);
   const body = src.slice(src.indexOf("const killOutput = useCallback("), src.indexOf("}, [layerOrderV3On, clearLive, clearMediaLayerV3, videoInput]);"));
   assert.match(body, /if \(!layerOrderV3On\) \{ clearLive\(\); return; \}/, "flag off = exactly clearLive");

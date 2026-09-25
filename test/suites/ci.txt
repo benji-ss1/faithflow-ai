@@ -44,6 +44,7 @@ test/background-persistence.test.ts
 test/band-media.test.ts
 test/band-size-persistence.test.ts
 test/band-slide-card.test.ts
+test/band-verse-ref-ratio.test.ts
 test/bible-add-verse.test.ts
 test/bible-allusion.test.ts
 test/bible-antireplay.test.ts
@@ -91,6 +92,7 @@ test/engine-spec-validation.test.ts
 test/engine-timers.stress.test.ts
 test/engine-timers.test.ts
 test/environment-banner.test.ts
+test/event-bus-connected.test.ts
 test/feedback-validation.test.ts
 test/font-scale-clamp.test.ts
 test/fonts-files.test.ts
@@ -180,6 +182,7 @@ test/scripture-chunk.test.ts
 test/scripture-design-sanitize.test.ts
 test/scripture-live-parity.test.ts
 test/scripture-lowerthird.test.ts
+test/scripture-ref-match-verse.test.ts
 test/scripture-size-width.test.ts
 test/service-mode.test.ts
 test/settings-tidy.test.ts
@@ -208,6 +211,7 @@ test/stage-editor-safety.test.ts
 test/stage-editor.test.ts
 test/stage-hostile.test.ts
 test/stage-layout-engine.test.ts
+test/stage-layout-reaches-screen.test.ts
 test/stage-layout-render.test.ts
 test/stage-layout-scoping.test.ts
 test/stage-sizing-and-fields.test.ts
@@ -257,6 +261,7 @@ test/translation-commands.test.ts
 test/transparent-slide.test.tsx
 test/update-banner-arch.test.ts
 test/verse-nav-commands.test.ts
+test/verse-order.test.ts
 test/verse-v2-mishears.test.ts
 test/video-fit-band-hint.test.ts
 test/video-playback.test.ts
@@ -268,6 +273,3 @@ test/whats-new.test.ts
 test/windows-media.test.ts
 test/windows-responsive.test.ts
 test/wire-contract-drift.test.ts
-test/band-verse-ref-ratio.test.ts
-test/verse-order.test.ts
-test/scripture-ref-match-verse.test.ts

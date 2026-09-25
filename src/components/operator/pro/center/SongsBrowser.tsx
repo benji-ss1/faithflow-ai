@@ -354,25 +354,11 @@ export function SongsBrowser({
 
   // 2026-07-25 — CenterHeader ▶ Play button dispatches `songs-play-current`
   // when in Songs mode. Fire the selected song's first slide.
-  useEffect(() => {
-    const handler = (ev: Event) => {
-      if (!isInternalEvent(ev)) return;
-      if (!selected) {
-        toast.info("Pick a song on the left first, then press Play.");
-        return;
-      }
-      const first = slides?.[0];
-      if (!first || !first.lyrics?.trim()) {
-        toast.info(`"${selected.title}" has no slides yet — add lyrics first.`);
-        return;
-      }
-      try { console.log("[songs-play-current] firing", { songId: selected.id, title: selected.title, slideLen: first.lyrics.length }); } catch { /* ignore */ }
-      ctx.onSendSlideToLive({ kind: "text", text: first.lyrics }, undefined, { origin: { kind: "song", songId: selected.id } });
-      toast.success(`"${selected.title}" — slide 1 → LIVE`, { duration: 1500 });
-    };
-    window.addEventListener("presentflow:songs-play-current", handler);
-    return () => window.removeEventListener("presentflow:songs-play-current", handler);
-  }, [selected, slides, ctx]);
+  // The "presentflow:songs-play-current" listener lived here until 2026-09-25. Its only
+  // trigger — the ▶ Play button in CenterHeader — was removed on
+  // 2026-09-10 per an operator request, so nothing has dispatched it
+  // since. Found by test/event-bus-connected.test.ts, which requires
+  // every presentflow:* event to have both ends.
 
   // Open a song requested from outside (Cmd+K search). The shell holds the pick
   // and passes it as `openSong`, so it's already present when this panel mounts
