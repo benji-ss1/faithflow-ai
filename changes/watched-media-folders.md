@@ -1,7 +1,7 @@
 ---
 headline: Mirror a folder from your computer into your media
 audience: operator
-version: 0.1.533
+version: 0.1.536
 date: 2026-09-25
 highlights:
   - "Make one in the Library list on the left of your operator screen — the folder button next to the star. Desktop app only, because only it can see your computer's folders. {try: /operator | watched-folder | Show me where}"

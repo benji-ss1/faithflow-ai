@@ -4,13 +4,10 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.533",
+    "version": "0.1.536",
     "date": "2026-09-25",
-    "headline": "Beta sign-up now uses plain, simple wording",
+    "headline": "Mirror a folder from your computer into your media",
     "highlights": [
-      "The beta sign-up on presentflow.org no longer talks about \"sealing the covenant\". The buttons now say \"Finish the sign-up\" and \"Confirm sign-up\".",
-      "The last page just says \"You're almost done. Confirm your sign-up and we will be in touch.\"",
-      "The thank-you page and the confirmation email now say wave one invites go out first come, first served.",
       {
         "text": "Make one in the Library list on the left of your operator screen — the folder button next to the star. Desktop app only, because only it can see your computer's folders.",
         "tryItHref": "/operator",
@@ -22,6 +19,42 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Removing a file from the folder never deletes it from PresentFlow. It simply moves back to your main media, so a service plan that still uses it keeps working — even if the drive was unplugged by accident.",
       "The folder mirrors one way. You add and remove files in the folder on your computer, not in PresentFlow, so the two can never disagree.",
       "This needs the desktop app, because only it can see your computer's folders. Your media is still uploaded as normal, so the projector, stage screen and livestream all show it exactly as they do today."
+    ]
+  },
+  {
+    "version": "0.1.535",
+    "date": "2026-09-25",
+    "headline": "Clear-all now clears the stage screens, and Scenes work again with a layout on",
+    "highlights": [
+      "Clear all, Blank and Escape now release a stage layout. Before this, the one thing covering your whole confidence monitor was the one thing none of your panic buttons could clear. Putting the layout back is the same single tap it always was.",
+      "Scenes work again once a layout is assigned. Turning off Timers for a screen in a Scene used to stop meaning anything the moment that screen had a designed layout — the timer came back and nothing explained why.",
+      "A timer you switched off for a screen no longer reappears there through a layout.",
+      "The screens dashboard now draws a stage screen exactly as it really is. It used to show a current-and-next split for a monitor that was actually showing your design — worse than showing nothing.",
+      "Fix: a confidence monitor connected over a pair code on an iPad or second machine now gets your designed layout. It was silently getting the old default screen no matter what you had set up."
+    ]
+  },
+  {
+    "version": "0.1.534",
+    "date": "2026-09-25",
+    "headline": "Pick the screen, tap the pencil, design it on a proper canvas",
+    "highlights": [
+      "Stage layouts now start with your screens. Each one shows its name, what it is displaying, a live thumbnail and a pencil — tap the pencil and the layout editor opens.",
+      "The editor is a full window now, not a narrow strip. Objects on the left, the screen in the middle, its settings on the right. You can drag, resize, type exact positions, reorder what sits in front, duplicate a box, and change the size with a readout instead of guessing at a slider.",
+      "Deliberately simpler than the slide editor — no rotation, no transparency, no per-box fills. A confidence monitor needs words you can read from the back, not effects.",
+      "Fix: tapping the pencil on a screen set to Default used to blank that screen immediately, before you had designed anything. Nothing reaches a stage screen now until you press Save.",
+      "Fix: if a save failed, the editor closed anyway and your whole design was lost without a message. It now stays open and tells you what went wrong.",
+      "Fix: renaming a screen saved on every single keystroke. It now saves when you finish."
+    ]
+  },
+  {
+    "version": "0.1.533",
+    "date": "2026-09-25",
+    "headline": "New option — make the scripture reference the same size as the verse",
+    "highlights": [
+      "Edit slide on a Bible verse now has a Reference size choice right at the top. Leave it on \"Smaller than the verse\" and nothing changes, or switch it to \"Same size as the verse\" if you want them matched.",
+      "It is off to begin with and stays off until you choose it, so nothing about your current screens changes on its own. Full-screen verses usually read better with a smaller reference; matching them is more popular on the third band.",
+      "It works on both the full-screen verse and the third band, and the preview shows exactly what the projector will show.",
+      "Your choice is saved with your church's Scripture Style, so it stays set for next time."
     ]
   },
   {
@@ -41,6 +74,16 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "headline": "Our Story page no longer ends with \"Let the church go first\"",
     "highlights": [
       "The closing heading \"Let the church go first.\" has been removed from the Our Story page on presentflow.org. The rest of the page is unchanged."
+    ]
+  },
+  {
+    "version": "0.1.530",
+    "date": "2026-09-25",
+    "headline": "Beta sign-up now uses plain, simple wording",
+    "highlights": [
+      "The beta sign-up on presentflow.org no longer talks about \"sealing the covenant\". The buttons now say \"Finish the sign-up\" and \"Confirm sign-up\".",
+      "The last page just says \"You're almost done. Confirm your sign-up and we will be in touch.\"",
+      "The thank-you page and the confirmation email now say wave one invites go out first come, first served."
     ]
   },
   {

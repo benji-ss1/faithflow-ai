@@ -1016,6 +1016,21 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // carried here so /stage — a public route — can render it.
   const [stageLayout, setStageLayout] = useState<StageLayoutWire | null>(null);
   const [stageLayoutList, setStageLayoutList] = useState<Array<{ screen: string; layout: StageLayoutWire }> | null>(null);
+  /**
+   * Clear-all has released the stage layouts.
+   *
+   * The operator's three trained panic controls — Escape, Blank, and the
+   * hold-to-clear-all rail — cleared the slide, media, video and announcement
+   * and did NOTHING to a stage layout, because a layout reaches /stage on its
+   * own OutputState field and the clear path never touched it. So the one
+   * thing an operator cannot clear under pressure was the thing covering the
+   * whole confidence monitor.
+   *
+   * Suppression is released the moment the operator assigns a layout again
+   * (the shell re-dispatches), so putting it back is the same one tap it has
+   * always been — no new concept to learn, and no latch to get stuck in.
+   */
+  const [stageLayoutsCleared, setStageLayoutsCleared] = useState(false);
   useEffect(() => {
     const onTimersWire = (e: Event) => {
       const d = (e as CustomEvent).detail;
@@ -1030,6 +1045,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       const d = (e as CustomEvent).detail as { first?: unknown; list?: unknown } | null;
       setStageLayout(d?.first && isValidStageLayoutWire(d.first) ? d.first : null);
       setStageLayoutList(d?.list && isValidStageLayoutList(d.list) ? d.list : null);
+      setStageLayoutsCleared(false); // a fresh assignment un-clears
     };
     window.addEventListener("presentflow:stage-layout", onLayout as EventListener);
     return () => window.removeEventListener("presentflow:stage-layout", onLayout as EventListener);
@@ -1166,8 +1182,8 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       // Timers emits a byte-identical snapshot to before (parity test-locked).
       ...(timersWire && timersWire.timers.length > 0 ? { timersWire } : {}),
       // Absent ⇒ no layout assigned ⇒ /stage keeps its existing screen.
-      ...(stageLayout ? { stageLayout } : {}),
-      ...(stageLayoutList && stageLayoutList.length > 0 ? { stageLayouts: stageLayoutList } : {}),
+      ...(stageLayout && !stageLayoutsCleared ? { stageLayout } : {}),
+      ...(stageLayoutList && stageLayoutList.length > 0 && !stageLayoutsCleared ? { stageLayouts: stageLayoutList } : {}),
     };
     // PROJECTOR-RELIABILITY GUARANTEE (2026-09-06 field incident). Fail-open
     // sanitize the state before it goes on ANY wire (BroadcastChannel / Realtime /
@@ -1213,7 +1229,7 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn, timersWire, stageLayout, stageLayoutList, layerOrderV3On, themeLayerHiddenV3]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, outputAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides, activeScene, scenesUiOn, timersWire, stageLayout, stageLayoutList, stageLayoutsCleared, layerOrderV3On, themeLayerHiddenV3]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1835,6 +1851,9 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     if (videoInput) clearVideoInputLive();
     setAnnouncement(null);
     clearHeldLowerThirdRef.current?.();
+    // Release the stage layouts too. Without this the operator's panic button
+    // left a full-screen layout on every confidence monitor.
+    setStageLayoutsCleared(true);
   }, [layerOrderV3On, clearLive, clearMediaLayerV3, videoInput]);
   // Voice "clear screen" / AI "clear_live": flag off ⇒ killOutput (= clearLive,
   // unchanged). V3 ⇒ slide-only clear: an ASR false-positive must never kill the

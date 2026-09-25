@@ -22,7 +22,12 @@ import { STAGE_WIDGET_KINDS } from "../src/engine/stage";
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 
 const renderer = read("../src/components/live/StageLayoutRenderer.tsx");
-const editor = read("../src/components/operator/pro/right/StageLayoutPanel.tsx");
+// The widget controls moved to StageInspector when the editor became a modal.
+// Pointing this at the panel would make any future "is this control
+// reachable?" assertion pass VACUOUSLY against a file that no longer has one.
+const editor = read("../src/components/operator/pro/right/StageInspector.tsx")
+  + read("../src/components/operator/pro/right/StageLayoutEditorModal.tsx")
+  + read("../src/components/operator/pro/right/StageLayoutPanel.tsx");
 const wireDef = read("../src/lib/broadcast.ts");
 const shell = read("../src/components/operator/pro/ProOperatorShell.tsx");
 const hooks = read("../src/components/operator/pro/hooks.ts");

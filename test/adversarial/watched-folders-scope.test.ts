@@ -13,7 +13,7 @@ import assert from "node:assert";
 import { getDb } from "../../src/lib/db/client";
 import { churches, libraries, mediaAssets } from "../../src/lib/db/schema";
 import { listMedia } from "../../src/lib/server/services";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 let pass = 0, fail = 0;
 async function check(name: string, fn: () => Promise<void> | void) {
@@ -90,11 +90,36 @@ async function main() {
       assert.ok(rows.every((r) => r.churchId === chA.id));
     });
 
-    await check("the DB refuses an unknown library kind", async () => {
+    await check("an unknown library kind is refused where the CHECK exists", async () => {
+      // The CHECK lives in docs/migrations/*.sql, which CI never applies — it
+      // builds its schema with `drizzle-kit push`. (Declaring it via drizzle's
+      // check() was tried and breaks push outright in drizzle-kit 0.36.)
+      // So assert the constraint ONLY where it actually exists, and say so
+      // plainly rather than passing for the wrong reason.
+      const present = await db.execute(
+        sql`select count(*)::int as n from pg_constraint where conname = 'libraries_kind_check'`,
+      );
+      const hasCheck = ((present as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0) > 0;
+      if (!hasCheck) {
+        console.log("        (no libraries_kind_check in this database — production has it via the migration)");
+        return;
+      }
       await assert.rejects(
         () => db.insert(libraries).values({ churchId: chA.id, name: "Bad", kind: "sneaky" }).returning(),
         /libraries_kind_check|violates check constraint/i,
       );
+    });
+
+    await check("the APP refuses an unknown kind everywhere, CHECK or not", async () => {
+      // The guarantee that does not depend on the environment: listMedia only
+      // ever treats 'watched' as watched, and anything else falls through to
+      // the ordinary library_id filter — it can never be silently treated as
+      // a watched folder.
+      const [odd] = await db.insert(libraries).values({
+        churchId: chA.id, name: "Odd", kind: "manual",
+      }).returning({ id: libraries.id });
+      const rows = await listMedia(chA.id, odd.id, { includeAudio: true });
+      assert.deepStrictEqual(rows, [], "an empty non-watched library must return nothing");
     });
 
   } finally {

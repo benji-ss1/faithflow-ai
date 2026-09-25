@@ -30,7 +30,7 @@ export type StageLayoutsApi = {
   duplicate: (id: string) => Promise<string | null>;
   /** A brand-new empty layout; returns its id. */
   createBlank: (name?: string) => Promise<string | null>;
-  save: (id: string, layout: StageLayout) => Promise<void>;
+  save: (id: string, layout: StageLayout) => Promise<boolean>;
   rename: (id: string, name: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   addScreen: (name: string) => Promise<string | null>;
@@ -40,7 +40,7 @@ export type StageLayoutsApi = {
   /** What the (first) stage screen is showing right now — drives the "On
    *  stage" badge, so the operator can always see which one is live. */
   activeLayoutId: string | null;
-  assign: (screenId: string, layoutId: string | null) => Promise<void>;
+  assign: (screenId: string, layoutId: string | null) => Promise<boolean>;
   renameScreen: (screenId: string, name: string) => Promise<void>;
   removeScreen: (screenId: string) => Promise<void>;
 };
@@ -100,10 +100,13 @@ export function useStageLayouts(): StageLayoutsApi {
     return null;
   }, [refresh]);
 
-  const save = useCallback(async (id: string, layout: StageLayout) => {
-    if (isBuiltInStageLayout(id)) return; // built-ins are code, not editable
+  /** Reports whether it saved. The editor MUST NOT close on a false — that is
+   *  how an operator loses a whole layout to a rejected name. */
+  const save = useCallback(async (id: string, layout: StageLayout): Promise<boolean> => {
+    if (isBuiltInStageLayout(id)) return false; // built-ins are code, not editable
     const res = await callAction("save the layout", () => updateStageLayout(id, { name: layout.name, config: layout }), toast.error);
     if (res.ok) await refresh();
+    return res.ok;
   }, [refresh]);
 
   const rename = useCallback(async (id: string, name: string) => {
@@ -146,9 +149,13 @@ export function useStageLayouts(): StageLayoutsApi {
       () => createStageScreen({ name: "Stage", layoutId }), toast.error);
     if (created.ok) await refresh();
   }, [refresh]);
-  const assign = useCallback(async (screenId: string, layoutId: string | null) => {
+  /** Returns whether it actually stuck. Callers that open an editor MUST check
+   *  it — editing a layout the screen is not pointing at means the operator
+   *  saves and the monitor does not change, which reads as total failure. */
+  const assign = useCallback(async (screenId: string, layoutId: string | null): Promise<boolean> => {
     const res = await callAction("assign the layout", () => setStageScreenLayout(screenId, layoutId), toast.error);
     if (res.ok) await refresh();
+    return res.ok;
   }, [refresh]);
   const renameScreen = useCallback(async (screenId: string, name: string) => {
     const res = await callAction("rename the stage screen", () => renameStageScreen(screenId, name), toast.error);
