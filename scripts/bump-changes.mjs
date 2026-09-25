@@ -23,14 +23,14 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readHistory, sniffVersion, classifyChangeFiles, maxVersion, versionsOnRef, renumberAbove, isValidVersion } from "./changelog-lib.mjs";
+import { sniffVersion, classifyChangeFiles, maxVersion, versionsOnRef, renumberAbove, isValidVersion } from "./changelog-lib.mjs";
 
 const root = process.env.PF_ROOT || join(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.includes("--dry-run");
 const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 
 const baseRef = process.env.CHANGES_BASE || "origin/main";
-try { execFileSync("git", ["fetch", "--quiet", "origin", "main"], { cwd: root, stdio: "ignore" }); } catch { /* offline */ }
+try { execFileSync("git", ["fetch", "--quiet", "origin", baseRef.replace(/^origin\//, "")], { cwd: root, stdio: "ignore", timeout: 15_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }); } catch { /* offline */ }
 
 let base;
 try {
@@ -76,6 +76,9 @@ for (const f of localFiles) {
   const text = readFileSync(join(changesDir, f), "utf8");
   const version = sniffVersion(text);
   if (version) notes.push({ file: f, version });
+  // The note most in need of attention must not be the one we pretend is
+  // absent: an unreadable version is named, not silently dropped.
+  else console.warn(`[changes] changes/${f}: no readable \`version: X.Y.Z\` line — skipped, fix it by hand.`);
 }
 
 if (notes.length === 0) {
@@ -105,4 +108,17 @@ for (const p of plan) {
   }
   writeFileSync(path, next);
 }
-console.log(`[changes] renumbered ${plan.length} note(s). Now run: node scripts/build-changelog.mjs`);
+console.log(`[changes] renumbered ${plan.length} note(s).`);
+// Regenerate here: the README and the CI message both promise ONE command.
+// Resolve the builder NEXT TO THIS SCRIPT, not under PF_ROOT: they are the
+// same directory in the repo, but PF_ROOT points at the tree being operated
+// on, which in tests is a throwaway checkout with no scripts/ of its own.
+const builder = join(dirname(fileURLToPath(import.meta.url)), "build-changelog.mjs");
+if (existsSync(builder)) {
+  try {
+    execFileSync("node", [builder], { cwd: root, stdio: "inherit" });
+  } catch {
+    console.error("[changes] renumbered, but the changelog rebuild failed — run `node scripts/build-changelog.mjs`.");
+    process.exit(1);
+  }
+}

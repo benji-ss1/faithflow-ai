@@ -273,12 +273,25 @@ export function renumberAbove(notes, floor) {
   // must not land on one of them — that would just trade one collision for
   // another.
   const taken = new Set(notes.filter((n) => cmpVersion(n.version, floor) > 0).map((n) => n.version));
+
+  // Notes that DELIBERATELY share a version must keep sharing one. The house
+  // rules bless grouping two notes into a single release (changes/README.md,
+  // "the two OBS notes, 0.1.403"), and buildEntries renders them as ONE What's
+  // New card with their highlights concatenated. Renumbering them apart would
+  // split that card in two and surface a headline that was intentionally
+  // suppressed — so a group is moved together, to one new version.
+  const groups = new Map();
+  for (const n of moving) {
+    if (!groups.has(n.version)) groups.set(n.version, []);
+    groups.get(n.version).push(n);
+  }
+
   let next = floor;
   const out = [];
-  for (const n of moving) {
+  for (const [, group] of groups) {
     do { next = bumpPatch(next); } while (taken.has(next));
     taken.add(next);
-    out.push({ file: n.file, from: n.version, to: next });
+    for (const n of group) out.push({ file: n.file, from: n.version, to: next });
   }
   return out;
 }

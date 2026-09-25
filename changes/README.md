@@ -40,6 +40,14 @@ extension must be lowercase `.md`, and values may not contain U+2028/U+2029.
 
 - **`version` and `date` are required.** A file without them (or with an
   impossible date like `2026-13-45`, or a duplicated key) fails the build.
+- **Never edit a released note's version**, and never add a new note to a
+  version that has already shipped. Operators who dismissed What's New for that
+  version would never see it. Always use `changes:new` for a new note.
+- Deliberately grouping two notes into one release is fine *before* it ships:
+  give the second file the same `version:` as the first (like the two OBS
+  notes, 0.1.403).
+- A headline must be distinct from every curated history entry's headline.
+
 ### When CI says your version must be above something
 
 This happens when `main` ships a note *after* yours was written — your branch is
@@ -59,13 +67,6 @@ whatever `main` has — it no longer guesses from local files alone. That is wha
 used to mint a number `main` had already used, so the note merged under someone
 else's headline and disappeared from What's New.
 
-- **Never edit a released note's version**, and never add a new note to a
-  version that has already shipped. Operators who dismissed What's New for that
-  version would never see it. Always use `changes:new` for a new note.
-- Deliberately grouping two notes into one release is fine *before* it ships:
-  give the second file the same `version:` as the first (like the two OBS
-  notes, 0.1.403).
-- A headline must be distinct from every curated history entry's headline.
 
 ## How it becomes What's New
 

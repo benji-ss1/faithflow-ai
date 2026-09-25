@@ -47,7 +47,7 @@ const gitq = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8
 const baseRef = process.env.CHANGES_BASE || "origin/main";
 try {
   // Best-effort refresh so a stale local ref does not defeat the point.
-  try { execFileSync("git", ["fetch", "--quiet", "origin", "main"], { cwd: root, stdio: "ignore" }); } catch { /* offline */ }
+  try { execFileSync("git", ["fetch", "--quiet", "origin", baseRef.replace(/^origin\//, "")], { cwd: root, stdio: "ignore", timeout: 15_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }); } catch { /* offline */ }
   const remote = versionsOnRef(gitq, baseRef);
   if (remote.length > 0) versions.push(...remote);
   else console.warn(`[changes] could not read ${baseRef} — version is based on local files only`);
