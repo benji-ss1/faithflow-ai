@@ -1,7 +1,7 @@
 ---
 headline: Pick the screen, tap the pencil, design it on a proper canvas
 audience: operator
-version: 0.1.531
+version: 0.1.534
 date: 2026-09-25
 highlights:
   - Stage layouts now start with your screens. Each one shows its name, what it is displaying, a live thumbnail and a pencil — tap the pencil and the layout editor opens.

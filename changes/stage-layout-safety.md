@@ -1,7 +1,7 @@
 ---
 headline: Clear-all now clears the stage screens, and Scenes work again with a layout on
 audience: operator
-version: 0.1.532
+version: 0.1.535
 date: 2026-09-25
 highlights:
   - Clear all, Blank and Escape now release a stage layout. Before this, the one thing covering your whole confidence monitor was the one thing none of your panic buttons could clear. Putting the layout back is the same single tap it always was.
