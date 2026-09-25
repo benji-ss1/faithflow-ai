@@ -85,7 +85,6 @@ const CLOSING = {
   body: [
     "We're giving the house of God the software it deserves — automated, AI-native, and held to the highest standard we can reach. Not because the old tools were fine and we wanted more. Because they weren't, and the room deserved better.",
   ],
-  line: ["Let the church", { run: "go first." }],
 };
 
 const CSS = `
@@ -232,15 +231,6 @@ export default function OurStory() {
           {CLOSING.body.map((para, k) => (
             <p key={k} className={`rv d1${close.on ? " in" : ""}`}>{para}</p>
           ))}
-          <h2 className={`rv d1${close.on ? " in" : ""}`}>
-            {CLOSING.line.map((part, i) =>
-              typeof part === "string" ? (
-                <span key={i}>{part} </span>
-              ) : (
-                <span key={i} className="run">{part.run}</span>
-              ),
-            )}
-          </h2>
           <svg
             className={`art church${close.on ? " in" : ""}`}
             viewBox="0 0 120 100"

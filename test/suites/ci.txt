@@ -267,3 +267,5 @@ test/whats-new.test.ts
 test/windows-media.test.ts
 test/windows-responsive.test.ts
 test/wire-contract-drift.test.ts
+test/band-verse-ref-ratio.test.ts
+test/verse-order.test.ts

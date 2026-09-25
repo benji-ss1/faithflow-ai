@@ -4,10 +4,13 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.530",
+    "version": "0.1.533",
     "date": "2026-09-25",
-    "headline": "Mirror a folder from your computer into your media",
+    "headline": "Beta sign-up now uses plain, simple wording",
     "highlights": [
+      "The beta sign-up on presentflow.org no longer talks about \"sealing the covenant\". The buttons now say \"Finish the sign-up\" and \"Confirm sign-up\".",
+      "The last page just says \"You're almost done. Confirm your sign-up and we will be in touch.\"",
+      "The thank-you page and the confirmation email now say wave one invites go out first come, first served.",
       {
         "text": "Make one in the Library list on the left of your operator screen — the folder button next to the star. Desktop app only, because only it can see your computer's folders.",
         "tryItHref": "/operator",
@@ -19,6 +22,25 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "Removing a file from the folder never deletes it from PresentFlow. It simply moves back to your main media, so a service plan that still uses it keeps working — even if the drive was unplugged by accident.",
       "The folder mirrors one way. You add and remove files in the folder on your computer, not in PresentFlow, so the two can never disagree.",
       "This needs the desktop app, because only it can see your computer's folders. Your media is still uploaded as normal, so the projector, stage screen and livestream all show it exactly as they do today."
+    ]
+  },
+  {
+    "version": "0.1.532",
+    "date": "2026-09-25",
+    "headline": "Verses stay in order, and the band's size hint now tells the truth",
+    "highlights": [
+      "Jumping around a passage no longer scrambles the verse list. Looking up a verse, going back a few and then forward a few used to leave the cards in the order you happened to visit them - now they always read in scripture order, book by book, chapter by chapter.",
+      "The verse you just moved to stays selected wherever it lands in the list, so the next \"next verse\" carries on from the right place.",
+      "If you have deliberately re-ordered the cards yourself with the up and down buttons, that arrangement is left alone.",
+      "In the scripture band settings, the hint under the sliders said to set the verse to 100% to match the reference line. That was wrong. The verse starts at twice the reference, so they match at Verse size 50% - or, to keep the verse big, Reference size 200%."
+    ]
+  },
+  {
+    "version": "0.1.531",
+    "date": "2026-09-25",
+    "headline": "Our Story page no longer ends with \"Let the church go first\"",
+    "highlights": [
+      "The closing heading \"Let the church go first.\" has been removed from the Our Story page on presentflow.org. The rest of the page is unchanged."
     ]
   },
   {

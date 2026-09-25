@@ -22,6 +22,7 @@
  *   └──────────────────────────────────────────────────────────┘
  */
 import { isWindowsUA } from "@/lib/platform";
+import { insertVerseCard } from "@/lib/verse-order";
 import { leftPanelMaxWidth } from "@/lib/panelLayout";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -4111,8 +4112,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             const card = { id: `${label}-${Date.now()}`, label, verses: [{ verse: hit.verse, text: hit.text }] };
             const existing = bibleSession.state.cards;
             const dupIdx = existing.findIndex((c) => c.label === card.label);
-            const newIdx = dupIdx >= 0 ? dupIdx : existing.length;
-            if (dupIdx < 0) bibleSession.setCards([...existing, card]);
+            let newIdx = dupIdx;
+            if (dupIdx < 0) {
+              // Same ordered insert as the verse-nav path — a spoken "from verse
+              // 11" must not append out of order either.
+              const { cards: next, index } = insertVerseCard(existing, card, 1);
+              bibleSession.setCards(next);
+              newIdx = index;
+            }
             bibleSession.setSelectedIdx(newIdx);
             ctx.onSendSlideToLive({ kind: "text", text: hit.text, reference: label }, undefined, { preserveConfiguredTransition: true }); // voice: fast AI fade, never theme-slowed (PR 2)
             toast.info(`Voice: "${cmd.matchedText}" → verse ${verseNumber}`);
@@ -4295,17 +4302,25 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         label,
         verses: [{ verse, text }],
       };
-      // ProPresenter-style: APPEND (or prepend on reverse) rather than
-      // replace, so operator can keep pressing Verse > to build up a
-      // series of cards for the whole passage they're preaching through.
+      // Build up a series of cards for the passage being preached through —
+      // but keep them in SCRIPTURE ORDER. This used to append on forward nav and
+      // prepend on reverse, so "look up 4:28, go back four, go forward two" left
+      // the cards reading 24, 28, 26 (field report 2026-09-22, Victor). The
+      // navigation was right; only the insert POSITION was wrong.
+      // insertVerseCard orders by book -> chapter -> verse, and falls back to the
+      // old append/prepend when the operator has hand-arranged the list with the
+      // up/down buttons, so a deliberate arrangement is never re-sorted.
       const existing = bibleSession.state.cards;
       const dupIdx = existing.findIndex((c) => c.label === card.label);
       if (dupIdx >= 0) {
         bibleSession.setSelectedIdx(dupIdx);
       } else {
-        const next = dir > 0 ? [...existing, card] : [card, ...existing];
+        const { cards: next, index } = insertVerseCard(existing, card, dir);
         bibleSession.setCards(next);
-        bibleSession.setSelectedIdx(dir > 0 ? next.length - 1 : 0);
+        // The selection MUST follow the card to wherever it landed. Hardcoding
+        // length-1 / 0 would point at the wrong verse the moment it lands in the
+        // middle, and the next "next verse" would walk from the wrong anchor.
+        bibleSession.setSelectedIdx(index);
       }
       // 2026-08-16 (user directive): the MANUAL Verse ◀ / ▶ buttons are
       // PREVIEW-ONLY (live === false) — they advance the verse in the centre
