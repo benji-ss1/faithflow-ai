@@ -342,6 +342,17 @@ export default function StagePage() {
           setCountdownEndsAt(state.countdownEndsAt);
           setAnnouncement(state.announcement ?? null);
           setTransition(state.transition ?? null);
+          // 2026-09-25: the cross-device path folded thirteen fields and
+          // silently dropped the stage LAYOUT, the timer wire and the scene.
+          // So a church running its confidence monitor on an iPad or a second
+          // machine over a pair code got the legacy hardcoded screen no matter
+          // what the operator had designed and assigned — the feature simply
+          // did not exist for them, with nothing to explain why. Same shape as
+          // the same-machine path above (lines ~206).
+          setStageLayout(state.stageLayout ?? null);
+          setStageLayoutList(state.stageLayouts ?? []);
+          foldTimersWire(state.timersWire);
+          setScene(state.scene ?? null);
           if (firstMsg) { firstMsg = false; setPairBadge(code); badgeTimer = setTimeout(() => setPairBadge(null), 5000); }
         });
       }

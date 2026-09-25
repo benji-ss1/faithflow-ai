@@ -126,3 +126,16 @@ test("renaming a screen does not write on every keystroke", () => {
   assert.match(panel, /onBlur=\{commit\}/);
   assert.doesNotMatch(panel, /onChange=\{\(e\) => api\.renameScreen/);
 });
+
+test("a paired stage screen gets the layout too", () => {
+  // The cross-device (pair-code) subscriber folded thirteen fields and
+  // silently dropped the stage LAYOUT, the timer wire and the scene — so a
+  // church running its confidence monitor on an iPad or a second machine got
+  // the legacy hardcoded screen no matter what the operator had designed, with
+  // nothing anywhere to explain why. The feature simply did not exist for them.
+  const page = readFileSync("src/app/stage/page.tsx", "utf8");
+  const sub = page.slice(page.indexOf("realtime.subscribe((state)"), page.indexOf("if (firstMsg)"));
+  for (const f of ["setStageLayout(state.stageLayout", "setStageLayoutList(state.stageLayouts", "foldTimersWire(state.timersWire", "setScene(state.scene"]) {
+    assert.ok(sub.includes(f), `the pair-code path drops ${f.split("(")[0]} — a paired screen would not show it`);
+  }
+});
