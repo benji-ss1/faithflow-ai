@@ -216,7 +216,7 @@ export async function sendBetaApplicantConfirmation(to: string, name?: string) {
 
 Thank you for applying to the PresentFlow beta — we've received your application.
 
-We're opening wave one to a small group of churches, oldest applications first. We'll be in touch by email with your invitation and any updates before your first live Sunday. There's nothing you need to do in the meantime.
+We're opening wave one to a small group of churches, first come, first served. We'll be in touch by email with your invitation and any updates before your first live Sunday. There's nothing you need to do in the meantime.
 
 Grateful you want to help shape what church presentation should be.
 
@@ -233,7 +233,7 @@ presentflow.org`;
         <tr><td style="padding:28px 30px;color:#1a140f;">
           <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">${escapeHtml(greeting)}</p>
           <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Thank you for applying to the <b>PresentFlow</b> beta — we've received your application.</p>
-          <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#4a423a;">We're opening <b>wave one</b> to a small group of churches, oldest applications first. We'll be in touch by email with your invitation and any updates before your first live Sunday. There's nothing you need to do in the meantime.</p>
+          <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#4a423a;">We're opening <b>wave one</b> to a small group of churches, first come, first served. We'll be in touch by email with your invitation and any updates before your first live Sunday. There's nothing you need to do in the meantime.</p>
           <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#4a423a;">Grateful you want to help shape what church presentation should be.</p>
           <p style="margin:20px 0 0;font-size:15px;line-height:1.5;color:#1a140f;">— The PresentFlow team</p>
         </td></tr>

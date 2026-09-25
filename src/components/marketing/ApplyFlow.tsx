@@ -155,7 +155,7 @@ const QUESTIONS: Question[] = [
     kicker: "Your invite",
     label: "Where should we write to you?",
     sub: "One address. We'll reply personally — no drip sequences.",
-    why: "This is where your Wave I invite goes. We onboard oldest application first.",
+    why: "This is where your Wave I invite goes. We onboard first come, first served.",
     type: "fields",
     fields: [{ key: "email", label: "Email", placeholder: "e.g. sam@yourchurch.org" }],
   },
@@ -844,9 +844,8 @@ export default function ApplyFlow() {
                   {!done ? (
                     <>
                       <div className="stamp">Wave I · 15 churches · free through the beta</div>
-                      <h2>Let the church <em>go first.</em></h2>
                       <div className="sub">
-                        You&apos;re almost done. Confirm your sign-up and a real person will reply — oldest sign-ups first.
+                        You&apos;re almost done. Confirm your sign-up and we will be in touch.
                       </div>
                       <button
                         className="btn"
@@ -871,7 +870,7 @@ export default function ApplyFlow() {
                       <div className="stamp">Signed up · Wave I · 2026</div>
                       <h2>You&apos;re on the <em>list.</em></h2>
                       <div className="sub">
-                        Wave one invitations go out by email, oldest application first. We&apos;ll be in
+                        Wave one invitations go out by email, first come, first served. We&apos;ll be in
                         touch before your first live Sunday.
                       </div>
                       <div className="p-nav center-nav">
