@@ -62,14 +62,22 @@ test("no mutating server action in these hooks is called bare", () => {
   // fails here, rather than being found by a church on a Sunday.
   const MUTATORS = /\b(create|update|delete|set|rename)(Timer|Stage)[A-Za-z]*\(/g;
   for (const f of HOOKS) {
-    const src = readFileSync(f, "utf8");
-    for (const line of src.split("\n")) {
-      if (!MUTATORS.test(line)) continue;
+    const lines = readFileSync(f, "utf8").split("\n");
+    lines.forEach((line, i) => {
       MUTATORS.lastIndex = 0;
-      if (line.trimStart().startsWith("//") || line.includes("import")) continue;
-      assert.ok(line.includes("callAction"),
+      if (!MUTATORS.test(line)) return;
+      if (line.trimStart().startsWith("//") || line.includes("import")) return;
+      // Look at the PRECEDING line too. A wrapped call —
+      //     const res = await callAction("create the layout",
+      //       () => createStageLayout({ name, config: blank }), toast.error);
+      // is correct, but the matched line alone does not contain `callAction`.
+      // A one-line window made the guard reject correct code, which is how a
+      // guard gets deleted. Two lines covers real formatting without letting a
+      // genuinely bare call through.
+      const window = `${lines[i - 1] ?? ""}\n${line}`;
+      assert.ok(window.includes("callAction"),
         `${f}: mutating action called without callAction — a throw here becomes an unhandled rejection:\n    ${line.trim()}`);
-    }
+    });
   }
 });
 

@@ -49,9 +49,8 @@ export interface StageRect { x: number; y: number; w: number; h: number }
 
 export type StageAlign = "left" | "center" | "right";
 
-/** Threshold colour change, ProPresenter "Color Triggers": at `atSec` remaining
- *  or below, paint `color`. Documented PP example: 60=orange, 30=yellow, 10=red. */
-export interface StageColorTrigger { atSec: number; color: string }
+// StageColorTrigger lived here. Colour triggers belong to the TIMER
+// (src/engine/timers), which is the one place every surface reads them from.
 
 export interface StageWidget {
   id: string;
@@ -67,17 +66,27 @@ export interface StageWidget {
   scale: number;
   align: StageAlign;
   color?: string;
+  /** Render the text in capitals. */
   uppercase?: boolean;
-  /** Show the timer/clock label above the value. */
+  /** Show the timer/clock's NAME above the value. */
   showLabel?: boolean;
   /** Timer/clock format. */
   showHours?: boolean;
   leadingZeros?: boolean;
-  /** Timer only: colour once past zero (PP `oCl`). */
-  overrunColor?: string;
-  /** Timer only, evaluated high-to-low. */
-  colorTriggers?: StageColorTrigger[];
   zIndex: number;
+
+  // DELETED 2026-09-25: `overrunColor` and `colorTriggers` used to live here
+  // too. They were sanitised, persisted, and set by four of the five built-in
+  // presets — and read by NOTHING: StageLayoutRenderer resolves a timer's
+  // colour from the TIMER DEFINITION's own triggers, never the widget's. So
+  // the shipped presets advertised an amber→yellow→red countdown that could
+  // never happen.
+  //
+  // They are removed rather than wired, because ProPresenter has exactly one
+  // source of truth for a timer's colour (the timer), and two places to set
+  // the same thing is how the stage screen and the operator panel drift apart.
+  // Set a timer's triggers on the TIMER, in the Timers panel, and every
+  // surface — projector, stage, layout — agrees.
 }
 
 export interface StageLayout {
@@ -92,7 +101,6 @@ export interface StageLayout {
 export const STAGE_SCALE_MIN = 0.2;
 export const STAGE_SCALE_MAX = 6;
 export const STAGE_MAX_WIDGETS = 24;
-export const STAGE_MAX_TRIGGERS = 8;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -162,16 +170,6 @@ export function sanitizeStageLayout(input: unknown, fallbackId = "layout"): Stag
       showLabel: w.showLabel === true,
       showHours: typeof w.showHours === "boolean" ? w.showHours : undefined,
       leadingZeros: w.leadingZeros === true,
-      overrunColor: safeColor(w.overrunColor),
-      colorTriggers: Array.isArray(w.colorTriggers)
-        ? (w.colorTriggers as unknown[])
-            .filter((t): t is StageColorTrigger =>
-              !!t && typeof t === "object"
-              && Number.isFinite((t as StageColorTrigger).atSec)
-              && safeColor((t as StageColorTrigger).color) !== undefined)
-            .slice(0, STAGE_MAX_TRIGGERS)
-            .map((t) => ({ atSec: Math.max(0, Math.floor(t.atSec)), color: safeColor(t.color)! }))
-        : undefined,
       zIndex: clamp(Number.isFinite(Number(w.zIndex)) ? Number(w.zIndex) : widgets.length, -9999, 9999),
     });
   }
@@ -181,4 +179,29 @@ export function sanitizeStageLayout(input: unknown, fallbackId = "layout"): Stag
     background: safeColor(o.background) ?? "#000000",
     widgets: widgets.sort((a, b) => a.zIndex - b.zIndex),
   };
+}
+
+
+/**
+ * Text size for a widget, as a fraction of the CANVAS HEIGHT.
+ *
+ * WHY THIS IS SHARED (2026-09-25): there were three copies — the renderer used
+ * `rect.h * 60 * scale`, the editing canvas `rect.h * 58` and the thumbnail
+ * `rect.h * 46`, and neither of the last two applied `scale`. So the Size
+ * slider moved and nothing an operator was looking at changed; they found out
+ * what it did on the confidence monitor, mid-service.
+ *
+ * Returning a FRACTION rather than pixels is what lets all three share it: the
+ * renderer multiplies by the real screen height, the canvas and thumbnail by
+ * their own box height. One answer, three sizes of the same picture.
+ */
+export function stageTextFraction(w: { rect: { h: number }; scale: number }): number {
+  return w.rect.h * 0.6 * w.scale;
+}
+
+/** The same number as a CSS length against a size-container. The three
+ *  surfaces each put `container-type: size` on their canvas, so `cqh` means
+ *  "1% of the canvas height" everywhere — identical picture at any size. */
+export function stageTextCss(w: { rect: { h: number }; scale: number }): string {
+  return `${Math.max(0.5, stageTextFraction(w) * 100)}cqh`;
 }

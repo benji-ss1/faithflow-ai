@@ -1,7 +1,7 @@
 ---
 headline: Verses stay in order, and the band's size hint now tells the truth
 audience: operator
-version: 0.1.528
+version: 0.1.531
 date: 2026-09-25
 highlights:
   - Jumping around a passage no longer scrambles the verse list. Looking up a verse, going back a few and then forward a few used to leave the cards in the order you happened to visit them - now they always read in scripture order, book by book, chapter by chapter.

@@ -26,6 +26,7 @@ import type { TimerApi, TimersApi, TimerSlot } from "../hooks";
 import { formatTimerClock, parseDurationToSec } from "@/engine/timers";
 import { OVERLAY_POSITIONS, type OverlayPosition } from "@/lib/broadcast";
 import { TIMER_SCREEN_IDS, TIMER_SCREEN_LABELS, toggleTimerScreen, type TimerScreenId } from "@/engine/timers/screens";
+import type { StageLayoutsApi } from "./useStageLayouts";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 const POSITION_LABELS: Record<OverlayPosition, string> = {
@@ -159,7 +160,13 @@ function TypeFields({ d, set }: { d: Draft; set: (p: Partial<Draft>) => void }) 
   );
 }
 
-export function TimersPanel({ quick, timers }: { quick: TimerApi; timers: TimersApi }) {
+export function TimersPanel({ quick, timers, stage, onOpenStage }: {
+  quick: TimerApi;
+  timers: TimersApi;
+  /** Optional so the panel still renders standalone in tests. */
+  stage?: StageLayoutsApi;
+  onOpenStage?: () => void;
+}) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
 
@@ -233,7 +240,7 @@ export function TimersPanel({ quick, timers }: { quick: TimerApi; timers: Timers
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {timers.slots.map((s) => <SlotRow key={s.def.id} slot={s} timers={timers} />)}
+            {timers.slots.map((s) => <SlotRow key={s.def.id} slot={s} timers={timers} stage={stage} onOpenStage={onOpenStage} />)}
           </div>
         )}
       </div>
@@ -241,7 +248,10 @@ export function TimersPanel({ quick, timers }: { quick: TimerApi; timers: Timers
   );
 }
 
-function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
+function SlotRow({ slot, timers, stage, onOpenStage }: {
+  slot: TimerSlot; timers: TimersApi;
+  stage?: StageLayoutsApi; onOpenStage?: () => void;
+}) {
   const { confirm, dialog: confirmDialog } = useConfirm();
   // ProPresenter's collapse chevron: collapsed = operate, expanded = edit.
   const [open, setOpen] = useState(false);
@@ -359,6 +369,12 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
             see or change it. In a dark room mid-service, an operator must be
             able to read the destination off the row. */}
         {slot.shown && <ScreenSummary screens={a.screens} />}
+
+        {/* THE LINK BETWEEN THE TWO PANELS. A timer reaches the stage screen
+            two different ways — as this overlay, or as a box inside a stage
+            LAYOUT — and an operator had no way to see which, or that the
+            second existed at all. */}
+        {stage && <StageUsage slot={slot} stage={stage} onOpenStage={onOpenStage} />}
       </div>
 
       {/* ── expanded: full editor ───────────────────────────────────────── */}
@@ -413,6 +429,24 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
 /** A sensible NEXT threshold: below the current lowest, with a colour that
  *  escalates orange -> amber -> red, so a second click never produces a row
  *  identical to one already there. */
+/** Which stage layouts place this timer, named. */
+function StageUsage({ slot, stage, onOpenStage }: {
+  slot: TimerSlot; stage: StageLayoutsApi; onOpenStage?: () => void;
+}) {
+  const using = stage.layouts.filter((l) =>
+    l.widgets.some((w) => w.kind === "timer" && w.timerId === slot.def.id));
+  if (using.length === 0) return null;
+  const live = using.some((l) => l.id === stage.activeLayoutId);
+  return (
+    <button onClick={onOpenStage} disabled={!onOpenStage}
+      title={onOpenStage ? "Open Stage layouts" : undefined}
+      className="mt-1 text-left text-[10px] text-[var(--color-muted-foreground)] disabled:cursor-default">
+      In stage layout{using.length > 1 ? "s" : ""}: {using.map((l) => l.name).join(", ")}
+      {live && <span className="ml-1 text-[var(--color-brand)] font-semibold">· on stage now</span>}
+    </button>
+  );
+}
+
 function nextTrigger(existing: Array<{ atSec: number; color: string }>): { atSec: number; color: string } {
   const PALETTE = ["#fb923c", "#facc15", "#ef4444"];
   const lowest = existing.length ? Math.min(...existing.map((t) => t.atSec)) : 120;

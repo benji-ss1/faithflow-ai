@@ -2881,6 +2881,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         id: w.id, kind: w.kind, rect: w.rect, timerId: w.timerId ?? null,
         text: w.text, previewScreen: w.previewScreen,
         scale: w.scale, align: w.align, color: w.color,
+        // uppercase/showLabel were set by the model and the presets and never
+        // put on the wire, so they could never reach a screen (2026-09-25).
+        uppercase: w.uppercase, showLabel: w.showLabel,
         showHours: w.showHours, leadingZeros: w.leadingZeros, zIndex: w.zIndex,
       })),
     });
