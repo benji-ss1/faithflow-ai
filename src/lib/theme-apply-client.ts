@@ -1,8 +1,9 @@
 "use client";
 /**
  * Apply a church theme from the operator (Themes tab + ProPresenter-style Theme
- * popover share this one path). Sets it as the church default, pushes the look
- * to the live outputs, restyles the current song, and records it in Recents.
+ * popover share this one path). Pushes the look (LIVE-ONLY — never the DB default)
+ * to the live outputs (visual only — no DB write, no song restyle/lock) and
+ * records it in Recents.
  */
 import { toast } from "sonner";
 
@@ -65,24 +66,24 @@ export async function syncBackgroundForAppliedTheme(
 /** Returns true when the theme was applied. */
 export async function applyThemeLive(t: ClientTheme): Promise<boolean> {
   try {
-    const res = await fetch(`/api/themes/${t.id}/apply`, { method: "POST" });
-    if (!res.ok) {
-      toast.error("Could not apply theme");
-      return false;
-    }
+    // Church defaults (2026-09-23): applying mid-service is LIVE-ONLY. It no
+    // longer POSTs /api/themes/[id]/apply (which rewrote the church's main
+    // theme on every click). Only "Set as main theme" writes is_default.
+    const { setLiveThemeId } = await import("@/lib/live-theme");
+    setLiveThemeId(t.id);
     // Drive the live output immediately (same-machine, like font-scale) so the
     // projector/stage/livestream reflect the applied theme without a refetch.
     // OperatorConsole listens for this and emits it on OutputState.
     const { themeConfigToAppearance } = await import("@/lib/theme-appearance");
     window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
-      detail: { appearance: themeConfigToAppearance(t.config) },
+      detail: { appearance: themeConfigToAppearance(t.config), themeId: t.id },
     }));
-    // ALSO restyle the whole current song — every slide/preview, not just the
-    // live screen (user directive). PlaylistSection (which knows the current
-    // song + can refresh + offer undo) handles this.
-    window.dispatchEvent(new CustomEvent("presentflow:apply-theme-to-song", {
-      detail: { themeId: t.id, themeName: t.name },
-    }));
+    // 2026-09-23 review decision: a mid-service apply is VISUAL ONLY. It no
+    // longer fires `presentflow:apply-theme-to-song` (which baked the theme
+    // into the current song + set the plan item's theme in the DB and marked
+    // the song styleLocked — so it stopped following later main-theme
+    // changes). Plain lyric slides follow the live theme on their own now;
+    // the explicit per-song "Apply theme to song" menu actions still bake+lock.
     pushThemeRecent(t.id);
     toast.success(`Theme "${t.name}" applied`);
     return true;

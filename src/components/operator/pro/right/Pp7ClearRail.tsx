@@ -19,13 +19,13 @@ import { Music, Send, Layers, Megaphone, SquareMenu, Image as ImageIcon, Video, 
 import type { OperatorShellCtx } from "../../shell/types";
 import { shouldIgnore, modalDialogOpen } from "@/hooks/useOperatorHotkeys";
 import {
-  PP7_CLEAR_ORDER, decodePp7ClearKey, pp7ClearGroupById, PP7_CLEAR_GROUPS,
+  PP7_CLEAR_ORDER, PP7_CLEAR_THEME_LABEL, PP7_CLEAR_THEME_TOOLTIP, decodePp7ClearKey, pp7ClearGroupById, PP7_CLEAR_GROUPS,
   type Pp7ClearLayer,
 } from "@/lib/pp7-clear";
 import { pp7ClearGroup, pp7ClearTitle } from "@/lib/pp7-layer-model";
 import { useShortcutLabel } from "@/lib/usePlatformLabel";
 import {
-  PP7_LAYER_AVAILABLE, pp7AnyLive, pp7ClearAll, pp7ClearLayer, pp7LayerActive,
+  PP7_LAYER_AVAILABLE, pp7AnyLive, pp7ClearAll, pp7ClearLayer, pp7LayerActive, pp7ClearTheme,
 } from "@/lib/pp7-layer-model";
 import { usePp7LayerInputs, usePp7ClearEffects } from "./usePp7Layers";
 
@@ -113,7 +113,7 @@ export function Pp7ClearRail({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const anyLive = pp7AnyLive(active);
+  const anyLive = pp7AnyLive(active) || (!!inputs.layerOrderV3 && !!inputs.themeLayerActive);
 
   return (
     <div
@@ -148,6 +148,23 @@ export function Pp7ClearRail({
           </button>
         );
       })}
+
+      {/* Layer Order V3 only: "Theme" — hide the theme background for THIS slide
+          (media + text stay; lapses on the next slide). Absent with the flag
+          off ⇒ the rail is unchanged. Same control in the Layers panel. */}
+      {inputs.layerOrderV3 && (
+        <button
+          type="button"
+          onClick={() => pp7ClearTheme(inputs, effects)}
+          title={`${PP7_CLEAR_THEME_TOOLTIP}${inputs.themeLayerActive ? " (theme live)" : ""}`}
+          aria-label={`${PP7_CLEAR_THEME_LABEL}: ${PP7_CLEAR_THEME_TOOLTIP}`}
+          aria-pressed={!!inputs.themeLayerActive}
+          data-active={inputs.themeLayerActive ? "true" : "false"}
+          className={`shrink-0 h-7 flex items-center justify-center border-t border-black/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 ${inputs.themeLayerActive ? "bg-[#7a1f1f] hover:bg-[#8f2626]" : "hover:bg-white/10"}`}
+        >
+          <span aria-hidden className="text-[8px] font-bold tracking-tight text-white/85">{PP7_CLEAR_THEME_LABEL}</span>
+        </button>
+      )}
 
       {/* Named Clear Groups, BELOW the per-layer buttons and visibly separate
           from them — they clear several layers at once, so they must not look

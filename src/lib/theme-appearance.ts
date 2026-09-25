@@ -120,6 +120,13 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
     a.dim = clamp(1 - c.bgOpacity, 0, 1);
   }
   if (a.bgType === "video" && (a.dim === undefined || a.dim === 0)) a.dim = 0.3;
+  // Layer Order V3 "See-through" — REAL transparency of the theme-bg layer
+  // (never the dim above). Only emitted when < 1 so every existing theme's
+  // appearance (and therefore flag-off output) is byte-identical. Legacy
+  // renderers ignore the field; only the V3 compositor reads it.
+  if (typeof c.layerOpacity === "number" && Number.isFinite(c.layerOpacity) && c.layerOpacity < 1) {
+    a.layerOpacity = clamp(c.layerOpacity, 0, 1);
+  }
   // Themes 3 — animated background preset (solid/gradient only; ignored for
   // image/video which have their own motion). Unknown values fall through to
   // no animation.

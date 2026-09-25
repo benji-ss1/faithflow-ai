@@ -8,6 +8,7 @@ import { AccountCard } from "@/components/account/AccountCard";
 import { ChurchProfileForm } from "@/components/organization/ChurchProfileForm";
 import { ChurchBrandingUploader } from "@/components/organization/ChurchBrandingUploader";
 import { WorshipDefaultsForm } from "@/components/organization/WorshipDefaultsForm";
+import { ChurchDefaultsCard } from "@/components/settings/ChurchDefaultsCard";
 import { listTranslations } from "@/lib/server/bible";
 
 export default async function OrganizationPage() {
@@ -49,7 +50,13 @@ export default async function OrganizationPage() {
             <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Worship defaults
             </div>
+            {/* Church defaults (2026-09-23): translation + main theme +
+                animated background live in the shared card; the legacy form
+                keeps ONLY the blank-screen colour (no regression). */}
+            <ChurchDefaultsCard />
+            <div className="mt-5" />
             <WorshipDefaultsForm
+              showTranslation={false}
               translations={publicTranslations}
               initial={{
                 defaultTranslationId: prefs?.defaultTranslationId ?? null,

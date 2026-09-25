@@ -267,7 +267,7 @@ export function RightIconBar({
       )}
       {openKey === "timers" && (
         <PopoverShell title="Timers" onClose={() => setOpenKey(null)}>
-          <TimersPanel quick={timer} timers={timers} />
+          <TimersPanel quick={timer} timers={timers} stage={stageLayouts} onOpenStage={() => setOpenKey("stage")} />
         </PopoverShell>
       )}
       {openKey === "stage" && (

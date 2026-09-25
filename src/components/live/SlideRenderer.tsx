@@ -61,42 +61,11 @@ function isDefaultSlideBg(c: string | null | undefined): boolean {
   return v === "#000000" || v === "#000" || v === "black" || v === "rgb(0,0,0)" || v === "rgb(0, 0, 0)";
 }
 
-// ── Themes Phase 1: compute CSS from the active theme appearance ───────────
-// Background supports solid / gradient / image, with an optional dark "dim"
-// overlay for text readability (a single `background` shorthand — image/gradient
-// layered under a dim gradient). Returns the built-in fallback when no theme is
-// active. The values are validated on the wire (isValidThemeAppearance), and a
-// hostile string can't break out of the single `background`/`color` CSS property
-// (CSSOM parses each property in isolation).
-export function themeBackgroundStyle(
-  appearance: ThemeAppearance | null | undefined,
-  fallback: string,
-  /** 2026-09-20 owner directive: when nothing was actually CHOSEN as a background, the
-   *  slide is a transparent text layer and whatever sits underneath (media, camera,
-   *  background template) shows through. The opaque black lives on the surface, not on
-   *  the slide. Off ⇒ the previous opaque `fallback`, byte-identical. */
-  transparentDefault?: boolean,
-): React.CSSProperties {
-  const none = transparentDefault ? { background: "transparent" } : { background: fallback };
-  if (!appearance) return none;
-  const dim = typeof appearance.dim === "number" && appearance.dim > 0 ? Math.min(1, appearance.dim) : 0;
-  const dimLayer = dim > 0 ? `linear-gradient(rgba(0,0,0,${dim}),rgba(0,0,0,${dim}))` : null;
-  let base: string | undefined;
-  if (appearance.bgType === "image" && appearance.bgImageUrl) {
-    base = `url("${appearance.bgImageUrl}")`;
-  } else if (appearance.bgType === "gradient" && appearance.bgColor) {
-    base = `linear-gradient(${appearance.bgAngle ?? 180}deg, ${appearance.bgColor}, ${appearance.bgColor2 ?? appearance.bgColor})`;
-  } else if (appearance.bgColor) {
-    base = appearance.bgColor;
-  }
-  if (!base) return none;
-  return {
-    background: dimLayer ? `${dimLayer}, ${base}` : base,
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
-  };
-}
+// themeBackgroundStyle lives in ./theme-bg-style (no React/component deps, so
+// ThemeLayers can import it without a SlideRenderer ⇄ ThemeLayers cycle).
+// Re-exported here so every existing import keeps working.
+export { themeBackgroundStyle } from "./theme-bg-style";
+import { themeBackgroundStyle } from "./theme-bg-style";
 
 // Pick a readable text color for a background color when the theme didn't
 // specify one — prevents the "white text on a light theme = invisible verses"
@@ -281,10 +250,19 @@ type SlideRendererProps = {
    * its theme background goes transparent. Text colour theming is unchanged.
    */
   themeChromeHosted?: boolean;
+  /**
+   * Layer Order V3 (src/lib/layer-order-v3.ts): the compositor paints the theme
+   * background (and decor) in its own layer BELOW this slide. The slide paints no
+   * theme background, no animated bg and no decor; only its own per-slide colour
+   * (bgExplicit, or any non-default colour — same rule as the plain path) or
+   * bgImageUrl. The default black counts as unset ⇒ transparent. Undefined ⇒
+   * byte-identical legacy rendering.
+   */
+  themeBgExternal?: boolean;
 };
 
 export function SlideRenderer(props: SlideRendererProps) {
-  const { slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput, obsOverlay, fitBandFraction, ignoreThemeLayout, themeChromeHosted } = props;
+  const { slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput, obsOverlay, fitBandFraction, ignoreThemeLayout, themeChromeHosted, themeBgExternal } = props;
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
   // Transparent slide layer (kill-switchable). Read once per render.
   const transparentDefault = useTransparentSlide();
@@ -296,7 +274,7 @@ export function SlideRenderer(props: SlideRendererProps) {
   const themeBoxesAllowed = themeBoxesAllowedFor(decorFlags);
   const themeLayout = themeBoxesAllowed ? appearance?.layout : undefined;
   // Hosted: the compositor paints theme bg + decor persistently behind us.
-  const hosted = !!themeChromeHosted && themeDecorPlan(slide, appearance, decorFlags) !== null;
+  const hosted = !!themeBgExternal || (!!themeChromeHosted && themeDecorPlan(slide, appearance, decorFlags) !== null);
   const themeBg = (fallback: string): React.CSSProperties => (hosted ? { background: "transparent" } : themeBackgroundStyle(appearance, fallback, transparentDefault));
   // Theme decor (images/shapes/video/extra text from the theme slide), drawn
   // behind the slide text. Scripture uses the scripture slide's decor, falling
@@ -324,6 +302,9 @@ export function SlideRenderer(props: SlideRendererProps) {
   // the song/scripture (text) paths below — NOT the deliberate "blank" kind.
   const rawSlideBg = "bgColor" in slide ? slide.bgColor : undefined;
   const bgWasChosen = "bgExplicit" in slide && slide.bgExplicit === true;
+  // Layer Order V3 uses the SAME rule (explicit, or any non-default colour — a
+  // legacy slide's real colour is preserved); only default black / unset is
+  // transparent, so the theme / media layers below show.
   const slideBg = rawSlideBg && (bgWasChosen || !isDefaultSlideBg(rawSlideBg)) ? rawSlideBg : undefined;
 
   // A cleared slide is transparent in overlay mode (camera shows through in OBS)
@@ -343,7 +324,7 @@ export function SlideRenderer(props: SlideRendererProps) {
     // opaque surface with nothing else behind it — OBS/NDI alpha keying and a
     // background template / camera / theme video (overVideo) keep today's
     // transparent empty slide, so those outputs are unchanged.
-    if (slide.keepThemeBg === true && !transparentBg && !overVideo) {
+    if (slide.keepThemeBg === true && !transparentBg && !overVideo && !themeBgExternal) {
       const animated = !hosted && usesAnimatedBg(appearance, false, undefined);
       const keepDecor = decorFor(false);
       return (
@@ -353,15 +334,19 @@ export function SlideRenderer(props: SlideRendererProps) {
         </div>
       );
     }
-    return <div className={`${base} ${(transparentBg || overVideo) ? "" : "bg-black"} ${className || ""}`} />;
+    return <div className={`${base} ${(transparentBg || overVideo || themeBgExternal) ? "" : "bg-black"} ${className || ""}`} />;
   }
 
   if (slide.kind === "blank") {
     // Over video OR in OBS transparent mode, a blank slide is fully transparent
     // (shows the live feed / camera). transparentBg ignores any per-slide bgColor
     // so "clear" always keys through.
-    const bg = (overVideo || transparentBg) ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000", transparentDefault);
-    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slide.bgColor);
+    // Layer Order V3: a blank is OPAQUE (its colour, default black) and covers
+    // camera, media and theme — only OBS/NDI alpha keying stays see-through.
+    const bg = themeBgExternal ? (transparentBg ? { background: "transparent" } : { background: slide.bgColor || "#000000" })
+      : (overVideo || transparentBg) ? { background: "transparent" }
+      : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000", transparentDefault);
+    const animated = !themeBgExternal && usesAnimatedBg(appearance, overVideo || transparentBg, slide.bgColor);
     return (
       <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={bg}>
         {animated && <AnimatedThemeBg appearance={appearance} />}
@@ -446,7 +431,7 @@ export function SlideRenderer(props: SlideRendererProps) {
         ? { background: "transparent" }
         : slide.bgImageUrl
           ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
-          : themeBackgroundStyle(appearance, "#0b0b0b", transparentDefault);
+          : themeBg("#0b0b0b");
       return (
         <div className={`${base} relative ${className || ""}`} style={ltBg}>
           {hasPaint && (
@@ -617,10 +602,38 @@ export function SlideRenderer(props: SlideRendererProps) {
       // operator can type straight onto it. Gated on `editable`, so every
       // non-edit render (projector/stage/livestream/thumbnails) is unchanged.
       if (soleText && (soleText.text.trim() || editable)) {
-        const animated = !hosted && usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
+        // 2026-09-23 (user-directed "the theme always wins"): a plain lyric slide
+        // (ONE visible text object, no per-slide image) follows the ACTIVE theme
+        // exactly like a Bible plain-text slide — theme bg, colour, font, weight,
+        // alignment. Previously the song's stored bgColor (incl. the #010101
+        // written by applyThemeToSong) and baked object colour/font beat the
+        // theme, so songs ignored every later theme change. Only when the theme
+        // actually PAINTS a background (a font-only theme must not black out a
+        // coloured announcement slide), never while editing inline, never in the
+        // OBS transparent overlay, and never on a deliberately styled slide
+        // (`styleLocked` — editor save / per-song or per-slide theme apply, user
+        // decision B), and never over a background the operator explicitly
+        // CHOSE for this slide (`bgExplicit`, the 2026-09-21 song-background
+        // feature). Everything else in this branch (theme lyrics frame,
+        // decor, scripture band reserve, hosted chrome) is kept — only the
+        // container bg and the per-object style overrides change.
+        const themeHasBg = !!appearance && (!!appearance.bgColor || !!appearance.bgImageUrl || appearance.bgType === "image" || appearance.bgType === "video");
+        const followTheme = themeHasBg && !transparentBg && !slide.bgImageUrl && !editable && soleText.styleLocked !== true && !bgWasChosen;
+        const animated = !hosted && usesAnimatedBg(appearance, overVideo || transparentBg, followTheme ? undefined : (slideBg || slide.bgImageUrl));
+        const soleBg: React.CSSProperties = followTheme ? (overVideo ? { background: "transparent" } : themeBg("#0b0b0b")) : designBg;
+        // Text colour over a Background Template (overVideo) — deliberately the
+        // SAME rule as the Bible plain-text path below: themeTextStyle (theme
+        // textColor, else auto-contrast vs the theme bgColor). Test-locked in
+        // test/style-lock.test.ts ("song over template matches Bible").
+        const soleThemedTextColor = followTheme ? (overVideo ? undefined : ((themeTextStyle(appearance)?.color as string | undefined) ?? undefined)) : themedTextColor;
         // Respect the operator's colour/font/weight/alignment; AutoFitText owns
         // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.
-        const objStyle: React.CSSProperties = {
+        const objStyle: React.CSSProperties = followTheme ? {
+          // Exactly the Bible plain-text styling: theme text style only (stored
+          // object colour/font/weight/align ignored); italic + uppercase toggle kept.
+          ...(soleText.italic ? { fontStyle: "italic" } : {}),
+          ...(soleText.uppercase === false ? { textTransform: "none" } : soleText.uppercase === true ? { textTransform: "uppercase" } : {}),
+        } : {
           // Default-white inherits the theme textColor when the theme bg is
           // showing; an explicit colour still wins (themedObjectTextColor).
           ...(soleText.color ? { color: themedObjectTextColor(soleText.color, themedTextColor) } : (themedTextColor ? { color: themedTextColor } : {})),
@@ -644,9 +657,9 @@ export function SlideRenderer(props: SlideRendererProps) {
         const soleDecor = !slide.reference ? decorFor(false) : undefined;
         if (lyricFrame) {
           return (
-            <div className={`${base} relative ${className || ""}`} style={designBg}>
+            <div className={`${base} relative ${className || ""}`} style={soleBg}>
               {animated && <AnimatedThemeBg appearance={appearance} />}
-              {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} decor />}
+              {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={soleThemedTextColor} decor />}
               <ThemeFramedText frame={lyricFrame} text={soleText.text} fontScale={fontScale} textMinPx={textMinPx}
                 className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
                 textStyle={{ ...themeTextStyle(appearance), ...themeFrameTextStyle(lyricFrame), ...objStyle }}
@@ -655,9 +668,9 @@ export function SlideRenderer(props: SlideRendererProps) {
           );
         }
         return (
-          <div className={`${base} ${animated || soleDecor ? "relative" : ""} ${className || ""}`} style={designBg}>
+          <div className={`${base} ${animated || soleDecor ? "relative" : ""} ${className || ""}`} style={soleBg}>
             {animated && <AnimatedThemeBg appearance={appearance} />}
-            {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={themedTextColor} decor />}
+            {soleDecor && <SlideObjectsLayer objects={soleDecor} themedTextColor={soleThemedTextColor} decor />}
             <AutoFitText
               text={soleText.text}
               maxPx={120}

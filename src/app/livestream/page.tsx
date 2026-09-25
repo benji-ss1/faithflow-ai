@@ -46,6 +46,9 @@ export default function LivestreamPage() {
   // church — that tells this surface to pre-wrap its layers, so the first scene
   // of a service can never remount the stack mid-service.
   const [scenesPossible, setScenesPossible] = useState(false);
+  // Layer Order V3: the operator's flag decision rides OutputState (absent ⇒ off).
+  const [layerOrderV3, setLayerOrderV3] = useState(false);
+  const [themeLayerHidden, setThemeLayerHidden] = useState(false);
   // NETWORKED timers (2026-09-21): anchors from OutputState, ticked locally by
   // TimerOverlayLayer. Separate from the same-machine 1Hz path above — the
   // local one always wins, this only fills a gap on a remote screen.
@@ -383,6 +386,8 @@ export default function LivestreamPage() {
       setReferenceColor(typeof state.referenceColor === "string" ? state.referenceColor : undefined);
       setAppearance(state.appearance ?? null);
       setBackground(state.background ?? null);
+      setLayerOrderV3(state.layerOrderV3 === true);
+      setThemeLayerHidden(state.themeLayerHidden === true);
       setVideoInput(state.videoInput ?? null);
       setLowerThird(state.lowerThird);
       setScene(state.scene ?? null); // Scenes: never LAYERS_V2-gated
@@ -545,6 +550,8 @@ export default function LivestreamPage() {
               and unmuted media. The announcement / lower-third / message / timer
               overlays below stay route-owned (bespoke layout, not duplicated). */}
           <OutputCompositor
+            layerOrderV3={layerOrderV3}
+            themeLayerHidden={themeLayerHidden}
             mode="livestream"
             slide={compositorSlide}
             appearance={compositorAppearance}

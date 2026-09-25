@@ -10,6 +10,12 @@
 
 export type Pp7ClearLayer = "audio" | "messages" | "props" | "announcements" | "slide" | "media" | "videoInput";
 
+/** Layer Order V3 only: the extra "Theme" control — hides the theme background
+ *  for the current slide (not a PP7_CLEAR_ORDER row, so the flag-off rail/keys/
+ *  goldens are untouched). Shown in BOTH the clear rail and the Layers panel. */
+export const PP7_CLEAR_THEME_LABEL = "Theme";
+export const PP7_CLEAR_THEME_TOOLTIP = "Hide theme background for this slide — media and text stay";
+
 /** Rail order, top → bottom (PP7). */
 export const PP7_CLEAR_ORDER: readonly Pp7ClearLayer[] = [
   "audio", "messages", "props", "announcements", "slide", "media", "videoInput",

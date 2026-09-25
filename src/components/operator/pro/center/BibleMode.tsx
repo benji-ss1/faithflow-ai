@@ -15,8 +15,8 @@ import { cn } from "@/lib/utils";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { bibleSearchCacheKey, getBibleSearchCached, setBibleSearchCached } from "@/lib/bible-search-cache";
 import { fetchChapterCached } from "@/lib/bible-chapter-cache";
-import { addServiceItem, addServiceItems } from "@/lib/actions";
-import { Plus, Check, BookOpen, ChevronUp, ChevronDown, Palette } from "lucide-react";
+import { addServiceItem, addServiceItems, getChurchDefaults, setChurchDefaults } from "@/lib/actions";
+import { Plus, Check, BookOpen, ChevronUp, ChevronDown, Palette, Star } from "lucide-react";
 import { ScriptureSlideEditor } from "@/components/operator/scripture/ScriptureSlideEditor";
 import { loadScriptureStyle, scriptureSlidePayload, hasSavedScriptureStyle, type ScriptureDesign } from "@/components/operator/scripture/scriptureStyle";
 import { DropdownDisclosure } from "../DropdownDisclosure";
@@ -147,6 +147,33 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Church defaults (2026-09-23): an explicit admin-only "Make default" for the
+  // translation picker. Switching translation here (or by voice) stays
+  // session-only; only this button writes the church default.
+  const [churchDefault, setChurchDefault] = useState<{ canEdit: boolean; code: string; ids: Record<string, string> } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getChurchDefaults().then((res) => {
+      if (!alive || !res.ok || !res.data) return;
+      const ids: Record<string, string> = {};
+      for (const t of res.data.translations) ids[t.code.toUpperCase()] = t.id;
+      setChurchDefault({ canEdit: res.data.canEdit, code: res.data.translationCode.toUpperCase(), ids });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const [makingDefault, setMakingDefault] = useState(false);
+  const makeTranslationDefault = useCallback(async (code: string) => {
+    const id = churchDefault?.ids[code.toUpperCase()];
+    if (!id) { toast.error(`${code} can't be the church default`); return; }
+    setMakingDefault(true);
+    try {
+      const res = await setChurchDefaults({ translationId: id });
+      if (!res.ok) { toast.error(res.error || "Couldn't save the default translation"); return; }
+      setChurchDefault((prev) => (prev ? { ...prev, code: code.toUpperCase() } : prev));
+      toast.success(`${code} is now the church's default translation`);
+    } finally { setMakingDefault(false); }
+  }, [churchDefault]);
 
   // Pending guards against duplicate-add: a rapid double-click or impatient
   // repeat-click on the `+` button (or the batch "add all" button) could
@@ -842,6 +869,18 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             icon: <BookOpen className="w-4 h-4" />,
           }))}
         />
+        {churchDefault?.canEdit && translation && translation.toUpperCase() !== churchDefault.code && churchDefault.ids[translation.toUpperCase()] && (
+          <button
+            type="button"
+            onClick={() => void makeTranslationDefault(translation)}
+            disabled={makingDefault}
+            title={`Make ${translation} the church's default translation (loads every service)`}
+            aria-label={`Make ${translation} the default translation`}
+            className="h-8 px-2 inline-flex items-center gap-1 rounded border border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-50 shrink-0"
+          >
+            <Star className="w-3 h-3" /> Make this our default translation
+          </button>
+        )}
         <button
           onClick={() => {
             // 2026-09-01: clicking Lookup means "look up exactly what I typed" —

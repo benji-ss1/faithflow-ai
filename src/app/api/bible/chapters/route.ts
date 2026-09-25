@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { apiUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { listTranslations } from "@/lib/server/bible";
+import { getChurchDefaultTranslationCode } from "@/lib/server/church-defaults";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,9 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const book = url.searchParams.get("book");
-  const code = url.searchParams.get("translation") || "KJV";
+  // Church defaults (2026-09-23): no explicit translation → the church's
+  // default (was hard-wired KJV). getChurchDefaultTranslationCode never throws.
+  const code = url.searchParams.get("translation") || await getChurchDefaultTranslationCode(user.churchId);
   if (!book) return NextResponse.json({ error: "book required" }, { status: 400 });
 
   const translations = await listTranslations();

@@ -16,12 +16,13 @@
  * way back once you have edited a starter layout.
  */
 import { useState } from "react";
-import { Plus, Copy, Trash2, Pencil, Check, X, Monitor, ChevronLeft } from "lucide-react";
+import { Plus, Copy, Trash2, Pencil, Check, X, Monitor, ChevronLeft, MonitorPlay } from "lucide-react";
+import { StageCanvas } from "./StageCanvas";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { StageLayoutsApi, StageLayoutEntry } from "./useStageLayouts";
 import type { TimersApi } from "../hooks";
 import {
-  STAGE_WIDGET_KINDS, STAGE_WIDGET_LABELS, STAGE_MAX_WIDGETS, clampRect,
+  STAGE_WIDGET_KINDS, STAGE_WIDGET_LABELS, STAGE_MAX_WIDGETS, clampRect, stageTextCss,
   type StageLayout, type StageWidget, type StageWidgetKind,
 } from "@/engine/stage";
 
@@ -42,29 +43,36 @@ const PLACEMENTS: Array<{ id: string; label: string; rect: { x: number; y: numbe
   { id: "br", label: "Bottom right", rect: { x: 0.54, y: 0.76, w: 0.42, h: 0.2 } },
 ];
 
+/** What a widget SHOWS while designing. One function, used by both the
+ *  thumbnails and the drag canvas, so the small picture and the thing you edit
+ *  can never disagree about what a box is. */
+function sampleText(w: StageWidget): string {
+  switch (w.kind) {
+    case "timer": return "0:00";
+    case "clock": return "12:00";
+    case "current_text": return "Words";
+    case "next_text": return "Next";
+    case "static_text": return w.text || "Text";
+    default: return STAGE_WIDGET_LABELS[w.kind];
+  }
+}
+
 /** A miniature of a layout — ProPresenter's list is thumbnailed, and a name
  *  alone ("Current + Timers 2") tells an operator nothing. */
 function Thumb({ layout, className = "" }: { layout: StageLayout; className?: string }) {
   return (
     <div className={`relative overflow-hidden rounded border border-[var(--color-border)] ${className}`}
-      style={{ background: layout.background, aspectRatio: "16 / 9" }}>
+      style={{ background: layout.background, aspectRatio: "16 / 9", containerType: "size" }}>
       {layout.widgets.map((w) => (
         <div key={w.id} className="absolute flex items-center justify-center overflow-hidden"
           style={{
             left: `${w.rect.x * 100}%`, top: `${w.rect.y * 100}%`,
             width: `${w.rect.w * 100}%`, height: `${w.rect.h * 100}%`,
             color: w.color ?? "#ffffff",
-            fontSize: `${Math.max(4, w.rect.h * 46)}px`,
+            fontSize: stageTextCss(w),
             justifyContent: w.align === "left" ? "flex-start" : w.align === "right" ? "flex-end" : "center",
           }}>
-          <span className="font-mono truncate leading-none opacity-90">
-            {w.kind === "timer" ? "0:00"
-              : w.kind === "clock" ? "12:00"
-              : w.kind === "current_text" ? "Words"
-              : w.kind === "next_text" ? "Next"
-              : w.kind === "static_text" ? (w.text || "Text")
-              : STAGE_WIDGET_LABELS[w.kind]}
-          </span>
+          <span className="font-mono truncate leading-none opacity-90">{sampleText(w)}</span>
         </div>
       ))}
     </div>
@@ -75,6 +83,16 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
   const { confirm, dialog } = useConfirm();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<StageLayout | null>(null);
+
+  /** Start from blank. Previously the ONLY way to make your own was to copy a
+   *  built-in, so "create one" was never actually offered. */
+  const newLayout = async () => {
+    const id = await api.createBlank();
+    if (!id) return;
+    await api.refresh();
+    setEditingId(id);
+    setDraft({ id, name: "My layout", background: "#000000", widgets: [] });
+  };
 
   const openEditor = async (l: StageLayoutEntry) => {
     // Editing a built-in duplicates it first — built-ins are code, not rows.
@@ -151,14 +169,37 @@ export function StageLayoutPanel({ api, timers }: { api: StageLayoutsApi; timers
 
       {/* ── 2. Layouts ───────────────────────────────────────────────────── */}
       <div className="border-t border-[var(--color-border)] pt-3">
-        <div className="eyebrow mb-2">Layouts</div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="eyebrow">Layouts</div>
+          <button onClick={newLayout}
+            className="flex items-center gap-1 text-[11px] text-[var(--color-brand)] hover:underline">
+            <Plus className="w-3 h-3" /> New layout
+          </button>
+        </div>
+        <div className="text-[10px] text-[var(--color-muted-foreground)] mb-2">
+          Tap a design to put it on the stage screen.
+        </div>
         {api.loading ? (
           <div className="text-[11px] text-[var(--color-muted-foreground)]">Loading layouts…</div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             {api.layouts.map((l) => (
               <div key={l.id} className="flex flex-col gap-1">
-                <Thumb layout={l} />
+                {/* THE WHOLE THUMBNAIL IS THE BUTTON. Choosing a design is the
+                    single most common thing done here, and it used to be
+                    impossible without first understanding that a "stage
+                    screen" is a separate object you have to create. */}
+                <button onClick={() => api.use(l.id)} aria-pressed={api.activeLayoutId === l.id}
+                  title={api.activeLayoutId === l.id ? `${l.name} is on the stage screen` : `Put "${l.name}" on the stage screen`}
+                  className={`relative rounded ${api.activeLayoutId === l.id
+                    ? "outline outline-2 outline-[var(--color-brand)]" : "hover:opacity-90"}`}>
+                  <Thumb layout={l} />
+                  {api.activeLayoutId === l.id && (
+                    <span className="absolute top-1 left-1 px-1 py-0.5 rounded bg-[var(--color-brand)] text-black text-[8px] font-bold uppercase tracking-wider flex items-center gap-0.5">
+                      <MonitorPlay className="w-2.5 h-2.5" /> On stage
+                    </span>
+                  )}
+                </button>
                 <div className="flex items-center gap-1">
                   <span className="text-[11px] truncate flex-1" title={l.name}>{l.name}</span>
                   {l.builtIn && <span className="text-[9px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Built in</span>}
@@ -237,17 +278,30 @@ function LayoutEditor({
         </button>
       </div>
 
-      {/* Live preview — click a box to select it. */}
-      <div className="relative">
-        <Thumb layout={draft} className="w-full" />
-        <div className="absolute inset-0">
-          {draft.widgets.map((w) => (
-            <button key={w.id} onClick={() => setSel(w.id)} aria-label={`Select ${STAGE_WIDGET_LABELS[w.kind]}`}
-              className={`absolute border ${sel === w.id ? "border-[var(--color-brand)]" : "border-transparent"}`}
-              style={{ left: `${w.rect.x * 100}%`, top: `${w.rect.y * 100}%`, width: `${w.rect.w * 100}%`, height: `${w.rect.h * 100}%` }} />
-          ))}
-        </div>
+      {/* The screen itself — drag to move, corner to resize. This replaced a
+          read-only preview with click-to-select: an operator designing a
+          confidence monitor thinks by moving things, not by typing an X. */}
+      <StageCanvas
+        layout={draft}
+        selectedId={sel}
+        onSelect={setSel}
+        onChange={(id, rect) => patch(id, { rect })}
+        preview={sampleText}
+      />
+      <div className="text-[10px] text-[var(--color-muted-foreground)] -mt-1">
+        Drag to move. Drag the orange corner to resize. Arrow keys nudge.
       </div>
+
+      {/* Timers and stage layouts are ONE job, not two. A Timer box that is
+          not bound to a real timer shows "—" on the stage screen and the
+          operator has no way to know why, so say it here. */}
+      {draft.widgets.some((w) => w.kind === "timer" && !w.timerId) && (
+        <div className="text-[10px] text-[var(--color-destructive)] leading-relaxed">
+          {timers.slots.length === 0
+            ? "This layout shows a timer, but you have not made any timers yet. Open the Timers panel (the stopwatch icon) and add one — then choose it below."
+            : "A timer box has no timer chosen, so the stage screen will show a dash. Pick one below."}
+        </div>
+      )}
 
       {/* Add anything — the "what do we want on this screen" dropdown. */}
       <div className="flex items-center gap-2">

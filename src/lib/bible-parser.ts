@@ -605,6 +605,32 @@ function normalize(text: string): string {
   s = s.replace(/\ba\s+hundred\b/g, "one hundred");
   s = s.replace(/\bhundred\s+and\s+/g, "hundred ");
 
+  // 2026-09-24 field bug (live transcript, JPD): Deepgram inserts a stray article
+  // "a" inside a spoken reference — the operator said "Psalm 100 verse 5" and the
+  // transcript read "Psalm a 100 verse 5", which matched NOTHING because every
+  // book/chapter/verse pattern requires the book to butt straight up against its
+  // number. Same for a chapter/verse gap ("Psalm 100 a 5").
+  //
+  // Dropping that "a" is only safe where the rest of the utterance CONTINUES the
+  // reference — a following "verse"/"chapter" word, another number, or another
+  // "a <number>". Without that requirement "give Micah a 5 star review" and "that
+  // took Job a 2 year wait" both became references (caught in review). A bare
+  // "Psalm a 100" with nothing after it is therefore deliberately left alone: it is
+  // indistinguishable from ordinary speech, and rule 0 says do nothing rather than
+  // project the wrong thing.
+  //
+  // Runs AFTER the hundreds rewrite above, because there "a hundred" is a real part
+  // of the number ("Psalm a hundred and five") and must become "one hundred" first —
+  // the number lookahead here can never see it.
+  const A_NUM = "\\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety";
+  const A_CONT = `(?=\\s+(?:verses?|chapters?|a\\s+(?:${A_NUM})|${A_NUM}))`;
+  // book + "a" + number, where the reference carries on  →  "Psalm a 100 verse 5"
+  s = s.replace(new RegExp(`\\b(${BOOK_PATTERN})\\s+a\\s+(${A_NUM})${A_CONT}`, "gi"), "$1 $2");
+  // book + chapter + "a" + verse  →  "Psalm 100 a 5"
+  s = s.replace(new RegExp(`\\b(${BOOK_PATTERN})(\\s+(?:chapter\\s+)?\\d{1,3})\\s+a\\s+(?=${A_NUM})`, "gi"), "$1$2 ");
+  // "verse a 5" / "chapter a 3"
+  s = s.replace(new RegExp(`\\b(verses?|chapters?)\\s+a\\s+(?=${A_NUM})`, "gi"), "$1 ");
+
   // Fuse compound word numerals with an underscore so "twenty-eight" stays
   // atomic during pattern matching (won't be split by range separators or
   // chapter/verse separators). Only touches known tens-ones combos.

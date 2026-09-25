@@ -10,13 +10,21 @@ export type ShaderPreset =
   | "holyFire"
   | "stainedLight"
   | "deepBreath"
-  | "cleanSlate";
+  | "cleanSlate"
+  | "goldenBokeh"
+  | "waterfall"
+  | "forestLight"
+  | "heavenClouds"
+  | "gloryDust"
+  | "auroraGlow"
+  | "stillWaters";
 
 export type BackgroundCategory =
   | "contemporary"
   | "traditional"
   | "gospel"
   | "minimal"
+  | "nature"
   | "custom";
 
 export interface PFBackground {
