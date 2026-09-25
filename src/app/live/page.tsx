@@ -253,6 +253,15 @@ export default function LivePage() {
               msg.state.scene ?? null,
             ]);
           } catch { outSig = String(Date.now()); }
+          // ABOVE the dedupe gate, both of them. Inside it, a frame whose only
+          // change was the timer wire or the projector layout was dropped: timers
+          // were swept off after 60s of a healthy service, and — worse — clear-all
+          // could not remove a layout from the projector, because removing it
+          // changed nothing else in the signature. An operator would have had no
+          // control that took it off the congregation's screen.
+          foldTimersWire(msg.state.timersWire);
+          setStageOverlay((msg.state.stageLayouts ?? []).find((e) => e.target === "main")?.layout ?? null);
+
           if (outSig !== lastOutputSigRef.current) {
             lastOutputSigRef.current = outSig;
             // Phase 3 late-join convergence: the operator's active layer patches
@@ -275,10 +284,8 @@ export default function LivePage() {
             setVideoInput(msg.state.videoInput ?? null);
             setZone(msg.state.zone ?? null);
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
-            foldTimersWire(msg.state.timersWire);
             // "Show on screen": a stage layout whose screen is targeted at the
             // projector. OVERLAY only — see the render below.
-            setStageOverlay((msg.state.stageLayouts ?? []).find((e) => e.target === "main")?.layout ?? null);
             // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
             if (msg.state.scene !== undefined) setScenesPossible(true);
           }

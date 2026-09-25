@@ -237,6 +237,19 @@ test("MultiView shows a stage layout as it really is", () => {
     "the tile must hide exactly what the real screen hides");
   assert.match(mv, /wireTimers=\{view\.stageTimers \?\? \[\]\}/,
     "the tile must show real timer values, not the unbound dash");
+  // THE WORDS. Without these the tile drew the frame, the background and the
+  // timers and left current_text / next_text empty while the real monitor was
+  // showing lyrics — confidently displaying something that is not on screen.
+  for (const prop of ["currentText", "nextText", "message"]) {
+    assert.match(mv, new RegExp(`${prop}=\\{view\\.stage`),
+      `the tile passes no ${prop}, so those widgets render blank while the monitor shows text`);
+  }
+  // ONE slideText, shared. Two copies is how the dashboard and the monitor it
+  // claims to mirror start disagreeing.
+  const shared = readFileSync("src/lib/slide-text.ts", "utf8");
+  assert.match(shared, /export function slideText/);
+  assert.doesNotMatch(readFileSync("src/app/stage/page.tsx", "utf8"), /^function slideText\(/m,
+    "/stage must import the shared slideText, not keep its own copy");
   assert.match(resolver, /stageScene: scene/, "the resolver must pass the active scene through");
   assert.match(resolver, /stageTimers: s\?\.timersWire\?\.timers/, "and the live timer anchors");
 

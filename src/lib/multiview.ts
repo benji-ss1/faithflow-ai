@@ -23,6 +23,7 @@ import type { OutputCompositorProps } from "@/components/live/OutputCompositor";
 import { DEFAULT_OBS_BAND, livestreamRenderPlan } from "./obs-lowerthird";
 import { applyObsLiveFields, resolveObsRender, obsThemeColorsOf, type ObsEditorStore } from "./obs-look";
 import { sceneHidesLayer } from "./scenes";
+import { slideText } from "./slide-text";
 import type { SceneWire } from "./scenes";
 
 export type MultiViewScreen = "main" | "stage" | "livestream" | "ndi";
@@ -88,6 +89,9 @@ export type ScreenView = {
   /** How many stage screens have a layout. The tile can only draw one; saying
    *  so is the difference between incomplete and misleading. */
   stageLayoutCount?: number;
+  stageCurrentText?: string;
+  stageNextText?: string;
+  stageMessage?: string | null;
   /** Full-frame announcement the route draws over the compositor. */
   announcement: AnnouncementPayload | null;
   /** Livestream full-mode lower third drawn by the route over the slide. */
@@ -195,6 +199,14 @@ export function resolveScreenView(
         stageScene: scene,
         stageTimers: s?.timersWire?.timers ?? [],
         stageLayoutCount: s?.stageLayouts?.length ?? (s?.stageLayout ? 1 : 0),
+        // The WORDS. Without these the tile drew the frame, the background and
+        // the timers and left current_text / next_text EMPTY while the real
+        // monitor was showing lyrics — the dashboard confidently showing
+        // something that is not on the screen, which is the exact failure it
+        // exists to prevent.
+        stageCurrentText: slideText(slide),
+        stageNextText: slideText(s?.next),
+        stageMessage: s?.operatorMessage ?? null,
         // There is ONE stage tile but a church may run up to 8 stage screens.
         // Drawing the first without saying so implies it is the only one.
         ...((s?.stageLayouts?.length ?? 0) > 1

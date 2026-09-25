@@ -83,17 +83,47 @@ test("every listener for a dispatchInternal event unwraps the payload", () => {
     `these listeners read the WRAPPER instead of the payload, so their state silently becomes null:\n  ${offenders.join("\n  ")}`);
 });
 
-test("/stage does not dedupe away a frame whose only change is the layout", () => {
+test("neither output route dedupes away a layout or timer change", () => {
   // The non-slide fields are applied only when a signature changes. That
   // signature omitted the layout, so removing it (clear-all) or assigning a new
-  // one produced an identical signature and was never applied — the monitor
-  // kept the last-good layout straight through the operator's panic button.
-  const page = readFileSync("src/app/stage/page.tsx", "utf8");
-  const sig = page.slice(page.indexOf("restSig = JSON.stringify("), page.indexOf("} catch { restSig"));
-  for (const f of ["stageLayout", "stageLayouts", "timersWire"]) {
-    assert.ok(sig.includes(f), `restSig omits ${f} — a change to it alone would be deduped away`);
+  // one produced an identical signature and was never applied.
+  //
+  // COMMENTS ARE STRIPPED FIRST. The previous version of this test did a raw
+  // includes() on the source slice and therefore PASSED ON ITS OWN COMMENT:
+  // `timersWire` appeared only in the prose explaining why it had been left
+  // out, while the code omitted it — and the consequence was that every
+  // networked timer was swept off the screen about a minute into a healthy
+  // service. A guard that can be satisfied by a comment is not a guard.
+  const stripComments = (src: string) =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  for (const [file, sigStart, sigEnd, fields] of [
+    ["src/app/stage/page.tsx", "restSig = JSON.stringify(", "} catch { restSig", ["stageLayout", "stageLayouts"]],
+    ["src/app/live/page.tsx", "outSig = JSON.stringify(", "} catch { outSig", []],
+  ] as const) {
+    const page = readFileSync(file, "utf8");
+    const sig = stripComments(page.slice(page.indexOf(sigStart), page.indexOf(sigEnd)));
+    for (const f of fields) {
+      assert.ok(sig.includes(f), `${file}: the dedupe signature omits ${f} — a change to it alone is dropped`);
+    }
+    // Anything NOT in the signature must be folded ABOVE the gate instead.
+    const code = stripComments(page);
+    const gateAt = code.indexOf(file.includes("stage/") ? "if (restSig !== appliedRestSig)" : "if (outSig !== lastOutputSigRef.current)");
+    const foldAt = code.indexOf("foldTimersWire(msg.state.timersWire)");
+    assert.ok(foldAt > -1 && foldAt < gateAt,
+      `${file}: foldTimersWire must run ABOVE the dedupe gate, or a timer-only frame is dropped and the staleness sweep wipes every networked timer`);
   }
+
+  // The projector overlay has the same hazard in the other direction: if it is
+  // folded inside the gate, clear-all cannot take a layout OFF the projector,
+  // because removing it changes nothing else in the signature.
+  const live = stripComments(readFileSync("src/app/live/page.tsx", "utf8"));
+  const overlayAt = live.indexOf("setStageOverlay(");
+  const liveGate = live.indexOf("if (outSig !== lastOutputSigRef.current)");
+  assert.ok(overlayAt > -1 && overlayAt < liveGate,
+    "the projector overlay must fold above the gate, or no operator control can remove it");
 });
+
 
 // ── which scene layer masks which widget kind ─────────────────────────────
 // This matrix was unlocked, so the next layer added would silently go

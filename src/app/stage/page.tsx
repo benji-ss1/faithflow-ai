@@ -11,6 +11,7 @@ import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
 import { foldClockSync, shouldSweepWireTimers, type ClockSync } from "@/lib/timer-clock";
 import type { TimerWire, TimersWire, StageLayoutWire } from "@/lib/broadcast";
+import { slideText } from "@/lib/slide-text";
 import { StageLayoutRenderer } from "@/components/live/StageLayoutRenderer";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
@@ -41,14 +42,6 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffStageGuarded?:
 /** Best-effort plain text from a slide payload, for a stage layout's
  *  current/next text widgets. Shapes vary by slide kind, so this reads the
  *  common fields and returns "" rather than guessing. */
-function slideText(s: SlidePayload | null | undefined): string {
-  if (!s || typeof s !== "object") return "";
-  const o = s as Record<string, unknown>;
-  if (typeof o.text === "string") return o.text;
-  if (Array.isArray(o.lines)) return (o.lines as unknown[]).filter((l) => typeof l === "string").join("\n");
-  if (typeof o.body === "string") return o.body;
-  return "";
-}
 
 export default function StagePage() {
   const [current, setCurrent] = useState<SlidePayload>({ kind: "empty" });
@@ -177,6 +170,14 @@ export default function StagePage() {
           // LAYERS_V2 is off or single-operator. See isStaleLayersSnapshot.
           if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) return;
           applyCurrent(msg.state.live);
+          // ABOVE the dedupe gate, deliberately. This used to sit INSIDE it
+          // while a comment claimed it ran above — so a frame whose only change
+          // was the timer wire was deduped away. The 20s liveness re-stamp
+          // never landed, lastTimersWireAt froze, and the 60s staleness sweep
+          // then wiped every networked timer off the screen about a minute into
+          // a perfectly healthy service. foldTimersWire has its OWN rev guard,
+          // so calling it on every frame is free and correct.
+          foldTimersWire(msg.state.timersWire);
           // Apply the non-slide fields only when they actually changed (dedup).
           let restSig: string;
           try {
@@ -214,7 +215,6 @@ export default function StagePage() {
             setAnnouncement(msg.state.announcement ?? null);
             setTransition(msg.state.transition ?? null);
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
-            foldTimersWire(msg.state.timersWire);
             setStageLayout(msg.state.stageLayout ?? null);
             setStageLayoutList(msg.state.stageLayouts ?? []);
             // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.

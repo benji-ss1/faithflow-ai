@@ -146,6 +146,9 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
             screen="stage"
             scene={view.stageScene ?? null}
             wireTimers={view.stageTimers ?? []}
+            currentText={view.stageCurrentText ?? null}
+            nextText={view.stageNextText ?? null}
+            message={view.stageMessage ?? null}
           />
         </div>
       )}
