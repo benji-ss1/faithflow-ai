@@ -129,6 +129,20 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Revelation", ["revelation", "revelations", "rev", "apoc"]],
 ];
 
+/**
+ * Canonical position of each book (Genesis 0 ... Revelation 65), taken from
+ * RAW_BOOKS' own order. Needed to SORT references: a book name can never be
+ * compared alphabetically ("1 John" < "Acts" < "Genesis" is nonsense, and the
+ * numbered books interleave wrongly). Unknown book -> a very large number so it
+ * sorts last rather than jumping to the front.
+ */
+const BOOK_ORDER = new Map<string, number>();
+RAW_BOOKS.forEach(([canonical], i) => BOOK_ORDER.set(canonical, i));
+export function bookOrderIndex(book: string | null | undefined): number {
+  if (!book) return Number.MAX_SAFE_INTEGER;
+  return BOOK_ORDER.get(book) ?? Number.MAX_SAFE_INTEGER;
+}
+
 const VARIANT_TO_BOOK = new Map<string, string>();
 for (const [canonical, variants] of RAW_BOOKS) {
   for (const v of variants) VARIANT_TO_BOOK.set(v, canonical);
