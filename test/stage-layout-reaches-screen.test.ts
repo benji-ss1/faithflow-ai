@@ -35,8 +35,11 @@ test("every internal listener unwraps with internalPayload", () => {
     const at = console_.indexOf(ev);
     assert.ok(at > -1, `${ev} listener is gone`);
     // Look at the handler defined just above the addEventListener call.
-    const region = console_.slice(Math.max(0, at - 900), at);
-    assert.match(region, /internalPayload[<(]/,
+    // Wide enough to span the whole effect: a second listener registered in
+    // the same effect pushed the handler definition out of a 900-char window
+    // and this failed on correct code.
+    const region = console_.slice(Math.max(0, at - 1800), at);
+    assert.match(region, /internalPayload[<(]|isInternalEvent\(/,
       `the ${ev} handler reads the raw detail instead of internalPayload — the payload is at detail.payload`);
   }
 });
@@ -113,7 +116,11 @@ test("the widget-kind to scene-layer mapping is complete and deliberate", () => 
   // masked by it, or it is deliberately not. An unlisted pair is an oversight.
   const MASKED_BY: Record<string, string[]> = {
     current_text: ["slide"],
-    next_text: ["slide"],
+    // Deliberately NOT masked: /stage's legacy "Next" strip is masked by
+    // nothing, so masking it here would make the same scene behave differently
+    // depending on whether the screen has a layout. Both paths change together
+    // or neither does.
+    next_text: [],
     slide_preview: ["slide"],
     timer: ["timer"],
     // Deliberately unmasked:
@@ -141,8 +148,8 @@ test("the renderer actually implements that matrix", () => {
   const r = readFileSync("src/components/live/StageLayoutRenderer.tsx", "utf8");
   assert.match(r, /sceneHidesLayer\(scene, screen, "slide"\)/,
     "the words must be maskable — the built-in Pre-Service scene hides the slide layer on stage");
-  assert.match(r, /current_text"[\s\S]{0,80}next_text"[\s\S]{0,80}slide_preview"/,
-    "all three slide-bearing kinds must be masked together");
+  assert.match(r, /current_text"[\s\S]{0,60}slide_preview"/,
+    "the live words and a slide preview must both be maskable");
   assert.doesNotMatch(r, /w\.kind === "message" && sceneHidesLayer/,
     "operatorMessage is not the announcement layer — masking it invented a rule the rest of the app does not have");
 });

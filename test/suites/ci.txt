@@ -92,6 +92,7 @@ test/engine-spec-validation.test.ts
 test/engine-timers.stress.test.ts
 test/engine-timers.test.ts
 test/environment-banner.test.ts
+test/event-bus-connected.test.ts
 test/feedback-validation.test.ts
 test/font-scale-clamp.test.ts
 test/fonts-files.test.ts

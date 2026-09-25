@@ -15,7 +15,7 @@ import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay,
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { SCENES_V1, type SceneWire } from "@/lib/scenes";
 import { nextPreviewPosition } from "@/lib/operator-nav";
-import { dispatchInternal, internalPayload } from "@/lib/internal-events";
+import { dispatchInternal, internalPayload, isInternalEvent } from "@/lib/internal-events";
 import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, readObsEditorStore, obsLookWireFromStore, publishObsPreviewState, heldLowerThirdFor, createTrailingPublisher, type HeldLowerThird } from "@/lib/obs-look";
@@ -1061,7 +1061,10 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
     // re-emits on every shell render), and fixing THAT would have latched the
     // operator out, because re-tapping an already-assigned design produces an
     // identical payload and therefore no event at all.
-    const onAssigned = () => setStageLayoutsCleared(false);
+    // isInternalEvent, not a bare handler: every other listener on this bus
+    // checks the nonce, and a handler that reads NOTHING slips past a guard
+    // that only looks for raw `.detail` reads.
+    const onAssigned = (e: Event) => { if (isInternalEvent(e)) setStageLayoutsCleared(false); };
     window.addEventListener("presentflow:stage-layout-assigned", onAssigned);
     window.addEventListener("presentflow:stage-layout", onLayout as EventListener);
     return () => {

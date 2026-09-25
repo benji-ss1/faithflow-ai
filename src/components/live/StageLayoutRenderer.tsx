@@ -80,10 +80,15 @@ export function StageLayoutRenderer({
         // it — so the built-in "Pre-Service" scene, which hides slide on stage,
         // still put live lyrics on a confidence monitor that had explicitly
         // been told not to show them. Same bug as the timer one, one layer over.
-        // next_text is included deliberately: SCENE_LAYER_LABELS.slide is
-        // "Words", and hiding the words while still showing the next words
-        // would be incoherent.
-        if ((w.kind === "current_text" || w.kind === "next_text" || w.kind === "slide_preview")
+        // next_text is deliberately NOT masked, for PARITY: /stage's legacy
+        // "Next" strip sits outside OutputCompositor and is masked by nothing,
+        // so under the built-in Pre-Service scene the default stage screen
+        // blanks Current and still shows Next. Masking it here would make the
+        // same scene behave differently depending on whether the screen has a
+        // layout, which is exactly the "wrong thing on the wrong screen"
+        // confusion this work exists to remove. If the Next strip should be
+        // masked, both paths change together, with sign-off.
+        if ((w.kind === "current_text" || w.kind === "slide_preview")
             && sceneHidesLayer(scene, screen, "slide")) return false;
         // NO message branch. `message` here is OutputState.operatorMessage —
         // the operator's note to the platform — which is a DIFFERENT field from
