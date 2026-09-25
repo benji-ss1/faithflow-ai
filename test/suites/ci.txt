@@ -97,6 +97,7 @@ test/fonts-files.test.ts
 test/fonts-no-cdn.test.ts
 test/fonts-picker-value.test.ts
 test/fonts-registry.test.ts
+test/fonts-self-hosted.test.ts
 test/hex-color.test.ts
 test/keyboard-shortcuts.test.ts
 test/layer-order-v3-dom.test.tsx
