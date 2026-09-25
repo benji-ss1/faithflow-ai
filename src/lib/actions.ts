@@ -1,4 +1,5 @@
 "use server";
+import { sanitizeScreenTarget, type TimerScreenId } from "@/engine/timers/screens";
 import { revalidatePath } from "next/cache";
 import { validateRules, compileRules, type SmartRules, type SmartTarget } from "./smart-folders";
 import type { SQL } from "drizzle-orm";
@@ -4258,16 +4259,19 @@ export async function deleteStageLayout(id: string): Promise<Result> {
 
 // ── Stage Screens (one per physical confidence monitor) ────────────────────
 
-export async function listStageScreens(): Promise<Result<Array<{ id: string; name: string; layoutId: string | null; sortOrder: number }>>> {
+export async function listStageScreens(): Promise<Result<Array<{ id: string; name: string; layoutId: string | null; target: TimerScreenId; sortOrder: number }>>> {
   const user = await requireUser();
   const db = getDb();
   const rows = await db.select().from(stageScreens)
     .where(eq(stageScreens.churchId, user.churchId))
     .orderBy(asc(stageScreens.sortOrder), asc(stageScreens.createdAt));
-  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, layoutId: r.layoutId, sortOrder: r.sortOrder })) };
+  // The sanitiser here is load-bearing, not defensive noise: it is what makes a
+  // NULL or unrecognised row render on the confidence monitor rather than on
+  // the congregation's screen.
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, layoutId: r.layoutId, target: sanitizeScreenTarget(r.target), sortOrder: r.sortOrder })) };
 }
 
-export async function createStageScreen(input: { name: string; layoutId?: string | null }): Promise<Result<{ id: string }>> {
+export async function createStageScreen(input: { name: string; layoutId?: string | null; target?: string }): Promise<Result<{ id: string }>> {
   const user = await requireCap("edit_library");
   const db = getDb();
   const existing = await db.select({ id: stageScreens.id }).from(stageScreens).where(eq(stageScreens.churchId, user.churchId));
@@ -4276,7 +4280,7 @@ export async function createStageScreen(input: { name: string; layoutId?: string
   }
   const name = String(input?.name ?? "").trim().slice(0, 120) || `Stage ${existing.length + 1}`;
   const [row] = await db.insert(stageScreens)
-    .values({ churchId: user.churchId, name, layoutId: input?.layoutId ?? null, sortOrder: existing.length })
+    .values({ churchId: user.churchId, name, layoutId: input?.layoutId ?? null, target: sanitizeScreenTarget(input?.target), sortOrder: existing.length })
     .returning({ id: stageScreens.id });
   revalidatePath("/operator");
   return { ok: true, data: { id: row.id } };
@@ -4301,6 +4305,25 @@ export async function setStageScreenLayout(id: string, layoutId: string | null):
   }
   await db.update(stageScreens).set({ layoutId: value, updatedAt: new Date() })
     .where(and(eq(stageScreens.id, id), eq(stageScreens.churchId, user.churchId)));
+  revalidatePath("/operator");
+  return { ok: true };
+}
+
+/**
+ * "Show on screen": which OUTPUT this stage screen drives.
+ *
+ * An unknown value falls back to "stage" — never to a projector. This one DOES
+ * check rowCount, unlike its neighbours: retargeting a screen is the action
+ * that can put something in front of a congregation, so "it silently did
+ * nothing" is not an acceptable outcome.
+ */
+export async function setStageScreenTarget(id: string, target: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const value = sanitizeScreenTarget(target);
+  const res = await db.update(stageScreens).set({ target: value, updatedAt: new Date() })
+    .where(and(eq(stageScreens.id, id), eq(stageScreens.churchId, user.churchId)));
+  if (!res.rowCount) return { ok: false, error: "Screen not found" };
   revalidatePath("/operator");
   return { ok: true };
 }

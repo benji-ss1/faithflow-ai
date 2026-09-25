@@ -139,6 +139,10 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
         <div className="absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${scale})` }}>
           <StageLayoutRenderer
             layout={view.stageLayout}
+            // The tile mirrors a confidence monitor, which is a replace
+            // surface — showing it as a transparent overlay would misrepresent
+            // what the monitor actually looks like.
+            mode="replace"
             screen="stage"
             scene={view.stageScene ?? null}
             wireTimers={view.stageTimers ?? []}

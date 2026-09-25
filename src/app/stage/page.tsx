@@ -72,7 +72,7 @@ export default function StagePage() {
   // local one always wins, this only fills a gap on a remote screen.
   const [wireTimers, setWireTimers] = useState<TimerWire[]>([]);
   const [stageLayout, setStageLayout] = useState<StageLayoutWire | null>(null);
-  const [stageLayoutList, setStageLayoutList] = useState<Array<{ screen: string; layout: StageLayoutWire }>>([]);
+  const [stageLayoutList, setStageLayoutList] = useState<Array<{ screen: string; layout: StageLayoutWire; target?: string }>>([]);
   // Which confidence monitor THIS window is. `?screen=<id>` lets a church run a
   // drummer monitor and a preacher monitor showing different layouts; with no
   // param we are the first screen, which is the single-monitor default.
@@ -431,15 +431,27 @@ export default function StagePage() {
   // assigned we fall through to the existing hardcoded screen below, byte for
   // byte — the rule-0 anchor for every church that never opens the editor.
   // Resolve MY layout: the one assigned to this screen id, else the first.
+  // Only STAGE-TARGETED entries may ever be picked here — including by the
+  // no-?screen fallback, and including an explicit ?screen= pointing at a
+  // retargeted screen. A projector layout on a confidence monitor is the
+  // specific failure "Show on screen" would otherwise introduce: that layout is
+  // built for the congregation, and it would cover the words the band is
+  // reading.
+  //
+  // `?? stageLayout` is only safe because ProOperatorShell now resolves that
+  // legacy singular field to the first STAGE-targeted layout rather than
+  // list[0]. If anyone "simplifies" it back, this leaks again.
+  const stageOnly = stageLayoutList.filter((e) => e.target === undefined || e.target === "stage");
   const myLayout = (screenId
-    ? stageLayoutList.find((e) => e.screen === screenId)?.layout
-    : stageLayoutList[0]?.layout) ?? stageLayout;
+    ? stageOnly.find((e) => e.screen === screenId)?.layout
+    : stageOnly[0]?.layout) ?? stageLayout;
 
   if (myLayout) {
     return (
       <div className="fixed inset-0 overflow-hidden cursor-none" onDoubleClick={goFullscreen}>
         <StageLayoutRenderer
           layout={myLayout}
+          mode="replace"
           screen="stage"
           scene={scene}
           wireTimers={wireTimers}

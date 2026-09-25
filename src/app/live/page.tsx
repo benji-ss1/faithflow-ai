@@ -8,7 +8,8 @@ import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStal
 import { sceneHidesLayer, type SceneWire } from "@/lib/scenes";
 import { TimerOverlayLayer, type TimerOverlayItem } from "@/components/live/TimerOverlayLayer";
 import { foldClockSync, shouldSweepWireTimers, type ClockSync } from "@/lib/timer-clock";
-import type { TimerWire, TimersWire } from "@/lib/broadcast";
+import type { TimerWire, TimersWire, StageLayoutWire } from "@/lib/broadcast";
+import { StageLayoutRenderer } from "@/components/live/StageLayoutRenderer";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 
@@ -80,6 +81,7 @@ export default function LivePage() {
   // Scenes (2026-09-16): the active per-screen routing snapshot. NOT gated on
   // LAYERS_V2 (off in prod) — absent ⇒ pre-Scenes render, byte-identical.
   const [scene, setScene] = useState<SceneWire | null>(null);
+  const [stageOverlay, setStageOverlay] = useState<StageLayoutWire | null>(null);
   // The operator sends `scene` (even as null) whenever Scenes is enabled for the
   // church — that tells this surface to pre-wrap its layers, so the first scene
   // of a service can never remount the stack mid-service.
@@ -274,6 +276,9 @@ export default function LivePage() {
             setZone(msg.state.zone ?? null);
             setScene(msg.state.scene ?? null); // Scenes: never LAYERS_V2-gated
             foldTimersWire(msg.state.timersWire);
+            // "Show on screen": a stage layout whose screen is targeted at the
+            // projector. OVERLAY only — see the render below.
+            setStageOverlay((msg.state.stageLayouts ?? []).find((e) => e.target === "main")?.layout ?? null);
             // Field PRESENT (even as null) ⇒ this church has Scenes ⇒ pre-wrap layers.
             if (msg.state.scene !== undefined) setScenesPossible(true);
           }
@@ -653,6 +658,28 @@ export default function LivePage() {
               see src/components/live/TimerOverlayLayer.tsx. Previously each
               surface had its own copy and its own MM:SS formatter, so the same
               timer could read "90:00" here and "1:30:00" in the operator panel. */}
+          {/* "Show on screen" (2026-09-25): an operator layout targeted at the
+              PROJECTOR. An OVERLAY, never a replacement — unlike /stage this
+              path must never adopt layout.background, because an empty or
+              half-built layout would then be a BLACK SCREEN in front of the
+              congregation. The worst case here is that nothing happens.
+              Sits above the slide, below timers and messages, so it can never
+              cover a countdown or an urgent message. */}
+          {stageOverlay && (
+            <div className="absolute inset-0 pointer-events-none z-10">
+              <StageLayoutRenderer
+                layout={stageOverlay}
+                mode="overlay"
+                screen="main"
+                scene={scene}
+                wireTimers={wireTimers}
+                clockSync={clockSyncRef.current}
+                currentText={null}
+                nextText={null}
+                message={null}
+              />
+            </div>
+          )}
           {!sceneHidesLayer(scene, "main", "timer") && (
             <TimerOverlayLayer
               screen="main"

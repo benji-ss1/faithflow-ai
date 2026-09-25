@@ -33,8 +33,16 @@ assert.ok(/stageLayouts\?:/.test(read("../src/lib/broadcast.ts")),
 const stagePage = read("../src/app/stage/page.tsx");
 assert.ok(/get\("screen"\)/.test(stagePage),
   "/stage must know WHICH screen it is, or every monitor shows the same layout");
-assert.ok(/stageLayoutList\.find\(/.test(stagePage),
+assert.ok(/\.find\(\(e\) => e\.screen === screenId\)/.test(stagePage),
   "/stage must pick its OWN layout by screen id");
+// 2026-09-25: and it must pick from STAGE-TARGETED entries only, including the
+// no-?screen fallback. A projector-targeted layout rendering full-screen on a
+// confidence monitor is the specific failure "Show on screen" would otherwise
+// introduce — it would cover the words the band is reading.
+assert.ok(/e\.target === undefined \|\| e\.target === "stage"/.test(stagePage),
+  "/stage must filter to stage-targeted entries before resolving");
+assert.ok(/const stageOnly = /.test(stagePage) && /stageOnly\[0\]\?\.layout/.test(stagePage),
+  "the no-?screen fallback must use the FILTERED list, not the raw one");
 
 const console_ = read("../src/components/operator/OperatorConsole.tsx");
 assert.ok(/presentflow:stage-layout/.test(console_), "the console must listen for it");

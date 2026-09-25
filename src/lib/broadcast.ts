@@ -589,7 +589,7 @@ export type OutputState = {
    * normal case, not an edge case. /stage picks its own by `?screen=<id>`,
    * defaulting to the first.
    */
-  stageLayouts?: Array<{ screen: string; layout: StageLayoutWire }> | null;
+  stageLayouts?: Array<{ screen: string; layout: StageLayoutWire; target?: "main" | "stage" | "livestream" | "ndi" }> | null;
 };
 
 /**
@@ -789,6 +789,11 @@ export function isValidStageLayoutList(v: unknown): v is Array<{ screen: string;
     if (typeof o.screen !== "string" || !LAYER_ID_RE.test(o.screen) || seen.has(o.screen)) return false;
     seen.add(o.screen);
     if (!isValidStageLayoutWire(o.layout)) return false;
+    // `target` is OPTIONAL and, when present, is NEVER "stage". The omit rule
+    // is part of the contract, not a nicety: accepting an explicit "stage"
+    // would let two byte-different snapshots mean the same thing, which is
+    // exactly the determinism the timer wire already holds itself to.
+    if (o.target !== undefined && o.target !== "main" && o.target !== "livestream" && o.target !== "ndi") return false;
   }
   return true;
 }

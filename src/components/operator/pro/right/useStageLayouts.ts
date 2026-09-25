@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { callAction } from "@/lib/action-call";
+import type { TimerScreenId } from "@/engine/timers/screens";
 import { dispatchInternal } from "@/lib/internal-events";
 import { toast } from "sonner";
 import {
@@ -19,7 +20,14 @@ import { sanitizeStageLayout, type StageLayout } from "@/engine/stage";
 import { BUILT_IN_STAGE_LAYOUTS, isBuiltInStageLayout, duplicateStageLayout } from "@/engine/stage/presets";
 
 export type StageLayoutEntry = StageLayout & { builtIn: boolean };
-export type StageScreenEntry = { id: string; name: string; layoutId: string | null };
+export type StageScreenEntry = {
+  id: string;
+  name: string;
+  layoutId: string | null;
+  /** Which OUTPUT this screen drives — "stage" unless the operator has used
+   *  "Show on screen". */
+  target: TimerScreenId;
+};
 
 export type StageLayoutsApi = {
   layouts: StageLayoutEntry[];
@@ -54,7 +62,9 @@ export function useStageLayouts(): StageLayoutsApi {
   // dependency (which would re-create the callback on every refresh).
   const screensRef = useRef<StageScreenEntry[]>([]);
   useEffect(() => { screensRef.current = screens; }, [screens]);
-  const activeLayoutId = screens[0]?.layoutId ?? null;
+  // The first STAGE-targeted screen. Using screens[0] would let a projector
+  // layout claim the "On stage" badge.
+  const activeLayoutId = screens.find((s2) => s2.target === "stage")?.layoutId ?? null;
 
   const refresh = useCallback(async () => {
     try {
@@ -66,7 +76,7 @@ export function useStageLayouts(): StageLayoutsApi {
           builtIn: false,
         })));
       }
-      if (s.ok && s.data) setScreens(s.data.map((r) => ({ id: r.id, name: r.name, layoutId: r.layoutId })));
+      if (s.ok && s.data) setScreens(s.data.map((r) => ({ id: r.id, name: r.name, layoutId: r.layoutId, target: r.target })));
     } catch { /* offline / no session */ }
     finally { setLoading(false); }
   }, []);

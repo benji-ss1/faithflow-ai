@@ -186,6 +186,7 @@ test/scripture-ref-match-verse.test.ts
 test/scripture-size-width.test.ts
 test/service-mode.test.ts
 test/settings-tidy.test.ts
+test/show-on-screen.test.ts
 test/slide-actions-remap.test.ts
 test/slide-bg-explicit.test.tsx
 test/slide-identity-fonts.test.ts

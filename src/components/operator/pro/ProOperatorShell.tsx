@@ -2891,9 +2891,25 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // lied: an operator could add "Stage 2", assign it a layout, and nothing
     // anywhere changed.
     const list = stageLayouts.screens
-      .map((sc) => { const l = sc.layoutId ? stageLayouts.byId(sc.layoutId) : null; return l ? { screen: sc.id, layout: toWire(l) } : null; })
+      .map((sc) => {
+        const l = sc.layoutId ? stageLayouts.byId(sc.layoutId) : null;
+        if (!l) return null;
+        const target = sc.target ?? "stage";
+        // OMIT when "stage": a church that has never touched "Show on screen"
+        // must produce the byte-identical payload it produced yesterday.
+        return target === "stage"
+          ? { screen: sc.id, layout: toWire(l) }
+          : { screen: sc.id, layout: toWire(l), target };
+      })
       .filter((x): x is { screen: string; layout: ReturnType<typeof toWire> } => x !== null);
-    return { first: list[0]?.layout ?? null, list };
+    // `first` is the first STAGE-TARGETED layout, NOT list[0].
+    //
+    // /stage falls back to this legacy singular field when it has no ?screen=
+    // match. If a church retargets their FIRST screen to the projector, taking
+    // list[0] would put that projector layout full-screen on a confidence
+    // monitor — the exact leak this feature exists to prevent, arriving
+    // through the back door while the list filter guards the front one.
+    return { first: list.find((e) => !("target" in e))?.layout ?? null, list };
   }, [stageLayouts]);
   const stageLayoutKey = useMemo(() => JSON.stringify(stageLayoutPayload), [stageLayoutPayload]);
   useEffect(() => {

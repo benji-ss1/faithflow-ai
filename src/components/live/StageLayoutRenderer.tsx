@@ -32,6 +32,7 @@ const UNBOUND = "—";
 
 export function StageLayoutRenderer({
   layout,
+  mode,
   screen,
   scene = null,
   wireTimers = [],
@@ -41,6 +42,21 @@ export function StageLayoutRenderer({
   message,
 }: {
   layout: StageLayoutWire;
+  /**
+   * REPLACE or OVERLAY — and this gates exactly ONE thing: whether the layout
+   * owns the background.
+   *
+   * On /stage a layout REPLACES the screen; that is what a confidence monitor
+   * is for. On the congregation's screen it must never do that, because an
+   * empty or half-built layout would be a BLACK PROJECTOR mid-service. In
+   * overlay mode this component never reads `layout.background`, so there is
+   * no value an operator, a stale wire frame, or a future refactor can set
+   * that blacks out a room. The worst case is that nothing happens.
+   *
+   * Required, with no default, so every call site has to decide. A test keeps
+   * "replace" to /stage alone.
+   */
+  mode: "replace" | "overlay";
   /** WHICH SURFACE this is drawing on. Required, because the two things below
    *  are both per-screen and a surface that forgot to say which it is would
    *  silently ignore both of them. */
@@ -70,7 +86,7 @@ export function StageLayoutRenderer({
   const byId = new Map(wireTimers.map((t) => [t.id, t]));
 
   return (
-    <div className="absolute inset-0 overflow-hidden" style={{ background: layout.background, containerType: "size" }}>
+    <div className="absolute inset-0 overflow-hidden" style={{ background: mode === "replace" ? layout.background : "transparent", containerType: "size" }}>
       {[...layout.widgets].sort((a, b) => a.zIndex - b.zIndex).filter((w) => {
         // A layout does not get to override the operator's Scene. AND-compose,
         // exactly as the timer overlay does — a scene can hide, never force-show.

@@ -721,6 +721,11 @@ export const stageScreens = pgTable("stage_screens", {
   churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
   layoutId: text("layout_id"),
+  // WHICH OUTPUT this screen drives — one of TIMER_SCREEN_IDS
+  // ("main" | "stage" | "livestream" | "ndi"), the same vocabulary as timer
+  // routing and SceneScreen. Defaults to "stage": every row that existed
+  // before 2026-09-25 was, by definition, a confidence monitor.
+  target: text("target").notNull().default("stage"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

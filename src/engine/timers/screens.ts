@@ -79,3 +79,15 @@ export function isValidTimerScreens(v: unknown): boolean {
   if (!Array.isArray(v) || v.length > TIMER_SCREEN_IDS.length) return false;
   return v.every((x) => typeof x === "string" && VALID.has(x));
 }
+
+
+/**
+ * Coerce an unknown / NULL / legacy screen target to a safe one.
+ *
+ * Unknown always falls back to "stage" — the meaning every row had before
+ * targets existed. A value we do not recognise must never be GUESSED onto the
+ * projector: the failure direction matters far more than the failure rate.
+ */
+export function sanitizeScreenTarget(v: unknown): TimerScreenId {
+  return typeof v === "string" && VALID.has(v) ? (v as TimerScreenId) : "stage";
+}
