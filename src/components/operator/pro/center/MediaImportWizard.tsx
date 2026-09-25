@@ -63,7 +63,7 @@ export async function uploadMediaFile(
   // Media Bin OS drop: `contentType` overrides an empty/unreliable OS file.type
   // (Windows .mov); `onProgress` switches the PUT to XHR for byte progress.
   // Both optional — existing wizard callers are byte-identical.
-  opts?: { contentType?: string; onProgress?: (fraction: number) => void; /** true while a slide is live → large uploads send one part at a time */ isLive?: () => boolean },
+  opts?: { contentType?: string; onProgress?: (fraction: number) => void; /** true while a slide is live → large uploads send one part at a time */ isLive?: () => boolean; /** Watched-folder sync: path relative to the watched folder (the reconcile identity). */ sourceRelPath?: string },
 ): Promise<void> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   // iPhone HEIC/HEIF → JPEG in the browser first (converter lazy-loaded only here).
@@ -99,7 +99,7 @@ export async function uploadMediaFile(
     }
   }
   const kind = contentType.startsWith("video") ? ("video" as const) : contentType.startsWith("audio") ? ("audio" as const) : ("image" as const);
-  const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: contentType, sizeBytes: file.size, libraryId });
+  const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: contentType, sizeBytes: file.size, libraryId, sourceRelPath: opts?.sourceRelPath ?? null });
   if (!result?.ok) throw new Error((result as { error?: string } | undefined)?.error ?? "Registration failed");
 }
 

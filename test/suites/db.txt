@@ -29,3 +29,4 @@ test/library-playlist.test.ts
 #     default, so this is the test's assumption to fix, not the schema's.
 #   bible-completeness — needs the Bible corpus seeded, which is a large
 #     fixture, not a schema push.
+test/adversarial/watched-folders-scope.test.ts

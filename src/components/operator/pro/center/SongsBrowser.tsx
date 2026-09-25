@@ -125,8 +125,8 @@ export function SongsBrowser({
   const [libs, setLibs] = useState<LibraryRow[]>([]);
   useEffect(() => {
     let m = true;
-    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind !== "smart")); });
-    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind !== "smart")); }); };
+    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind === "manual")); });
+    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind === "manual")); }); };
     window.addEventListener("presentflow:libraries-changed", h);
     return () => { m = false; window.removeEventListener("presentflow:libraries-changed", h); };
   }, []);

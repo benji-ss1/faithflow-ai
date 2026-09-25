@@ -4,12 +4,13 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, ChevronRight, Plus, BookOpen, Library as LibraryIcon, MoreVertical, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, BookOpen, Library as LibraryIcon, MoreVertical, Sparkles, FolderSync } from "lucide-react";
 import { SmartFolderDialog } from "./SmartFolderDialog";
 import { describeRules, type SmartRules } from "@/lib/smart-folders";
+import { canWatchFolders } from "@/lib/watched-sync";
 import { cn } from "@/lib/utils";
 import type { CenterMode } from "../ProOperatorShell";
-import { createLibrary, renameLibrary, deleteLibrary, listLibraries, setLibraryColor, setSongLibrary, setMediaLibrary, type LibraryRow } from "@/lib/actions";
+import { setWatchedLibraryPath, createWatchedLibrary, createLibrary, renameLibrary, deleteLibrary, listLibraries, setLibraryColor, setSongLibrary, setMediaLibrary, type LibraryRow } from "@/lib/actions";
 import { useSelectedLibrary, setSelectedLibrary } from "./libraryFilter";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { ColorSwatchItems } from "./ColorSwatchMenu";
@@ -82,6 +83,56 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
     setSelectedLibrary(id);
     onCenterMode?.("songs"); // show the library's items (songs are primary content)
   };
+
+  /**
+   * Pick a folder on this computer and mirror it into a new library.
+   *
+   * Desktop only — the button is hidden in a browser, because `dialog` and
+   * `fs` live on the Electron preload. The picker itself also AUTHORISES the
+   * path for reading (electron/ipc/dialog.ts), which is why the folder must
+   * be chosen here rather than typed.
+   */
+  /** Open the OS folder picker. Returns the path, or null if cancelled. */
+  const pickFolder = async (): Promise<string | null> => {
+    const api = (window as unknown as { electronAPI?: { dialog?: { openDirectory: () => Promise<{ canceled: boolean; filePaths: string[] }> } } }).electronAPI;
+    if (!api?.dialog) { toast.error("Watched folders need the desktop app"); return null; }
+    const picked = await api.dialog.openDirectory();
+    if (picked.canceled || !picked.filePaths[0]) return null;
+    return picked.filePaths[0];
+  };
+
+  /**
+   * Re-point an existing watched folder. The Electron path grant is cleared on
+   * quit, so this is the normal way back after a restart — and the picker is
+   * what re-authorises the path for reading.
+   */
+  const repickWatchedFolder = async (lib: LibraryRow) => {
+    const path = await pickFolder();
+    if (!path) return;
+    const res = await setWatchedLibraryPath(lib.id, path);
+    if (!res.ok) { toast.error(res.error ?? "Couldn't update that folder"); return; }
+    toast.success(`"${lib.name}" now mirrors ${path} — press Sync now in Media`);
+    await reload();
+    select(lib.id);
+    onCenterMode?.("media");
+  };
+
+  const createWatchedFolder = async () => {
+    const path = await pickFolder();
+    if (!path) return;
+    const name = path.split(/[/\\]/).filter(Boolean).pop() || "Watched folder";
+    const res = await createWatchedLibrary(name, path);
+    if (!res.ok) { toast.error(res.error ?? "Couldn't watch that folder"); return; }
+    toast.success(`Mirroring "${name}" — press Sync now in Media to pull in its files`);
+    await reload();
+    if (res.data) { select(res.data.id); onCenterMode?.("media"); }
+  };
+
+  // Resolved in an effect, not during render: this component is server-rendered
+  // and `window` only exists on the client, so calling it inline would make the
+  // server and client markup disagree.
+  const [canWatch, setCanWatch] = useState(false);
+  useEffect(() => { setCanWatch(canWatchFolders()); }, []);
 
   const commitCreate = async () => {
     const name = createDraft.trim();
@@ -238,6 +289,17 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
         >
           <Sparkles className="w-3.5 h-3.5" strokeWidth={2.4} />
         </button>
+        {canWatch && (
+          <button
+            type="button"
+            onClick={() => void createWatchedFolder()}
+            data-vic="watched-folder"
+            className="ml-1 w-[22px] h-[22px] grid place-items-center rounded-md border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] text-[var(--color-muted-foreground)] transition-[transform,box-shadow,color,border-color] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:text-[var(--color-brand)] hover:border-[color-mix(in_oklab,var(--color-brand)_50%,var(--color-border))] active:translate-y-0 active:scale-95"
+            title="Mirror a folder on this computer — press Sync now in Media to pull in new files"
+          >
+            <FolderSync className="w-3.5 h-3.5" strokeWidth={2.4} />
+          </button>
+        )}
       </header>
       {open && (
         <ul className="pb-1">
@@ -268,9 +330,9 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
           {libs.map((lib) => (
             <li
               key={lib.id}
-              onDragOver={(e) => handleRowDragOver(lib.id, e, lib.kind === "smart")}
+              onDragOver={(e) => handleRowDragOver(lib.id, e, lib.kind !== "manual")}
               onDragLeave={(e) => onRowDragLeave(lib.id, e)}
-              onDrop={(e) => void handleRowDrop(lib.id, lib.id, e, lib.kind === "smart")}
+              onDrop={(e) => void handleRowDrop(lib.id, lib.id, e, lib.kind !== "manual")}
               className={cn("transition-transform", spring.armed(lib.id) && "scale-[1.02]")}
             >
               {renamingId === lib.id ? (
@@ -294,7 +356,9 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
                         type="button"
                         onClick={() => select(lib.id)}
                         onDoubleClick={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }}
-                        title={lib.kind === "smart"
+                        title={lib.kind === "watched"
+                          ? `${lib.name} (watched folder) — mirrors ${lib.watchPath ?? "a folder on this computer"}. Add files there, not here.`
+                          : lib.kind === "smart"
                           ? `${lib.name} (smart folder — fills automatically) — ${describeRules(lib.rules, "songs")}`
                           : `${lib.name} — ${lib.songCount} song${lib.songCount === 1 ? "" : "s"}, ${lib.mediaCount} media (right-click or ⋮ for options)`}
                         className={cn("min-w-0 flex-1", rowCls(selected === lib.id), spring.armed(lib.id) && "border-transparent bg-transparent")}
@@ -306,6 +370,9 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
                         )}
                         {lib.kind === "smart" && (
                           <Sparkles className="w-3 h-3 shrink-0 text-[var(--color-brand)]" aria-label="Smart folder" />
+                        )}
+                        {lib.kind === "watched" && (
+                          <FolderSync className="w-3 h-3 shrink-0 text-[var(--color-brand)]" aria-label="Watched folder — mirrors a folder on this computer" />
                         )}
                         <span className="truncate">{lib.name}</span>
                         {spring.armed(lib.id) ? escHint : countBadge(lib.songCount + lib.mediaCount, selected === lib.id)}
@@ -325,6 +392,9 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Portal>
                           <DropdownMenu.Content align="end" sideOffset={4} className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[150px]">
+                            {lib.kind === "watched" && (
+                              <DropdownMenu.Item onSelect={() => void repickWatchedFolder(lib)} className="px-3 py-1.5 min-h-[28px] flex items-center rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Choose folder…</DropdownMenu.Item>
+                            )}
                             {lib.kind === "smart" && (
                               <DropdownMenu.Item onSelect={() => setSmartDialog({ mode: "edit", id: lib.id, name: lib.name, rules: lib.rules })} className="px-3 py-1.5 min-h-[28px] flex items-center rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Edit rules…</DropdownMenu.Item>
                             )}

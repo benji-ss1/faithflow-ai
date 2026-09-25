@@ -19,13 +19,14 @@ import { readLayerOrderV3Flag, useLayerOrderV3 } from "@/lib/layer-order-v3";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check, Crop, X, Images } from "lucide-react";
+import { FolderSync, Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check, Crop, X, Images } from "lucide-react";
 import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
+import { syncWatchedLibrary } from "@/lib/watched-sync";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset, getMediaUsage, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useSelectedLibrary, libraryQueryParam, getSelectedLibrary, setSelectedLibrary, type LibraryFilter } from "../left/libraryFilter";
 import { classifyDrop, isRealDragLeave } from "@/lib/spring-load";
@@ -169,12 +170,17 @@ export function MediaBrowser({
     // A smart folder can't receive an upload (the server rewrites the id to
     // null), so say so instead of letting the file silently land in Default
     // and appear to vanish from the folder they aimed at.
-    const smart = libs.find((l) => l.id === selectedLibrary && l.kind === "smart");
-    if (smart) {
-      toast.info(`"${smart.name}" is a smart folder — it fills automatically. Importing to your main media instead.`);
+    // A watched folder is the same story for a different reason: the very next
+    // reconcile would un-file anything dropped here (it is not on disk), so
+    // the file would silently jump back out.
+    const readOnlyLib = libs.find((l) => l.id === selectedLibrary && l.kind !== "manual");
+    if (readOnlyLib?.kind === "smart") {
+      toast.info(`"${readOnlyLib.name}" is a smart folder — it fills automatically. Importing to your main media instead.`);
+    } else if (readOnlyLib?.kind === "watched") {
+      toast.info(`"${readOnlyLib.name}" mirrors a folder on this computer — put the file in that folder instead. Importing to your main media for now.`);
     }
     const libraryId =
-      smart || selectedLibrary === "all" || selectedLibrary === "default" ? null : selectedLibrary;
+      readOnlyLib || selectedLibrary === "all" || selectedLibrary === "default" ? null : selectedLibrary;
     setDropImport({ files, libraryId });
     setWizardOpen(true);
   };
@@ -190,8 +196,8 @@ export function MediaBrowser({
   const [libs, setLibs] = useState<LibraryRow[]>([]);
   useEffect(() => {
     let m = true;
-    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind !== "smart")); });
-    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries.filter((l) => l.kind !== "smart")); }); };
+    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); });
+    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); }); };
     window.addEventListener("presentflow:libraries-changed", h);
     return () => { m = false; window.removeEventListener("presentflow:libraries-changed", h); };
   }, []);
@@ -235,6 +241,60 @@ export function MediaBrowser({
 
   // 2026-09-23: Media and Media Bin are ONE library. Re-fetch whenever any
   // surface (Media Bin, workspace tab, library page, another window) changes it.
+  // Watched folders: the selected library, when it mirrors a folder on disk.
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
+  const watchedLib = libs.find((l) => l.id === selectedLibrary && l.kind === "watched") ?? null;
+  // Only a MANUAL library can receive a hand-move: a smart folder is derived,
+  // and a watched folder would un-file the item on its next reconcile.
+  const moveTargets = libs.filter((l) => l.kind === "manual");
+
+  /**
+   * Reconcile the selected watched folder: upload what is new, un-file what
+   * has gone. Never throws — a folder that cannot be read (unplugged drive, a
+   * path from another machine, or the Electron path grant lost on restart)
+   * reports why instead of failing the media bin.
+   */
+  const runWatchedSync = async () => {
+    if (!watchedLib?.watchPath || syncing) return;
+    setSyncing(true);
+    try {
+      const res = await syncWatchedLibrary(watchedLib.id, watchedLib.watchPath, (p) => {
+        // Uploads are sequential by design, so this is a real count, not an
+        // estimate. Without it a first sync of 200 files is a silent spinner.
+        setSyncProgress(p.total > 0 ? `${p.done + 1} of ${p.total}` : null);
+      });
+      if (res.folderError) { toast.error(res.folderError); return; }
+      const bits: string[] = [];
+      if (res.added) bits.push(`${res.added} added`);
+      if (res.unfiled) bits.push(`${res.unfiled} no longer in the folder`);
+      if (res.refiled) bits.push(`${res.refiled} reconnected`);
+      if (res.unfileSkipped) {
+        toast.warning(`${res.unfileSkipped} file(s) look missing, but the folder didn't read fully — nothing was removed. Check the drive is connected, then Sync again.`);
+      }
+      if (bits.length) toast.success(bits.join(", "));
+      else if (res.folderHadNoMedia) toast.info("No images or videos in that folder — PresentFlow mirrors pictures and video, not audio or documents.");
+      else toast.success(`Up to date — ${res.unchanged} file${res.unchanged === 1 ? "" : "s"}`);
+      // Failures are reported, never swallowed.
+      if (res.failed.length) {
+        toast.error(`${res.failed.length} file${res.failed.length === 1 ? "" : "s"} couldn't sync: ${res.failed.slice(0, 2).map((f) => f.relPath).join(", ")}${res.failed.length > 2 ? "…" : ""}`);
+      }
+      if (res.added || res.unfiled) {
+        loadAssets(true);
+        window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
+      }
+    } catch (e) {
+      // syncWatchedLibrary is written not to throw, but this is called as
+      // `void runWatchedSync()` — an escaped rejection would be a spinner that
+      // just stops, with nothing said. Never that.
+      console.error("[watched] sync failed", e);
+      toast.error("Sync failed — please try again.");
+    } finally {
+      setSyncing(false);
+      setSyncProgress(null);
+    }
+  };
+
   const loadAssetsRef = useRef(loadAssets);
   loadAssetsRef.current = loadAssets;
   useEffect(() => onMediaChanged(() => loadAssetsRef.current(true)), []);
@@ -633,6 +693,18 @@ export function MediaBrowser({
             <option value="image">Images</option>
             <option value="video">Videos</option>
           </select>
+          {watchedLib && (
+            <button
+              type="button"
+              onClick={() => void runWatchedSync()}
+              disabled={syncing}
+              title={`Check ${watchedLib.watchPath ?? "the watched folder"} for new files`}
+              className="h-8 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-[12px] font-bold flex items-center gap-1.5 shrink-0 text-[var(--color-muted-foreground)] hover:text-[var(--color-brand)] disabled:opacity-50"
+            >
+              <FolderSync className={cn("w-3.5 h-3.5", syncing && "animate-spin")} />
+              {syncing ? (syncProgress ? `Syncing ${syncProgress}` : "Syncing…") : "Sync now"}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setWizardOpen(true)}
@@ -971,8 +1043,8 @@ export function MediaBrowser({
                       <ContextMenu.Portal>
                         <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px] max-h-[300px] overflow-y-auto">
                           <ContextMenu.Item onSelect={() => void moveMedia(a.id, null)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Default (unfiled)</ContextMenu.Item>
-                          {libs.length > 0 && <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />}
-                          {libs.map((lib) => (
+                          {moveTargets.length > 0 && <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />}
+                          {moveTargets.map((lib) => (
                             <ContextMenu.Item key={lib.id} onSelect={() => void moveMedia(a.id, lib.id)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer truncate">{lib.name}</ContextMenu.Item>
                           ))}
                         </ContextMenu.SubContent>
