@@ -149,7 +149,13 @@ test("a Scene can still hide a layer once a layout is assigned", () => {
   // screen and they came back, with nothing to explain it.
   const r = readFileSync("src/components/live/StageLayoutRenderer.tsx", "utf8");
   assert.match(r, /sceneHidesLayer\(scene, screen, "timer"\)/);
-  assert.match(r, /sceneHidesLayer\(scene, screen, "announcement"\)/);
+  // The WORDS. The first version of this masked `message` by "announcement"
+  // instead — a rule the rest of the app does not have, on the wrong field
+  // (operatorMessage is not announcement) — while leaving the slide layer
+  // unmasked, so the built-in Pre-Service scene still put live lyrics on a
+  // confidence monitor it had explicitly been told to keep them off.
+  // The full kind-to-layer matrix lives in stage-layout-reaches-screen.test.ts.
+  assert.match(r, /sceneHidesLayer\(scene, screen, "slide"\)/);
   const stage = readFileSync("src/app/stage/page.tsx", "utf8");
   assert.match(stage, /scene=\{scene\}/, "/stage must pass the scene to the layout renderer");
 });
@@ -195,7 +201,27 @@ test("MultiView shows a stage layout as it really is", () => {
   assert.match(resolver, /stageLayout\?: StageLayoutWire \| null;/, "the resolver must carry the layout");
   assert.match(resolver, /s\?\.stageLayouts\?\.\[0\]\?\.layout \?\? s\?\.stageLayout/,
     "and resolve it the same way /stage does");
-  assert.match(mv, /<StageLayoutRenderer layout=\{view\.stageLayout\}/, "the tile must render it");
+  assert.match(mv, /<StageLayoutRenderer[\s\S]{0,200}layout=\{view\.stageLayout\}/,
+    "the tile must render it");
+
+  // A DASHBOARD THAT LIES IS WORSE THAN ONE THAT ADMITS IT CANNOT SHOW
+  // SOMETHING. The first version of this tile passed scene={null} and no
+  // timers, so it showed a timer the operator had switched off in a Scene — a
+  // false positive on the one screen they would check to confirm it was off —
+  // and every timer rendered as a dash.
+  assert.match(mv, /scene=\{view\.stageScene \?\? null\}/,
+    "the tile must hide exactly what the real screen hides");
+  assert.match(mv, /wireTimers=\{view\.stageTimers \?\? \[\]\}/,
+    "the tile must show real timer values, not the unbound dash");
+  assert.match(resolver, /stageScene: scene/, "the resolver must pass the active scene through");
+  assert.match(resolver, /stageTimers: s\?\.timersWire\?\.timers/, "and the live timer anchors");
+
+  // One tile, up to eight stage screens. Drawing the first without saying so
+  // implies it is the only one.
+  assert.match(resolver, /1 of \$\{s!\.stageLayouts!\.length\} stage screens/);
+
   assert.doesNotMatch(mv, /stage countdowns aren&apos;t shown here/,
     "the footnote must no longer claim layouts are invisible here");
+  assert.doesNotMatch(mv, /drawn as it really is; elsewhere/,
+    "the footnote claimed 'as it really is' while timers were dashed and scenes ignored");
 });

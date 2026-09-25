@@ -15,7 +15,7 @@ import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay,
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { SCENES_V1, type SceneWire } from "@/lib/scenes";
 import { nextPreviewPosition } from "@/lib/operator-nav";
-import { dispatchInternal } from "@/lib/internal-events";
+import { dispatchInternal, internalPayload } from "@/lib/internal-events";
 import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, readObsEditorStore, obsLookWireFromStore, publishObsPreviewState, heldLowerThirdFor, createTrailingPublisher, type HeldLowerThird } from "@/lib/obs-look";
@@ -1033,7 +1033,11 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   const [stageLayoutsCleared, setStageLayoutsCleared] = useState(false);
   useEffect(() => {
     const onTimersWire = (e: Event) => {
-      const d = (e as CustomEvent).detail;
+      // internalPayload, NOT e.detail. dispatchInternal wraps the value as
+      // { nonce, payload }, so reading the raw detail hands the validator the
+      // WRAPPER — which never validates, so this was setting null every single
+      // time and the networked timer wire never left the operator's machine.
+      const d = internalPayload<unknown>(e);
       setTimersWire(isValidTimersWire(d) ? d : null);
     };
     window.addEventListener("presentflow:timers-wire", onTimersWire as EventListener);
@@ -1042,7 +1046,13 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
 
   useEffect(() => {
     const onLayout = (e: Event) => {
-      const d = (e as CustomEvent).detail as { first?: unknown; list?: unknown } | null;
+      // Same bug, same cause: `detail.first` and `detail.list` are undefined
+      // because the real payload sits at `detail.payload`. Both fields were
+      // therefore set to null on EVERY dispatch, so no operator-designed stage
+      // layout has ever reached /stage on the same-machine path — the whole
+      // feature was dead end to end while every test that "covered" it only
+      // grepped that the event NAME appeared in both files.
+      const d = internalPayload<{ first?: unknown; list?: unknown }>(e) ?? null;
       setStageLayout(d?.first && isValidStageLayoutWire(d.first) ? d.first : null);
       setStageLayoutList(d?.list && isValidStageLayoutList(d.list) ? d.list : null);
       setStageLayoutsCleared(false); // a fresh assignment un-clears

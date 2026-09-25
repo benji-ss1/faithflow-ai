@@ -17,12 +17,13 @@
  * Timers / messages travel as separate LiveMessages, not OutputState, so tiles
  * don't show them.
  */
-import type { AnnouncementPayload, LayerWire, OutputState, SlidePayload, StageLayoutWire, ThemeAppearance } from "./broadcast";
+import type { AnnouncementPayload, LayerWire, OutputState, SlidePayload, StageLayoutWire, TimerWire, ThemeAppearance } from "./broadcast";
 import { sanitizeOutputState } from "./broadcast";
 import type { OutputCompositorProps } from "@/components/live/OutputCompositor";
 import { DEFAULT_OBS_BAND, livestreamRenderPlan } from "./obs-lowerthird";
 import { applyObsLiveFields, resolveObsRender, obsThemeColorsOf, type ObsEditorStore } from "./obs-look";
 import { sceneHidesLayer } from "./scenes";
+import type { SceneWire } from "./scenes";
 
 export type MultiViewScreen = "main" | "stage" | "livestream" | "ndi";
 export const MULTIVIEW_SCREENS: MultiViewScreen[] = ["main", "stage", "livestream", "ndi"];
@@ -76,6 +77,17 @@ export type ScreenView = {
    *  monitor — they could design a layout, put it live, and have no way to see
    *  it without walking to the stage. */
   stageLayout?: StageLayoutWire | null;
+  /** The active scene, so a tile showing a layout hides exactly what the real
+   *  screen hides. Passing null made the dashboard show a timer the operator
+   *  had switched off — a false positive, which is worse than showing nothing,
+   *  because they would glance at it to CHECK and be told the opposite. */
+  stageScene?: SceneWire | null;
+  /** Live timer anchors, so a timer widget shows its real value instead of the
+   *  unbound dash. */
+  stageTimers?: TimerWire[];
+  /** How many stage screens have a layout. The tile can only draw one; saying
+   *  so is the difference between incomplete and misleading. */
+  stageLayoutCount?: number;
   /** Full-frame announcement the route draws over the compositor. */
   announcement: AnnouncementPayload | null;
   /** Livestream full-mode lower third drawn by the route over the slide. */
@@ -180,6 +192,14 @@ export function resolveScreenView(
         // Same resolution the /stage route uses: the first assigned layout,
         // falling back to the legacy single field.
         stageLayout: (s?.stageLayouts?.[0]?.layout ?? s?.stageLayout) ?? null,
+        stageScene: scene,
+        stageTimers: s?.timersWire?.timers ?? [],
+        stageLayoutCount: s?.stageLayouts?.length ?? (s?.stageLayout ? 1 : 0),
+        // There is ONE stage tile but a church may run up to 8 stage screens.
+        // Drawing the first without saying so implies it is the only one.
+        ...((s?.stageLayouts?.length ?? 0) > 1
+          ? { detail: `1 of ${s!.stageLayouts!.length} stage screens` }
+          : {}),
         announcement, transparent: false, cameraHidden: false, videoHidden: slideIsVideo || themeVideo, empty,
       };
     case "ndi":

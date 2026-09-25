@@ -180,7 +180,13 @@ export default function StagePage() {
           // Apply the non-slide fields only when they actually changed (dedup).
           let restSig: string;
           try {
-            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition, LAYERS_V2 ? (msg.state.layers ?? null) : null, LAYERS_V2 ? (msg.state.layersEpoch ?? null) : null, msg.state.scene ?? null]);
+            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition, LAYERS_V2 ? (msg.state.layers ?? null) : null, LAYERS_V2 ? (msg.state.layersEpoch ?? null) : null, msg.state.scene ?? null,
+              // The layout, the per-screen list and the timer wire MUST be in
+              // this signature. Without them a snapshot whose only change is
+              // the layout being removed (clear-all) or newly assigned is
+              // deduped away and never applied — the monitor keeps showing the
+              // last-good layout through the operator's panic button.
+              msg.state.stageLayout ?? null, msg.state.stageLayouts ?? null, msg.state.timersWire?.rev ?? null]);
           } catch { restSig = String(Date.now()); }
           if (restSig !== appliedRestSig) {
             appliedRestSig = restSig;
