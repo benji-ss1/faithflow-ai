@@ -20,6 +20,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { Camera, Film } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { StageLayoutRenderer } from "@/components/live/StageLayoutRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import type { LayerWire, OutputState } from "@/lib/broadcast";
 import {
@@ -130,7 +131,16 @@ export const OutputTile = memo(function OutputTile({ screen, state, received, la
           className="absolute inset-0 z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)]"
         />
       )}
-      {scale > 0 && (
+      {scale > 0 && view.stageLayout && (
+        // An operator-designed layout REPLACES the stage screen, so the tile
+        // must show the layout rather than the legacy current/next split —
+        // otherwise the dashboard confidently shows something that is not on
+        // the monitor at all, which is worse than showing nothing.
+        <div className="absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${scale})` }}>
+          <StageLayoutRenderer layout={view.stageLayout} screen="stage" scene={null} />
+        </div>
+      )}
+      {scale > 0 && !view.stageLayout && (
         <div className="absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${scale})` }}>
           <div className={stage ? "absolute inset-x-0 top-0 h-[72%]" : "absolute inset-0"}>
             <OutputCompositor {...view.props} announcement={view.announcement} />
@@ -213,7 +223,7 @@ export function MultiViewGrid({ layerOverrides, onZoom }: { layerOverrides: Tile
         ))}
       </div>
       <p className="text-[10px] leading-snug text-[var(--color-muted-foreground)]">
-        Click a screen to see it full size. Timers, pop-up messages and stage countdowns aren&apos;t shown here; videos and cameras show a label instead of playing.
+        Click a screen to see it full size. A stage screen showing a designed layout is drawn as it really is; elsewhere, timers, pop-up messages and stage countdowns aren&apos;t shown, and videos and cameras show a label instead of playing.
       </p>
     </div>
   );

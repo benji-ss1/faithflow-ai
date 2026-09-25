@@ -15,15 +15,24 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { stageTextFraction, stageTextCss, sanitizeStageLayout } from "../src/engine/stage";
 import { BUILT_IN_STAGE_LAYOUTS } from "../src/engine/stage/presets";
 
-const SURFACES = {
-  renderer: "src/components/live/StageLayoutRenderer.tsx",
-  canvas: "src/components/operator/pro/right/StageCanvas.tsx",
-  thumbnail: "src/components/operator/pro/right/StageLayoutPanel.tsx",
-};
+// DERIVED, not a hard-coded trio (2026-09-25): a hard-coded path silently
+// passes VACUOUSLY once the code it was watching moves to another file. Any
+// stage surface that paints widget text must use the shared formula, so the
+// list is every file that renders one.
+const SURFACES: Record<string, string> = Object.fromEntries(
+  [
+    "src/components/live/StageLayoutRenderer.tsx",
+    ...readdirSync("src/components/operator/pro/right")
+      .filter((f) => /^Stage.*\.tsx$/.test(f))
+      .map((f) => `src/components/operator/pro/right/${f}`),
+  ]
+    .filter((p) => /w\.rect\.h|rect: \{ h:/.test(readFileSync(p, "utf8")))
+    .map((p) => [p.split("/").pop()!, p]),
+);
 
 test("scale actually changes the text size", () => {
   const at = (scale: number) => stageTextFraction({ rect: { h: 0.2 }, scale });
@@ -32,7 +41,8 @@ test("scale actually changes the text size", () => {
   assert.equal(at(2) / at(1), 2, "scale must be linear, so the slider reads true");
 });
 
-test("all three surfaces use the SHARED formula, not their own", () => {
+test("every surface that paints widget text uses the SHARED formula", () => {
+  assert.ok(Object.keys(SURFACES).length >= 3, `only found ${Object.keys(SURFACES).length} stage text surfaces — the derivation has broken`);
   // Three copies is how the editor and the screen disagree. The canvas and the
   // thumbnail each had their own, and both silently dropped `scale`.
   for (const [name, path] of Object.entries(SURFACES)) {
@@ -77,7 +87,7 @@ test("no built-in preset advertises a behaviour it cannot deliver", () => {
 test("showLabel and uppercase now reach the screen", () => {
   const wire = readFileSync("src/lib/broadcast.ts", "utf8");
   const shell = readFileSync("src/components/operator/pro/ProOperatorShell.tsx", "utf8");
-  const renderer = readFileSync(SURFACES.renderer, "utf8");
+  const renderer = readFileSync("src/components/live/StageLayoutRenderer.tsx", "utf8");
   for (const f of ["uppercase", "showLabel"]) {
     assert.match(wire, new RegExp(`${f}\\?: boolean`), `StageLayoutWire is missing ${f}`);
     assert.match(shell, new RegExp(`${f}: w\\.${f}`), `toWire drops ${f} on the floor`);

@@ -17,7 +17,7 @@
  * Timers / messages travel as separate LiveMessages, not OutputState, so tiles
  * don't show them.
  */
-import type { AnnouncementPayload, LayerWire, OutputState, SlidePayload, ThemeAppearance } from "./broadcast";
+import type { AnnouncementPayload, LayerWire, OutputState, SlidePayload, StageLayoutWire, ThemeAppearance } from "./broadcast";
 import { sanitizeOutputState } from "./broadcast";
 import type { OutputCompositorProps } from "@/components/live/OutputCompositor";
 import { DEFAULT_OBS_BAND, livestreamRenderPlan } from "./obs-lowerthird";
@@ -70,6 +70,12 @@ export type ScreenView = {
   props: OutputCompositorProps;
   /** Stage-only chrome worth showing in a preview. */
   stage?: { next: SlidePayload | null; nextItem: { title: string; type: string } | null };
+  /** The operator-designed layout this screen is showing, if any. MultiView
+   *  mirrored the LEGACY stage screen only, so the operator's one "what is on
+   *  my screens" dashboard was blind to exactly the thing covering the whole
+   *  monitor — they could design a layout, put it live, and have no way to see
+   *  it without walking to the stage. */
+  stageLayout?: StageLayoutWire | null;
   /** Full-frame announcement the route draws over the compositor. */
   announcement: AnnouncementPayload | null;
   /** Livestream full-mode lower third drawn by the route over the slide. */
@@ -171,6 +177,9 @@ export function resolveScreenView(
           referenceScale, referenceColor, zone: s?.zone ?? null,
         },
         stage: { next: s?.next ? previewSafeSlide(s.next).slide : null, nextItem: s?.nextItem ?? null },
+        // Same resolution the /stage route uses: the first assigned layout,
+        // falling back to the legacy single field.
+        stageLayout: (s?.stageLayouts?.[0]?.layout ?? s?.stageLayout) ?? null,
         announcement, transparent: false, cameraHidden: false, videoHidden: slideIsVideo || themeVideo, empty,
       };
     case "ndi":

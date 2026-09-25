@@ -40,8 +40,13 @@ const console_ = read("../src/components/operator/OperatorConsole.tsx");
 assert.ok(/presentflow:stage-layout/.test(console_), "the console must listen for it");
 assert.ok(/isValidStageLayoutWire\(/.test(console_) && /isValidStageLayoutList\(/.test(console_),
   "and validate BOTH the single layout and the per-screen list — this reaches a live screen");
-assert.ok(/\.\.\.\(stageLayout \? \{ stageLayout \} : \{\}\)/.test(console_),
-  "and fold it into OutputState");
+// BEHAVIOUR, not a byte-exact spread (2026-09-25). This used to pin the
+// literal `...(stageLayout ? { stageLayout } : {})`, so adding the clear-all
+// suppression condition failed it while the folding still worked perfectly.
+assert.ok(/\{ stageLayout \}/.test(console_) && /\{ stageLayouts: stageLayoutList \}/.test(console_),
+  "and fold BOTH the single layout and the per-screen list into OutputState");
+assert.ok(/stageLayout(List)?[\s\S]{0,400}\]\);/.test(console_.slice(console_.indexOf("{ stageLayouts: stageLayoutList }"))),
+  "and keep them in the OutputState effect's dependency list, or a change never republishes");
 
 const stage = read("../src/app/stage/page.tsx");
 assert.ok(/<StageLayoutRenderer/.test(stage), "/stage must RENDER it — the whole point");

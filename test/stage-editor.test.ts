@@ -13,9 +13,19 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { clampRect, sanitizeStageLayout, STAGE_WIDGET_KINDS } from "../src/engine/stage";
 
+// DIRECTORY-SCOPED (2026-09-25). These used to string-match one file, so
+// splitting the editor into StageLayoutEditorModal / StageInspector /
+// stageSample failed five assertions while every behaviour still held. A test
+// that fails on a legitimate refactor gets deleted, which costs the guard.
+const stageDir = "src/components/operator/pro/right";
+const stageFiles = readdirSync(stageDir)
+  .filter((f) => /^(Stage|stageSample|useStageLayouts)/.test(f))
+  .map((f) => readFileSync(join(stageDir, f), "utf8"));
+const anyStageFile = (re: RegExp) => stageFiles.some((src) => re.test(src));
 const panel = readFileSync("src/components/operator/pro/right/StageLayoutPanel.tsx", "utf8");
 const canvas = readFileSync("src/components/operator/pro/right/StageCanvas.tsx", "utf8");
 const hook = readFileSync("src/components/operator/pro/right/useStageLayouts.ts", "utf8");
@@ -24,8 +34,11 @@ const bar = readFileSync("src/components/operator/pro/right/RightIconBar.tsx", "
 
 test("a layout can be put on the stage in ONE click", () => {
   assert.match(hook, /use: \(layoutId/, "the hook must expose a one-click use()");
-  assert.match(panel, /onClick=\{\(\) => api\.use\(l\.id\)\}/,
-    "the thumbnail itself must be the button — picking a design is the commonest action here");
+  // The thumbnail IS the button. Which api call it makes depends on whether a
+  // screen is selected (assign) or none exists yet (use) — both are one tap.
+  assert.ok(anyStageFile(/<Thumb layout=\{l\}/), "a design must be shown as a picture, not a name in a list");
+  assert.ok(anyStageFile(/api\.assign\(screenId, l\.id\)/) || anyStageFile(/api\.use\(l\.id\)/),
+    "tapping a design must put it on a screen in one gesture");
 });
 
 test("choosing a layout does not require understanding stage screens first", () => {
@@ -43,11 +56,11 @@ test("the operator can see which layout is live", () => {
 
 test("a blank layout can be created", () => {
   assert.match(hook, /createBlank/, "there must be a way to start from nothing");
-  assert.match(panel, /New layout/);
+  assert.ok(anyStageFile(/api\.createBlank\(/), "there must be a way to start from nothing");
 });
 
 test("the editor is a DRAGGABLE canvas, not a coordinate form", () => {
-  assert.match(panel, /<StageCanvas/);
+  assert.ok(anyStageFile(/<StageCanvas/), "the drag canvas must be rendered somewhere in the stage surfaces");
   assert.match(canvas, /onPointerDown/, "must support pointer drag");
   assert.match(canvas, /setPointerCapture/, "a fast drag leaving the canvas must still track");
   assert.match(canvas, /touchAction: "none"/, "a touchscreen operator machine must not scroll the page while dragging");
@@ -72,16 +85,20 @@ test("timers and stage layouts reference each other", () => {
   assert.match(timersPanel, /StageUsage/, "a timer must say which stage layouts place it");
   assert.match(bar, /onOpenStage=\{\(\) => setOpenKey\("stage"\)\}/,
     "the timers panel must be able to open the stage panel");
-  assert.match(panel, /have not made any timers yet/,
+  assert.ok(anyStageFile(/have not made any timers yet/),
     "a timer box with no timers to bind must explain itself, not silently render a dash");
 });
 
 test("the canvas and the thumbnails show the same thing", () => {
   // Two sample-text implementations is how the small picture and the editor
   // start disagreeing about what a box is.
-  assert.match(panel, /function sampleText\(/);
-  assert.equal((panel.match(/function sampleText\(/g) ?? []).length, 1);
-  assert.match(panel, /preview=\{sampleText\}/);
+  // Exactly ONE definition across the whole stage surface, wherever it lives,
+  // and every consumer imports it. Two copies is how the small picture and the
+  // thing you drag start disagreeing about what a box is.
+  const defs = stageFiles.reduce((n, src) => n + (src.match(/function sampleText\(/g) ?? []).length, 0);
+  assert.equal(defs, 1, `expected exactly one sampleText definition across the stage surfaces, found ${defs}`);
+  assert.ok(anyStageFile(/preview=\{sampleText\}/), "the canvas must be given the shared sample text");
+  assert.ok(anyStageFile(/import \{ sampleText \}/), "consumers must import it rather than redefine it");
 });
 
 test("an empty layout survives a round trip", () => {
