@@ -23,6 +23,8 @@ import {
 } from "@/engine/timers";
 import { senderNow, type ClockSync } from "@/lib/timer-clock";
 import { stageTextCss } from "@/engine/stage";
+import { sceneHidesLayer, type SceneWire, type SceneScreen } from "@/lib/scenes";
+import { timerShowsOn, type TimerScreenId } from "@/engine/timers/screens";
 
 /** A binding that no longer resolves renders as a dash rather than vanishing,
  *  so a broken layout is VISIBLE to the operator instead of silently empty. */
@@ -30,6 +32,8 @@ const UNBOUND = "—";
 
 export function StageLayoutRenderer({
   layout,
+  screen,
+  scene = null,
   wireTimers = [],
   clockSync = null,
   currentText,
@@ -37,6 +41,15 @@ export function StageLayoutRenderer({
   message,
 }: {
   layout: StageLayoutWire;
+  /** WHICH SURFACE this is drawing on. Required, because the two things below
+   *  are both per-screen and a surface that forgot to say which it is would
+   *  silently ignore both of them. */
+  screen: SceneScreen;
+  /** The active scene. A layout used to be rendered from an EARLY RETURN that
+   *  sat above every sceneHidesLayer call on the route, so a Scene that hid
+   *  the Timer layer went silently inert the moment a layout was assigned —
+   *  the operator turned timers off for this screen and they came back. */
+  scene?: SceneWire | null;
   wireTimers?: TimerWire[];
   clockSync?: ClockSync | null;
   currentText?: string | null;
@@ -58,7 +71,20 @@ export function StageLayoutRenderer({
 
   return (
     <div className="absolute inset-0 overflow-hidden" style={{ background: layout.background, containerType: "size" }}>
-      {[...layout.widgets].sort((a, b) => a.zIndex - b.zIndex).map((w) => {
+      {[...layout.widgets].sort((a, b) => a.zIndex - b.zIndex).filter((w) => {
+        // A layout does not get to override the operator's Scene. AND-compose,
+        // exactly as the timer overlay does — a scene can hide, never force-show.
+        if (w.kind === "timer" && sceneHidesLayer(scene, screen, "timer")) return false;
+        if (w.kind === "message" && sceneHidesLayer(scene, screen, "announcement")) return false;
+        // Per-timer screen routing applies to a timer WIDGET too. Without
+        // this, a timer the operator explicitly unticked for this screen still
+        // arrives here through a layout — the setting would mean nothing.
+        if (w.kind === "timer" && w.timerId) {
+          const t = wireTimers.find((x) => x.id === w.timerId);
+          if (t && !timerShowsOn(t.screens, screen as TimerScreenId)) return false;
+        }
+        return true;
+      }).map((w) => {
         let text: string | null = null;
         let color = w.color ?? "#ffffff";
         // The caption shown above the value when `showLabel` is on. A timer

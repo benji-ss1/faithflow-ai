@@ -139,3 +139,63 @@ test("a paired stage screen gets the layout too", () => {
     assert.ok(sub.includes(f), `the pair-code path drops ${f.split("(")[0]} — a paired screen would not show it`);
   }
 });
+
+// ── the four pre-existing 🔴 the pessimist found, all fixed ────────────────
+
+test("a Scene can still hide a layer once a layout is assigned", () => {
+  // /stage early-returns into the layout renderer ABOVE every sceneHidesLayer
+  // call on the route, so a Scene that hid the Timer layer went silently inert
+  // the moment a layout was assigned — the operator turned timers off for that
+  // screen and they came back, with nothing to explain it.
+  const r = readFileSync("src/components/live/StageLayoutRenderer.tsx", "utf8");
+  assert.match(r, /sceneHidesLayer\(scene, screen, "timer"\)/);
+  assert.match(r, /sceneHidesLayer\(scene, screen, "announcement"\)/);
+  const stage = readFileSync("src/app/stage/page.tsx", "utf8");
+  assert.match(stage, /scene=\{scene\}/, "/stage must pass the scene to the layout renderer");
+});
+
+test("the renderer cannot be used without saying which screen it is on", () => {
+  // Both the scene mask and per-timer routing are per-screen. A surface that
+  // forgot to declare itself would silently ignore both, so the prop is
+  // REQUIRED and the compiler enforces it.
+  const r = readFileSync("src/components/live/StageLayoutRenderer.tsx", "utf8");
+  assert.match(r, /\n  screen: SceneScreen;/, "screen must be a required prop, not optional");
+});
+
+test("per-timer screen routing applies to a timer inside a layout", () => {
+  // timerShowsOn was only applied in TimerOverlayLayer, so a timer the
+  // operator explicitly unticked for a screen still arrived there through a
+  // layout widget — the setting meant nothing on that path.
+  assert.match(readFileSync("src/components/live/StageLayoutRenderer.tsx", "utf8"),
+    /timerShowsOn\(t\.screens, screen as TimerScreenId\)/);
+});
+
+test("clear-all releases the stage layouts", () => {
+  // Escape, Blank and the hold-to-clear-all rail cleared slide, media, video
+  // and announcement and did NOTHING to a stage layout — so the one thing
+  // covering the entire confidence monitor was the one thing an operator could
+  // not clear under pressure.
+  const c = readFileSync("src/components/operator/OperatorConsole.tsx", "utf8");
+  const kill = c.slice(c.indexOf("const killOutput"), c.indexOf("const voiceClear"));
+  assert.match(kill, /setStageLayoutsCleared\(true\)/, "killOutput must release the layouts");
+  assert.match(c, /!stageLayoutsCleared \? \{ stageLayout \}/, "and the published state must honour it");
+  // And it must un-clear on the next assignment, or the operator is latched out.
+  const listener = c.slice(c.indexOf("setStageLayoutList(d?.list"), c.indexOf("setStageLayoutList(d?.list") + 300);
+  assert.match(listener, /setStageLayoutsCleared\(false\)/,
+    "assigning a layout again must un-clear, or there is no way back");
+});
+
+test("MultiView shows a stage layout as it really is", () => {
+  // MultiView mirrored only the LEGACY stage screen, so the operator's single
+  // "what is on my screens" dashboard was blind to the thing covering the
+  // entire monitor. Worse than showing nothing: it confidently showed a
+  // current/next split that was not on the screen at all.
+  const mv = readFileSync("src/components/operator/pro/right/MultiView.tsx", "utf8");
+  const resolver = readFileSync("src/lib/multiview.ts", "utf8");
+  assert.match(resolver, /stageLayout\?: StageLayoutWire \| null;/, "the resolver must carry the layout");
+  assert.match(resolver, /s\?\.stageLayouts\?\.\[0\]\?\.layout \?\? s\?\.stageLayout/,
+    "and resolve it the same way /stage does");
+  assert.match(mv, /<StageLayoutRenderer layout=\{view\.stageLayout\}/, "the tile must render it");
+  assert.doesNotMatch(mv, /stage countdowns aren&apos;t shown here/,
+    "the footnote must no longer claim layouts are invisible here");
+});

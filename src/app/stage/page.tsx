@@ -428,6 +428,8 @@ export default function StagePage() {
       <div className="fixed inset-0 overflow-hidden cursor-none" onDoubleClick={goFullscreen}>
         <StageLayoutRenderer
           layout={myLayout}
+          screen="stage"
+          scene={scene}
           wireTimers={wireTimers}
           clockSync={clockSyncRef.current}
           currentText={slideText(current)}
