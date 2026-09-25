@@ -7,7 +7,7 @@
  * (src/engine/stage/presets.ts) and are never rows — a church customises by
  * DUPLICATING one, so "restore defaults" always works.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { callAction } from "@/lib/action-call";
 import { toast } from "sonner";
 import {
@@ -28,10 +28,18 @@ export type StageLayoutsApi = {
   /** Resolve an id (built-in or church row) to a layout. */
   byId: (id: string | null) => StageLayoutEntry | null;
   duplicate: (id: string) => Promise<string | null>;
+  /** A brand-new empty layout; returns its id. */
+  createBlank: (name?: string) => Promise<string | null>;
   save: (id: string, layout: StageLayout) => Promise<void>;
   rename: (id: string, name: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
-  addScreen: (name: string) => Promise<void>;
+  addScreen: (name: string) => Promise<string | null>;
+  /** ONE CLICK: put this layout on the stage, creating the screen if this
+   *  church has never set one up. `null` goes back to the default display. */
+  use: (layoutId: string | null) => Promise<void>;
+  /** What the (first) stage screen is showing right now — drives the "On
+   *  stage" badge, so the operator can always see which one is live. */
+  activeLayoutId: string | null;
   assign: (screenId: string, layoutId: string | null) => Promise<void>;
   renameScreen: (screenId: string, name: string) => Promise<void>;
   removeScreen: (screenId: string) => Promise<void>;
@@ -41,6 +49,11 @@ export function useStageLayouts(): StageLayoutsApi {
   const [rows, setRows] = useState<StageLayoutEntry[]>([]);
   const [screens, setScreens] = useState<StageScreenEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  // Mirror, so `use` can read the CURRENT screens without taking them as a
+  // dependency (which would re-create the callback on every refresh).
+  const screensRef = useRef<StageScreenEntry[]>([]);
+  useEffect(() => { screensRef.current = screens; }, [screens]);
+  const activeLayoutId = screens[0]?.layoutId ?? null;
 
   const refresh = useCallback(async () => {
     try {
@@ -77,6 +90,16 @@ export function useStageLayouts(): StageLayoutsApi {
     return null;
   }, [layouts, refresh]);
 
+  /** A brand-new, EMPTY layout. Until now the only route to your own design
+   *  was copying a built-in, so "create one" was never actually on offer. */
+  const createBlank = useCallback(async (name = "My layout"): Promise<string | null> => {
+    const blank: StageLayout = { id: "pending", name, background: "#000000", widgets: [] };
+    const res = await callAction("create the layout",
+      () => createStageLayout({ name, config: blank }), toast.error);
+    if (res.ok && res.data) { await refresh(); return res.data.id; }
+    return null;
+  }, [refresh]);
+
   const save = useCallback(async (id: string, layout: StageLayout) => {
     if (isBuiltInStageLayout(id)) return; // built-ins are code, not editable
     const res = await callAction("save the layout", () => updateStageLayout(id, { name: layout.name, config: layout }), toast.error);
@@ -95,9 +118,33 @@ export function useStageLayouts(): StageLayoutsApi {
     if (res.ok) await refresh();
   }, [refresh]);
 
-  const addScreen = useCallback(async (name: string) => {
+  const addScreen = useCallback(async (name: string): Promise<string | null> => {
     const res = await callAction("add the stage screen", () => createStageScreen({ name }), toast.error);
-    if (res.ok) await refresh();
+    if (res.ok) { await refresh(); return res.data?.id ?? null; }
+    return null;
+  }, [refresh]);
+
+  /**
+   * ONE CLICK: put this layout on the stage.
+   *
+   * Assigning used to require the operator to first understand that a "stage
+   * screen" is a separate object, add one, and only then find the layout in a
+   * dropdown. Nobody picking a design thinks in those steps — they think "I
+   * want that one". So if no screen exists yet we create the obvious one and
+   * assign in the same gesture; the multi-screen UI is still there underneath
+   * for churches that genuinely run two confidence monitors.
+   */
+  const use = useCallback(async (layoutId: string | null): Promise<void> => {
+    const target = screensRef.current[0];
+    if (target) {
+      const res = await callAction("put that layout on the stage",
+        () => setStageScreenLayout(target.id, layoutId), toast.error);
+      if (res.ok) await refresh();
+      return;
+    }
+    const created = await callAction("set up the stage screen",
+      () => createStageScreen({ name: "Stage", layoutId }), toast.error);
+    if (created.ok) await refresh();
   }, [refresh]);
   const assign = useCallback(async (screenId: string, layoutId: string | null) => {
     const res = await callAction("assign the layout", () => setStageScreenLayout(screenId, layoutId), toast.error);
@@ -112,5 +159,5 @@ export function useStageLayouts(): StageLayoutsApi {
     if (res.ok) await refresh();
   }, [refresh]);
 
-  return { layouts, screens, loading, refresh, byId, duplicate, save, rename, remove, addScreen, assign, renameScreen, removeScreen };
+  return { layouts, screens, loading, refresh, byId, duplicate, createBlank, save, rename, remove, addScreen, use, activeLayoutId, assign, renameScreen, removeScreen };
 }

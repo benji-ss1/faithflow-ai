@@ -42,7 +42,6 @@ export const BUILT_IN_STAGE_LAYOUTS: StageLayout[] = [
       w({
         id: "timer", kind: "timer", timerId: null, rect: { x: 0.03, y: 0.70, w: 0.94, h: 0.26 },
         scale: 2.4, color: "#4ade80", showLabel: true, zIndex: 1,
-        colorTriggers: [{ atSec: 60, color: "#fb923c" }, { atSec: 30, color: "#facc15" }, { atSec: 10, color: "#ef4444" }],
       }),
     ],
   },
@@ -62,7 +61,6 @@ export const BUILT_IN_STAGE_LAYOUTS: StageLayout[] = [
       w({
         id: "timer", kind: "timer", timerId: null, rect: { x: 0.05, y: 0.28, w: 0.90, h: 0.44 },
         scale: 5, color: "#4ade80",
-        colorTriggers: [{ atSec: 60, color: "#fb923c" }, { atSec: 30, color: "#facc15" }, { atSec: 10, color: "#ef4444" }],
       }),
     ],
   },
@@ -76,7 +74,6 @@ export const BUILT_IN_STAGE_LAYOUTS: StageLayout[] = [
       w({
         id: "timer", kind: "timer", timerId: null, rect: { x: 0.55, y: 0.02, w: 0.42, h: 0.12 },
         scale: 1.2, align: "right", color: "#4ade80", zIndex: 2,
-        colorTriggers: [{ atSec: 30, color: "#facc15" }, { atSec: 10, color: "#ef4444" }],
       }),
       w({ id: "next", kind: "next_text", rect: { x: 0.03, y: 0.76, w: 0.94, h: 0.20 }, scale: 0.85, color: "#9ca3af", zIndex: 3 }),
     ],
@@ -98,7 +95,6 @@ export function duplicateStageLayout(src: StageLayout, id: string, name?: string
     widgets: src.widgets.map((x) => ({
       ...x,
       rect: { ...x.rect },
-      colorTriggers: x.colorTriggers?.map((t) => ({ ...t })),
     })),
   };
 }

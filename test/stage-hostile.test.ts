@@ -98,28 +98,24 @@ test("🟢 sanitizeStageLayout: __proto__ / constructor keys in JSON input do no
   assert.equal(({} as any).polluted, undefined, "Object.prototype must remain clean");
 });
 
-test("🟢 sanitizeStageLayout: colorTriggers atSec is floored and clamped to >= 0, capped at STAGE_MAX_TRIGGERS count", () => {
-  const many = Array.from({ length: 20 }, (_, i) => ({ atSec: -i - 0.7, color: `c${i}` }));
-  const out = sanitizeStageLayout({ widgets: [{ id: "a", kind: "timer", rect: {}, colorTriggers: many }] });
-  const triggers = out.widgets[0].colorTriggers!;
-  assert.ok(triggers.length <= 8);
-  for (const t of triggers) assert.ok(t.atSec >= 0 && Number.isInteger(t.atSec));
-});
-
-test("🟢 sanitizeStageLayout: colorTriggers entries that are not well-formed objects are filtered out, not crashing", () => {
+test("🟢 a widget can no longer smuggle colour triggers or an overrun colour", () => {
+  // Both fields were removed 2026-09-25 — they were persisted and read by
+  // nothing, while the renderer used the TIMER's. Hostile input that still
+  // carries them must be dropped, not preserved, or the dead field quietly
+  // returns through the DB.
   const out = sanitizeStageLayout({
     widgets: [{
       id: "a", kind: "timer", rect: {},
-      // FIXED 2026-09-21: colours are now #rrggbb-validated, because a colour
-      // string is written straight into a style attribute by the renderer —
-      // "ok" / "red" / "red; background:url(...)" must never survive.
-      colorTriggers: [null, 42, "red", { atSec: NaN, color: "x" }, { atSec: 5 }, { atSec: 5, color: 5 },
-        { atSec: 5, color: "ok" }, { atSec: 5, color: "red; background:url(javascript:alert(1))" },
-        { atSec: 7, color: "#aabbcc" }],
+      colorTriggers: [{ atSec: 5, color: "#ff0000" }, { atSec: -3.7, color: "red; background:url(x)" }],
+      overrunColor: "#ff0000; content:'x'",
     }],
   });
-  assert.deepEqual(out.widgets[0].colorTriggers, [{ atSec: 7, color: "#aabbcc" }],
-    "only well-formed hex triggers survive");
+  const w = out.widgets[0] as unknown as Record<string, unknown>;
+  assert.equal(w.colorTriggers, undefined);
+  assert.equal(w.overrunColor, undefined);
+  // And nothing unsafe survived onto any other field.
+  assert.ok(!JSON.stringify(out).includes("url("));
+  assert.ok(!JSON.stringify(out).includes("content:"));
 });
 
 test("🟢 clampRect keeps a widget fully on-canvas even with wildly out-of-range x/y/w/h", () => {
@@ -141,14 +137,19 @@ test("🟢 clampRect: NaN in every field falls back to sane 0.2x0.1 defaults rat
 
 
 
-test("🟢 duplicateStageLayout deep-copies rect/colorTriggers so mutating the copy never touches the built-in preset", () => {
+test("🟢 duplicateStageLayout deep-copies nested objects so mutating the copy never touches the built-in preset", () => {
+  // The built-ins are CODE, not rows — a shallow copy would let one church's
+  // edit rewrite the preset for every church in the process, and "restore
+  // defaults" would quietly stop working.
   const src = BUILT_IN_STAGE_LAYOUTS.find((l) => l.id === "builtin-current-timer")!;
   const dup = duplicateStageLayout(src, "dup-id");
   dup.widgets[1].rect.x = 0.99;
-  dup.widgets[1].colorTriggers![0].atSec = 9999;
+  dup.widgets[1].rect.h = 0.77;
+  dup.name = "mutated";
   const freshSrc = BUILT_IN_STAGE_LAYOUTS.find((l) => l.id === "builtin-current-timer")!;
   assert.notEqual(freshSrc.widgets[1].rect.x, 0.99);
-  assert.notEqual(freshSrc.widgets[1].colorTriggers![0].atSec, 9999);
+  assert.notEqual(freshSrc.widgets[1].rect.h, 0.77);
+  assert.notEqual(freshSrc.name, "mutated");
 });
 
 test("🟢 sanitizeStageLayout: very long name/text/id strings are truncated, not rejected outright", () => {

@@ -724,6 +724,10 @@ export type StageLayoutWire = {
     text?: string;
     /** slide_preview only: which output this mirrors. */
     previewScreen?: string;
+    /** Render the text in capitals. */
+    uppercase?: boolean;
+    /** Show the timer/clock's NAME above the value. */
+    showLabel?: boolean;
     scale: number;
     align: "left" | "center" | "right";
     color?: string;
@@ -763,6 +767,8 @@ export function isValidStageLayoutWire(v: unknown): v is StageLayoutWire {
     if (x.align !== "left" && x.align !== "center" && x.align !== "right") return false;
     // A colour goes straight into a style attribute — hex only, never free text.
     if (x.color !== undefined && !isValidColor(x.color)) return false;
+    if (x.uppercase !== undefined && typeof x.uppercase !== "boolean") return false;
+    if (x.showLabel !== undefined && typeof x.showLabel !== "boolean") return false;
     if (x.showHours !== undefined && typeof x.showHours !== "boolean") return false;
     if (x.leadingZeros !== undefined && typeof x.leadingZeros !== "boolean") return false;
     if (!fin(x.zIndex)) return false;

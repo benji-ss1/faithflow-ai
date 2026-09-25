@@ -28,6 +28,30 @@ const shell = read("../src/components/operator/pro/ProOperatorShell.tsx");
 const hooks = read("../src/components/operator/pro/hooks.ts");
 const panel = read("../src/components/operator/pro/right/TimersPanel.tsx");
 
+/**
+ * The field names declared on `interface StageWidget` in src/engine/stage.
+ *
+ * Read out of the source rather than imported, because TypeScript types are
+ * erased at runtime — there is no object to reflect over. Deliberately strict:
+ * it reads ONLY the StageWidget block, ignores comments, and the caller
+ * asserts a minimum count so a silent parse failure cannot turn this guard off.
+ */
+function stageWidgetFieldNames(): string[] {
+  const src = read("../src/engine/stage/index.ts");
+  const start = src.indexOf("export interface StageWidget {");
+  assert.ok(start > -1, "could not find `export interface StageWidget` — this guard cannot derive its field list");
+  const end = src.indexOf("\n}", start);
+  assert.ok(end > start, "could not find the end of the StageWidget interface");
+  return src
+    .slice(start, end)
+    .split("\n")
+    .slice(1)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("//") && !l.startsWith("*") && !l.startsWith("/*"))
+    .map((l) => l.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\??\s*:/)?.[1])
+    .filter((n): n is string => !!n);
+}
+
 /* ── 1. every stage widget kind RENDERS ──────────────────────────────────── */
 // slide_preview sat in the editor's dropdown for a week returning null: an
 // operator could add it, save it, and get a blank box on the stage screen.
@@ -43,7 +67,20 @@ for (const kind of STAGE_WIDGET_KINDS) {
 // A field on the model that never reaches the wire is invisible by
 // construction, however carefully the editor writes it.
 
-const widgetFields = ["timerId", "text", "scale", "align", "color", "showHours", "leadingZeros", "zIndex"];
+// DERIVED FROM THE TYPE, never hand-listed (2026-09-25). This block used to
+// enumerate eight field names — and omitted exactly the four that were dead:
+// `uppercase`, `showLabel`, `overrunColor` and `colorTriggers` were sanitised,
+// persisted, and set by four of the five shipped presets, while being absent
+// from StageLayoutWire and read by nothing. The guard billed as "THE GUARD
+// THAT ENDS THE CLASS" could not fail on them, because the class it was
+// guarding was the list itself.
+//
+// So the names now come from the StageWidget declaration in the engine. A new
+// field is covered the moment it is declared, which is the only version of
+// this test that actually ends the class.
+const widgetFields = stageWidgetFieldNames();
+assert.ok(widgetFields.length >= 12,
+  `only parsed ${widgetFields.length} StageWidget fields — the parser has broken and this guard is now blind`);
 for (const f of widgetFields) {
   assert.ok(new RegExp(`\\b${f}\\b`).test(wireDef), `StageLayoutWire is missing "${f}" — the editor could set it and nothing would show`);
   assert.ok(new RegExp(`\\b${f}\\b`).test(renderer), `StageLayoutRenderer never reads "${f}"`);
