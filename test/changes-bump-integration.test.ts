@@ -17,7 +17,8 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "bump-changes.mjs");
+const SCRIPTS = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts");
+const SCRIPT = join(SCRIPTS, "bump-changes.mjs");
 
 let pass = 0, fail = 0;
 function check(name: string, fn: () => void) {
@@ -131,6 +132,79 @@ check("deliberately grouped notes are moved TOGETHER, not split apart", () => {
     rmSync(upstream, { recursive: true, force: true });
     rmSync(clone, { recursive: true, force: true });
   }
+});
+
+// --- THE GATE: the half that actually stops a collision shipping ------------
+//
+// These exist because the gate fix was silently lost once: a `git reset --hard`
+// dropped the edit while the commit message still claimed it. Reading the code
+// would not have caught that. Running it does.
+
+/** Run check-changes.mjs in `cwd`; returns { ok, out }. */
+function runGate(cwd: string) {
+  try {
+    // --strict: the gate only EXITS non-zero under CI=true or --strict (it
+    // warns locally by design). Without this the test would pass a rejected
+    // note, which is exactly the blind spot being closed here.
+    const out = execFileSync("node", [join(SCRIPTS, "check-changes.mjs"), "--strict"], {
+      cwd, encoding: "utf8", env: { ...process.env, CHANGES_BASE: "origin/main" },
+    });
+    return { ok: true, out };
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string };
+    return { ok: false, out: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+  }
+}
+
+/** main ships `shipped`; our branch holds `mine` and never merges main. */
+function gateScenario(mine: string, shipped: string, mergeMainIn: boolean) {
+  const { upstream, clone, U, C, note } = makeRepo();
+  try {
+    for (const f of ["check-changes.mjs", "changelog-lib.mjs"]) {
+      mkdirSync(join(clone, "scripts"), { recursive: true });
+      writeFileSync(join(clone, "scripts", f), readFileSync(join(SCRIPTS, f), "utf8"));
+    }
+    note(clone, "mine", mine);
+    mkdirSync(join(clone, "src"), { recursive: true });
+    writeFileSync(join(clone, "src", "x.ts"), "export const x = 1;");
+    C("add", "-A"); C("commit", "-q", "-m", "mine");
+
+    note(upstream, "theirs", shipped);
+    U("add", "-A"); U("commit", "-q", "-m", "theirs");
+    C("fetch", "-q", "origin");
+    if (mergeMainIn) C("merge", "-q", "origin/main", "-m", "merge");
+
+    return runGate(clone);
+  } finally {
+    rmSync(upstream, { recursive: true, force: true });
+    rmSync(clone, { recursive: true, force: true });
+  }
+}
+
+check("GATE scenario (a): a number main already shipped is REJECTED", () => {
+  // Two branches minted 0.1.501; main shipped it first. The merge base still
+  // predates it, so a merge-base-only gate would pass this and the note would
+  // vanish under the winner's headline.
+  const r = gateScenario("0.1.501", "0.1.501", false);
+  assert.strictEqual(r.ok, false, `gate PASSED a colliding note:\n${r.out}`);
+  assert.match(r.out, /must be above 0\.1\.501/);
+  assert.match(r.out, /changes:bump/, "the error must name the fix");
+});
+
+check("GATE scenario (b): main advanced, branch never merged main — REJECTED", () => {
+  const r = gateScenario("0.1.501", "0.1.502", false);
+  assert.strictEqual(r.ok, false, `gate PASSED a stale note:\n${r.out}`);
+  assert.match(r.out, /must be above 0\.1\.502/);
+});
+
+check("GATE scenario (c): merged main in — still REJECTED", () => {
+  const r = gateScenario("0.1.501", "0.1.502", true);
+  assert.strictEqual(r.ok, false, `gate PASSED after merging main:\n${r.out}`);
+});
+
+check("GATE: a note genuinely above the tip PASSES (the gate is not just strict)", () => {
+  const r = gateScenario("0.1.999", "0.1.502", false);
+  assert.strictEqual(r.ok, true, `gate rejected a valid note:\n${r.out}`);
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
