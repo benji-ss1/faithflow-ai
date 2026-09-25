@@ -268,3 +268,4 @@ test/windows-responsive.test.ts
 test/wire-contract-drift.test.ts
 test/band-verse-ref-ratio.test.ts
 test/verse-order.test.ts
+test/scripture-ref-match-verse.test.ts
