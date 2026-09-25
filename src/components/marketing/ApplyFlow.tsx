@@ -194,7 +194,7 @@ const CHAPTERS: Chapter[] = [
   },
   {
     roman: "III",
-    name: "The Covenant",
+    name: "Your Details",
     verse: "Let us hold unswervingly to the hope we profess, for he who promised is faithful.",
     ref: "Hebrews 10:23 · NIV",
     qs: [7, 9, 11, 10], // the dream · name · phone · email
@@ -831,7 +831,7 @@ export default function ApplyFlow() {
                     <div className="p-nav">
                       <button className="btn ghost" onClick={() => go(idx - 1)}>← Back</button>
                       <button className="btn" disabled={!canAdvance(p)} onClick={() => go(idx + 1)}>
-                        {isLastQuestion ? "To the covenant →" : "Continue →"}
+                        {isLastQuestion ? "Finish the sign-up →" : "Continue →"}
                       </button>
                     </div>
                   </>
@@ -846,7 +846,7 @@ export default function ApplyFlow() {
                       <div className="stamp">Wave I · 15 churches · free through the beta</div>
                       <h2>Let the church <em>go first.</em></h2>
                       <div className="sub">
-                        You&apos;ve walked the road. Seal it, and a human replies — oldest application first.
+                        You&apos;re almost done. Confirm your sign-up and a real person will reply — oldest sign-ups first.
                       </div>
                       <button
                         className="btn"
@@ -854,7 +854,7 @@ export default function ApplyFlow() {
                         disabled={submitting}
                         onClick={() => void doSubmit()}
                       >
-                        {submitting ? "Sealing…" : "Seal the covenant"}
+                        {submitting ? "Confirming…" : "Confirm sign-up"}
                       </button>
                       {error && <div className="err">{error}</div>}
                       <div className="p-nav center-nav">
@@ -868,7 +868,7 @@ export default function ApplyFlow() {
                           <path d="M17 6v34M6 18h22" />
                         </svg>
                       </div>
-                      <div className="stamp">Sealed · Wave I · 2026</div>
+                      <div className="stamp">Signed up · Wave I · 2026</div>
                       <h2>You&apos;re on the <em>list.</em></h2>
                       <div className="sub">
                         Wave one invitations go out by email, oldest application first. We&apos;ll be in
