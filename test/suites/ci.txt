@@ -94,6 +94,7 @@ test/engine-spec-validation.test.ts
 test/engine-timers.stress.test.ts
 test/engine-timers.test.ts
 test/environment-banner.test.ts
+test/event-bus-connected.test.ts
 test/feedback-validation.test.ts
 test/font-scale-clamp.test.ts
 test/fonts-files.test.ts
@@ -212,6 +213,7 @@ test/stage-editor-safety.test.ts
 test/stage-editor.test.ts
 test/stage-hostile.test.ts
 test/stage-layout-engine.test.ts
+test/stage-layout-reaches-screen.test.ts
 test/stage-layout-render.test.ts
 test/stage-layout-scoping.test.ts
 test/stage-sizing-and-fields.test.ts

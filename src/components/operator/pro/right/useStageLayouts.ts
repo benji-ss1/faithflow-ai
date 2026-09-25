@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { callAction } from "@/lib/action-call";
+import { dispatchInternal } from "@/lib/internal-events";
 import { toast } from "sonner";
 import {
   listStageLayouts, createStageLayout, updateStageLayout, deleteStageLayout,
@@ -142,19 +143,27 @@ export function useStageLayouts(): StageLayoutsApi {
     if (target) {
       const res = await callAction("put that layout on the stage",
         () => setStageScreenLayout(target.id, layoutId), toast.error);
-      if (res.ok) await refresh();
+      if (res.ok) { await refresh(); dispatchInternal("presentflow:stage-layout-assigned"); }
       return;
     }
     const created = await callAction("set up the stage screen",
       () => createStageScreen({ name: "Stage", layoutId }), toast.error);
-    if (created.ok) await refresh();
+    if (created.ok) { await refresh(); dispatchInternal("presentflow:stage-layout-assigned"); }
   }, [refresh]);
   /** Returns whether it actually stuck. Callers that open an editor MUST check
    *  it — editing a layout the screen is not pointing at means the operator
    *  saves and the monitor does not change, which reads as total failure. */
   const assign = useCallback(async (screenId: string, layoutId: string | null): Promise<boolean> => {
     const res = await callAction("assign the layout", () => setStageScreenLayout(screenId, layoutId), toast.error);
-    if (res.ok) await refresh();
+    if (res.ok) {
+      await refresh();
+      // An explicit ACTION, not a payload diff. The un-clear used to ride on
+      // the stage-layout payload event, which meant re-tapping the design that
+      // is already assigned produced an identical payload, no event, and an
+      // operator latched out of their own layout after a clear-all with no
+      // control anywhere that would bring it back.
+      dispatchInternal("presentflow:stage-layout-assigned");
+    }
     return res.ok;
   }, [refresh]);
   const renameScreen = useCallback(async (screenId: string, name: string) => {
