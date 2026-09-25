@@ -176,6 +176,14 @@ test("per-timer screen routing applies to a timer inside a layout", () => {
     /timerShowsOn\(t\.screens, screen as TimerScreenId\)/);
 });
 
+test("voice never releases the stage layout", () => {
+  // An ASR false positive must not wipe the band's and preacher's instrument
+  // panel mid-sermon, with no feedback on the operator's own screen.
+  const c = readFileSync("src/components/operator/OperatorConsole.tsx", "utf8");
+  const vc = c.slice(c.indexOf("const voiceClear = useCallback("), c.indexOf("const voiceClear = useCallback(") + 200);
+  assert.ok(!vc.includes("killOutput"), "voice clear must not route through killOutput");
+});
+
 test("clear-all releases the stage layouts", () => {
   // Escape, Blank and the hold-to-clear-all rail cleared slide, media, video
   // and announcement and did NOTHING to a stage layout — so the one thing
@@ -185,10 +193,26 @@ test("clear-all releases the stage layouts", () => {
   const kill = c.slice(c.indexOf("const killOutput"), c.indexOf("const voiceClear"));
   assert.match(kill, /setStageLayoutsCleared\(true\)/, "killOutput must release the layouts");
   assert.match(c, /!stageLayoutsCleared \? \{ stageLayout \}/, "and the published state must honour it");
-  // And it must un-clear on the next assignment, or the operator is latched out.
-  const listener = c.slice(c.indexOf("setStageLayoutList(d?.list"), c.indexOf("setStageLayoutList(d?.list") + 300);
-  assert.match(listener, /setStageLayoutsCleared\(false\)/,
-    "assigning a layout again must un-clear, or there is no way back");
+  // The release must sit ABOVE the V3 early return. NEXT_PUBLIC_LAYER_ORDER_V3
+  // is set in no Vercel environment, so a release below that return ran for
+  // almost nobody — a panic button gated on an unset feature flag.
+  const gate = kill.indexOf("if (!layerOrderV3On)");
+  const rel = kill.indexOf("setStageLayoutsCleared(true)");
+  assert.ok(rel > -1 && rel < gate,
+    "the stage-layout release must run before the V3 early return, or it never fires");
+
+  // The un-clear is driven by the assignment ACTION, never by the payload.
+  // On the payload it could not hold (the payload re-emits every shell render)
+  // and fixing that would latch the operator out, because re-tapping an
+  // already-assigned design produces an identical payload and no event at all.
+  assert.match(c, /presentflow:stage-layout-assigned/,
+    "there must be an explicit assignment event to un-clear from");
+  const hook = readFileSync("src/components/operator/pro/right/useStageLayouts.ts", "utf8");
+  assert.ok((hook.match(/presentflow:stage-layout-assigned/g) ?? []).length >= 3,
+    "assign() and both branches of use() must announce the assignment");
+  const payloadListener = c.slice(c.indexOf("setStageLayoutList(d?.list"), c.indexOf("setStageLayoutList(d?.list") + 200);
+  assert.doesNotMatch(payloadListener, /setStageLayoutsCleared\(false\)/,
+    "the un-clear must not ride on the payload — it cannot hold and it can latch");
 });
 
 test("MultiView shows a stage layout as it really is", () => {

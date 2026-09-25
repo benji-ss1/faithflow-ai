@@ -1055,10 +1055,19 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
       const d = internalPayload<{ first?: unknown; list?: unknown }>(e) ?? null;
       setStageLayout(d?.first && isValidStageLayoutWire(d.first) ? d.first : null);
       setStageLayoutList(d?.list && isValidStageLayoutList(d.list) ? d.list : null);
-      setStageLayoutsCleared(false); // a fresh assignment un-clears
     };
+    // The un-clear is its own event, fired by the assign/use ACTION. Riding it
+    // on the payload above meant the suppression never held (the payload
+    // re-emits on every shell render), and fixing THAT would have latched the
+    // operator out, because re-tapping an already-assigned design produces an
+    // identical payload and therefore no event at all.
+    const onAssigned = () => setStageLayoutsCleared(false);
+    window.addEventListener("presentflow:stage-layout-assigned", onAssigned);
     window.addEventListener("presentflow:stage-layout", onLayout as EventListener);
-    return () => window.removeEventListener("presentflow:stage-layout", onLayout as EventListener);
+    return () => {
+      window.removeEventListener("presentflow:stage-layout-assigned", onAssigned);
+      window.removeEventListener("presentflow:stage-layout", onLayout as EventListener);
+    };
   }, []);
 
   // Liveness: with no 1Hz heartbeat there is nothing for a remote surface to
@@ -1855,20 +1864,26 @@ export function OperatorConsole({ plan: planProp, pinnedPlanMissing = false, chu
   // persistent is set), the media layer, the camera (Victor 2026-09-24: yes),
   // the announcement and a held lower third. Messages/timers keep their own clear.
   const killOutput = useCallback(() => {
+    // ABOVE the V3 early return, deliberately. NEXT_PUBLIC_LAYER_ORDER_V3 is
+    // set in no Vercel environment, so `layerOrderV3On` is false for every
+    // church that has not flipped the localStorage opt-in — which means this
+    // line sitting below the return ran for almost nobody. A panic button that
+    // works only behind an unset feature flag is not a panic button.
+    setStageLayoutsCleared(true);
     if (!layerOrderV3On) { clearLive(); return; }
     clearLive();
     clearMediaLayerV3();
     if (videoInput) clearVideoInputLive();
     setAnnouncement(null);
     clearHeldLowerThirdRef.current?.();
-    // Release the stage layouts too. Without this the operator's panic button
-    // left a full-screen layout on every confidence monitor.
-    setStageLayoutsCleared(true);
   }, [layerOrderV3On, clearLive, clearMediaLayerV3, videoInput]);
-  // Voice "clear screen" / AI "clear_live": flag off ⇒ killOutput (= clearLive,
-  // unchanged). V3 ⇒ slide-only clear: an ASR false-positive must never kill the
-  // media, camera or announcement.
-  const voiceClear = useCallback(() => { if (layerOrderV3On) clearLive(); else killOutput(); }, [layerOrderV3On, clearLive, killOutput]);
+  // Voice "clear screen" / AI "clear_live": an ASR false positive must never
+  // wipe the confidence monitor. A stage layout is the band's and the
+  // preacher's instrument panel — timers, next words, the operator's note —
+  // and losing it to a misheard word mid-sermon, with no feedback on the
+  // operator's own screen, is far worse than a stale layout. So voice clears
+  // the SLIDE only, on both sides of the flag, and never reaches killOutput.
+  const voiceClear = useCallback(() => { clearLive(); }, [clearLive]);
 
   // PP7 Slide clear (rail / F2 / Layers-panel row): the words go, the live theme's
   // media (image / video / animated bg / decor) stays — ProPresenter treats it as
