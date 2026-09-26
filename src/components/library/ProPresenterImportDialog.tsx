@@ -148,21 +148,32 @@ function addResults(a: CompleteData, b: CompleteData): CompleteData {
   };
 }
 
-async function importBatch(batch: FileDrop[], onlyTitles: string[], depth = 0): Promise<{ data: CompleteData; dropped: number }> {
+// The real reason the last failed call gave (server error text or thrown
+// message). Surfaced to the operator instead of a generic "server busy" so a
+// failed import is diagnosable from a screenshot (2026-09-26 field report:
+// Import did nothing and the cause was invisible).
+function failureReason(e: unknown): string {
+  if (e instanceof Error && e.message) return e.message;
+  return typeof e === "string" && e ? e : "Unknown error";
+}
+
+async function importBatch(batch: FileDrop[], onlyTitles: string[], depth = 0): Promise<{ data: CompleteData; dropped: number; lastError?: string }> {
+  let lastError: string | undefined;
   try {
     const res = await importDrop({ drop: batch, onlyTitles });
     if (res.ok && res.data) {
       const d = res.data;
       return { data: { added: d.added, skipped: d.skipped, mediaAdded: d.mediaAdded, backgroundsLinked: d.backgroundsLinked, warnings: d.warnings }, dropped: 0 };
     }
-  } catch { /* fall through to split/retry */ }
+    lastError = res.ok ? "Server returned no result" : res.error;
+  } catch (e) { lastError = failureReason(e); /* fall through to split/retry */ }
   if (batch.length > 1 && depth < 6) {
     const mid = Math.ceil(batch.length / 2);
     const a = await importBatch(batch.slice(0, mid), onlyTitles, depth + 1);
     const b = await importBatch(batch.slice(mid), onlyTitles, depth + 1);
-    return { data: addResults(a.data, b.data), dropped: a.dropped + b.dropped };
+    return { data: addResults(a.data, b.data), dropped: a.dropped + b.dropped, lastError: b.lastError ?? a.lastError ?? lastError };
   }
-  return { data: { ...EMPTY_RESULT }, dropped: batch.length };
+  return { data: { ...EMPTY_RESULT }, dropped: batch.length, lastError };
 }
 
 // Delegates to the shared browser media-stripper (also used by the Import
@@ -336,22 +347,24 @@ export function ProPresenterImportDialog({
         const batches = chunk(drop, IMPORT_BATCH_SIZE);
         let agg: CompleteData = { ...EMPTY_RESULT };
         let droppedDocs = 0;
+        let lastError: string | undefined;
         for (let i = 0; i < batches.length; i++) {
           setProgress({ done: i, total: batches.length, note: `Importing songs — batch ${i + 1} of ${batches.length}`, songs: agg.added });
           const r = await importBatch(batches[i], onlyTitles);
           agg = addResults(agg, r.data);
           droppedDocs += r.dropped;
+          if (r.lastError) lastError = r.lastError;
           setProgress({ done: i + 1, total: batches.length, note: `Imported ${agg.added} song${agg.added === 1 ? "" : "s"} so far…`, songs: agg.added });
         }
         // Surface any docs that failed every retry — never let a batch vanish
         // silently. If NOTHING imported and docs failed, treat the whole run as
         // an error (the server was likely busy) rather than showing "0 imported".
         if (agg.added === 0 && droppedDocs > 0) {
-          setError("The import couldn't add any songs — the server may be busy. Please try again; anything already imported will be skipped.");
+          setError(`The import couldn't add any songs${lastError ? ` (${lastError})` : " — the server may be busy"}. Please try again; anything already imported will be skipped.`);
           setPhase("preview"); setProgress(null); return;
         }
         if (droppedDocs > 0) {
-          agg = { ...agg, warnings: [...agg.warnings, { file: "Import", warnings: [`${droppedDocs} song document(s) failed to import after retries. Re-run the import to catch them — songs already added are skipped automatically.`] }] };
+          agg = { ...agg, warnings: [...agg.warnings, { file: "Import", warnings: [`${droppedDocs} song document(s) failed to import after retries${lastError ? ` (${lastError})` : ""}. Re-run the import to catch them — songs already added are skipped automatically.`] }] };
         }
         setResult(agg);
         setProgress(null);
