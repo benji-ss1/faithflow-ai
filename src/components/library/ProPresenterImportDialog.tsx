@@ -16,6 +16,7 @@
  * between them anyway.
  */
 
+import { createPortal } from "react-dom";
 import { useState, useTransition, useMemo, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import {
@@ -378,10 +379,17 @@ export function ProPresenterImportDialog({
   }, [preview, selected, files]);
 
   if (!open) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
+  // Portaled to <body> (2026-09-26 field report, RCCG Community Clane, Intel
+  // iMac): rendered inline inside the operator's center panel, the modal was
+  // trapped in that panel's stacking context at z-50 — the lowest of every
+  // app modal — so other layers sat ON TOP of it: it looked dimmed and the
+  // Import / X / Cancel buttons couldn't be clicked. Same pattern as the
+  // Media Bin dialog; z-[85] matches the sibling Theme import dialog.
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[85] flex items-center justify-center bg-black/50 p-4"
       onClick={handleClose}
     >
       <div
@@ -433,7 +441,8 @@ export function ProPresenterImportDialog({
           onImportMore={reset}
         />
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
